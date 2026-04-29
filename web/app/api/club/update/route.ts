@@ -10,6 +10,7 @@ const schema = z.object({
   sport: z.string().optional(),
   tagline: z.string().optional(),
   primaryColor: z.string().optional(),
+  logoUrl: z.string().optional().nullable(),
 });
 
 export async function PATCH(req: Request) {
@@ -36,6 +37,7 @@ export async function PATCH(req: Request) {
         sport: data.sport || null,
         tagline: data.tagline || null,
         primaryColor: data.primaryColor || "#534AB7",
+        ...(data.logoUrl !== undefined ? { logoUrl: data.logoUrl || null } : {}),
       },
     });
 

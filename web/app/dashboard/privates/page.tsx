@@ -1,0 +1,948 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useSession } from "next-auth/react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type LessonType = {
+  id: string;
+  title: string;
+  description: string | null;
+  durationMin: number;
+  maxAthletes: number;
+  basePrice: number;
+  coachTierLabel: string | null;
+  eligibleCoachIds: string[];
+  active: boolean;
+  sortOrder: number;
+};
+
+type Package = {
+  id: string;
+  title: string;
+  description: string | null;
+  lessonTypeId: string | null;
+  lessonType: { title: string } | null;
+  credits: number;
+  bonusCredits: number;
+  price: number;
+  expiresAfterDays: number | null;
+  active: boolean;
+};
+
+type Booking = {
+  id: string;
+  status: string;
+  requestedSlots: { date: string; startTime: string; endTime: string }[];
+  confirmedStartAt: string | null;
+  confirmedEndAt: string | null;
+  paymentType: string | null;
+  pricePaid: number | null;
+  ownerApproved: boolean;
+  cancelReason: string | null;
+  notes: string | null;
+  createdAt: string;
+  member: { id: string; firstName: string; lastName: string; email: string };
+  lessonType: { id: string; title: string; durationMin: number; basePrice: number };
+  coach: { id: string; firstName: string; lastName: string } | null;
+  creditLedger: { creditsGranted: number; creditsUsed: number; expiresAt: string | null } | null;
+};
+
+type Member = { id: string; firstName: string; lastName: string; email: string };
+type Staff  = { id: string; firstName: string; lastName: string };
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, string> = {
+  REQUESTED:     "bg-amber-100 text-amber-800",
+  PENDING_COACH: "bg-blue-100 text-blue-800",
+  CONFIRMED:     "bg-green-100 text-green-800",
+  DECLINED:      "bg-red-100 text-red-800",
+  CANCELED:      "bg-stone-100 text-stone-600",
+  COMPLETED:     "bg-purple-100 text-purple-800",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  REQUESTED:     "Requested",
+  PENDING_COACH: "With Coach",
+  CONFIRMED:     "Confirmed",
+  DECLINED:      "Declined",
+  CANCELED:      "Canceled",
+  COMPLETED:     "Completed",
+};
+
+function fmt(dateStr: string) {
+  return new Date(dateStr).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// ─── LessonTypeModal ─────────────────────────────────────────────────────────
+
+function LessonTypeModal({
+  lt,
+  staffList,
+  onClose,
+  onSave,
+}: {
+  lt: LessonType | null;
+  staffList: Staff[];
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const [form, setForm] = useState({
+    title:           lt?.title ?? "",
+    description:     lt?.description ?? "",
+    durationMin:     String(lt?.durationMin ?? 60),
+    maxAthletes:     String(lt?.maxAthletes ?? 1),
+    basePrice:       String(lt?.basePrice ?? ""),
+    coachTierLabel:  lt?.coachTierLabel ?? "",
+    eligibleCoachIds: lt?.eligibleCoachIds ?? [] as string[],
+    active:          lt?.active ?? true,
+    sortOrder:       String(lt?.sortOrder ?? 0),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+
+  function toggleCoach(id: string) {
+    setForm((f) => ({
+      ...f,
+      eligibleCoachIds: f.eligibleCoachIds.includes(id)
+        ? f.eligibleCoachIds.filter((c) => c !== id)
+        : [...f.eligibleCoachIds, id],
+    }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const body = {
+        title:           form.title,
+        description:     form.description || null,
+        durationMin:     parseInt(form.durationMin),
+        maxAthletes:     parseInt(form.maxAthletes),
+        basePrice:       parseFloat(form.basePrice),
+        coachTierLabel:  form.coachTierLabel || null,
+        eligibleCoachIds: form.eligibleCoachIds,
+        active:          form.active,
+        sortOrder:       parseInt(form.sortOrder),
+      };
+      const url    = lt ? `/api/private-lessons/types/${lt.id}` : "/api/private-lessons/types";
+      const method = lt ? "PATCH" : "POST";
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) { const d = await res.json(); setError(d.error || "Error"); return; }
+      onSave();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h2 className="font-semibold text-stone-900">{lt ? "Edit lesson type" : "New lesson type"}</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Title *</label>
+            <input className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+              value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Description</label>
+            <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+              value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Duration (min)</label>
+              <input type="number" min={1} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Max athletes</label>
+              <input type="number" min={1} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.maxAthletes} onChange={(e) => setForm({ ...form, maxAthletes: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Base price ($)</label>
+              <input type="number" min={0} step="0.01" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.basePrice} onChange={(e) => setForm({ ...form, basePrice: e.target.value })} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Coach tier label</label>
+              <input className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" placeholder="e.g. Black Belt"
+                value={form.coachTierLabel} onChange={(e) => setForm({ ...form, coachTierLabel: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Sort order</label>
+              <input type="number" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: e.target.value })} />
+            </div>
+          </div>
+
+          {staffList.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-2">Eligible coaches</label>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {staffList.map((s) => (
+                  <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={form.eligibleCoachIds.includes(s.id)} onChange={() => toggleCoach(s.id)} />
+                    {s.firstName} {s.lastName}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+            Active (visible for booking)
+          </label>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+              {saving ? "Saving…" : lt ? "Save changes" : "Create"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── PackageModal ─────────────────────────────────────────────────────────────
+
+function PackageModal({
+  pkg,
+  lessonTypes,
+  onClose,
+  onSave,
+}: {
+  pkg: Package | null;
+  lessonTypes: LessonType[];
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const [form, setForm] = useState({
+    title:            pkg?.title ?? "",
+    description:      pkg?.description ?? "",
+    lessonTypeId:     pkg?.lessonTypeId ?? "",
+    credits:          String(pkg?.credits ?? ""),
+    bonusCredits:     String(pkg?.bonusCredits ?? 0),
+    price:            String(pkg?.price ?? ""),
+    expiresAfterDays: String(pkg?.expiresAfterDays ?? ""),
+    active:           pkg?.active ?? true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const body = {
+        title:            form.title,
+        description:      form.description || null,
+        lessonTypeId:     form.lessonTypeId || null,
+        credits:          parseInt(form.credits),
+        bonusCredits:     parseInt(form.bonusCredits) || 0,
+        price:            parseFloat(form.price),
+        expiresAfterDays: form.expiresAfterDays ? parseInt(form.expiresAfterDays) : null,
+        active:           form.active,
+      };
+      const url    = pkg ? `/api/private-lessons/packages/${pkg.id}` : "/api/private-lessons/packages";
+      const method = pkg ? "PATCH" : "POST";
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) { const d = await res.json(); setError(d.error || "Error"); return; }
+      onSave();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h2 className="font-semibold text-stone-900">{pkg ? "Edit package" : "New package"}</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Title *</label>
+            <input className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+              value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Lesson type (optional)</label>
+            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              value={form.lessonTypeId} onChange={(e) => setForm({ ...form, lessonTypeId: e.target.value })}>
+              <option value="">Any lesson type</option>
+              {lessonTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.title}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Description</label>
+            <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+              value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Credits *</label>
+              <input type="number" min={1} required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.credits} onChange={(e) => setForm({ ...form, credits: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Bonus credits</label>
+              <input type="number" min={0} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.bonusCredits} onChange={(e) => setForm({ ...form, bonusCredits: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Price ($) *</label>
+              <input type="number" min={0} step="0.01" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Expires after (days, optional)</label>
+            <input type="number" min={1} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" placeholder="Leave blank = no expiry"
+              value={form.expiresAfterDays} onChange={(e) => setForm({ ...form, expiresAfterDays: e.target.value })} />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+            Active (available for purchase)
+          </label>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+              {saving ? "Saving…" : pkg ? "Save changes" : "Create"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── BookingModal (owner actions: assign coach, accept, approve, cancel) ──────
+
+function BookingModal({
+  booking,
+  staffList,
+  onClose,
+  onSave,
+}: {
+  booking: Booking;
+  staffList: Staff[];
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const [action, setAction]               = useState<"assign" | "confirm" | "decline" | "cancel" | "complete" | null>(null);
+  const [selectedCoachId, setSelectedCoachId] = useState(booking.coach?.id ?? "");
+  const [confirmedStart, setConfirmedStart]   = useState("");
+  const [confirmedEnd, setConfirmedEnd]       = useState("");
+  const [cancelReason, setCancelReason]       = useState("");
+  const [saving, setSaving]                   = useState(false);
+  const [error, setError]                     = useState("");
+
+  async function send(payload: Record<string, unknown>) {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/private-lessons/bookings/${booking.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.error || "Error"); return; }
+      onSave();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h2 className="font-semibold text-stone-900">Booking — {booking.member.firstName} {booking.member.lastName}</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
+
+          {/* Summary */}
+          <div className="bg-stone-50 rounded-lg p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-stone-500">Lesson</span>
+              <span className="font-medium">{booking.lessonType.title}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-500">Status</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[booking.status] ?? "bg-stone-100 text-stone-600"}`}>
+                {STATUS_LABEL[booking.status] ?? booking.status}
+              </span>
+            </div>
+            {booking.coach && (
+              <div className="flex justify-between">
+                <span className="text-stone-500">Coach</span>
+                <span>{booking.coach.firstName} {booking.coach.lastName}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-stone-500">Payment</span>
+              <span>{booking.paymentType ?? "—"}{booking.pricePaid != null ? ` · $${Number(booking.pricePaid).toFixed(2)}` : ""}</span>
+            </div>
+            {booking.notes && (
+              <div className="flex justify-between">
+                <span className="text-stone-500">Notes</span>
+                <span className="text-right max-w-[60%]">{booking.notes}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Requested slots */}
+          <div>
+            <p className="text-xs font-medium text-stone-600 mb-2">Requested times</p>
+            <div className="space-y-1">
+              {booking.requestedSlots.map((s, i) => (
+                <div key={i} className="text-sm bg-amber-50 px-3 py-1.5 rounded">
+                  {s.date} · {s.startTime}–{s.endTime}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Confirmed time (if any) */}
+          {booking.confirmedStartAt && (
+            <div className="text-sm bg-green-50 px-3 py-2 rounded">
+              Confirmed: {fmt(booking.confirmedStartAt)} – {booking.confirmedEndAt ? fmt(booking.confirmedEndAt) : ""}
+            </div>
+          )}
+
+          {/* Actions */}
+          {!action && (
+            <div className="flex flex-wrap gap-2 pt-2">
+              {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
+                <button onClick={() => setAction("assign")} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">
+                  Assign / reassign coach
+                </button>
+              )}
+              {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
+                <button onClick={() => setAction("confirm")} className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700">
+                  Confirm time
+                </button>
+              )}
+              {booking.status === "CONFIRMED" && !booking.ownerApproved && (
+                <button onClick={() => send({ action: "APPROVE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                  {saving ? "…" : "Approve"}
+                </button>
+              )}
+              {booking.status === "CONFIRMED" && (
+                <button onClick={() => send({ action: "COMPLETE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50">
+                  {saving ? "…" : "Mark complete"}
+                </button>
+              )}
+              {!["CANCELED", "DECLINED", "COMPLETED"].includes(booking.status) && (
+                <button onClick={() => setAction("cancel")} className="px-3 py-1.5 text-sm bg-red-50 text-red-700 border border-red-200 rounded-md hover:bg-red-100">
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+
+          {action === "assign" && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-stone-700">Assign coach</p>
+              <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={selectedCoachId} onChange={(e) => setSelectedCoachId(e.target.value)}>
+                <option value="">Unassigned</option>
+                {staffList.map((s) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
+              </select>
+              <div className="flex gap-2">
+                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Back</button>
+                <button onClick={() => send({ action: "ASSIGN_COACH", coachId: selectedCoachId || null })} disabled={saving}
+                  className="px-3 py-1.5 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+                  {saving ? "Saving…" : "Save assignment"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {action === "confirm" && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-stone-700">Confirm time</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Start</label>
+                  <input type="datetime-local" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                    value={confirmedStart} onChange={(e) => setConfirmedStart(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">End</label>
+                  <input type="datetime-local" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                    value={confirmedEnd} onChange={(e) => setConfirmedEnd(e.target.value)} />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Back</button>
+                <button onClick={() => send({ action: "ACCEPT", confirmedStartAt: confirmedStart, confirmedEndAt: confirmedEnd })}
+                  disabled={saving || !confirmedStart || !confirmedEnd}
+                  className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                  {saving ? "Confirming…" : "Confirm"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {action === "cancel" && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-stone-700">Cancel booking</p>
+              <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+                placeholder="Reason (optional)" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+              <div className="flex gap-2">
+                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Back</button>
+                <button onClick={() => send({ action: "CANCEL", cancelReason: cancelReason || null })} disabled={saving}
+                  className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50">
+                  {saving ? "Canceling…" : "Confirm cancel"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── BookingRow ───────────────────────────────────────────────────────────────
+
+function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => void }) {
+  const slot = booking.requestedSlots[0];
+  return (
+    <tr className="hover:bg-stone-50 cursor-pointer" onClick={onClick}>
+      <td className="px-4 py-3 text-sm font-medium text-stone-900">
+        {booking.member.firstName} {booking.member.lastName}
+      </td>
+      <td className="px-4 py-3 text-sm text-stone-600">{booking.lessonType.title}</td>
+      <td className="px-4 py-3 text-sm text-stone-600">
+        {booking.coach ? `${booking.coach.firstName} ${booking.coach.lastName}` : <span className="text-amber-600">Unassigned</span>}
+      </td>
+      <td className="px-4 py-3 text-sm text-stone-600">
+        {slot ? `${slot.date} ${slot.startTime}` : "—"}
+        {booking.requestedSlots.length > 1 && <span className="ml-1 text-xs text-stone-400">+{booking.requestedSlots.length - 1}</span>}
+      </td>
+      <td className="px-4 py-3">
+        <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[booking.status] ?? "bg-stone-100 text-stone-600"}`}>
+          {STATUS_LABEL[booking.status] ?? booking.status}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-sm text-stone-400">{new Date(booking.createdAt).toLocaleDateString()}</td>
+    </tr>
+  );
+}
+
+// ─── NewBookingModal (quick-create by owner) ──────────────────────────────────
+
+function NewBookingModal({
+  lessonTypes,
+  staffList,
+  members,
+  onClose,
+  onSave,
+}: {
+  lessonTypes: LessonType[];
+  staffList: Staff[];
+  members: Member[];
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const [form, setForm] = useState({
+    memberId:    "",
+    lessonTypeId:"",
+    coachId:     "",
+    date:        "",
+    startTime:   "",
+    endTime:     "",
+    paymentType: "MANUAL" as "CREDIT" | "STRIPE" | "MANUAL" | "UNPAID",
+    notes:       "",
+    allowUnpaid: false,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const body = {
+        memberId:       form.memberId,
+        lessonTypeId:   form.lessonTypeId,
+        coachId:        form.coachId || null,
+        requestedSlots: [{ date: form.date, startTime: form.startTime, endTime: form.endTime }],
+        paymentType:    form.paymentType,
+        notes:          form.notes || null,
+        allowUnpaid:    form.allowUnpaid,
+      };
+      const res = await fetch("/api/private-lessons/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.error || "Error"); return; }
+      onSave();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h2 className="font-semibold text-stone-900">New booking</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Member *</label>
+            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+              value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })}>
+              <option value="">Select member…</option>
+              {members.map((m) => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Lesson type *</label>
+            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+              value={form.lessonTypeId} onChange={(e) => setForm({ ...form, lessonTypeId: e.target.value })}>
+              <option value="">Select…</option>
+              {lessonTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.title} — {lt.durationMin}min</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Coach (optional)</label>
+            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              value={form.coachId} onChange={(e) => setForm({ ...form, coachId: e.target.value })}>
+              <option value="">Unassigned</option>
+              {staffList.map((s) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Requested date *</label>
+            <input type="date" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">Start time *</label>
+              <input type="time" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">End time *</label>
+              <input type="time" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Payment type</label>
+            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              value={form.paymentType} onChange={(e) => setForm({ ...form, paymentType: e.target.value as typeof form.paymentType })}>
+              <option value="MANUAL">Manual / cash</option>
+              <option value="CREDIT">Use credits</option>
+              <option value="UNPAID">Unpaid</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Notes</label>
+            <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+              value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={form.allowUnpaid} onChange={(e) => setForm({ ...form, allowUnpaid: e.target.checked })} />
+            Allow unpaid booking
+          </label>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+              {saving ? "Creating…" : "Create booking"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+type Tab = "bookings" | "types" | "packages";
+
+export default function PrivatesPage() {
+  const { data: session } = useSession();
+  const isOwner = session?.user.role === "OWNER";
+
+  const [tab, setTab]               = useState<Tab>("bookings");
+  const [bookings, setBookings]     = useState<Booking[]>([]);
+  const [lessonTypes, setLessonTypes] = useState<LessonType[]>([]);
+  const [packages, setPackages]     = useState<Package[]>([]);
+  const [members, setMembers]       = useState<Member[]>([]);
+  const [staffList, setStaffList]   = useState<Staff[]>([]);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [loading, setLoading]       = useState(true);
+
+  const [editLT, setEditLT]         = useState<LessonType | null | undefined>(undefined);
+  const [editPkg, setEditPkg]       = useState<Package | null | undefined>(undefined);
+  const [viewBooking, setViewBooking] = useState<Booking | null>(null);
+  const [newBooking, setNewBooking] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = statusFilter ? `?status=${statusFilter}` : "";
+      const [bRes, ltRes, pkgRes, mRes, sRes] = await Promise.all([
+        fetch(`/api/private-lessons/bookings${params}`),
+        fetch("/api/private-lessons/types"),
+        fetch("/api/private-lessons/packages"),
+        fetch("/api/members"),
+        fetch("/api/staff?includeOwners=true"),
+      ]);
+      const [b, lt, pkg, m, s] = await Promise.all([bRes.json(), ltRes.json(), pkgRes.json(), mRes.json(), sRes.json()]);
+      setBookings(Array.isArray(b) ? b : []);
+      setLessonTypes(Array.isArray(lt) ? lt : []);
+      setPackages(Array.isArray(pkg) ? pkg : []);
+      setMembers(Array.isArray(m) ? m : []);
+      setStaffList(Array.isArray(s) ? s : []);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function deletePackage(id: string) {
+    if (!confirm("Delete this package?")) return;
+    await fetch(`/api/private-lessons/packages/${id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function deleteLessonType(id: string) {
+    if (!confirm("Delete this lesson type?")) return;
+    await fetch(`/api/private-lessons/types/${id}`, { method: "DELETE" });
+    load();
+  }
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-stone-900">Private Lessons</h1>
+          <p className="text-sm text-stone-500 mt-0.5">Manage booking requests, lesson types, and packages</p>
+        </div>
+        {isOwner && tab === "bookings" && (
+          <button onClick={() => setNewBooking(true)} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800">
+            + New booking
+          </button>
+        )}
+        {isOwner && tab === "types" && (
+          <button onClick={() => setEditLT(null)} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800">
+            + New lesson type
+          </button>
+        )}
+        {isOwner && tab === "packages" && (
+          <button onClick={() => setEditPkg(null)} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800">
+            + New package
+          </button>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-stone-200 mb-6">
+        {(["bookings", "types", "packages"] as Tab[]).map((t) => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition ${
+              tab === t ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-700"
+            }`}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="text-sm text-stone-500 py-12 text-center">Loading…</div>
+      ) : (
+        <>
+          {/* ── Bookings tab ─────────────────────────────────────── */}
+          {tab === "bookings" && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <select className="border border-stone-200 rounded-md px-3 py-1.5 text-sm"
+                  value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="">All statuses</option>
+                  {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                <span className="text-sm text-stone-400">{bookings.length} bookings</span>
+              </div>
+
+              {bookings.length === 0 ? (
+                <div className="text-center py-16 text-stone-400">No bookings found</div>
+              ) : (
+                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-stone-50 border-b border-stone-200">
+                      <tr>
+                        {["Member", "Lesson type", "Coach", "Requested", "Status", "Date"].map((h) => (
+                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {bookings.map((b) => (
+                        <BookingRow key={b.id} booking={b} onClick={() => setViewBooking(b)} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Lesson types tab ─────────────────────────────────── */}
+          {tab === "types" && (
+            <div>
+              {lessonTypes.length === 0 ? (
+                <div className="text-center py-16 text-stone-400">No lesson types yet</div>
+              ) : (
+                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-stone-50 border-b border-stone-200">
+                      <tr>
+                        {["Title", "Duration", "Max", "Price", "Status", ""].map((h) => (
+                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {lessonTypes.map((lt) => (
+                        <tr key={lt.id} className="hover:bg-stone-50">
+                          <td className="px-4 py-3 text-sm font-medium text-stone-900">{lt.title}</td>
+                          <td className="px-4 py-3 text-sm text-stone-600">{lt.durationMin} min</td>
+                          <td className="px-4 py-3 text-sm text-stone-600">{lt.maxAthletes}</td>
+                          <td className="px-4 py-3 text-sm text-stone-600">${Number(lt.basePrice).toFixed(2)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${lt.active ? "bg-green-100 text-green-800" : "bg-stone-100 text-stone-500"}`}>
+                              {lt.active ? "Active" : "Inactive"}
+                            </span>
+                          </td>
+                          {isOwner && (
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => setEditLT(lt)} className="text-xs text-stone-500 hover:text-stone-800 mr-3">Edit</button>
+                              <button onClick={() => deleteLessonType(lt.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Packages tab ─────────────────────────────────────── */}
+          {tab === "packages" && (
+            <div>
+              {packages.length === 0 ? (
+                <div className="text-center py-16 text-stone-400">No packages yet</div>
+              ) : (
+                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-stone-50 border-b border-stone-200">
+                      <tr>
+                        {["Title", "Lesson type", "Credits", "Price", "Expires", "Status", ""].map((h) => (
+                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {packages.map((pkg) => (
+                        <tr key={pkg.id} className="hover:bg-stone-50">
+                          <td className="px-4 py-3 text-sm font-medium text-stone-900">{pkg.title}</td>
+                          <td className="px-4 py-3 text-sm text-stone-600">{pkg.lessonType?.title ?? "Any"}</td>
+                          <td className="px-4 py-3 text-sm text-stone-600">
+                            {pkg.credits}{pkg.bonusCredits > 0 ? ` +${pkg.bonusCredits} bonus` : ""}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-stone-600">${Number(pkg.price).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-sm text-stone-600">{pkg.expiresAfterDays ? `${pkg.expiresAfterDays}d` : "Never"}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${pkg.active ? "bg-green-100 text-green-800" : "bg-stone-100 text-stone-500"}`}>
+                              {pkg.active ? "Active" : "Inactive"}
+                            </span>
+                          </td>
+                          {isOwner && (
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => setEditPkg(pkg)} className="text-xs text-stone-500 hover:text-stone-800 mr-3">Edit</button>
+                              <button onClick={() => deletePackage(pkg.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Modals */}
+      {editLT !== undefined && (
+        <LessonTypeModal lt={editLT} staffList={staffList} onClose={() => setEditLT(undefined)} onSave={() => { setEditLT(undefined); load(); }} />
+      )}
+      {editPkg !== undefined && (
+        <PackageModal pkg={editPkg} lessonTypes={lessonTypes} onClose={() => setEditPkg(undefined)} onSave={() => { setEditPkg(undefined); load(); }} />
+      )}
+      {viewBooking && (
+        <BookingModal booking={viewBooking} staffList={staffList} onClose={() => setViewBooking(null)} onSave={() => { setViewBooking(null); load(); }} />
+      )}
+      {newBooking && (
+        <NewBookingModal lessonTypes={lessonTypes} staffList={staffList} members={members} onClose={() => setNewBooking(false)} onSave={() => { setNewBooking(false); load(); }} />
+      )}
+    </div>
+  );
+}

@@ -20,14 +20,29 @@ export async function GET() {
 const optionSchema = z.object({
   label: z.string().min(1),
   price: z.number().min(0),
-  period: z.string().min(1),
+  billingPeriod: z.enum([
+    "WEEKLY",
+    "MONTHLY",
+    "QUADRIMESTRAL",
+    "QUARTERLY",
+    "SEMI_ANNUAL",
+    "ANNUAL",
+    "ONE_TIME",
+  ]),
 });
 
 const createSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  options: z.array(optionSchema).min(1),
-  active: z.boolean().default(true),
+  name:                    z.string().min(1),
+  description:             z.string().optional(),
+  options:                 z.array(optionSchema).min(1),
+  active:                  z.boolean().default(true),
+  purchaseAccess:          z.enum(["ANYONE", "STAFF_ONLY"]).default("ANYONE"),
+  autoRenewDefault:        z.boolean().default(true),
+  allowManualRenewal:      z.boolean().default(true),
+  allowCustomDates:        z.boolean().default(false),
+  allowBillingDayOverride: z.boolean().default(false),
+  defaultBillingDay:       z.number().int().min(1).max(28).optional().nullable(),
+  contractMonths:          z.number().int().positive().optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -42,11 +57,18 @@ export async function POST(req: Request) {
 
     const membership = await prisma.membership.create({
       data: {
-        clubId: session.user.clubId,
-        name: data.name,
-        description: data.description || null,
-        options: JSON.stringify(data.options),
-        active: data.active,
+        clubId:                  session.user.clubId,
+        name:                    data.name,
+        description:             data.description || null,
+        options:                 JSON.stringify(data.options),
+        active:                  data.active,
+        purchaseAccess:          data.purchaseAccess,
+        autoRenewDefault:        data.autoRenewDefault,
+        allowManualRenewal:      data.allowManualRenewal,
+        allowCustomDates:        data.allowCustomDates,
+        allowBillingDayOverride: data.allowBillingDayOverride,
+        defaultBillingDay:       data.defaultBillingDay ?? null,
+        contractMonths:          data.contractMonths ?? null,
       },
     });
 

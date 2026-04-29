@@ -32,7 +32,15 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/dashboard");
+    // Fetch session to determine role-based redirect
+    const sessionRes = await fetch("/api/auth/session");
+    const session = await sessionRes.json();
+    const role = session?.user?.role;
+    if (role === "MEMBER") {
+      router.push("/member");
+    } else {
+      router.push("/dashboard");
+    }
   }
 
   return (
@@ -99,8 +107,16 @@ export default function LoginPage() {
               Forgot password?
             </Link>
             <Link href="/signup" className="text-stone-600 hover:text-stone-900">
-              Create account
+              Open a club
             </Link>
+          </div>
+          <div className="mt-3 text-center">
+            <p className="text-xs text-stone-400">
+              Joining as a member?{" "}
+              <Link href="/member/signup" className="text-stone-600 hover:text-stone-900 font-medium">
+                Member sign up
+              </Link>
+            </p>
           </div>
         </div>
       </div>

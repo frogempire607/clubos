@@ -1,26 +1,48 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* ClubOS design tokens */
+  --color-primary:    #534AB7;
+  --color-primary-dk: #4239a6;
+  --color-success:    #1D9E75;
+  --color-warning:    #BA7517;
+  --color-danger:     #A32D2D;
+  --color-bg:         #F5F3EE;
+  --color-surface:    #FFFFFF;
+  --color-border:     #E7E5E4;
+  --color-text:       #1C1917;
+  --color-muted:      #78716C;
+  --color-sidebar-bg: #1C1917;
+  --color-sidebar-active: #534AB7;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Fraunces for display headings */
+.font-display {
+  font-family: "Fraunces", Georgia, serif;
+}
+
+/* Line-clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

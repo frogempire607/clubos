@@ -45,28 +45,61 @@ enum TransactionStatus {
 }
 
 model Club {
-  id        String    @id @default(cuid())
-  name      String
-  slug      String    @unique
-  tier      String    @default("starter")
-  tagline   String?
-  sport     String?
-  primaryColor String? @default("#534AB7")
-  logoUrl   String?
-  stripeCustomerId String? @unique
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  id                       String    @id @default(cuid())
+  name                     String
+  slug                     String    @unique
+  tier                     String    @default("starter")
+  tagline                  String?
+  sport                    String?
+  primaryColor             String?   @default("#534AB7")
+  logoUrl                  String?
+  // Stripe Connect (the club's own Stripe account that receives payments)
+  stripeAccountId          String?   @unique
+  stripeOnboardingComplete Boolean   @default(false)
+  stripeChargesEnabled     Boolean   @default(false)
+  stripePayoutsEnabled     Boolean   @default(false)
+  // ClubOS subscription billing (when the club pays us monthly)
+  stripeCustomerId         String?   @unique
+  stripeSubscriptionId     String?   @unique
+  subscriptionStatus       String?
+  // Plaid bank integration
+  plaidAccessToken         String?
+  plaidItemId              String?
+  notificationPrefs        Json      @default("{}")
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  deletedAt                DateTime?
 
-  locations     Location[]
-  users         User[]
-  members       Member[]
-  memberships   Membership[]
-  events        Event[]
-  messages      Message[]
-  announcements Announcement[]
-  transactions  Transaction[]
-  documents     Document[]
+  locations                   Location[]
+  users                       User[]
+  members                     Member[]
+  memberships                 Membership[]
+  events                      Event[]
+  messages                    Message[]
+  announcements               Announcement[]
+  transactions                Transaction[]
+  documents                   Document[]
+  customFields                CustomField[]
+  clubEventTypes              ClubEventType[]
+  expenses                    Expense[]
+  messageGroups               MessageGroup[]
+  clubProfile                 ClubProfile?
+  legalEntities               LegalEntity[]
+  donationLinks               DonationLink[]
+  discounts                   Discount[]
+  products                    Product[]
+  productSales                ProductSale[]
+  privateLessonTypes          PrivateLessonType[]
+  privatePackages             PrivatePackage[]
+  staffAvailability           StaffAvailability[]
+  staffAvailabilityExceptions StaffAvailabilityException[]
+  eventStaffAssignments       EventStaffAssignment[]
+  privateLessonPayRates       PrivateLessonPayRate[]
+  privateBookings             PrivateBooking[]
+  privateCreditLedger         PrivateCreditLedger[]
+  recurringClasses            RecurringClass[]
+  classSessions               ClassSession[]
+  attendanceRecords           AttendanceRecord[]
 
   @@index([slug])
   @@map("clubs")
@@ -81,35 +114,47 @@ model Location {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  events Event[]
+  club               Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  events             Event[]
+  legalEntities      LegalEntity[]
+  privateLessonTypes PrivateLessonType[]
+  recurringClasses   RecurringClass[]
 
   @@index([clubId])
   @@map("locations")
 }
 
 model User {
-  id             String    @id @default(cuid())
-  clubId         String
-  email          String
-  passwordHash   String
-  firstName      String
-  lastName       String
-  role           UserRole  @default(MEMBER)
-  emailVerified  DateTime?
-  resetToken     String?   @unique
-  resetExpires   DateTime?
-  lastLoginAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  id            String    @id @default(cuid())
+  clubId        String
+  email         String
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          UserRole  @default(MEMBER)
+  emailVerified DateTime?
+  resetToken    String?   @unique
+  resetExpires  DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
-  club            Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  staffProfile    StaffProfile?
-  memberProfile   Member?
-  guardianOf      Guardian[]       @relation("Guardian")
-  sentMessages    Message[]        @relation("Sender")
-  receivedMessages Message[]       @relation("Recipient")
+  club                    Club                         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  staffProfile            StaffProfile?
+  memberProfile           Member?
+  guardianProfile         Guardian?                    @relation("GuardianUser")
+  guardianOf              MemberGuardianUser[]         @relation("GuardianLink")
+  sentMessages            Message[]                    @relation("Sender")
+  receivedMessages        Message[]                    @relation("Recipient")
+  messageGroupMemberships MessageGroupMember[]
+  sentGroupMessages       GroupMessage[]               @relation("GroupSender")
+  availability            StaffAvailability[]
+  availabilityExceptions  StaffAvailabilityException[]
+  eventAssignments        EventStaffAssignment[]
+  coachBookings           PrivateBooking[]             @relation("CoachBookings")
+  privateLessonPayRates   PrivateLessonPayRate[]
+  attendanceAdded         AttendanceRecord[]           @relation("AttendanceAddedBy")
 
   @@unique([clubId, email])
   @@index([clubId])
@@ -118,14 +163,15 @@ model User {
 }
 
 model StaffProfile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  title       String?
-  hourlyRate  Decimal? @db.Decimal(10, 2)
-  salary      Decimal? @db.Decimal(10, 2)
-  permissions Json     @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  title            String?
+  hourlyRate       Decimal? @db.Decimal(10, 2)
+  salary           Decimal? @db.Decimal(10, 2)
+  appointmentPrice Decimal? @db.Decimal(10, 2)
+  permissions      Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -133,88 +179,271 @@ model StaffProfile {
 }
 
 model Member {
-  id             String       @id @default(cuid())
-  clubId         String
-  userId         String?      @unique
-  firstName      String
-  lastName       String
-  dateOfBirth    DateTime?
-  status         MemberStatus @default(PROSPECT)
-  membershipId   String?
-  tags           String     @default("")
-  notes          String?
-  joinedAt       DateTime     @default(now())
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  deletedAt      DateTime?
+  id                   String       @id @default(cuid())
+  clubId               String
+  userId               String?      @unique
+  firstName            String
+  lastName             String
+  dateOfBirth          DateTime?
+  status               MemberStatus @default(PROSPECT)
+  membershipId         String?
+  tags                 String       @default("")
+  notes                String?
+  customFieldValues    String       @default("{}")
+  joinedAt             DateTime     @default(now())
+  email                String?
+  phone                String?
+  streetAddress        String?
+  city                 String?
+  state                String?
+  zipCode              String?
+  gender               String?
+  stripeCustomerId     String?
+  profileImageUrl      String?
+  // Minor / guardian fields
+  isMinor              Boolean      @default(false)
+  guardianName         String?
+  guardianEmail        String?
+  guardianPhone        String?
+  guardianRelationship String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  deletedAt            DateTime?
 
-  club       Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  user       User?       @relation(fields: [userId], references: [id])
-  membership Membership? @relation(fields: [membershipId], references: [id])
-  guardians  Guardian[]
-  bookings   Booking[]
-  transactions Transaction[]
+  guardianId String?
+
+  club              Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user              User?                 @relation(fields: [userId], references: [id])
+  membership        Membership?           @relation(fields: [membershipId], references: [id])
+  guardian          Guardian?             @relation(fields: [guardianId], references: [id])
+  guardianLinks     MemberGuardianUser[]
+  bookings          Booking[]
+  transactions      Transaction[]
+  subscriptions     MemberSubscription[]
+  productSales      ProductSale[]
+  privateCredits    PrivateCreditLedger[]
+  privateBookings   PrivateBooking[]
+  attendanceRecords AttendanceRecord[]
 
   @@index([clubId])
   @@index([status])
+  @@index([guardianId])
   @@map("members")
 }
 
+model MemberSubscription {
+  id           String @id @default(cuid())
+  memberId     String
+  membershipId String
+
+  // Snapshot of what was purchased
+  optionLabel   String
+  price         Decimal @default(0) @db.Decimal(10, 2)
+  billingPeriod String? // WEEKLY | MONTHLY | … | ONE_TIME — snapshot at purchase
+  billingType   String  @default("RECURRING") // RECURRING | ONE_TIME | MANUAL
+
+  // Dates
+  startDate DateTime? // when access begins
+  endDate   DateTime? // when access expires; null = open-ended recurring
+
+  // Billing control
+  autoRenew         Boolean   @default(true)
+  billingDay        Int? // 1-28: override billing day of month
+  billingAnchorDate DateTime? // resolved anchor datetime passed to Stripe
+
+  // Status: pending → active → past_due → canceled | expired
+  status      String    @default("pending")
+  pausedAt    DateTime?
+  pausedUntil DateTime?
+  canceledAt  DateTime?
+  expiredAt   DateTime?
+  startedAt   DateTime?
+
+  // Stripe
+  stripeSubscriptionId    String? @unique
+  stripePriceId           String?
+  stripeCheckoutSessionId String?
+
+  // Renewal chain — plain string ref to avoid self-relation complexity
+  renewedFromId String?
+
+  // Discount applied at purchase
+  discountCode   String?
+  discountAmount Decimal? @db.Decimal(10, 2)
+
+  // Legacy start mode (kept for backward compat)
+  startMode          String    @default("IMMEDIATE") // IMMEDIATE | SPECIFIC_DATE
+  effectiveStartDate DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  member     Member     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([membershipId])
+  @@index([status])
+  @@index([endDate])
+  @@map("member_subscriptions")
+}
+
+// Family / parent profile — one per family identified by primary email.
+// Each minor athlete has Member.guardianId pointing here. Adults may also link.
 model Guardian {
   id        String   @id @default(cuid())
-  userId    String
-  memberId  String
-  relationship String?
+  clubId    String
+  firstName String
+  lastName  String
+  email     String
+  phone     String
+  userId    String?  @unique
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user   User   @relation("Guardian", fields: [userId], references: [id], onDelete: Cascade)
-  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  user    User?    @relation("GuardianUser", fields: [userId], references: [id])
+  members Member[]
 
-  @@unique([userId, memberId])
+  @@unique([clubId, email])
+  @@index([clubId])
   @@map("guardians")
 }
 
-model Membership {
-  id          String   @id @default(cuid())
-  clubId      String
-  name        String
-  description String?
-  options     Json     @default("[]")
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
+// User <-> Member link for portal access (e.g. parent user account viewing their child's member record).
+// Distinct from the Guardian profile model — this records portal access claims, not the family profile.
+model MemberGuardianUser {
+  id           String   @id @default(cuid())
+  userId       String
+  memberId     String
+  relationship String?
+  createdAt    DateTime @default(now())
 
-  club    Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  members Member[]
+  user   User   @relation("GuardianLink", fields: [userId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, memberId])
+  @@map("member_guardian_users")
+}
+
+model Membership {
+  id             String  @id @default(cuid())
+  clubId         String
+  name           String
+  description    String?
+  options        Json    @default("[]") // [{ label, price, billingPeriod }]
+  active         Boolean @default(true)
+  purchaseAccess String  @default("ANYONE") // ANYONE | STAFF_ONLY
+
+  // Plan-level defaults & permissions
+  autoRenewDefault        Boolean @default(true)
+  allowManualRenewal      Boolean @default(true)
+  allowCustomDates        Boolean @default(false)
+  allowBillingDayOverride Boolean @default(false)
+  defaultBillingDay       Int? // 1-28; null = anchor to signup date
+  contractMonths          Int? // minimum commitment; null = none
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  club          Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  members       Member[]
+  subscriptions MemberSubscription[]
 
   @@index([clubId])
   @@map("memberships")
 }
 
-model Event {
-  id          String    @id @default(cuid())
-  clubId      String
-  locationId  String?
-  type        EventType
-  name        String
-  description String?
-  startsAt    DateTime
-  endsAt      DateTime
-  capacity    Int?
-  price       Decimal?  @db.Decimal(10, 2)
-  travelFee   Decimal?  @db.Decimal(10, 2)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+model CustomField {
+  id        String   @id @default(cuid())
+  clubId    String
+  label     String
+  fieldType String
+  required  Boolean  @default(false)
+  options   String   @default("[]")
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  club     Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  location Location? @relation(fields: [locationId], references: [id])
-  bookings Booking[]
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("custom_fields")
+}
+
+model ClubEventType {
+  id        String   @id @default(cuid())
+  clubId    String
+  name      String
+  color     String   @default("#F1EFE8")
+  textColor String   @default("#5F5E5A")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  events Event[]
+
+  @@index([clubId])
+  @@map("club_event_types")
+}
+
+model Event {
+  id                     String    @id @default(cuid())
+  clubId                 String
+  locationId             String?
+  type                   EventType
+  customEventTypeId      String?
+  name                   String
+  description            String?
+  startsAt               DateTime
+  endsAt                 DateTime
+  capacity               Int?
+  memberPrice            Decimal?  @db.Decimal(10, 2)
+  nonMemberPrice         Decimal?  @db.Decimal(10, 2)
+  dropInFee              Decimal?  @db.Decimal(10, 2)
+  travelFee              Decimal?  @db.Decimal(10, 2)
+  publishAt              DateTime?
+  unpublishAt            DateTime?
+  visibility             String    @default("PUBLIC") // PUBLIC | MEMBERS_ONLY | STAFF_ONLY
+  purchaseAccess         String    @default("ANYONE") // ANYONE | STAFF_ONLY
+  allowMembershipPayment Boolean   @default(false)
+  imageUrl               String?
+  isTournament           Boolean   @default(false)
+  registrationLink       String?
+  registrationDeadline   DateTime?
+  registrationOpen       Boolean?
+  divisions              String?
+  pricingOptions         Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
+
+  club             Club                   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  location         Location?              @relation(fields: [locationId], references: [id])
+  customEventType  ClubEventType?         @relation(fields: [customEventTypeId], references: [id])
+  bookings         Booking[]
+  sessions         EventSession[]
+  staffAssignments EventStaffAssignment[]
 
   @@index([clubId])
   @@index([startsAt])
   @@map("events")
+}
+
+model EventSession {
+  id        String   @id @default(cuid())
+  eventId   String
+  name      String?
+  startsAt  DateTime
+  endsAt    DateTime
+  sortOrder Int      @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@map("event_sessions")
 }
 
 model Booking {
@@ -235,13 +464,13 @@ model Booking {
 }
 
 model Message {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   clubId      String
   senderId    String
   recipientId String
   body        String
   readAt      DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   club      Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
   sender    User @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
@@ -259,7 +488,7 @@ model Announcement {
   body        String
   publishAt   DateTime?
   unpublishAt DateTime?
-  channels    String  @default("")
+  channels    String    @default("")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -279,6 +508,10 @@ model Transaction {
   status                TransactionStatus @default(PENDING)
   stripePaymentIntentId String?           @unique
   description           String?
+  stripeChargeId        String?           @unique
+  stripeInvoiceId       String?
+  stripeSubscriptionId  String?
+  type                  String            @default("CHARGE")
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
@@ -291,20 +524,506 @@ model Transaction {
 }
 
 model Document {
-  id          String    @id @default(cuid())
-  clubId      String
-  title       String
-  type        String
-  body        String?
-  required    Boolean   @default(false)
-  publishAt   DateTime?
-  unpublishAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  id                        String    @id @default(cuid())
+  clubId                    String
+  title                     String
+  type                      String
+  body                      String?
+  required                  Boolean   @default(false)
+  publishAt                 DateTime?
+  unpublishAt               DateTime?
+  expiresAt                 DateTime?
+  requiresGuardianSignature Boolean   @default(false)
+  deliveryTrigger           String    @default("MANUAL") // MANUAL | MEMBERSHIP | EVENT | MESSAGE
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  deletedAt                 DateTime?
 
   club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@index([clubId])
   @@map("documents")
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  clubId      String
+  description String
+  amount      Decimal  @db.Decimal(10, 2)
+  category    String   @default("OTHER")
+  date        DateTime @default(now())
+  isRecurring Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@index([date])
+  @@map("expenses")
+}
+
+model MessageGroup {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String
+  type        String   @default("GROUP") // GROUP | BROADCAST
+  filterType  String? // tag | membership | age | custom | all
+  filterValue String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  club     Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  messages GroupMessage[]
+  members  MessageGroupMember[]
+
+  @@index([clubId])
+  @@map("message_groups")
+}
+
+model MessageGroupMember {
+  id      String @id @default(cuid())
+  groupId String
+  userId  String
+
+  group MessageGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@map("message_group_members")
+}
+
+model GroupMessage {
+  id        String   @id @default(cuid())
+  groupId   String
+  senderId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  group  MessageGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender User         @relation("GroupSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("group_messages")
+}
+
+model ClubProfile {
+  id     String @id @default(cuid())
+  clubId String @unique
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  termForMember     String @default("Member")
+  termForCoach      String @default("Coach")
+  termForClass      String @default("Class")
+  termForEvent      String @default("Event")
+  termForMembership String @default("Membership")
+
+  welcomeMessage String?
+  accentColor    String?
+
+  portalSections Json @default("[\"schedule\",\"documents\",\"profile\"]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("club_profiles")
+}
+
+model LegalEntity {
+  id         String    @id @default(cuid())
+  clubId     String
+  club       Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+  name       String
+  entityType String
+  ein        String?
+  isDefault  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  donationLinks DonationLink[]
+
+  @@index([clubId])
+  @@map("legal_entities")
+}
+
+model DonationLink {
+  id                  String       @id @default(cuid())
+  clubId              String
+  club                Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntityId       String?
+  legalEntity         LegalEntity? @relation(fields: [legalEntityId], references: [id])
+  title               String
+  description         String?
+  url                 String?
+  stripePaymentLinkId String?
+  active              Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([clubId])
+  @@map("donation_links")
+}
+
+model Discount {
+  id            String    @id @default(cuid())
+  clubId        String
+  club          Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  code          String
+  description   String?
+  type          String // PERCENT | FIXED
+  value         Decimal   @db.Decimal(10, 2)
+  maxUses       Int?
+  usedCount     Int       @default(0)
+  active        Boolean   @default(true)
+  expiresAt     DateTime?
+  membershipIds Json      @default("[]") // [] = all memberships
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clubId, code])
+  @@index([clubId])
+  @@map("discounts")
+}
+
+model Product {
+  id             String    @id @default(cuid())
+  clubId         String
+  club           Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  price          Decimal   @db.Decimal(10, 2)
+  category       String    @default("OTHER") // GEAR | APPAREL | FACILITY | SERVICE | OTHER
+  imageUrl       String?
+  active         Boolean   @default(true)
+  trackInventory Boolean   @default(false)
+  inventory      Int?
+  deletedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales ProductSale[]
+
+  @@index([clubId])
+  @@map("products")
+}
+
+model ProductSale {
+  id                      String   @id @default(cuid())
+  clubId                  String
+  club                    Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  productId               String
+  product                 Product  @relation(fields: [productId], references: [id])
+  memberId                String?
+  member                  Member?  @relation(fields: [memberId], references: [id])
+  soldById                String?
+  quantity                Int      @default(1)
+  unitPrice               Decimal  @db.Decimal(10, 2)
+  totalAmount             Decimal  @db.Decimal(10, 2)
+  discountCode            String?
+  discountAmount          Decimal? @db.Decimal(10, 2)
+  notes                   String?
+  status                  String   @default("PENDING") // PENDING | COMPLETED | REFUNDED
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clubId])
+  @@index([memberId])
+  @@map("product_sales")
+}
+
+// ── Staff Scheduling ──────────────────────────────────────────────────────────
+
+model StaffAvailability {
+  id        String  @id @default(cuid())
+  userId    String
+  clubId    String
+  dayOfWeek Int // 0=Sun 1=Mon … 6=Sat
+  startTime String // "09:00" HH:mm
+  endTime   String // "17:00" HH:mm
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([clubId])
+  @@map("staff_availability")
+}
+
+model StaffAvailabilityException {
+  id        String   @id @default(cuid())
+  userId    String
+  clubId    String
+  date      DateTime // specific date; time portion ignored
+  type      String   @default("BLOCKED") // BLOCKED | VACATION | MODIFIED
+  startTime String? // custom hours if MODIFIED
+  endTime   String?
+  note      String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@map("staff_availability_exceptions")
+}
+
+model EventStaffAssignment {
+  id      String @id @default(cuid())
+  clubId  String
+  eventId String
+  userId  String
+  role    String @default("COACH") // COACH | ASSISTANT | SPOTTER
+
+  club  Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([clubId])
+  @@index([eventId])
+  @@index([userId])
+  @@map("event_staff_assignments")
+}
+
+// ── Private Lessons ───────────────────────────────────────────────────────────
+
+model PrivateLessonType {
+  id               String    @id @default(cuid())
+  clubId           String
+  locationId       String?
+  title            String
+  description      String?
+  durationMin      Int       @default(60)
+  maxAthletes      Int       @default(1)
+  basePrice        Decimal   @db.Decimal(10, 2)
+  coachTierLabel   String? // display label e.g. "All-American"
+  eligibleCoachIds Json      @default("[]") // [userId, …]; empty = any staff
+  active           Boolean   @default(true)
+  sortOrder        Int       @default(0)
+  deletedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club     Club                   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  location Location?              @relation(fields: [locationId], references: [id])
+  packages PrivatePackage[]
+  bookings PrivateBooking[]
+  payRates PrivateLessonPayRate[]
+
+  @@index([clubId])
+  @@map("private_lesson_types")
+}
+
+model PrivatePackage {
+  id               String    @id @default(cuid())
+  clubId           String
+  lessonTypeId     String? // null = applies to all lesson types
+  title            String
+  description      String?
+  credits          Int // lessons included
+  bonusCredits     Int       @default(0) // e.g. buy 10 get 1 free
+  price            Decimal   @db.Decimal(10, 2)
+  expiresAfterDays Int? // days after purchase; null = no expiry
+  active           Boolean   @default(true)
+  deletedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club       Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  lessonType PrivateLessonType?    @relation(fields: [lessonTypeId], references: [id])
+  ledger     PrivateCreditLedger[]
+
+  @@index([clubId])
+  @@map("private_packages")
+}
+
+model PrivateCreditLedger {
+  id           String  @id @default(cuid())
+  clubId       String
+  memberId     String
+  packageId    String?
+  lessonTypeId String?
+
+  creditsGranted Int
+  creditsUsed    Int @default(0)
+
+  purchaseType String    @default("PACKAGE") // PACKAGE | MANUAL | ADJUSTMENT
+  expiresAt    DateTime?
+  status       String    @default("active") // active | exhausted | expired | canceled
+
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  pricePaid               Decimal? @db.Decimal(10, 2)
+
+  notes        String?
+  adjustedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club     Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member   Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  package  PrivatePackage?  @relation(fields: [packageId], references: [id])
+  bookings PrivateBooking[]
+
+  @@index([clubId])
+  @@index([memberId])
+  @@index([status])
+  @@map("private_credit_ledger")
+}
+
+model PrivateBooking {
+  id           String  @id @default(cuid())
+  clubId       String
+  memberId     String
+  lessonTypeId String
+  coachId      String?
+
+  // Up to 3 preferred time slots from client: [{ date, startTime, endTime }]
+  requestedSlots Json @default("[]")
+
+  confirmedStartAt DateTime?
+  confirmedEndAt   DateTime?
+
+  // REQUESTED → PENDING_COACH → CONFIRMED → COMPLETED | CANCELED | DECLINED
+  status String @default("REQUESTED")
+
+  creditLedgerId          String?
+  paymentType             String? // CREDIT | STRIPE | MANUAL | UNPAID
+  pricePaid               Decimal? @db.Decimal(10, 2)
+  stripeCheckoutSessionId String?
+
+  allowUnpaid   Boolean @default(false)
+  ownerApproved Boolean @default(false)
+
+  canceledAt   DateTime?
+  canceledById String?
+  cancelReason String?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club         Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member       Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  lessonType   PrivateLessonType    @relation(fields: [lessonTypeId], references: [id])
+  coach        User?                @relation("CoachBookings", fields: [coachId], references: [id])
+  creditLedger PrivateCreditLedger? @relation(fields: [creditLedgerId], references: [id])
+
+  @@index([clubId])
+  @@index([memberId])
+  @@index([coachId])
+  @@index([status])
+  @@map("private_bookings")
+}
+
+model PrivateLessonPayRate {
+  id           String  @id @default(cuid())
+  clubId       String
+  userId       String
+  lessonTypeId String
+  payType      String // FLAT | PERCENT
+  payValue     Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club       Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonType PrivateLessonType @relation(fields: [lessonTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonTypeId])
+  @@index([clubId])
+  @@map("private_lesson_pay_rates")
+}
+
+// ── Recurring Classes ─────────────────────────────────────────────────────────
+
+model RecurringClass {
+  id                  String    @id @default(cuid())
+  clubId              String
+  locationId          String?
+  name                String
+  description         String?
+  daysOfWeek          Json      @default("[]") // [0,1,...,6] — 0=Sun, 1=Mon, ..., 6=Sat
+  startTime           String // "09:00" HH:mm
+  endTime             String // "17:00" HH:mm
+  capacity            Int?
+  recurrenceStartDate DateTime
+  recurrenceEndDate   DateTime? // null = ongoing; generate 1 yr ahead
+  pricingOptions      Json      @default("[]") // [{type:"member"|"nonmember"|"dropin",price:number}]
+  active              Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  club     Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  location Location?      @relation(fields: [locationId], references: [id])
+  sessions ClassSession[]
+
+  @@index([clubId])
+  @@map("recurring_classes")
+}
+
+model ClassSession {
+  id        String   @id @default(cuid())
+  classId   String
+  clubId    String
+  date      DateTime
+  startsAt  DateTime
+  endsAt    DateTime
+  canceled  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  recurringClass RecurringClass     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  club           Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  attendance     AttendanceRecord[]
+
+  @@index([classId])
+  @@index([clubId])
+  @@index([date])
+  @@map("class_sessions")
+}
+
+// ── Attendance ────────────────────────────────────────────────────────────────
+
+model AttendanceRecord {
+  id             String    @id @default(cuid())
+  clubId         String
+  classSessionId String?
+  eventId        String?
+  memberId       String
+  status         String    @default("PRESENT") // PRESENT | ABSENT | LATE | TRIAL | DROP_IN
+  checkedInAt    DateTime?
+  addedById      String?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  club         Club          @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  classSession ClassSession? @relation(fields: [classSessionId], references: [id])
+  member       Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  addedBy      User?         @relation("AttendanceAddedBy", fields: [addedById], references: [id])
+
+  @@index([clubId])
+  @@index([memberId])
+  @@index([classSessionId])
+  @@index([eventId])
+  @@map("attendance_records")
 }

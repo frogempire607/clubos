@@ -4,6 +4,31 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
+const SPORTS = [
+  "American Football",
+  "Baseball",
+  "Basketball",
+  "Boxing",
+  "Brazilian Jiu-Jitsu",
+  "Golf",
+  "Gymnastics",
+  "Hockey",
+  "Judo",
+  "Karate",
+  "Kickboxing",
+  "Lacrosse",
+  "Mixed Martial Arts (MMA)",
+  "Muay Thai",
+  "Soccer",
+  "Softball",
+  "Swimming",
+  "Taekwondo",
+  "Tennis",
+  "Track & Field",
+  "Volleyball",
+  "Wrestling",
+];
+
 export default function OnboardingPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -151,14 +176,15 @@ export default function OnboardingPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Sport(s)</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Sport</label>
+                  <select
                     value={sport}
                     onChange={(e) => setSport(e.target.value)}
-                    placeholder="Wrestling, BJJ"
-                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
-                  />
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
+                  >
+                    <option value="">Select a sport…</option>
+                    {SPORTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
                 </div>
 
                 <div>

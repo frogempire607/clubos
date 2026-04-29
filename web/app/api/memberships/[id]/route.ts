@@ -7,14 +7,29 @@ import { prisma } from "@/lib/prisma";
 const optionSchema = z.object({
   label: z.string().min(1),
   price: z.number().min(0),
-  period: z.string().min(1),
+  billingPeriod: z.enum([
+    "WEEKLY",
+    "MONTHLY",
+    "QUADRIMESTRAL",
+    "QUARTERLY",
+    "SEMI_ANNUAL",
+    "ANNUAL",
+    "ONE_TIME",
+  ]),
 });
 
 const updateSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional().nullable(),
-  options: z.array(optionSchema).optional(),
-  active: z.boolean().optional(),
+  name:                   z.string().min(1).optional(),
+  description:            z.string().optional().nullable(),
+  options:                z.array(optionSchema).optional(),
+  active:                 z.boolean().optional(),
+  purchaseAccess:         z.enum(["ANYONE", "STAFF_ONLY"]).optional(),
+  autoRenewDefault:       z.boolean().optional(),
+  allowManualRenewal:     z.boolean().optional(),
+  allowCustomDates:       z.boolean().optional(),
+  allowBillingDayOverride: z.boolean().optional(),
+  defaultBillingDay:      z.number().int().min(1).max(28).optional().nullable(),
+  contractMonths:         z.number().int().positive().optional().nullable(),
 });
 
 async function requireMembership(id: string, clubId: string) {
@@ -48,10 +63,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const updated = await prisma.membership.update({
       where: { id: params.id },
       data: {
-        name: data.name,
-        description: data.description,
-        options: data.options ? JSON.stringify(data.options) : undefined,
-        active: data.active,
+        name:                    data.name,
+        description:             data.description,
+        options:                 data.options ? JSON.stringify(data.options) : undefined,
+        active:                  data.active,
+        purchaseAccess:          data.purchaseAccess,
+        autoRenewDefault:        data.autoRenewDefault,
+        allowManualRenewal:      data.allowManualRenewal,
+        allowCustomDates:        data.allowCustomDates,
+        allowBillingDayOverride: data.allowBillingDayOverride,
+        defaultBillingDay:       data.defaultBillingDay,
+        contractMonths:          data.contractMonths,
       },
     });
 

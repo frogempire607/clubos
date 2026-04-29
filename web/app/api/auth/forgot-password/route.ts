@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { sendPasswordResetEmail } from "@/lib/email";
 
 const schema = z.object({ email: z.string().email(), clubSlug: z.string() });
 
@@ -16,14 +17,22 @@ export async function POST(req: Request) {
     });
 
     if (user) {
-      const resetToken = crypto.randomBytes(32).toString("hex");
+      const resetToken   = crypto.randomBytes(32).toString("hex");
       const resetExpires = new Date(Date.now() + 1000 * 60 * 60);
       await prisma.user.update({
         where: { id: user.id },
         data: { resetToken, resetExpires },
       });
-      // TODO: send email with link: /reset-password?token=${resetToken}
-      console.log("Reset link token:", resetToken);
+
+      const baseUrl  = process.env.NEXTAUTH_URL || "http://localhost:3000";
+      const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+
+      await sendPasswordResetEmail({
+        to: user.email,
+        firstName: user.firstName,
+        clubName: club.name,
+        resetUrl,
+      });
     }
 
     return NextResponse.json({ ok: true });

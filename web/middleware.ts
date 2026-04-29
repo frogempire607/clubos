@@ -6,12 +6,27 @@ export default withAuth(
     const { pathname } = req.nextUrl;
     const role = req.nextauth.token?.role;
 
-    if (pathname.startsWith("/dashboard") && role !== "OWNER" && role !== "STAFF") {
-      return NextResponse.redirect(new URL("/unauthorized", req.url));
+    // Owner/staff dashboard: members should not access
+    if (pathname.startsWith("/dashboard")) {
+      if (role !== "OWNER" && role !== "STAFF") {
+        if (role === "MEMBER") {
+          return NextResponse.redirect(new URL("/member", req.url));
+        }
+        return NextResponse.redirect(new URL("/unauthorized", req.url));
+      }
     }
+
+    // Member portal: only members (owners/staff can preview)
+    if (pathname.startsWith("/member")) {
+      if (role !== "MEMBER" && role !== "OWNER" && role !== "STAFF") {
+        return NextResponse.redirect(new URL("/login", req.url));
+      }
+    }
+
     if (pathname.startsWith("/admin") && role !== "OWNER") {
       return NextResponse.redirect(new URL("/unauthorized", req.url));
     }
+
     return NextResponse.next();
   },
   { callbacks: { authorized: ({ token }) => !!token } }
