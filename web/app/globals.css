@@ -2,18 +2,34 @@
 
 :root {
   /* ClubOS design tokens */
-  --color-primary:    #534AB7;
-  --color-primary-dk: #4239a6;
-  --color-success:    #1D9E75;
-  --color-warning:    #BA7517;
+  --color-primary:    #6D5DF6;
+  --color-primary-dk: #5948E8;
+  --color-success:    #A3E635;
+  --color-warning:    #FF6A00;
   --color-danger:     #A32D2D;
-  --color-bg:         #F5F3EE;
+  --color-bg:         #F7F7F9;
   --color-surface:    #FFFFFF;
-  --color-border:     #E7E5E4;
-  --color-text:       #1C1917;
-  --color-muted:      #78716C;
-  --color-sidebar-bg: #1C1917;
-  --color-sidebar-active: #534AB7;
+  --color-border:     #E5E7EB;
+  --color-text:       #111111;
+  --color-muted:      #6B7280;
+  --color-sidebar-bg: #1F1F23;
+  --color-sidebar-hover: #2A2A2E;
+  --color-sidebar-text: #E5E7EB;
+  --color-sidebar-active: #6D5DF6;
+}
+
+@theme {
+  --color-brand: #6D5DF6;
+  --color-brand-hover: #5948E8;
+  --color-lime-accent: #A3E635;
+  --color-orange-accent: #FF6A00;
+  --color-charcoal: #1F1F23;
+  --color-charcoal-hover: #2A2A2E;
+  --color-app-bg: #F7F7F9;
+  --color-surface: #FFFFFF;
+  --color-app-border: #E5E7EB;
+  --color-text-primary: #111111;
+  --color-text-muted: #6B7280;
 }
 
 body {

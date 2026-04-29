@@ -57,11 +57,11 @@ type Member = {
 };
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; fg: string }> = {
-  PRESENT: { label: "Present", bg: "#EAF3DE", fg: "#27500A" },
-  ABSENT: { label: "Absent", fg: "#5F5E5A", bg: "#F1EFE8" },
-  LATE: { label: "Late", bg: "#FAEEDA", fg: "#633806" },
-  TRIAL: { label: "Trial", bg: "#E6F1FB", fg: "#0C447C" },
-  DROP_IN: { label: "Drop-In", bg: "#EEEDFE", fg: "#3C3489" },
+  PRESENT: { label: "Present", bg: "var(--color-success)", fg: "var(--color-text)" },
+  ABSENT: { label: "Absent", fg: "var(--color-muted)", bg: "var(--color-bg)" },
+  LATE: { label: "Late", bg: "var(--color-warning)", fg: "#fff" },
+  TRIAL: { label: "Trial", bg: "var(--color-primary)", fg: "#fff" },
+  DROP_IN: { label: "Drop-In", bg: "var(--color-primary)", fg: "#fff" },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -183,8 +183,8 @@ function QuickAddForm({
     return (
       <form onSubmit={createAndCheckIn} className="space-y-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-stone-700">New Member (Quick Add)</span>
-          <button type="button" onClick={() => setStep("search")} className="text-xs text-stone-400 hover:text-stone-600">
+          <span className="text-sm font-medium text-text-primary">New Member (Quick Add)</span>
+          <button type="button" onClick={() => setStep("search")} className="text-xs text-text-muted hover:text-text-muted">
             ← Back
           </button>
         </div>
@@ -194,39 +194,39 @@ function QuickAddForm({
             placeholder="First name"
             value={newFirst}
             onChange={(e) => setNewFirst(e.target.value)}
-            className="border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+            className="border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
           />
           <input
             required
             placeholder="Last name"
             value={newLast}
             onChange={(e) => setNewLast(e.target.value)}
-            className="border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+            className="border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
         <input
           placeholder="Phone"
           value={newPhone}
           onChange={(e) => setNewPhone(e.target.value)}
-          className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+          className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
         />
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={isMinor} onChange={(e) => setIsMinor(e.target.checked)} className="rounded" />
-          <span className="text-sm text-stone-700">Minor / under 18</span>
+          <span className="text-sm text-text-primary">Minor / under 18</span>
         </label>
         {isMinor && (
           <input
             placeholder="Guardian name"
             value={guardianName}
             onChange={(e) => setGuardianName(e.target.value)}
-            className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+            className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
           />
         )}
         {error && <p className="text-red-600 text-xs">{error}</p>}
         <button
           type="submit"
           disabled={saving}
-          className="w-full px-4 py-2 bg-stone-900 text-white text-sm rounded-lg hover:bg-stone-800 disabled:opacity-50"
+          className="w-full px-4 py-2 bg-brand text-white text-sm rounded-lg hover:bg-brand-hover disabled:opacity-50"
         >
           {saving ? "Adding…" : "Add as Trial & Check In"}
         </button>
@@ -240,36 +240,36 @@ function QuickAddForm({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search members to add…"
-        className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300 mb-2"
+        className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand mb-2"
       />
       {results.length > 0 && (
         <div className="space-y-1 mb-2">
           {results.map((m) => (
             <div
               key={m.id}
-              className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-stone-50 border border-stone-100"
+              className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-app-bg border border-app-border"
             >
               <div>
-                <div className="text-sm font-medium text-stone-800">
+                <div className="text-sm font-medium text-text-primary">
                   {m.firstName} {m.lastName}
-                  {m.isMinor && <span className="ml-1.5 text-xs text-blue-600">(minor)</span>}
+                  {m.isMinor && <span className="ml-1.5 text-xs text-brand">(minor)</span>}
                 </div>
                 {m.isMinor && m.guardianName && (
-                  <div className="text-xs text-stone-400">Guardian: {m.guardianName}</div>
+                  <div className="text-xs text-text-muted">Guardian: {m.guardianName}</div>
                 )}
               </div>
               <div className="flex gap-1.5">
                 <button
                   disabled={saving}
                   onClick={() => checkIn(m.id, "PRESENT")}
-                  className="px-2 py-1 text-xs rounded bg-green-50 text-green-700 hover:bg-green-100"
+                  className="px-2 py-1 text-xs rounded bg-lime-accent text-text-primary hover:bg-lime-accent"
                 >
                   Present
                 </button>
                 <button
                   disabled={saving}
                   onClick={() => checkIn(m.id, "TRIAL")}
-                  className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  className="px-2 py-1 text-xs rounded bg-brand/10 text-brand hover:bg-brand"
                 >
                   Trial
                 </button>
@@ -280,7 +280,7 @@ function QuickAddForm({
       )}
       <button
         onClick={() => setStep("add-new")}
-        className="w-full px-3 py-2 border border-dashed border-stone-300 rounded-lg text-xs text-stone-500 hover:border-stone-400 hover:text-stone-700 transition-colors"
+        className="w-full px-3 py-2 border border-dashed border-app-border rounded-lg text-xs text-text-muted hover:border-app-border hover:text-text-primary transition-colors"
       >
         + Add a brand-new member
       </button>
@@ -348,10 +348,10 @@ function AttendancePanel({
       {/* Panel */}
       <div className="w-[480px] bg-white shadow-2xl flex flex-col h-full overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-stone-200 flex-shrink-0">
+        <div className="px-5 py-4 border-b border-app-border flex-shrink-0">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="font-semibold text-stone-900">{sessionName}</h2>
-            <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+            <h2 className="font-semibold text-text-primary">{sessionName}</h2>
+            <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
           </div>
           {/* Status summary */}
           <div className="flex gap-2 flex-wrap">
@@ -370,7 +370,7 @@ function AttendancePanel({
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <p className="text-sm text-stone-400 text-center py-12">Loading roster…</p>
+            <p className="text-sm text-text-muted text-center py-12">Loading roster…</p>
           ) : (
             <>
               {/* Search */}
@@ -379,36 +379,36 @@ function AttendancePanel({
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
                   placeholder="Filter attendees…"
-                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+                  className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                 />
               </div>
 
               {/* Attendance list */}
               {filtered.length === 0 && !showAdd ? (
-                <div className="text-center py-8 text-stone-400 text-sm px-4">
+                <div className="text-center py-8 text-text-muted text-sm px-4">
                   {filter ? "No attendees match your filter." : "No one checked in yet. Use the form below to add members."}
                 </div>
               ) : (
-                <div className="divide-y divide-stone-100">
+                <div className="divide-y divide-app-border">
                   {filtered.map((rec) => {
                     const s = STATUS_CONFIG[rec.status] ?? STATUS_CONFIG.PRESENT;
                     return (
                       <div key={rec.id} className="px-4 py-3">
                         <div className="flex items-start justify-between mb-2">
                           <div>
-                            <div className="text-sm font-medium text-stone-800">
+                            <div className="text-sm font-medium text-text-primary">
                               {rec.member.firstName} {rec.member.lastName}
                               {rec.member.isMinor && (
-                                <span className="ml-1.5 text-xs text-blue-600">(minor)</span>
+                                <span className="ml-1.5 text-xs text-brand">(minor)</span>
                               )}
                             </div>
                             {rec.member.isMinor && rec.member.guardianName && (
-                              <div className="text-xs text-stone-400">
+                              <div className="text-xs text-text-muted">
                                 Guardian: {rec.member.guardianName}
                               </div>
                             )}
                             {rec.checkedInAt && (
-                              <div className="text-xs text-stone-400">
+                              <div className="text-xs text-text-muted">
                                 Checked in {new Date(rec.checkedInAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                               </div>
                             )}
@@ -435,7 +435,7 @@ function AttendancePanel({
                               className={`px-2.5 py-1 text-xs rounded border transition-all ${
                                 rec.status === k
                                   ? "font-medium border-current"
-                                  : "border-stone-200 text-stone-500 hover:border-stone-400"
+                                  : "border-app-border text-text-muted hover:border-app-border"
                               }`}
                             >
                               {v.label}
@@ -449,12 +449,12 @@ function AttendancePanel({
               )}
 
               {/* Add member section */}
-              <div className="px-4 py-4 border-t border-stone-100 mt-2">
+              <div className="px-4 py-4 border-t border-app-border mt-2">
                 {showAdd ? (
                   <div>
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-medium text-stone-700 uppercase tracking-wide">Add Member</span>
-                      <button onClick={() => setShowAdd(false)} className="text-xs text-stone-400 hover:text-stone-600">
+                      <span className="text-xs font-medium text-text-primary uppercase tracking-wide">Add Member</span>
+                      <button onClick={() => setShowAdd(false)} className="text-xs text-text-muted hover:text-text-muted">
                         Hide
                       </button>
                     </div>
@@ -463,7 +463,7 @@ function AttendancePanel({
                 ) : (
                   <button
                     onClick={() => setShowAdd(true)}
-                    className="w-full px-4 py-2.5 border border-stone-200 rounded-lg text-sm text-stone-600 hover:bg-stone-50 hover:border-stone-300 font-medium"
+                    className="w-full px-4 py-2.5 border border-app-border rounded-lg text-sm text-text-muted hover:bg-app-bg hover:border-app-border font-medium"
                   >
                     + Add Member to Session
                   </button>
@@ -505,31 +505,31 @@ function ScheduleItem({
       onClick={onClick}
       className={`w-full text-left px-4 py-3.5 rounded-xl border transition-all ${
         active
-          ? "border-stone-900 bg-stone-900 text-white"
-          : "border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50"
+          ? "border-brand bg-brand text-white"
+          : "border-app-border bg-white hover:border-app-border hover:bg-app-bg"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className={`text-sm font-medium truncate ${active ? "text-white" : "text-stone-900"}`}>{label}</div>
+          <div className={`text-sm font-medium truncate ${active ? "text-white" : "text-text-primary"}`}>{label}</div>
           {sublabel && (
-            <div className={`text-xs mt-0.5 truncate ${active ? "text-stone-300" : "text-stone-500"}`}>{sublabel}</div>
+            <div className={`text-xs mt-0.5 truncate ${active ? "text-text-muted" : "text-text-muted"}`}>{sublabel}</div>
           )}
-          <div className={`text-xs mt-1 ${active ? "text-stone-400" : "text-stone-400"}`}>{timeRange}</div>
+          <div className={`text-xs mt-1 ${active ? "text-text-muted" : "text-text-muted"}`}>{timeRange}</div>
         </div>
         <div className="flex-shrink-0 text-right">
-          <div className={`text-sm font-semibold ${active ? "text-white" : "text-stone-700"}`}>
+          <div className={`text-sm font-semibold ${active ? "text-white" : "text-text-primary"}`}>
             {checkedIn}
-            {capacity ? <span className={`font-normal text-xs ml-0.5 ${active ? "text-stone-400" : "text-stone-400"}`}>/{capacity}</span> : ""}
+            {capacity ? <span className={`font-normal text-xs ml-0.5 ${active ? "text-text-muted" : "text-text-muted"}`}>/{capacity}</span> : ""}
           </div>
           {pct !== null && (
-            <div className={`text-xs mt-0.5 ${active ? "text-stone-400" : "text-stone-400"}`}>{pct}%</div>
+            <div className={`text-xs mt-0.5 ${active ? "text-text-muted" : "text-text-muted"}`}>{pct}%</div>
           )}
           <span
             className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded ${
               type === "class"
-                ? active ? "bg-stone-700 text-stone-200" : "bg-blue-50 text-blue-700"
-                : active ? "bg-stone-700 text-stone-200" : "bg-stone-100 text-stone-600"
+                ? active ? "bg-charcoal-hover text-text-muted" : "bg-brand/10 text-brand"
+                : active ? "bg-charcoal-hover text-text-muted" : "bg-app-bg text-text-muted"
             }`}
           >
             {type === "class" ? "Class" : "Event"}
@@ -586,8 +586,8 @@ function AttendancePageInner() {
         {/* Header */}
         <div className="mb-6 flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-stone-900">Attendance</h1>
-            <p className="text-sm text-stone-500 mt-1">Check in members for today's classes and events</p>
+            <h1 className="text-2xl font-semibold text-text-primary">Attendance</h1>
+            <p className="text-sm text-text-muted mt-1">Check in members for today's classes and events</p>
           </div>
           <ExportMenu baseUrl="/api/export/attendance" label="Export" />
         </div>
@@ -596,26 +596,26 @@ function AttendancePageInner() {
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => setDate(addDays(date, -1))}
-            className="p-2 border border-stone-200 rounded-lg hover:bg-stone-50 text-stone-600"
+            className="p-2 border border-app-border rounded-lg hover:bg-app-bg text-text-muted"
           >
             ‹
           </button>
           <div className="flex-1 text-center">
-            <div className="font-semibold text-stone-900">{fmtDateHeader(date)}</div>
+            <div className="font-semibold text-text-primary">{fmtDateHeader(date)}</div>
             {isToday && (
-              <div className="text-xs text-green-600 font-medium">Today</div>
+              <div className="text-xs text-lime-accent font-medium">Today</div>
             )}
           </div>
           <button
             onClick={() => setDate(addDays(date, 1))}
-            className="p-2 border border-stone-200 rounded-lg hover:bg-stone-50 text-stone-600"
+            className="p-2 border border-app-border rounded-lg hover:bg-app-bg text-text-muted"
           >
             ›
           </button>
           {!isToday && (
             <button
               onClick={() => setDate(todayStr())}
-              className="px-3 py-1.5 border border-stone-200 rounded-lg text-sm text-stone-600 hover:bg-stone-50"
+              className="px-3 py-1.5 border border-app-border rounded-lg text-sm text-text-muted hover:bg-app-bg"
             >
               Today
             </button>
@@ -624,18 +624,18 @@ function AttendancePageInner() {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="border border-stone-200 rounded-lg px-3 py-1.5 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-stone-300"
+            className="border border-app-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
 
         {/* Session list */}
         {loading ? (
-          <div className="text-center py-16 text-stone-400 text-sm">Loading schedule…</div>
+          <div className="text-center py-16 text-text-muted text-sm">Loading schedule…</div>
         ) : totalItems === 0 ? (
-          <div className="text-center py-20 border border-dashed border-stone-200 rounded-xl">
-            <div className="text-stone-300 text-4xl mb-3">◫</div>
-            <p className="text-stone-600 font-medium mb-1">No sessions scheduled</p>
-            <p className="text-stone-400 text-sm">
+          <div className="text-center py-20 border border-dashed border-app-border rounded-xl">
+            <div className="text-text-muted text-4xl mb-3">◫</div>
+            <p className="text-text-muted font-medium mb-1">No sessions scheduled</p>
+            <p className="text-text-muted text-sm">
               {isToday
                 ? "No classes or events are scheduled for today."
                 : "No classes or events are scheduled for this date."}
@@ -681,7 +681,7 @@ function AttendancePageInner() {
 
         {/* Hint */}
         {totalItems > 0 && (
-          <p className="text-xs text-stone-400 text-center mt-4">
+          <p className="text-xs text-text-muted text-center mt-4">
             Click a class session to open the attendance roster →
           </p>
         )}
@@ -703,7 +703,7 @@ function AttendancePageInner() {
 
 export default function AttendancePage() {
   return (
-    <Suspense fallback={<div className="p-8 text-stone-400 text-sm">Loading…</div>}>
+    <Suspense fallback={<div className="p-8 text-text-muted text-sm">Loading…</div>}>
       <AttendancePageInner />
     </Suspense>
   );

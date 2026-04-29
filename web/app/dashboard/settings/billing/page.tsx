@@ -58,72 +58,72 @@ export default function BillingSettingsPage() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-stone-900 mb-1">Payments</h1>
-        <p className="text-sm text-stone-500">Connect Stripe to accept payments from your members.</p>
+        <h1 className="text-3xl font-semibold text-text-primary mb-1">Payments</h1>
+        <p className="text-sm text-text-muted">Connect Stripe to accept payments from your members.</p>
       </div>
 
       {justConnected && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800">
+        <div className="mb-4 px-4 py-3 rounded-lg bg-lime-accent border border-lime-accent/40 text-sm text-text-primary">
           ✓ Stripe onboarding complete.
         </div>
       )}
 
       {loading ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-6 text-center text-sm text-stone-500">Loading…</div>
+        <div className="bg-white rounded-xl border border-app-border p-6 text-center text-sm text-text-muted">Loading…</div>
       ) : !status?.connected ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <div className="bg-white rounded-xl border border-app-border p-6">
           <div className="flex items-start gap-4 mb-4">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-medium" style={{ background: "#635BFF" }}>S</div>
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-medium" style={{ background: "var(--color-primary)" }}>S</div>
             <div className="flex-1">
-              <div className="text-base font-semibold text-stone-900">Stripe</div>
-              <div className="text-xs text-stone-500">Card payments, subscriptions, payouts</div>
+              <div className="text-base font-semibold text-text-primary">Stripe</div>
+              <div className="text-xs text-text-muted">Card payments, subscriptions, payouts</div>
             </div>
-            <span className="text-xs px-2 py-1 rounded-full font-medium bg-stone-100 text-stone-600">Not connected</span>
+            <span className="text-xs px-2 py-1 rounded-full font-medium bg-app-bg text-text-muted">Not connected</span>
           </div>
 
           {error && <div className="mb-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
 
-          <button onClick={handleConnect} disabled={connecting} className="w-full py-2.5 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: "#635BFF" }}>
+          <button onClick={handleConnect} disabled={connecting} className="w-full py-2.5 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: "var(--color-primary)" }}>
             {connecting ? "Opening Stripe…" : "Connect Stripe →"}
           </button>
         </div>
       ) : fullyReady ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <div className="bg-white rounded-xl border border-app-border p-6">
           <div className="flex items-start gap-4 mb-4">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-medium" style={{ background: "#635BFF" }}>S</div>
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-medium" style={{ background: "var(--color-primary)" }}>S</div>
             <div className="flex-1">
-              <div className="text-base font-semibold text-stone-900">Stripe</div>
-              <div className="text-xs text-stone-500">Ready to accept payments</div>
+              <div className="text-base font-semibold text-text-primary">Stripe</div>
+              <div className="text-xs text-text-muted">Ready to accept payments</div>
             </div>
-            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "#EAF3DE", color: "#27500A" }}>✓ Connected</span>
+            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "var(--color-success)", color: "var(--color-text)" }}>✓ Connected</span>
           </div>
 
           <div className="flex gap-2">
-            <button onClick={handleOpenDashboard} className="flex-1 py-2 rounded-lg border border-stone-300 text-stone-700 text-sm hover:bg-stone-50">
+            <button onClick={handleOpenDashboard} className="flex-1 py-2 rounded-lg border border-app-border text-text-primary text-sm hover:bg-app-bg">
               Open Stripe dashboard
             </button>
-            <button onClick={load} className="px-3 py-2 rounded-lg border border-stone-300 text-stone-700 text-sm hover:bg-stone-50">Refresh</button>
+            <button onClick={load} className="px-3 py-2 rounded-lg border border-app-border text-text-primary text-sm hover:bg-app-bg">Refresh</button>
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <div className="bg-white rounded-xl border border-app-border p-6">
           <div className="flex items-start gap-4 mb-4">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-medium" style={{ background: "#635BFF" }}>S</div>
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-medium" style={{ background: "var(--color-primary)" }}>S</div>
             <div className="flex-1">
-              <div className="text-base font-semibold text-stone-900">Stripe</div>
-              <div className="text-xs text-stone-500">Onboarding incomplete</div>
+              <div className="text-base font-semibold text-text-primary">Stripe</div>
+              <div className="text-xs text-text-muted">Onboarding incomplete</div>
             </div>
-            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "#FAEEDA", color: "#633806" }}>In progress</span>
+            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "var(--color-warning)", color: "#fff" }}>In progress</span>
           </div>
-          <button onClick={handleConnect} disabled={connecting} className="w-full py-2.5 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: "#635BFF" }}>
+          <button onClick={handleConnect} disabled={connecting} className="w-full py-2.5 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: "var(--color-primary)" }}>
             {connecting ? "Opening Stripe…" : "Continue onboarding →"}
           </button>
         </div>
       )}
 
-      <div className="mt-6 bg-stone-50 border border-stone-200 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-stone-900 mb-2">How payments work</h3>
-        <ul className="text-xs text-stone-600 space-y-1.5 leading-relaxed">
+      <div className="mt-6 bg-app-bg border border-app-border rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-text-primary mb-2">How payments work</h3>
+        <ul className="text-xs text-text-muted space-y-1.5 leading-relaxed">
           <li>· Members pay with their card directly to your Stripe account</li>
           <li>· ClubOS takes a small platform fee (2.5% Starter, 1.25% Growth, 0% Pro/Enterprise)</li>
           <li>· You handle payouts, taxes, and refunds through Stripe</li>
@@ -133,16 +133,16 @@ export default function BillingSettingsPage() {
 
       {/* ── ClubOS Subscription Plan ── */}
       <div className="mt-8">
-        <h2 className="text-xl font-semibold text-stone-900 mb-1">ClubOS Plan</h2>
-        <p className="text-sm text-stone-500 mb-4">Your current ClubOS subscription tier.</p>
+        <h2 className="text-xl font-semibold text-text-primary mb-1">ClubOS Plan</h2>
+        <p className="text-sm text-text-muted mb-4">Your current ClubOS subscription tier.</p>
 
         {/* Current tier */}
-        <div className="bg-white rounded-xl border border-stone-200 p-5 mb-4">
+        <div className="bg-white rounded-xl border border-app-border p-5 mb-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-stone-500 mb-1">Current plan</div>
-              <div className="text-xl font-semibold text-stone-900">{getTierName(currentTier)}</div>
-              <div className="text-sm text-stone-500 mt-0.5">
+              <div className="text-sm text-text-muted mb-1">Current plan</div>
+              <div className="text-xl font-semibold text-text-primary">{getTierName(currentTier)}</div>
+              <div className="text-sm text-text-muted mt-0.5">
                 {TIER_PRICES[currentTier as Tier]?.monthly === 0
                   ? "Free forever"
                   : `$${TIER_PRICES[currentTier as Tier]?.monthly}/month`}
@@ -152,7 +152,7 @@ export default function BillingSettingsPage() {
             </div>
             <span
               className="text-xs px-3 py-1 rounded-full font-medium"
-              style={{ background: "#EAF3DE", color: "#27500A" }}
+              style={{ background: "var(--color-success)", color: "var(--color-text)" }}
             >
               Active
             </span>
@@ -170,18 +170,18 @@ export default function BillingSettingsPage() {
                 key={tier}
                 className="rounded-xl border p-4"
                 style={{
-                  background: isCurrent ? "#534AB7" : "#fff",
-                  borderColor: isCurrent ? "#534AB7" : "#E7E5E4",
-                  color: isCurrent ? "#fff" : "#1C1917",
+                  background: isCurrent ? "var(--color-primary)" : "#fff",
+                  borderColor: isCurrent ? "var(--color-primary)" : "var(--color-border)",
+                  color: isCurrent ? "#fff" : "var(--color-text)",
                 }}
               >
-                <div className="text-xs font-medium mb-1" style={{ color: isCurrent ? "rgba(255,255,255,0.6)" : "#78716C" }}>
+                <div className="text-xs font-medium mb-1" style={{ color: isCurrent ? "rgba(255,255,255,0.6)" : "var(--color-muted)" }}>
                   {price.label}
                 </div>
                 <div className="text-lg font-bold mb-0.5">
                   {price.monthly === 0 ? "Free" : `$${price.monthly}/mo`}
                 </div>
-                <div className="text-xs mb-3" style={{ color: isCurrent ? "rgba(255,255,255,0.55)" : "#78716C" }}>
+                <div className="text-xs mb-3" style={{ color: isCurrent ? "rgba(255,255,255,0.55)" : "var(--color-muted)" }}>
                   {TIER_FEATURES[tier].transactionFeePercent}% fee
                 </div>
                 {isCurrent ? (
@@ -192,12 +192,12 @@ export default function BillingSettingsPage() {
                   <button
                     onClick={() => alert("Upgrade coming soon — contact support@clubos.app")}
                     className="w-full text-xs font-medium py-1.5 rounded-lg transition-colors"
-                    style={{ background: "#534AB7", color: "#fff" }}
+                    style={{ background: "var(--color-primary)", color: "#fff" }}
                   >
                     Upgrade
                   </button>
                 ) : (
-                  <div className="text-xs text-center py-1.5 rounded-lg" style={{ color: "#78716C" }}>
+                  <div className="text-xs text-center py-1.5 rounded-lg" style={{ color: "var(--color-muted)" }}>
                     Downgrade
                   </div>
                 )}
@@ -205,7 +205,7 @@ export default function BillingSettingsPage() {
             );
           })}
         </div>
-        <p className="text-xs text-stone-400 mt-3">
+        <p className="text-xs text-text-muted mt-3">
           To change your plan, email <a href="mailto:support@clubos.app" className="underline">support@clubos.app</a>. Full self-serve billing coming soon.
         </p>
       </div>

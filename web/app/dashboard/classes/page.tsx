@@ -190,43 +190,43 @@ function ClassModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="font-semibold text-stone-900">{editing ? "Edit Class" : "New Class"}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
+          <h2 className="font-semibold text-text-primary">{editing ? "Edit Class" : "New Class"}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
         <form onSubmit={submit} className="p-6 space-y-5">
           {/* Name */}
           <div>
-            <label className="block text-xs font-medium text-stone-700 mb-1">Class Name *</label>
+            <label className="block text-xs font-medium text-text-primary mb-1">Class Name *</label>
             <input
               required
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
               placeholder="e.g. Beginner Jiu-Jitsu"
-              className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+              className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-xs font-medium text-stone-700 mb-1">Description</label>
+            <label className="block text-xs font-medium text-text-primary mb-1">Description</label>
             <textarea
               rows={2}
               value={form.description}
               onChange={(e) => set("description", e.target.value)}
-              className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-stone-300"
+              className="w-full border border-app-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand"
             />
           </div>
 
           {/* Location */}
           {locations.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-stone-700 mb-1">Location</label>
+              <label className="block text-xs font-medium text-text-primary mb-1">Location</label>
               <select
                 value={form.locationId}
                 onChange={(e) => set("locationId", e.target.value)}
-                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+                className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               >
                 <option value="">No location</option>
                 {locations.map((l) => (
@@ -238,7 +238,7 @@ function ClassModal({
 
           {/* Days of week */}
           <div>
-            <label className="block text-xs font-medium text-stone-700 mb-2">Days of Week *</label>
+            <label className="block text-xs font-medium text-text-primary mb-2">Days of Week *</label>
             <div className="flex gap-1.5 flex-wrap">
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, i) => (
                 <button
@@ -247,8 +247,8 @@ function ClassModal({
                   onClick={() => toggleDay(i)}
                   className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
                     form.daysOfWeek.includes(i)
-                      ? "bg-stone-900 text-white border-stone-900"
-                      : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
+                      ? "bg-brand text-white border-brand"
+                      : "bg-surface text-text-muted border-app-border hover:border-app-border"
                   }`}
                 >
                   {label}
@@ -260,68 +260,68 @@ function ClassModal({
           {/* Times */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-stone-700 mb-1">Start Time *</label>
+              <label className="block text-xs font-medium text-text-primary mb-1">Start Time *</label>
               <input
                 required
                 type="time"
                 value={form.startTime}
                 onChange={(e) => set("startTime", e.target.value)}
-                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+                className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-700 mb-1">End Time *</label>
+              <label className="block text-xs font-medium text-text-primary mb-1">End Time *</label>
               <input
                 required
                 type="time"
                 value={form.endTime}
                 onChange={(e) => set("endTime", e.target.value)}
-                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+                className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
           </div>
 
           {/* Capacity */}
           <div>
-            <label className="block text-xs font-medium text-stone-700 mb-1">Capacity</label>
+            <label className="block text-xs font-medium text-text-primary mb-1">Capacity</label>
             <input
               type="number"
               min="1"
               value={form.capacity}
               onChange={(e) => set("capacity", e.target.value)}
               placeholder="No limit"
-              className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+              className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
           </div>
 
           {/* Recurrence */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-stone-700 mb-1">Starts On *</label>
+              <label className="block text-xs font-medium text-text-primary mb-1">Starts On *</label>
               <input
                 required
                 type="date"
                 value={form.recurrenceStartDate}
                 onChange={(e) => set("recurrenceStartDate", e.target.value)}
-                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+                className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-700 mb-1">Ends On</label>
+              <label className="block text-xs font-medium text-text-primary mb-1">Ends On</label>
               <input
                 type="date"
                 value={form.recurrenceEndDate}
                 onChange={(e) => set("recurrenceEndDate", e.target.value)}
                 placeholder="Ongoing"
-                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+                className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
-              <p className="text-xs text-stone-400 mt-1">Leave blank for ongoing</p>
+              <p className="text-xs text-text-muted mt-1">Leave blank for ongoing</p>
             </div>
           </div>
 
           {/* Pricing options */}
           <div>
-            <label className="block text-xs font-medium text-stone-700 mb-2">Pricing Options</label>
+            <label className="block text-xs font-medium text-text-primary mb-2">Pricing Options</label>
             <div className="space-y-2">
               {(
                 [
@@ -338,11 +338,11 @@ function ClassModal({
                       onChange={(e) => set(key, e.target.checked)}
                       className="rounded"
                     />
-                    <span className="text-sm text-stone-700">{label}</span>
+                    <span className="text-sm text-text-primary">{label}</span>
                   </label>
                   {form[key] && (
                     <div className="flex items-center gap-1">
-                      <span className="text-sm text-stone-500">$</span>
+                      <span className="text-sm text-text-muted">$</span>
                       <input
                         type="number"
                         min="0"
@@ -350,7 +350,7 @@ function ClassModal({
                         value={form[priceKey]}
                         onChange={(e) => set(priceKey, e.target.value)}
                         placeholder="0.00"
-                        className="w-24 border border-stone-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+                        className="w-24 border border-app-border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                       />
                     </div>
                   )}
@@ -365,14 +365,14 @@ function ClassModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-stone-200 text-sm text-stone-600 hover:bg-stone-50"
+              className="flex-1 px-4 py-2 rounded-lg border border-app-border text-sm text-text-muted hover:bg-app-bg"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 px-4 py-2 rounded-lg bg-stone-900 text-white text-sm font-medium hover:bg-stone-800 disabled:opacity-50"
+              className="flex-1 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
             >
               {saving ? "Saving…" : editing ? "Save Changes" : "Create Class"}
             </button>
@@ -404,42 +404,42 @@ function SessionsModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto shadow-xl">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
+      <div className="bg-surface rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-stone-900">{cls.name}</h2>
-            <p className="text-xs text-stone-500 mt-0.5">
+            <h2 className="font-semibold text-text-primary">{cls.name}</h2>
+            <p className="text-xs text-text-muted mt-0.5">
               {fmtDays(cls.daysOfWeek)} · {fmtTime(cls.startTime)}–{fmtTime(cls.endTime)}
             </p>
           </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+          <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
         <div className="p-4">
           {loading ? (
-            <p className="text-sm text-stone-400 text-center py-8">Loading sessions…</p>
+            <p className="text-sm text-text-muted text-center py-8">Loading sessions…</p>
           ) : sessions.length === 0 ? (
-            <p className="text-sm text-stone-400 text-center py-8">No upcoming sessions.</p>
+            <p className="text-sm text-text-muted text-center py-8">No upcoming sessions.</p>
           ) : (
             <div className="space-y-1.5">
               {sessions.map((s) => (
                 <a
                   key={s.id}
                   href={`/dashboard/attendance?session=${s.id}&date=${s.date.split("T")[0]}`}
-                  className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-stone-50 border border-stone-100 group"
+                  className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-app-bg border border-app-border group"
                 >
                   <div>
-                    <div className="text-sm font-medium text-stone-800">{fmtDate(s.date)}</div>
-                    <div className="text-xs text-stone-400">
+                    <div className="text-sm font-medium text-text-primary">{fmtDate(s.date)}</div>
+                    <div className="text-xs text-text-muted">
                       {fmtTime(s.startsAt.split("T")[1]?.slice(0, 5) || cls.startTime)}–
                       {fmtTime(s.endsAt.split("T")[1]?.slice(0, 5) || cls.endTime)}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-stone-500">
+                    <span className="text-xs text-text-muted">
                       {s._count.attendance} checked in
                       {cls.capacity ? ` / ${cls.capacity}` : ""}
                     </span>
-                    <span className="text-xs text-stone-400 group-hover:text-stone-600">→</span>
+                    <span className="text-xs text-text-muted group-hover:text-text-muted">→</span>
                   </div>
                 </a>
               ))}
@@ -449,7 +449,7 @@ function SessionsModal({
         <div className="px-4 pb-4">
           <a
             href={`/dashboard/attendance`}
-            className="block text-center text-xs text-stone-500 hover:text-stone-700"
+            className="block text-center text-xs text-text-muted hover:text-text-primary"
           >
             Go to Attendance →
           </a>
@@ -500,13 +500,13 @@ export default function ClassesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900">Classes &amp; Events</h1>
-          <p className="text-sm text-stone-500 mt-1">Manage recurring classes and one-time events</p>
+          <h1 className="text-2xl font-semibold text-text-primary">Classes &amp; Events</h1>
+          <p className="text-sm text-text-muted mt-1">Manage recurring classes and one-time events</p>
         </div>
         {tab === "classes" && (
           <button
             onClick={() => { setEditing(null); setShowModal(true); }}
-            className="px-4 py-2 bg-stone-900 text-white text-sm font-medium rounded-lg hover:bg-stone-800"
+            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover"
           >
             + New Class
           </button>
@@ -514,7 +514,7 @@ export default function ClassesPage() {
         {tab === "events" && (
           <a
             href="/dashboard/events"
-            className="px-4 py-2 bg-stone-900 text-white text-sm font-medium rounded-lg hover:bg-stone-800"
+            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover"
           >
             + New Event
           </a>
@@ -522,15 +522,15 @@ export default function ClassesPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-stone-200">
+      <div className="flex gap-1 mb-6 border-b border-app-border">
         {(["classes", "events"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors capitalize ${
               tab === t
-                ? "border-stone-900 text-stone-900"
-                : "border-transparent text-stone-500 hover:text-stone-700"
+                ? "border-brand text-text-primary"
+                : "border-transparent text-text-muted hover:text-text-primary"
             }`}
           >
             {t === "classes" ? "Classes" : "Events"}
@@ -547,26 +547,26 @@ export default function ClassesPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search classes…"
-              className="w-72 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+              className="w-72 border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
           </div>
 
           {loading ? (
-            <div className="text-sm text-stone-400 py-16 text-center">Loading classes…</div>
+            <div className="text-sm text-text-muted py-16 text-center">Loading classes…</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-20 border border-dashed border-stone-200 rounded-xl">
-              <div className="text-stone-400 text-4xl mb-3">◈</div>
-              <p className="text-stone-600 font-medium mb-1">
+            <div className="text-center py-20 border border-dashed border-app-border rounded-xl">
+              <div className="text-text-muted text-4xl mb-3">◈</div>
+              <p className="text-text-muted font-medium mb-1">
                 {search ? "No classes match your search" : "No classes yet"}
               </p>
               {!search && (
                 <>
-                  <p className="text-stone-400 text-sm mb-4">
+                  <p className="text-text-muted text-sm mb-4">
                     Create recurring weekly classes with automatic session generation.
                   </p>
                   <button
                     onClick={() => { setEditing(null); setShowModal(true); }}
-                    className="px-4 py-2 bg-stone-900 text-white text-sm rounded-lg hover:bg-stone-800"
+                    className="px-4 py-2 bg-brand text-white text-sm rounded-lg hover:bg-brand-hover"
                   >
                     Create your first class
                   </button>
@@ -574,45 +574,45 @@ export default function ClassesPage() {
               )}
             </div>
           ) : (
-            <div className="overflow-hidden border border-stone-200 rounded-xl">
+            <div className="overflow-hidden border border-app-border rounded-xl">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-stone-50 border-b border-stone-200">
-                    <th className="text-left px-4 py-3 text-xs font-medium text-stone-500 uppercase tracking-wide">Name</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-stone-500 uppercase tracking-wide">Schedule</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-stone-500 uppercase tracking-wide">Location</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-stone-500 uppercase tracking-wide">Capacity</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-stone-500 uppercase tracking-wide">Sessions</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-stone-500 uppercase tracking-wide">Status</th>
+                  <tr className="bg-app-bg border-b border-app-border">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Name</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Schedule</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Location</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Capacity</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Sessions</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Status</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-100">
+                <tbody className="divide-y divide-app-border">
                   {filtered.map((cls) => (
-                    <tr key={cls.id} className="hover:bg-stone-50 transition-colors">
+                    <tr key={cls.id} className="hover:bg-app-bg transition-colors">
                       <td className="px-4 py-3">
                         <button
                           onClick={() => setViewingSessions(cls)}
-                          className="font-medium text-stone-900 hover:underline text-left"
+                          className="font-medium text-text-primary hover:underline text-left"
                         >
                           {cls.name}
                         </button>
                         {cls.description && (
-                          <div className="text-xs text-stone-400 truncate max-w-[200px]">{cls.description}</div>
+                          <div className="text-xs text-text-muted truncate max-w-[200px]">{cls.description}</div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-stone-600">
+                      <td className="px-4 py-3 text-text-muted">
                         <div>{fmtDays(cls.daysOfWeek)}</div>
-                        <div className="text-xs text-stone-400">
+                        <div className="text-xs text-text-muted">
                           {fmtTime(cls.startTime)}–{fmtTime(cls.endTime)}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-stone-600">{cls.location?.name ?? "—"}</td>
-                      <td className="px-4 py-3 text-stone-600">{cls.capacity ?? "No limit"}</td>
+                      <td className="px-4 py-3 text-text-muted">{cls.location?.name ?? "—"}</td>
+                      <td className="px-4 py-3 text-text-muted">{cls.capacity ?? "No limit"}</td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => setViewingSessions(cls)}
-                          className="text-stone-600 hover:text-stone-900 underline-offset-2 hover:underline"
+                          className="text-text-muted hover:text-text-primary underline-offset-2 hover:underline"
                         >
                           {cls._count.sessions} upcoming
                         </button>
@@ -621,8 +621,8 @@ export default function ClassesPage() {
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                             cls.active
-                              ? "bg-green-50 text-green-700"
-                              : "bg-stone-100 text-stone-500"
+                              ? "bg-lime-accent text-text-primary"
+                              : "bg-app-bg text-text-muted"
                           }`}
                         >
                           {cls.active ? "Active" : "Inactive"}
@@ -632,13 +632,13 @@ export default function ClassesPage() {
                         <div className="flex items-center gap-2 justify-end">
                           <button
                             onClick={() => setViewingSessions(cls)}
-                            className="text-xs text-stone-500 hover:text-stone-700 px-2 py-1 rounded hover:bg-stone-100"
+                            className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
                           >
                             Sessions
                           </button>
                           <button
                             onClick={() => { setEditing(cls); setShowModal(true); }}
-                            className="text-xs text-stone-500 hover:text-stone-700 px-2 py-1 rounded hover:bg-stone-100"
+                            className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
                           >
                             Edit
                           </button>
@@ -662,14 +662,14 @@ export default function ClassesPage() {
       {/* Events Tab — redirects to existing events page */}
       {tab === "events" && (
         <div className="text-center py-20">
-          <div className="text-stone-400 text-4xl mb-3">◈</div>
-          <p className="text-stone-600 font-medium mb-1">Events are managed separately</p>
-          <p className="text-stone-400 text-sm mb-5">
+          <div className="text-text-muted text-4xl mb-3">◈</div>
+          <p className="text-text-muted font-medium mb-1">Events are managed separately</p>
+          <p className="text-text-muted text-sm mb-5">
             Events include clinics, camps, tournaments, seminars, and special programs.
           </p>
           <a
             href="/dashboard/events"
-            className="inline-block px-5 py-2 bg-stone-900 text-white text-sm rounded-lg hover:bg-stone-800"
+            className="inline-block px-5 py-2 bg-brand text-white text-sm rounded-lg hover:bg-brand-hover"
           >
             Go to Events →
           </a>

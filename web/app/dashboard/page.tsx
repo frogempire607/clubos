@@ -15,12 +15,15 @@ type Stats = {
 
 const sections = [
   { label: "Members", icon: "◉", href: "/dashboard/members", desc: "Manage your club roster" },
-  { label: "Events", icon: "◈", href: "/dashboard/events", desc: "Classes, privates, tournaments" },
-  { label: "Memberships", icon: "◇", href: "/dashboard/memberships", desc: "Plans and billing options" },
+  { label: "Classes", icon: "◈", href: "/dashboard/classes", desc: "Recurring weekly programming" },
+  { label: "Events", icon: "◈", href: "/dashboard/events", desc: "Clinics, camps, tournaments" },
+  { label: "Memberships", icon: "◇", href: "/dashboard/purchase-options/memberships", desc: "Plans and billing options" },
+  { label: "Privates", icon: "◎", href: "/dashboard/purchase-options/privates", desc: "Lessons and credit packages" },
+  { label: "Products", icon: "□", href: "/dashboard/purchase-options/products", desc: "Gear, services, rentals" },
   { label: "Calendar", icon: "▦", href: "/dashboard/calendar", desc: "Monthly event view" },
   { label: "Messages", icon: "✉", href: "/dashboard/messages", desc: "Announce to your members" },
   { label: "Financials", icon: "$", href: "/dashboard/financials", desc: "Revenue and transactions" },
-  { label: "Custom fields", icon: "▤", href: "/dashboard/custom-fields", desc: "Extra member data fields" },
+  { label: "Documents", icon: "□", href: "/dashboard/documents", desc: "Waivers and forms" },
   { label: "Settings", icon: "⚙", href: "/dashboard/settings", desc: "Billing, Stripe, club info" },
 ];
 
@@ -126,32 +129,32 @@ export default function DashboardPage() {
   return (
     <div className="p-8 max-w-7xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-stone-900">
+        <h1 className="text-3xl font-semibold text-text-primary">
           {greeting}{firstName ? `, ${firstName}` : ""}
         </h1>
-        <p className="text-sm text-stone-500 mt-1">Here's what's happening at your club today.</p>
+        <p className="text-sm text-text-muted mt-1">Here's what's happening at your club today.</p>
       </div>
 
       {/* Top stats */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <StatCard label="Active members" value={loading ? "—" : String(stats?.activeMembers ?? 0)} sub={loading ? "" : `of ${stats?.memberCount ?? 0} total`} href="/dashboard/members" accent="#1D9E75" />
-        <StatCard label="Today's events" value={loading ? "—" : String(stats?.todayEventCount ?? 0)} sub="scheduled today" href="/dashboard/events" accent="#534AB7" />
-        <StatCard label="This month" value={loading ? "—" : `$${Number(stats?.monthRevenue ?? 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} sub="revenue" href="/dashboard/financials" accent="#BA7517" />
-        <StatCard label="Upcoming events" value={loading ? "—" : String(stats?.upcomingEventCount ?? 0)} sub="total ahead" href="/dashboard/events" accent="#0C447C" />
+        <StatCard label="Active members" value={loading ? "—" : String(stats?.activeMembers ?? 0)} sub={loading ? "" : `of ${stats?.memberCount ?? 0} total`} href="/dashboard/members" accent="var(--color-success)" />
+        <StatCard label="Today's events" value={loading ? "—" : String(stats?.todayEventCount ?? 0)} sub="scheduled today" href="/dashboard/events" accent="var(--color-primary)" />
+        <StatCard label="This month" value={loading ? "—" : `$${Number(stats?.monthRevenue ?? 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} sub="revenue" href="/dashboard/financials" accent="var(--color-warning)" />
+        <StatCard label="Upcoming events" value={loading ? "—" : String(stats?.upcomingEventCount ?? 0)} sub="total ahead" href="/dashboard/events" accent="var(--color-primary)" />
       </div>
 
       {/* Middle row: calendar + quick nav */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {/* Mini calendar */}
-        <div className="col-span-1 bg-white rounded-xl border border-stone-200 p-4">
+        <div className="col-span-1 bg-surface rounded-xl border border-app-border p-4">
           <div className="flex items-center justify-between mb-3">
-            <button onClick={prevMonth} className="text-stone-400 hover:text-stone-700 w-6 h-6 flex items-center justify-center rounded hover:bg-stone-100">‹</button>
-            <span className="text-sm font-semibold text-stone-900">{MONTHS[month]} {year}</span>
-            <button onClick={nextMonth} className="text-stone-400 hover:text-stone-700 w-6 h-6 flex items-center justify-center rounded hover:bg-stone-100">›</button>
+            <button onClick={prevMonth} className="text-text-muted hover:text-text-primary w-6 h-6 flex items-center justify-center rounded hover:bg-app-bg">‹</button>
+            <span className="text-sm font-semibold text-text-primary">{MONTHS[month]} {year}</span>
+            <button onClick={nextMonth} className="text-text-muted hover:text-text-primary w-6 h-6 flex items-center justify-center rounded hover:bg-app-bg">›</button>
           </div>
           <div className="grid grid-cols-7 gap-0.5 mb-1">
             {DAYS.map((d) => (
-              <div key={d} className="text-center text-[10px] font-medium text-stone-400 py-0.5">{d}</div>
+              <div key={d} className="text-center text-[10px] font-medium text-text-muted py-0.5">{d}</div>
             ))}
           </div>
           <div className="grid grid-cols-7 gap-0.5">
@@ -165,11 +168,11 @@ export default function DashboardPage() {
                   key={i}
                   onClick={() => setSelectedDay(isSelected ? null : day)}
                   className={`relative flex flex-col items-center justify-center rounded text-xs py-1 transition
-                    ${isSelected ? "bg-stone-900 text-white" : isToday ? "bg-stone-100 text-stone-900 font-semibold" : "text-stone-700 hover:bg-stone-50"}`}
+                    ${isSelected ? "bg-brand text-white" : isToday ? "bg-app-bg text-text-primary font-semibold" : "text-text-primary hover:bg-app-bg"}`}
                 >
                   {day}
                   {hasEvents && !isSelected && (
-                    <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-violet-500" />
+                    <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-brand" />
                   )}
                 </button>
               );
@@ -177,16 +180,16 @@ export default function DashboardPage() {
           </div>
 
           {selectedDay && (
-            <div className="mt-3 border-t border-stone-100 pt-3">
+            <div className="mt-3 border-t border-app-border pt-3">
               {selectedDayEvents.length === 0 ? (
-                <p className="text-xs text-stone-400 text-center">No events on {MONTHS[month]} {selectedDay}</p>
+                <p className="text-xs text-text-muted text-center">No events on {MONTHS[month]} {selectedDay}</p>
               ) : (
                 <div className="space-y-1">
                   {selectedDayEvents.map((e) => (
-                    <div key={e.id} className="text-xs text-stone-700 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-violet-500 flex-shrink-0" />
+                    <div key={e.id} className="text-xs text-text-primary flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-brand flex-shrink-0" />
                       <span className="truncate">{e.name}</span>
-                      <span className="text-stone-400 flex-shrink-0 ml-auto">
+                      <span className="text-text-muted flex-shrink-0 ml-auto">
                         {new Date(e.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                       </span>
                     </div>
@@ -203,11 +206,11 @@ export default function DashboardPage() {
             <Link
               key={s.href}
               href={s.href}
-              className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm hover:border-stone-300 transition group"
+              className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm hover:border-app-border transition group"
             >
-              <div className="text-xl mb-2 text-stone-400 group-hover:text-stone-700 transition">{s.icon}</div>
-              <div className="text-sm font-semibold text-stone-900 mb-0.5">{s.label}</div>
-              <div className="text-xs text-stone-500">{s.desc}</div>
+              <div className="text-xl mb-2 text-text-muted group-hover:text-text-primary transition">{s.icon}</div>
+              <div className="text-sm font-semibold text-text-primary mb-0.5">{s.label}</div>
+              <div className="text-xs text-text-muted">{s.desc}</div>
             </Link>
           ))}
         </div>
@@ -215,30 +218,30 @@ export default function DashboardPage() {
 
       {/* Bottom: recent members + upcoming events */}
       <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-stone-200">
-          <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-stone-900">Recent members</h2>
-            <Link href="/dashboard/members" className="text-xs text-stone-500 hover:text-stone-900">View all →</Link>
+        <div className="bg-surface rounded-xl border border-app-border">
+          <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-text-primary">Recent members</h2>
+            <Link href="/dashboard/members" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
           </div>
           {loading ? (
-            <div className="p-6 text-sm text-stone-400 text-center">Loading…</div>
+            <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
           ) : recentMembers.length === 0 ? (
-            <div className="p-6 text-sm text-stone-400 text-center">No members yet.</div>
+            <div className="p-6 text-sm text-text-muted text-center">No members yet.</div>
           ) : (
-            <div className="divide-y divide-stone-100">
+            <div className="divide-y divide-app-border">
               {recentMembers.map((m) => {
-                const statusColor: Record<string, string> = { ACTIVE: "#27500A", PROSPECT: "#0C447C", INACTIVE: "#5F5E5A", PAUSED: "#633806" };
-                const statusBg: Record<string, string> = { ACTIVE: "#EAF3DE", PROSPECT: "#E6F1FB", INACTIVE: "#F1EFE8", PAUSED: "#FAEEDA" };
+                const statusColor: Record<string, string> = { ACTIVE: "var(--color-text)", PROSPECT: "#fff", INACTIVE: "var(--color-muted)", PAUSED: "#fff" };
+                const statusBg: Record<string, string> = { ACTIVE: "var(--color-success)", PROSPECT: "var(--color-primary)", INACTIVE: "var(--color-bg)", PAUSED: "var(--color-warning)" };
                 return (
                   <div key={m.id} className="flex items-center gap-3 px-5 py-3">
-                    <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs font-medium text-stone-700 flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary flex-shrink-0">
                       {m.firstName[0]}{m.lastName[0]}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-stone-900 truncate">{m.firstName} {m.lastName}</div>
-                      <div className="text-xs text-stone-500">{new Date(m.joinedAt).toLocaleDateString()}{m.isMinor ? " · Minor" : ""}</div>
+                      <div className="text-sm font-medium text-text-primary truncate">{m.firstName} {m.lastName}</div>
+                      <div className="text-xs text-text-muted">{new Date(m.joinedAt).toLocaleDateString()}{m.isMinor ? " · Minor" : ""}</div>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ background: statusBg[m.status] || "#F1EFE8", color: statusColor[m.status] || "#5F5E5A" }}>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ background: statusBg[m.status] || "var(--color-bg)", color: statusColor[m.status] || "var(--color-muted)" }}>
                       {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
                     </span>
                   </div>
@@ -248,31 +251,31 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-stone-200">
-          <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-stone-900">Upcoming events</h2>
-            <Link href="/dashboard/events" className="text-xs text-stone-500 hover:text-stone-900">View all →</Link>
+        <div className="bg-surface rounded-xl border border-app-border">
+          <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-text-primary">Upcoming events</h2>
+            <Link href="/dashboard/events" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
           </div>
           {loading ? (
-            <div className="p-6 text-sm text-stone-400 text-center">Loading…</div>
+            <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
           ) : upcomingEvents.length === 0 ? (
-            <div className="p-6 text-sm text-stone-400 text-center">No upcoming events.</div>
+            <div className="p-6 text-sm text-text-muted text-center">No upcoming events.</div>
           ) : (
-            <div className="divide-y divide-stone-100">
+            <div className="divide-y divide-app-border">
               {upcomingEvents.map((e) => {
                 const start = new Date(e.startsAt);
                 const typeName = e.customEventType?.name || e.type.charAt(0) + e.type.slice(1).toLowerCase();
-                const typeBg = e.customEventType?.color || "#F1EFE8";
-                const typeFg = e.customEventType?.textColor || "#5F5E5A";
+                const typeBg = e.customEventType?.color || "var(--color-bg)";
+                const typeFg = e.customEventType?.textColor || "var(--color-muted)";
                 return (
                   <div key={e.id} className="flex items-center gap-3 px-5 py-3">
-                    <div className="w-10 text-center bg-stone-50 rounded-lg py-1.5 flex-shrink-0">
-                      <div className="text-[9px] uppercase font-medium text-stone-500">{start.toLocaleString("en-US", { month: "short" })}</div>
-                      <div className="text-base font-semibold text-stone-900 leading-tight">{start.getDate()}</div>
+                    <div className="w-10 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
+                      <div className="text-[9px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short" })}</div>
+                      <div className="text-base font-semibold text-text-primary leading-tight">{start.getDate()}</div>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-stone-900 truncate">{e.name}</div>
-                      <div className="text-xs text-stone-500">{start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+                      <div className="text-sm font-medium text-text-primary truncate">{e.name}</div>
+                      <div className="text-xs text-text-muted">{start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
                     </div>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ background: typeBg, color: typeFg }}>
                       {typeName}
@@ -290,13 +293,13 @@ export default function DashboardPage() {
 
 function StatCard({ label, value, sub, href, accent }: { label: string; value: string; sub: string; href: string; accent: string }) {
   return (
-    <Link href={href} className="bg-white rounded-xl border border-stone-200 p-5 hover:shadow-sm hover:border-stone-300 transition group">
+    <Link href={href} className="bg-surface rounded-xl border border-app-border p-5 hover:shadow-sm hover:border-app-border transition group">
       <div className="flex items-start justify-between mb-3">
-        <div className="text-xs text-stone-500 uppercase tracking-wider">{label}</div>
+        <div className="text-xs text-text-muted uppercase tracking-wider">{label}</div>
         <div className="w-2 h-2 rounded-full mt-0.5" style={{ background: accent }} />
       </div>
-      <div className="text-3xl font-semibold text-stone-900 mb-1">{value}</div>
-      <div className="text-xs text-stone-400">{sub}</div>
+      <div className="text-3xl font-semibold text-text-primary mb-1">{value}</div>
+      <div className="text-xs text-text-muted">{sub}</div>
     </Link>
   );
 }

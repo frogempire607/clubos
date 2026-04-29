@@ -15,10 +15,10 @@ type Doc = {
 
 const typeColors: Record<string, { bg: string; fg: string }> = {
   Waiver: { bg: "#FCE4E0", fg: "#7B2415" },
-  Policy: { bg: "#E6F1FB", fg: "#0C447C" },
-  Agreement: { bg: "#EEEDFE", fg: "#3C3489" },
-  Handbook: { bg: "#EAF3DE", fg: "#27500A" },
-  Other: { bg: "#F1EFE8", fg: "#5F5E5A" },
+  Policy: { bg: "var(--color-primary)", fg: "#fff" },
+  Agreement: { bg: "var(--color-primary)", fg: "#fff" },
+  Handbook: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  Other: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 
 export default function MemberDocumentsPage() {

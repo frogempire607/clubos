@@ -25,12 +25,12 @@ type CalEvent = {
 };
 
 const builtInColors: Record<EventType, { bg: string; fg: string }> = {
-  CLASS: { bg: "#E6F1FB", fg: "#0C447C" },
-  PRIVATE: { bg: "#EEEDFE", fg: "#3C3489" },
-  CLINIC: { bg: "#EAF3DE", fg: "#27500A" },
-  CAMP: { bg: "#FAEEDA", fg: "#633806" },
-  TOURNAMENT: { bg: "#FCE4E0", fg: "#7B2415" },
-  OTHER: { bg: "#F1EFE8", fg: "#5F5E5A" },
+  CLASS: { bg: "var(--color-primary)", fg: "#fff" },
+  PRIVATE: { bg: "var(--color-primary)", fg: "#fff" },
+  CLINIC: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  CAMP: { bg: "var(--color-warning)", fg: "#fff" },
+  TOURNAMENT: { bg: "var(--color-warning)", fg: "#fff" },
+  OTHER: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 
 function getEventColor(e: CalEvent): { bg: string; fg: string } {
@@ -113,43 +113,43 @@ export default function CalendarPage() {
     <div className="p-8 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-stone-900 mb-1">Calendar</h1>
-          <p className="text-sm text-stone-500">Monthly view of your club schedule.</p>
+          <h1 className="text-3xl font-semibold text-text-primary mb-1">Calendar</h1>
+          <p className="text-sm text-text-muted">Monthly view of your club schedule.</p>
         </div>
         <Link
           href="/dashboard/events"
-          className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
         >
           + Add event
         </Link>
       </div>
 
-      <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-app-border overflow-hidden">
         {/* Month nav */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <button
             onClick={prevMonth}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-stone-100 text-stone-600"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
           >
             ‹
           </button>
-          <h2 className="text-base font-semibold text-stone-900">
+          <h2 className="text-base font-semibold text-text-primary">
             {MONTHS[month]} {year}
           </h2>
           <button
             onClick={nextMonth}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-stone-100 text-stone-600"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
           >
             ›
           </button>
         </div>
 
         {/* Day headers */}
-        <div className="grid grid-cols-7 border-b border-stone-200">
+        <div className="grid grid-cols-7 border-b border-app-border">
           {DAYS.map((d) => (
             <div
               key={d}
-              className="py-2 text-center text-xs font-medium text-stone-500 uppercase tracking-wide"
+              className="py-2 text-center text-xs font-medium text-text-muted uppercase tracking-wide"
             >
               {d}
             </div>
@@ -158,7 +158,7 @@ export default function CalendarPage() {
 
         {/* Grid */}
         {loading ? (
-          <div className="p-8 text-center text-stone-500 text-sm">Loading events…</div>
+          <div className="p-8 text-center text-text-muted text-sm">Loading events…</div>
         ) : (
           <div className="grid grid-cols-7">
             {cells.map((day, i) => {
@@ -166,8 +166,8 @@ export default function CalendarPage() {
               return (
                 <div
                   key={i}
-                  className={`min-h-[100px] p-1.5 border-b border-r border-stone-100 ${
-                    !day ? "bg-stone-50/50" : ""
+                  className={`min-h-[100px] p-1.5 border-b border-r border-app-border ${
+                    !day ? "bg-app-bg/50" : ""
                   }`}
                 >
                   {day && (
@@ -175,8 +175,8 @@ export default function CalendarPage() {
                       <div
                         className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
                           isToday(day)
-                            ? "bg-stone-900 text-white"
-                            : "text-stone-700"
+                            ? "bg-brand text-white"
+                            : "text-text-primary"
                         }`}
                       >
                         {day}
@@ -196,7 +196,7 @@ export default function CalendarPage() {
                           );
                         })}
                         {dayEvents.length > 3 && (
-                          <div className="text-[10px] text-stone-400 px-1">
+                          <div className="text-[10px] text-text-muted px-1">
                             +{dayEvents.length - 3} more
                           </div>
                         )}
@@ -212,11 +212,11 @@ export default function CalendarPage() {
 
       {/* Event detail panel */}
       {selected && (
-        <div className="mt-4 bg-white rounded-xl border border-stone-200 p-5">
+        <div className="mt-4 bg-white rounded-xl border border-app-border p-5">
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <h3 className="text-base font-semibold text-stone-900">{selected.name}</h3>
+                <h3 className="text-base font-semibold text-text-primary">{selected.name}</h3>
                 <span
                   className="text-[10px] px-2 py-0.5 rounded-full font-medium"
                   style={{ background: getEventColor(selected).bg, color: getEventColor(selected).fg }}
@@ -224,7 +224,7 @@ export default function CalendarPage() {
                   {getEventLabel(selected)}
                 </span>
               </div>
-              <div className="text-sm text-stone-600">
+              <div className="text-sm text-text-muted">
                 {new Date(selected.startsAt).toLocaleString("en-US", {
                   weekday: "long",
                   month: "long",
@@ -239,14 +239,14 @@ export default function CalendarPage() {
                 })}
               </div>
               {selected.capacity && (
-                <div className="text-sm text-stone-500 mt-1">
+                <div className="text-sm text-text-muted mt-1">
                   {selected._count.bookings}/{selected.capacity} booked
                 </div>
               )}
             </div>
             <button
               onClick={() => setSelected(null)}
-              className="text-stone-400 hover:text-stone-700 text-xl leading-none"
+              className="text-text-muted hover:text-text-primary text-xl leading-none"
             >
               ×
             </button>
@@ -254,7 +254,7 @@ export default function CalendarPage() {
           <div className="mt-3 flex gap-2">
             <Link
               href="/dashboard/events"
-              className="text-xs px-3 py-1.5 rounded-md border border-stone-200 text-stone-700 hover:bg-stone-50"
+              className="text-xs px-3 py-1.5 rounded-md border border-app-border text-text-primary hover:bg-app-bg"
             >
               View in Events →
             </Link>
@@ -268,7 +268,7 @@ export default function CalendarPage() {
           {builtInTypesUsed.map(([type, c]) => (
             <div key={type} className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm" style={{ background: c.bg, border: `1px solid ${c.fg}20` }} />
-              <span className="text-xs text-stone-500">
+              <span className="text-xs text-text-muted">
                 {type.charAt(0) + type.slice(1).toLowerCase()}
               </span>
             </div>
@@ -276,7 +276,7 @@ export default function CalendarPage() {
           {customTypesUsed.map((ct) => (
             <div key={ct.id} className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ct.color, border: `1px solid ${ct.textColor}20` }} />
-              <span className="text-xs text-stone-500">{ct.name}</span>
+              <span className="text-xs text-text-muted">{ct.name}</span>
             </div>
           ))}
         </div>

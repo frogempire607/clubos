@@ -52,22 +52,22 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const categoryColors: Record<string, { bg: string; fg: string }> = {
-  RENT: { bg: "#FCE4E0", fg: "#7B2415" },
-  UTILITIES: { bg: "#FFF4DC", fg: "#633806" },
-  INSURANCE: { bg: "#E6F1FB", fg: "#0C447C" },
-  SOFTWARE: { bg: "#EEEDFE", fg: "#3C3489" },
-  PAYROLL: { bg: "#EAF3DE", fg: "#27500A" },
-  EQUIPMENT: { bg: "#F1EFE8", fg: "#5F5E5A" },
-  EVENTS: { bg: "#FAEEDA", fg: "#633806" },
-  MARKETING: { bg: "#FCE4E0", fg: "#7B2415" },
-  OTHER: { bg: "#F1EFE8", fg: "#5F5E5A" },
+  RENT: { bg: "var(--color-warning)", fg: "#fff" },
+  UTILITIES: { bg: "var(--color-warning)", fg: "#fff" },
+  INSURANCE: { bg: "var(--color-primary)", fg: "#fff" },
+  SOFTWARE: { bg: "var(--color-primary)", fg: "#fff" },
+  PAYROLL: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  EQUIPMENT: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
+  EVENTS: { bg: "var(--color-warning)", fg: "#fff" },
+  MARKETING: { bg: "var(--color-warning)", fg: "#fff" },
+  OTHER: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
-  SUCCEEDED: { bg: "#EAF3DE", fg: "#27500A" },
-  PENDING: { bg: "#FAEEDA", fg: "#633806" },
+  SUCCEEDED: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  PENDING: { bg: "var(--color-warning)", fg: "#fff" },
   FAILED: { bg: "#FCE4E0", fg: "#7B2415" },
-  REFUNDED: { bg: "#F1EFE8", fg: "#5F5E5A" },
+  REFUNDED: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 
 export default function FinancialsPage() {
@@ -77,19 +77,19 @@ export default function FinancialsPage() {
     <div className="p-8 max-w-7xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-stone-900 mb-1">Financials</h1>
-          <p className="text-sm text-stone-500">Revenue, expenses, and your P&L at a glance.</p>
+          <h1 className="text-3xl font-semibold text-text-primary mb-1">Financials</h1>
+          <p className="text-sm text-text-muted">Revenue, expenses, and your P&L at a glance.</p>
         </div>
         <ExportMenu baseUrl="/api/export/transactions" label="Export transactions" />
       </div>
 
-      <div className="flex gap-1 bg-stone-100 rounded-lg p-1 mb-6 w-fit">
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit">
         {(["overview", "expenses", "stripe", "bank"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`text-sm px-4 py-1.5 rounded-md transition ${
-              tab === t ? "bg-white shadow-sm text-stone-900 font-medium" : "text-stone-600"
+              tab === t ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
             }`}
           >
             {t === "overview" ? "P&L Overview" : t === "expenses" ? "Expenses" : t === "stripe" ? "Stripe Payments" : "Bank Account"}
@@ -123,7 +123,7 @@ function OverviewTab() {
     });
   }, []);
 
-  if (loading) return <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>;
+  if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
 
   const revenue = txData?.totals.net || 0;
   const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
@@ -184,8 +184,8 @@ function OverviewTab() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Monthly trend */}
         {allMonths.length > 0 && (
-          <div className="bg-white rounded-xl border border-stone-200 p-5">
-            <h3 className="text-sm font-semibold text-stone-900 mb-4">Monthly trend</h3>
+          <div className="bg-white rounded-xl border border-app-border p-5">
+            <h3 className="text-sm font-semibold text-text-primary mb-4">Monthly trend</h3>
             <div className="space-y-3">
               {allMonths.map((month) => {
                 const rev = monthlyRevenue[month] || 0;
@@ -194,14 +194,14 @@ function OverviewTab() {
                 return (
                   <div key={month}>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-stone-500">{month}</span>
-                      <span className={`text-xs font-medium ${rev - exp >= 0 ? "text-green-700" : "text-red-700"}`}>
+                      <span className="text-xs text-text-muted">{month}</span>
+                      <span className={`text-xs font-medium ${rev - exp >= 0 ? "text-text-primary" : "text-red-700"}`}>
                         {rev - exp >= 0 ? "+" : ""}${(rev - exp).toFixed(0)}
                       </span>
                     </div>
                     <div className="flex gap-1 h-2">
                       <div
-                        className="bg-green-400 rounded-sm"
+                        className="bg-lime-accent rounded-sm"
                         style={{ width: `${(rev / maxVal) * 100}%`, minWidth: rev > 0 ? 4 : 0 }}
                       />
                       <div
@@ -214,12 +214,12 @@ function OverviewTab() {
               })}
               <div className="flex gap-4 mt-2">
                 <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-sm bg-green-400" />
-                  <span className="text-[10px] text-stone-400">Revenue</span>
+                  <div className="w-2.5 h-2.5 rounded-sm bg-lime-accent" />
+                  <span className="text-[10px] text-text-muted">Revenue</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-sm bg-red-300" />
-                  <span className="text-[10px] text-stone-400">Expenses</span>
+                  <span className="text-[10px] text-text-muted">Expenses</span>
                 </div>
               </div>
             </div>
@@ -228,8 +228,8 @@ function OverviewTab() {
 
         {/* Expense breakdown */}
         {byCategory.length > 0 && (
-          <div className="bg-white rounded-xl border border-stone-200 p-5">
-            <h3 className="text-sm font-semibold text-stone-900 mb-4">Cost breakdown</h3>
+          <div className="bg-white rounded-xl border border-app-border p-5">
+            <h3 className="text-sm font-semibold text-text-primary mb-4">Cost breakdown</h3>
             <div className="space-y-2">
               {byCategory.map(({ category, total }) => {
                 const pct = totalExpenses > 0 ? (total / totalExpenses) * 100 : 0;
@@ -246,11 +246,11 @@ function OverviewTab() {
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-stone-400">{pct.toFixed(0)}%</span>
-                        <span className="text-xs font-medium text-stone-900">${total.toFixed(2)}</span>
+                        <span className="text-xs text-text-muted">{pct.toFixed(0)}%</span>
+                        <span className="text-xs font-medium text-text-primary">${total.toFixed(2)}</span>
                       </div>
                     </div>
-                    <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-app-bg rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full"
                         style={{ width: `${pct}%`, background: c.fg }}
@@ -264,8 +264,8 @@ function OverviewTab() {
         )}
 
         {allMonths.length === 0 && byCategory.length === 0 && (
-          <div className="col-span-2 bg-white rounded-xl border border-stone-200 p-8 text-center">
-            <p className="text-sm text-stone-400">Add expenses and collect payments to see your P&L here.</p>
+          <div className="col-span-2 bg-white rounded-xl border border-app-border p-8 text-center">
+            <p className="text-sm text-text-muted">Add expenses and collect payments to see your P&L here.</p>
           </div>
         )}
       </div>
@@ -302,35 +302,35 @@ function ExpensesTab() {
     <>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <p className="text-sm text-stone-500">
+          <p className="text-sm text-text-muted">
             {expenses.length} expense{expenses.length !== 1 ? "s" : ""} · total{" "}
-            <span className="font-semibold text-stone-900">${total.toFixed(2)}</span>
+            <span className="font-semibold text-text-primary">${total.toFixed(2)}</span>
           </p>
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
         >
           + Add expense
         </button>
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : expenses.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <div className="text-4xl mb-2 text-stone-300">$</div>
-          <h3 className="text-lg font-medium text-stone-900 mb-1">No expenses yet</h3>
-          <p className="text-sm text-stone-500 mb-4">Track rent, payroll, utilities, and other costs.</p>
+        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
+          <div className="text-4xl mb-2 text-text-muted">$</div>
+          <h3 className="text-lg font-medium text-text-primary mb-1">No expenses yet</h3>
+          <p className="text-sm text-text-muted mb-4">Track rent, payroll, utilities, and other costs.</p>
           <button onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             Add first expense
           </button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+        <div className="bg-white rounded-xl border border-app-border overflow-hidden">
           <table className="w-full">
-            <thead className="bg-stone-50 border-b border-stone-200">
+            <thead className="bg-app-bg border-b border-app-border">
               <tr>
                 <Th>Date</Th>
                 <Th>Description</Th>
@@ -344,12 +344,12 @@ function ExpensesTab() {
               {expenses.map((e) => {
                 const c = categoryColors[e.category] || categoryColors.OTHER;
                 return (
-                  <tr key={e.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
-                    <Td><span className="text-xs text-stone-600">{new Date(e.date).toLocaleDateString()}</span></Td>
+                  <tr key={e.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                    <Td><span className="text-xs text-text-muted">{new Date(e.date).toLocaleDateString()}</span></Td>
                     <Td>
                       <div>
-                        <span className="text-sm text-stone-900">{e.description}</span>
-                        {e.notes && <p className="text-xs text-stone-400 mt-0.5">{e.notes}</p>}
+                        <span className="text-sm text-text-primary">{e.description}</span>
+                        {e.notes && <p className="text-xs text-text-muted mt-0.5">{e.notes}</p>}
                       </div>
                     </Td>
                     <Td>
@@ -361,15 +361,15 @@ function ExpensesTab() {
                       </span>
                     </Td>
                     <Td>
-                      <span className={`text-xs ${e.isRecurring ? "text-stone-600" : "text-stone-300"}`}>
+                      <span className={`text-xs ${e.isRecurring ? "text-text-muted" : "text-text-muted"}`}>
                         {e.isRecurring ? "Recurring" : "—"}
                       </span>
                     </Td>
-                    <Td><span className="text-sm font-medium text-stone-900">${parseFloat(e.amount).toFixed(2)}</span></Td>
+                    <Td><span className="text-sm font-medium text-text-primary">${parseFloat(e.amount).toFixed(2)}</span></Td>
                     <Td>
                       <div className="flex gap-1">
                         <button onClick={() => setEditing(e)}
-                          className="text-xs text-stone-600 hover:text-stone-900 px-2 py-1 rounded hover:bg-stone-100">
+                          className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
                           Edit
                         </button>
                         <button onClick={() => handleDelete(e.id)}
@@ -446,36 +446,36 @@ function ExpenseModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-md">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-stone-900">{isEdit ? "Edit expense" : "Add expense"}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit expense" : "Add expense"}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Description</label>
             <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} required
               placeholder="Monthly rent payment"
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Amount ($)</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Amount ($)</label>
               <input type="number" min="0" step="0.01" value={amount}
                 onChange={(e) => setAmount(e.target.value)} required placeholder="0.00"
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Date</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Date</label>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Category</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Category</label>
             <select value={category} onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
               {EXPENSE_CATEGORIES.map((c) => (
                 <option key={c} value={c}>{c.charAt(0) + c.slice(1).toLowerCase()}</option>
               ))}
@@ -483,27 +483,27 @@ function ExpenseModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Notes (optional)</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Notes (optional)</label>
             <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
               placeholder="Invoice #, vendor, etc."
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)}
               className="w-4 h-4 accent-stone-900" />
-            <span className="text-sm text-stone-700">Recurring expense (monthly)</span>
+            <span className="text-sm text-text-primary">Recurring expense (monthly)</span>
           </label>
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">
+              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : isEdit ? "Save changes" : "Add expense"}
             </button>
           </div>
@@ -535,21 +535,21 @@ function StripeTab() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-stone-200">
-          <h2 className="text-sm font-semibold text-stone-900">Stripe transactions</h2>
+      <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+        <div className="px-5 py-3 border-b border-app-border">
+          <h2 className="text-sm font-semibold text-text-primary">Stripe transactions</h2>
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+          <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
         ) : !data?.transactions.length ? (
           <div className="p-12 text-center">
-            <div className="text-3xl mb-2 text-stone-300">$</div>
-            <p className="text-sm text-stone-500">No transactions yet.</p>
+            <div className="text-3xl mb-2 text-text-muted">$</div>
+            <p className="text-sm text-text-muted">No transactions yet.</p>
           </div>
         ) : (
           <table className="w-full">
-            <thead className="bg-stone-50 border-b border-stone-200">
+            <thead className="bg-app-bg border-b border-app-border">
               <tr>
                 <Th>Date</Th>
                 <Th>Member</Th>
@@ -563,23 +563,23 @@ function StripeTab() {
               {data.transactions.map((t) => {
                 const c = statusColors[t.status] || statusColors.PENDING;
                 return (
-                  <tr key={t.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
-                    <Td><span className="text-xs text-stone-600">{new Date(t.createdAt).toLocaleDateString()}</span></Td>
+                  <tr key={t.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                    <Td><span className="text-xs text-text-muted">{new Date(t.createdAt).toLocaleDateString()}</span></Td>
                     <Td>
                       {t.member ? (
-                        <span className="text-sm text-stone-900">{t.member.firstName} {t.member.lastName}</span>
+                        <span className="text-sm text-text-primary">{t.member.firstName} {t.member.lastName}</span>
                       ) : (
-                        <span className="text-sm text-stone-400">—</span>
+                        <span className="text-sm text-text-muted">—</span>
                       )}
                     </Td>
-                    <Td><span className="text-sm text-stone-700">{t.description || "Payment"}</span></Td>
+                    <Td><span className="text-sm text-text-primary">{t.description || "Payment"}</span></Td>
                     <Td>
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
                         {t.status.charAt(0) + t.status.slice(1).toLowerCase()}
                       </span>
                     </Td>
-                    <Td><span className="text-sm font-medium text-stone-900">${Number(t.amount).toFixed(2)}</span></Td>
-                    <Td><span className="text-xs text-stone-500">{t.platformFee ? `$${Number(t.platformFee).toFixed(2)}` : "—"}</span></Td>
+                    <Td><span className="text-sm font-medium text-text-primary">${Number(t.amount).toFixed(2)}</span></Td>
+                    <Td><span className="text-xs text-text-muted">{t.platformFee ? `$${Number(t.platformFee).toFixed(2)}` : "—"}</span></Td>
                   </tr>
                 );
               })}
@@ -658,16 +658,16 @@ function BankTab() {
     loadBankData();
   }
 
-  if (loading) return <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>;
+  if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
 
   if (!plaidConfigured) {
     return (
-      <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">
-        <h3 className="text-base font-semibold text-stone-900 mb-2">Plaid not configured</h3>
-        <p className="text-sm text-stone-500 mb-4 max-w-sm mx-auto">
-          Add your Plaid credentials to <code className="bg-stone-100 px-1 py-0.5 rounded">.env</code> to enable bank integration.
+      <div className="bg-white rounded-xl border border-app-border p-8 text-center">
+        <h3 className="text-base font-semibold text-text-primary mb-2">Plaid not configured</h3>
+        <p className="text-sm text-text-muted mb-4 max-w-sm mx-auto">
+          Add your Plaid credentials to <code className="bg-app-bg px-1 py-0.5 rounded">.env</code> to enable bank integration.
         </p>
-        <div className="text-left bg-stone-50 rounded-lg p-4 text-xs font-mono text-stone-600 max-w-sm mx-auto">
+        <div className="text-left bg-app-bg rounded-lg p-4 text-xs font-mono text-text-muted max-w-sm mx-auto">
           <p>PLAID_CLIENT_ID=your_client_id</p>
           <p>PLAID_SECRET=your_secret</p>
           <p>PLAID_ENV=sandbox</p>
@@ -678,19 +678,19 @@ function BankTab() {
 
   if (!bankData?.connected) {
     return (
-      <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">
-        <h3 className="text-base font-semibold text-stone-900 mb-2">Connect your bank account</h3>
-        <p className="text-sm text-stone-500 mb-6 max-w-sm mx-auto">
+      <div className="bg-white rounded-xl border border-app-border p-8 text-center">
+        <h3 className="text-base font-semibold text-text-primary mb-2">Connect your bank account</h3>
+        <p className="text-sm text-text-muted mb-6 max-w-sm mx-auto">
           Link your club's bank account to see balances and transactions alongside your Stripe revenue.
         </p>
         <button
           onClick={startPlaidLink}
           disabled={connecting}
-          className="px-6 py-2.5 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+          className="px-6 py-2.5 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
         >
           {connecting ? "Opening…" : "Connect bank account"}
         </button>
-        <p className="text-xs text-stone-400 mt-3">Secured by Plaid · Read-only access</p>
+        <p className="text-xs text-text-muted mt-3">Secured by Plaid · Read-only access</p>
       </div>
     );
   }
@@ -701,35 +701,35 @@ function BankTab() {
     <>
       <div className="grid grid-cols-3 gap-4 mb-6">
         {bankData.accounts.map((a) => (
-          <div key={a.account_id} className="bg-white rounded-xl border border-stone-200 p-5">
-            <div className="text-xs text-stone-500 uppercase tracking-wider mb-1">{a.name}</div>
-            <div className="text-2xl font-semibold text-stone-900 mb-1">
+          <div key={a.account_id} className="bg-white rounded-xl border border-app-border p-5">
+            <div className="text-xs text-text-muted uppercase tracking-wider mb-1">{a.name}</div>
+            <div className="text-2xl font-semibold text-text-primary mb-1">
               ${(a.balances.current || 0).toFixed(2)}
             </div>
-            <div className="text-xs text-stone-400">
+            <div className="text-xs text-text-muted">
               {a.subtype} · {a.balances.iso_currency_code}
             </div>
           </div>
         ))}
-        <div className="bg-stone-900 rounded-xl p-5">
-          <div className="text-xs text-stone-400 uppercase tracking-wider mb-1">Total balance</div>
+        <div className="bg-brand rounded-xl p-5">
+          <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Total balance</div>
           <div className="text-2xl font-semibold text-white mb-1">${totalBalance.toFixed(2)}</div>
-          <div className="text-xs text-stone-400">Across all accounts</div>
+          <div className="text-xs text-text-muted">Across all accounts</div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-stone-900">Bank transactions (last 30 days)</h2>
+      <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+        <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-text-primary">Bank transactions (last 30 days)</h2>
           <button onClick={disconnect} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">
             Disconnect
           </button>
         </div>
         {bankData.transactions.length === 0 ? (
-          <div className="p-8 text-center text-stone-500 text-sm">No transactions in the last 30 days.</div>
+          <div className="p-8 text-center text-text-muted text-sm">No transactions in the last 30 days.</div>
         ) : (
           <table className="w-full">
-            <thead className="bg-stone-50 border-b border-stone-200">
+            <thead className="bg-app-bg border-b border-app-border">
               <tr>
                 <Th>Date</Th>
                 <Th>Description</Th>
@@ -739,12 +739,12 @@ function BankTab() {
             </thead>
             <tbody>
               {bankData.transactions.map((t) => (
-                <tr key={t.transaction_id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
-                  <Td><span className="text-xs text-stone-600">{new Date(t.date).toLocaleDateString()}</span></Td>
-                  <Td><span className="text-sm text-stone-900">{t.name}</span></Td>
-                  <Td><span className="text-xs text-stone-500">{t.category?.[0] || "—"}</span></Td>
+                <tr key={t.transaction_id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                  <Td><span className="text-xs text-text-muted">{new Date(t.date).toLocaleDateString()}</span></Td>
+                  <Td><span className="text-sm text-text-primary">{t.name}</span></Td>
+                  <Td><span className="text-xs text-text-muted">{t.category?.[0] || "—"}</span></Td>
                   <Td>
-                    <span className={`text-sm font-medium ${t.amount > 0 ? "text-red-700" : "text-green-700"}`}>
+                    <span className={`text-sm font-medium ${t.amount > 0 ? "text-red-700" : "text-text-primary"}`}>
                       {t.amount > 0 ? "-" : "+"}${Math.abs(t.amount).toFixed(2)}
                     </span>
                   </Td>
@@ -761,18 +761,18 @@ function BankTab() {
 /* ─── Shared ─── */
 
 function StatCard({ label, value, hint, accent }: { label: string; value: string; hint: string; accent?: string }) {
-  const accentClass = accent === "green" ? "text-green-700" : accent === "red" ? "text-red-700" : "text-stone-900";
+  const accentClass = accent === "green" ? "text-text-primary" : accent === "red" ? "text-red-700" : "text-text-primary";
   return (
-    <div className="bg-white rounded-xl border border-stone-200 p-5">
-      <div className="text-xs text-stone-500 uppercase tracking-wider mb-1">{label}</div>
+    <div className="bg-white rounded-xl border border-app-border p-5">
+      <div className="text-xs text-text-muted uppercase tracking-wider mb-1">{label}</div>
       <div className={`text-2xl font-semibold mb-1 ${accentClass}`}>{value}</div>
-      <div className="text-xs text-stone-400">{hint}</div>
+      <div className="text-xs text-text-muted">{hint}</div>
     </div>
   );
 }
 
 function Th({ children }: { children?: React.ReactNode }) {
-  return <th className="text-left text-xs font-medium text-stone-500 uppercase tracking-wider px-5 py-3">{children}</th>;
+  return <th className="text-left text-xs font-medium text-text-muted uppercase tracking-wider px-5 py-3">{children}</th>;
 }
 
 function Td({ children }: { children: React.ReactNode }) {

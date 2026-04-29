@@ -64,31 +64,31 @@ export default function ExportMenu({ baseUrl, label = "Export" }: Props) {
         type="button"
         disabled={busy}
         onClick={() => setOpen((v) => !v)}
-        className="text-sm px-3 py-2 rounded-lg border border-stone-200 text-stone-700 hover:bg-stone-50 flex items-center gap-1 disabled:opacity-50"
+        className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg flex items-center gap-1 disabled:opacity-50"
       >
         {busy ? "Exporting…" : label}
-        <span className="text-stone-400">▾</span>
+        <span className="text-text-muted">▾</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-44 bg-white border border-stone-200 rounded-lg shadow-lg z-30 overflow-hidden">
-          <button onClick={() => download("csv")} className="block w-full text-left px-3 py-2 text-sm text-stone-700 hover:bg-stone-50">
+        <div className="absolute right-0 mt-1 w-44 bg-white border border-app-border rounded-lg shadow-lg z-30 overflow-hidden">
+          <button onClick={() => download("csv")} className="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-app-bg">
             CSV (.csv)
           </button>
-          <button onClick={() => download("xlsx")} className="block w-full text-left px-3 py-2 text-sm text-stone-700 hover:bg-stone-50">
+          <button onClick={() => download("xlsx")} className="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-app-bg">
             Excel (.xlsx)
           </button>
-          <button onClick={() => download("pdf")} className="block w-full text-left px-3 py-2 text-sm text-stone-700 hover:bg-stone-50">
+          <button onClick={() => download("pdf")} className="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-app-bg">
             PDF (.pdf)
           </button>
         </div>
       )}
       {error && (
-        <div className="absolute right-0 mt-1 w-72 z-40 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg p-2 shadow-sm">
+        <div className="absolute right-0 mt-1 w-72 z-40 bg-orange-accent/10 border border-orange-accent/40 text-orange-accent text-xs rounded-lg p-2 shadow-sm">
           <div className="flex items-start gap-2">
             <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-amber-700 hover:text-amber-900">×</button>
+            <button onClick={() => setError(null)} className="text-orange-accent hover:text-orange-accent">×</button>
           </div>
-          <a href="/dashboard/settings/billing" className="block mt-1 underline text-amber-800">
+          <a href="/dashboard/settings/billing" className="block mt-1 underline text-white">
             View plan options →
           </a>
         </div>

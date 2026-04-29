@@ -119,46 +119,46 @@ function AvailabilityEditor({ staffId }: { staffId: string }) {
     load();
   }
 
-  if (loading) return <div className="text-sm text-stone-400 py-8 text-center">Loading…</div>;
+  if (loading) return <div className="text-sm text-text-muted py-8 text-center">Loading…</div>;
 
   return (
     <div className="space-y-6">
       {/* Weekly availability */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-stone-700">Weekly availability</h3>
-          <button onClick={addSlot} className="text-xs text-stone-500 hover:text-stone-800 border border-stone-200 px-2 py-1 rounded">
+          <h3 className="text-sm font-semibold text-text-primary">Weekly availability</h3>
+          <button onClick={addSlot} className="text-xs text-text-muted hover:text-text-primary border border-app-border px-2 py-1 rounded">
             + Add slot
           </button>
         </div>
 
         {draft.length === 0 ? (
-          <p className="text-sm text-stone-400">No availability set. Add slots above.</p>
+          <p className="text-sm text-text-muted">No availability set. Add slots above.</p>
         ) : (
           <div className="space-y-2">
             {draft.map((slot, i) => (
-              <div key={i} className="flex items-center gap-2 bg-stone-50 rounded-lg px-3 py-2">
-                <select className="border border-stone-200 rounded px-2 py-1 text-sm flex-shrink-0"
+              <div key={i} className="flex items-center gap-2 bg-app-bg rounded-lg px-3 py-2">
+                <select className="border border-app-border rounded px-2 py-1 text-sm flex-shrink-0"
                   value={slot.dayOfWeek} onChange={(e) => updateSlot(i, "dayOfWeek", parseInt(e.target.value))}>
                   {DAY_NAMES.map((d, idx) => <option key={idx} value={idx}>{d}</option>)}
                 </select>
-                <input type="time" className="border border-stone-200 rounded px-2 py-1 text-sm"
+                <input type="time" className="border border-app-border rounded px-2 py-1 text-sm"
                   value={slot.startTime} onChange={(e) => updateSlot(i, "startTime", e.target.value)} />
-                <span className="text-stone-400 text-sm">–</span>
-                <input type="time" className="border border-stone-200 rounded px-2 py-1 text-sm"
+                <span className="text-text-muted text-sm">–</span>
+                <input type="time" className="border border-app-border rounded px-2 py-1 text-sm"
                   value={slot.endTime} onChange={(e) => updateSlot(i, "endTime", e.target.value)} />
-                <label className="flex items-center gap-1 text-xs text-stone-600 ml-2">
+                <label className="flex items-center gap-1 text-xs text-text-muted ml-2">
                   <input type="checkbox" checked={slot.active} onChange={(e) => updateSlot(i, "active", e.target.checked)} />
                   Active
                 </label>
-                <button onClick={() => removeSlot(i)} className="ml-auto text-stone-400 hover:text-red-500 text-lg leading-none">×</button>
+                <button onClick={() => removeSlot(i)} className="ml-auto text-text-muted hover:text-red-500 text-lg leading-none">×</button>
               </div>
             ))}
           </div>
         )}
 
         <button onClick={saveAvailability} disabled={saving}
-          className="mt-3 px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+          className="mt-3 px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
           {saving ? "Saving…" : saved ? "Saved ✓" : "Save availability"}
         </button>
       </div>
@@ -166,39 +166,39 @@ function AvailabilityEditor({ staffId }: { staffId: string }) {
       {/* Exceptions */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-stone-700">Exceptions / time off</h3>
+          <h3 className="text-sm font-semibold text-text-primary">Exceptions / time off</h3>
           <button onClick={() => setShowAddException(true)}
-            className="text-xs text-stone-500 hover:text-stone-800 border border-stone-200 px-2 py-1 rounded">
+            className="text-xs text-text-muted hover:text-text-primary border border-app-border px-2 py-1 rounded">
             + Add exception
           </button>
         </div>
 
         {exceptions.length === 0 ? (
-          <p className="text-sm text-stone-400">No exceptions set.</p>
+          <p className="text-sm text-text-muted">No exceptions set.</p>
         ) : (
           <div className="space-y-2">
             {exceptions.map((exc) => (
               <div key={exc.id} className="flex items-center gap-3 bg-red-50 rounded-lg px-3 py-2 text-sm">
-                <span className="font-medium text-stone-800">{new Date(exc.date).toLocaleDateString()}</span>
-                <span className="text-stone-500">{exc.type === "UNAVAILABLE" ? "Full day off" : `Partial: ${exc.startTime}–${exc.endTime}`}</span>
-                {exc.note && <span className="text-stone-400 italic">"{exc.note}"</span>}
-                <button onClick={() => deleteException(exc.id)} className="ml-auto text-stone-400 hover:text-red-500 text-xs">Remove</button>
+                <span className="font-medium text-text-primary">{new Date(exc.date).toLocaleDateString()}</span>
+                <span className="text-text-muted">{exc.type === "UNAVAILABLE" ? "Full day off" : `Partial: ${exc.startTime}–${exc.endTime}`}</span>
+                {exc.note && <span className="text-text-muted italic">"{exc.note}"</span>}
+                <button onClick={() => deleteException(exc.id)} className="ml-auto text-text-muted hover:text-red-500 text-xs">Remove</button>
               </div>
             ))}
           </div>
         )}
 
         {showAddException && (
-          <form onSubmit={addException} className="mt-3 bg-stone-50 rounded-lg p-4 space-y-3">
+          <form onSubmit={addException} className="mt-3 bg-app-bg rounded-lg p-4 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Date *</label>
-                <input type="date" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                <label className="block text-xs font-medium text-text-muted mb-1">Date *</label>
+                <input type="date" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                   value={excForm.date} onChange={(e) => setExcForm({ ...excForm, date: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Type</label>
-                <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                <label className="block text-xs font-medium text-text-muted mb-1">Type</label>
+                <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                   value={excForm.type} onChange={(e) => setExcForm({ ...excForm, type: e.target.value as "UNAVAILABLE" | "PARTIAL" })}>
                   <option value="UNAVAILABLE">Full day off</option>
                   <option value="PARTIAL">Partial availability</option>
@@ -209,29 +209,29 @@ function AvailabilityEditor({ staffId }: { staffId: string }) {
             {excForm.type === "PARTIAL" && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Available from</label>
-                  <input type="time" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                  <label className="block text-xs font-medium text-text-muted mb-1">Available from</label>
+                  <input type="time" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                     value={excForm.startTime} onChange={(e) => setExcForm({ ...excForm, startTime: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Available until</label>
-                  <input type="time" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                  <label className="block text-xs font-medium text-text-muted mb-1">Available until</label>
+                  <input type="time" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                     value={excForm.endTime} onChange={(e) => setExcForm({ ...excForm, endTime: e.target.value })} />
                 </div>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Note (optional)</label>
-              <input className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" placeholder="e.g. Vacation, Tournament…"
+              <label className="block text-xs font-medium text-text-muted mb-1">Note (optional)</label>
+              <input className="w-full border border-app-border rounded-md px-3 py-2 text-sm" placeholder="e.g. Vacation, Tournament…"
                 value={excForm.note} onChange={(e) => setExcForm({ ...excForm, note: e.target.value })} />
             </div>
 
             <div className="flex gap-2">
               <button type="button" onClick={() => setShowAddException(false)}
-                className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Cancel</button>
+                className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Cancel</button>
               <button type="submit" disabled={excSaving}
-                className="px-3 py-1.5 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+                className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
                 {excSaving ? "Saving…" : "Add exception"}
               </button>
             </div>
@@ -274,14 +274,14 @@ export default function SchedulePage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-stone-900">Staff Schedule</h1>
-        <p className="text-sm text-stone-500 mt-0.5">Manage weekly availability and time-off exceptions</p>
+        <h1 className="text-2xl font-semibold text-text-primary">Staff Schedule</h1>
+        <p className="text-sm text-text-muted mt-0.5">Manage weekly availability and time-off exceptions</p>
       </div>
 
       {loading ? (
-        <div className="text-sm text-stone-400 py-12 text-center">Loading…</div>
+        <div className="text-sm text-text-muted py-12 text-center">Loading…</div>
       ) : staff.length === 0 ? (
-        <div className="text-center py-16 text-stone-400">
+        <div className="text-center py-16 text-text-muted">
           <p>No staff members found.</p>
           <p className="text-sm mt-1">Add staff in Settings → Staff & Permissions.</p>
         </div>
@@ -289,7 +289,7 @@ export default function SchedulePage() {
         <div className="flex gap-6">
           {/* Staff list sidebar */}
           <div className="w-48 flex-shrink-0">
-            <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">Staff</p>
+            <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-2">Staff</p>
             <div className="space-y-1">
               {staff.map((s) => (
                 <button
@@ -297,8 +297,8 @@ export default function SchedulePage() {
                   onClick={() => setSelectedStaff(s.id)}
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition ${
                     selectedStaff === s.id
-                      ? "bg-stone-900 text-white font-medium"
-                      : "text-stone-700 hover:bg-stone-100"
+                      ? "bg-brand text-white font-medium"
+                      : "text-text-primary hover:bg-app-bg"
                   }`}
                 >
                   {s.firstName} {s.lastName}
@@ -309,19 +309,19 @@ export default function SchedulePage() {
           </div>
 
           {/* Availability editor */}
-          <div className="flex-1 bg-white rounded-xl border border-stone-200 p-6">
+          <div className="flex-1 bg-white rounded-xl border border-app-border p-6">
             {selectedMember ? (
               <>
-                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-stone-200">
+                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-app-border">
                   <div>
-                    <h2 className="font-semibold text-stone-900">{selectedMember.firstName} {selectedMember.lastName}</h2>
-                    <p className="text-xs text-stone-500">{selectedMember.role}</p>
+                    <h2 className="font-semibold text-text-primary">{selectedMember.firstName} {selectedMember.lastName}</h2>
+                    <p className="text-xs text-text-muted">{selectedMember.role}</p>
                   </div>
                 </div>
                 <AvailabilityEditor staffId={selectedStaff} />
               </>
             ) : (
-              <p className="text-stone-400 text-sm">Select a staff member to manage their schedule.</p>
+              <p className="text-text-muted text-sm">Select a staff member to manage their schedule.</p>
             )}
           </div>
         </div>

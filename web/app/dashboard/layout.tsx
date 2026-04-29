@@ -11,17 +11,17 @@ type NavItem =
   | { id: string; label: string; icon: string; href?: string; children: NavChild[] };
 
 const NAV: NavItem[] = [
-  { id: "dashboard",     label: "Dashboard",       icon: "⌂", href: "/dashboard" },
-  { id: "members",       label: "Members",          icon: "◉", href: "/dashboard/members" },
+  { id: "dashboard", label: "Dashboard", icon: "⌂", href: "/dashboard" },
+  { id: "members", label: "Members", icon: "◉", href: "/dashboard/members" },
   {
     id: "staff",
     label: "Staff",
     icon: "◎",
     children: [
-      { id: "staff-home",         label: "Staff",        href: "/dashboard/staff" },
-      { id: "staff-schedule",     label: "Schedule",     href: "/dashboard/staff/schedule" },
+      { id: "staff-directory", label: "Directory", href: "/dashboard/staff" },
+      { id: "staff-schedule", label: "Schedule", href: "/dashboard/staff/schedule" },
       { id: "staff-availability", label: "Availability", href: "/dashboard/staff/availability" },
-      { id: "staff-payroll",      label: "Payroll",      href: "/dashboard/staff/payroll" },
+      { id: "staff-payroll", label: "Payroll / Payouts", href: "/dashboard/staff/payroll" },
     ],
   },
   {
@@ -29,26 +29,39 @@ const NAV: NavItem[] = [
     label: "Purchase Options",
     icon: "◇",
     children: [
-      { id: "memberships", label: "Memberships", href: "/dashboard/memberships" },
-      { id: "privates",    label: "Privates",    href: "/dashboard/privates" },
-      { id: "products",    label: "Products",    href: "/dashboard/products" },
+      { id: "memberships", label: "Memberships", href: "/dashboard/purchase-options/memberships" },
+      { id: "privates", label: "Privates", href: "/dashboard/purchase-options/privates" },
+      { id: "products", label: "Products", href: "/dashboard/purchase-options/products" },
     ],
   },
-  { id: "classes",       label: "Classes & Events", icon: "◈", href: "/dashboard/classes" },
-  { id: "attendance",    label: "Attendance",       icon: "✓", href: "/dashboard/attendance" },
-  { id: "messages",      label: "Messaging",        icon: "✉", href: "/dashboard/messages" },
-  { id: "announcements", label: "Announcements",    icon: "📢", href: "/dashboard/announcements" },
-  { id: "financials",    label: "Financials",       icon: "$", href: "/dashboard/financials" },
-  { id: "reports",       label: "Reports",          icon: "▦", href: "/dashboard/reports" },
-  { id: "settings",      label: "Settings",         icon: "⚙", href: "/dashboard/settings" },
+  {
+    id: "classes-events",
+    label: "Classes & Events",
+    icon: "◈",
+    children: [
+      { id: "classes", label: "Classes", href: "/dashboard/classes" },
+      { id: "events", label: "Events", href: "/dashboard/events" },
+      { id: "calendar", label: "Calendar", href: "/dashboard/calendar" },
+    ],
+  },
+  { id: "messages", label: "Messaging", icon: "✉", href: "/dashboard/messages" },
+  { id: "announcements", label: "Announcements", icon: "!", href: "/dashboard/announcements" },
+  { id: "attendance", label: "Attendance", icon: "✓", href: "/dashboard/attendance" },
+  { id: "financials", label: "Financials", icon: "$", href: "/dashboard/financials" },
+  { id: "reports", label: "Reports", icon: "▦", href: "/dashboard/reports" },
+  { id: "documents", label: "Documents", icon: "□", href: "/dashboard/documents" },
+  { id: "settings", label: "Settings", icon: "⚙", href: "/dashboard/settings" },
 ];
 
-const SIDEBAR_BG     = "#1C1917";
+const PRIMARY = "var(--color-primary)";
+const BACKGROUND = "var(--color-bg)";
+const TEXT = "var(--color-text)";
+const MUTED = "var(--color-muted)";
+const SIDEBAR_BG = "var(--color-sidebar-bg)";
+const SIDEBAR_HOVER = "var(--color-sidebar-hover)";
 const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
-const ACTIVE_BG      = "#534AB7";
-const TEXT_DIM       = "rgba(255,255,255,0.5)";
-const TEXT_HOVER     = "#ffffff";
-const CONTENT_BG     = "#F5F3EE";
+const TEXT_DIM = "rgba(229,231,235,0.72)";
+const TEXT_HOVER = "#fff";
 
 function isGroupActive(item: NavItem, pathname: string): boolean {
   if ("children" in item && item.children) {
@@ -79,8 +92,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (status === "loading") {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: CONTENT_BG }}>
-        <div style={{ fontSize: 14, color: "#78716C" }}>Loading…</div>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: BACKGROUND }}>
+        <div style={{ fontSize: 14, color: MUTED }}>Loading…</div>
       </div>
     );
   }
@@ -97,11 +110,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: CONTENT_BG }}>
+    <div style={{ display: "flex", height: "100vh", background: BACKGROUND, color: TEXT }}>
 
       {/* ── Dark sidebar ── */}
       <aside style={{
-        width: 224,
+        width: 248,
         background: SIDEBAR_BG,
         display: "flex",
         flexDirection: "column",
@@ -114,7 +127,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 3 }}>
             <div style={{
               width: 28, height: 28, borderRadius: 8,
-              background: "#534AB7",
+              background: PRIMARY,
               display: "flex", alignItems: "center", justifyContent: "center",
               flexShrink: 0,
             }}>
@@ -148,15 +161,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   style={{
                     display: "flex", alignItems: "center", gap: 10,
                     padding: "7px 12px", borderRadius: 8,
+                    borderLeft: `3px solid ${active ? PRIMARY : "transparent"}`,
                     fontSize: 13, textDecoration: "none",
                     fontWeight: active ? 500 : 400,
-                    background: active ? ACTIVE_BG : "transparent",
+                    background: active ? SIDEBAR_HOVER : "transparent",
                     color: active ? "#fff" : TEXT_DIM,
                     transition: "background 0.15s, color 0.15s",
                   }}
                   onMouseEnter={(e) => {
                     if (!active) {
-                      (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)";
+                      (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
                       (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
                     }
                   }}
@@ -183,20 +197,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   style={{
                     width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                     padding: "7px 12px", borderRadius: 8,
-                    fontSize: 13, border: "none", cursor: "pointer",
+                    fontSize: 13, border: "none", borderLeft: `3px solid ${groupActive ? PRIMARY : "transparent"}`, cursor: "pointer",
                     fontWeight: groupActive ? 500 : 400,
-                    background: groupActive && !open ? "rgba(255,255,255,0.07)" : "transparent",
+                    background: groupActive ? SIDEBAR_HOVER : "transparent",
                     color: groupActive ? "#fff" : TEXT_DIM,
                     transition: "background 0.15s, color 0.15s",
                   }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)";
+                    (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
                     (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
                   }}
                   onMouseLeave={(e) => {
-                    if (!(groupActive && !open)) {
-                      (e.currentTarget as HTMLElement).style.background = groupActive && !open ? "rgba(255,255,255,0.07)" : "transparent";
-                    }
+                    (e.currentTarget as HTMLElement).style.background = groupActive ? SIDEBAR_HOVER : "transparent";
                     (e.currentTarget as HTMLElement).style.color = groupActive ? "#fff" : TEXT_DIM;
                   }}
                 >
@@ -227,15 +239,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           style={{
                             display: "block",
                             padding: "6px 10px", borderRadius: 7,
+                            borderLeft: `2px solid ${active ? PRIMARY : "transparent"}`,
                             fontSize: 12, textDecoration: "none",
                             fontWeight: active ? 500 : 400,
-                            background: active ? ACTIVE_BG : "transparent",
+                            background: active ? SIDEBAR_HOVER : "transparent",
                             color: active ? "#fff" : "rgba(255,255,255,0.4)",
                             transition: "background 0.15s, color 0.15s",
                           }}
                           onMouseEnter={(e) => {
                             if (!active) {
-                              (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)";
+                              (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
                               (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
                             }
                           }}
@@ -269,7 +282,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               transition: "background 0.15s, color 0.15s",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)";
+              (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
               (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
             }}
             onMouseLeave={(e) => {

@@ -47,42 +47,42 @@ export default function CustomFieldsPage() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-6">
-        <a href="/dashboard/members" className="text-sm text-stone-500 hover:text-stone-900">← Back to members</a>
+        <a href="/dashboard/members" className="text-sm text-text-muted hover:text-text-primary">← Back to members</a>
       </div>
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-stone-900 mb-1">Custom fields</h1>
-          <p className="text-sm text-stone-500">Add any fields you want to collect from members — phone, address, emergency contact, anything.</p>
+          <h1 className="text-3xl font-semibold text-text-primary mb-1">Custom fields</h1>
+          <p className="text-sm text-text-muted">Add any fields you want to collect from members — phone, address, emergency contact, anything.</p>
         </div>
-        <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+        <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
           + Add field
         </button>
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : fields.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
+        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
           <div className="text-4xl mb-2">▤</div>
-          <h3 className="text-lg font-medium text-stone-900 mb-1">No custom fields yet</h3>
-          <p className="text-sm text-stone-500 mb-4">Add fields like phone, address, t-shirt size, emergency contact — whatever you need.</p>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+          <h3 className="text-lg font-medium text-text-primary mb-1">No custom fields yet</h3>
+          <p className="text-sm text-text-muted mb-4">Add fields like phone, address, t-shirt size, emergency contact — whatever you need.</p>
+          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             + Add your first field
           </button>
         </div>
       ) : (
         <div className="space-y-2">
           {fields.map((f) => (
-            <div key={f.id} className="bg-white rounded-xl border border-stone-200 p-4 flex items-center gap-3">
+            <div key={f.id} className="bg-white rounded-xl border border-app-border p-4 flex items-center gap-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-stone-900">{f.label}</span>
+                  <span className="text-sm font-medium text-text-primary">{f.label}</span>
                   {f.required && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-red-50 text-red-700">Required</span>}
                 </div>
-                <div className="text-xs text-stone-500">{fieldTypeLabels[f.fieldType]}</div>
+                <div className="text-xs text-text-muted">{fieldTypeLabels[f.fieldType]}</div>
               </div>
-              <button onClick={() => setEditing(f)} className="text-xs text-stone-600 hover:text-stone-900 px-2 py-1 rounded hover:bg-stone-100">Edit</button>
+              <button onClick={() => setEditing(f)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Edit</button>
               <button onClick={() => handleDelete(f.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
             </div>
           ))}
@@ -141,20 +141,20 @@ function FieldModal({ field, onClose, onSaved }: { field: CustomField | null; on
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-md">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-stone-900">{isEdit ? "Edit field" : "Add custom field"}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit field" : "Add custom field"}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Field label</label>
-            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Phone number" required className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+            <label className="block text-sm font-medium text-text-primary mb-1">Field label</label>
+            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Phone number" required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Field type</label>
-            <select value={fieldType} onChange={(e) => setFieldType(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white">
+            <label className="block text-sm font-medium text-text-primary mb-1">Field type</label>
+            <select value={fieldType} onChange={(e) => setFieldType(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white">
               <option value="text">Text</option>
               <option value="email">Email</option>
               <option value="phone">Phone</option>
@@ -168,32 +168,32 @@ function FieldModal({ field, onClose, onSaved }: { field: CustomField | null; on
 
           {fieldType === "select" && (
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Dropdown options</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Dropdown options</label>
               <div className="space-y-1 mb-2">
                 {options.map((o, i) => (
-                  <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-stone-50 rounded-md text-sm">
+                  <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-app-bg rounded-md text-sm">
                     <span className="flex-1">{o}</span>
-                    <button type="button" onClick={() => setOptions(options.filter((_, j) => j !== i))} className="text-stone-400 hover:text-red-600 text-xs">×</button>
+                    <button type="button" onClick={() => setOptions(options.filter((_, j) => j !== i))} className="text-text-muted hover:text-red-600 text-xs">×</button>
                   </div>
                 ))}
               </div>
               <div className="flex gap-2">
-                <input type="text" value={newOption} onChange={(e) => setNewOption(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newOption.trim()) { setOptions([...options, newOption.trim()]); setNewOption(""); } } }} placeholder="Add an option" className="flex-1 px-3 py-1.5 border border-stone-300 rounded-md text-sm" />
-                <button type="button" onClick={() => { if (newOption.trim()) { setOptions([...options, newOption.trim()]); setNewOption(""); } }} className="px-3 py-1.5 border border-stone-300 rounded-md text-sm hover:bg-stone-50">Add</button>
+                <input type="text" value={newOption} onChange={(e) => setNewOption(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newOption.trim()) { setOptions([...options, newOption.trim()]); setNewOption(""); } } }} placeholder="Add an option" className="flex-1 px-3 py-1.5 border border-app-border rounded-md text-sm" />
+                <button type="button" onClick={() => { if (newOption.trim()) { setOptions([...options, newOption.trim()]); setNewOption(""); } }} className="px-3 py-1.5 border border-app-border rounded-md text-sm hover:bg-app-bg">Add</button>
               </div>
             </div>
           )}
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="w-4 h-4 accent-stone-900" />
-            <span className="text-sm text-stone-700">Required field</span>
+            <span className="text-sm text-text-primary">Required field</span>
           </label>
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 
           <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : isEdit ? "Save" : "Add field"}
             </button>
           </div>

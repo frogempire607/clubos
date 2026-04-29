@@ -63,17 +63,17 @@ export default function MessagesPage() {
   return (
     <div className="p-8 max-w-6xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-stone-900 mb-1">Messages</h1>
-        <p className="text-sm text-stone-500">Announcements, group chats, and direct messages.</p>
+        <h1 className="text-3xl font-semibold text-text-primary mb-1">Messages</h1>
+        <p className="text-sm text-text-muted">Announcements, group chats, and direct messages.</p>
       </div>
 
-      <div className="flex gap-1 bg-stone-100 rounded-lg p-1 mb-6 w-fit">
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit">
         {(["announcements", "groups", "dms"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`text-sm px-4 py-1.5 rounded-md transition ${
-              tab === t ? "bg-white shadow-sm text-stone-900 font-medium" : "text-stone-600"
+              tab === t ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
             }`}
           >
             {t === "announcements" ? "Announcements" : t === "groups" ? "Group Messages" : "Direct Messages"}
@@ -116,22 +116,22 @@ function AnnouncementsTab() {
       <div className="flex justify-end mb-4">
         <button
           onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
         >
           + New announcement
         </button>
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : announcements.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <div className="text-4xl mb-2 text-stone-300">✉</div>
-          <h3 className="text-lg font-medium text-stone-900 mb-1">No announcements yet</h3>
-          <p className="text-sm text-stone-500 mb-4">Post updates to keep your members informed.</p>
+        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
+          <div className="text-4xl mb-2 text-text-muted">✉</div>
+          <h3 className="text-lg font-medium text-text-primary mb-1">No announcements yet</h3>
+          <p className="text-sm text-text-muted mb-4">Post updates to keep your members informed.</p>
           <button
             onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
           >
             Post your first announcement
           </button>
@@ -139,20 +139,20 @@ function AnnouncementsTab() {
       ) : (
         <div className="space-y-2">
           {announcements.map((a) => (
-            <div key={a.id} className="bg-white rounded-xl border border-stone-200 hover:shadow-sm transition">
+            <div key={a.id} className="bg-white rounded-xl border border-app-border hover:shadow-sm transition">
               <div
                 className="flex items-start gap-3 p-4 cursor-pointer"
                 onClick={() => setExpanded(expanded === a.id ? null : a.id)}
               >
-                <div className="w-9 h-9 rounded-lg bg-stone-100 flex items-center justify-center text-stone-500 text-sm flex-shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-app-bg flex items-center justify-center text-text-muted text-sm flex-shrink-0">
                   📢
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-stone-900">{a.title}</p>
+                  <p className="text-sm font-semibold text-text-primary">{a.title}</p>
                   {expanded !== a.id && (
-                    <p className="text-xs text-stone-500 mt-0.5 line-clamp-1">{a.body}</p>
+                    <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{a.body}</p>
                   )}
-                  <p className="text-[10px] text-stone-400 mt-1">
+                  <p className="text-[10px] text-text-muted mt-1">
                     {new Date(a.createdAt).toLocaleDateString("en-US", {
                       month: "short", day: "numeric", year: "numeric",
                       hour: "numeric", minute: "2-digit",
@@ -169,8 +169,8 @@ function AnnouncementsTab() {
               </div>
               {expanded === a.id && (
                 <div className="px-5 pb-4 pt-0">
-                  <div className="border-t border-stone-100 pt-3">
-                    <p className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">{a.body}</p>
+                  <div className="border-t border-app-border pt-3">
+                    <p className="text-sm text-text-primary whitespace-pre-wrap leading-relaxed">{a.body}</p>
                   </div>
                 </div>
               )}
@@ -215,30 +215,30 @@ function AnnouncementModal({ onClose, onSaved }: { onClose: () => void; onSaved:
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-lg">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-stone-900">New announcement</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">New announcement</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Title</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Title</label>
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required
               placeholder="Practice schedule update"
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Message</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Message</label>
             <textarea value={body} onChange={(e) => setBody(e.target.value)} required rows={5}
               placeholder="Write your announcement here…"
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 resize-none" />
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
           </div>
-          <div className="flex items-center gap-2 p-3 bg-stone-50 rounded-lg text-xs text-stone-500">
+          <div className="flex items-center gap-2 p-3 bg-app-bg rounded-lg text-xs text-text-muted">
             📢 Visible to all members of your club.
           </div>
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
           <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Posting…" : "Post announcement"}
             </button>
           </div>
@@ -311,31 +311,31 @@ function GroupsTab() {
       <div className="flex justify-end mb-4">
         <button
           onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
         >
           + New group
         </button>
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : groups.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <div className="text-4xl mb-2 text-stone-300">💬</div>
-          <h3 className="text-lg font-medium text-stone-900 mb-1">No groups yet</h3>
-          <p className="text-sm text-stone-500 mb-4">Create a group to message a specific team, class, or set of members.</p>
+        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
+          <div className="text-4xl mb-2 text-text-muted">💬</div>
+          <h3 className="text-lg font-medium text-text-primary mb-1">No groups yet</h3>
+          <p className="text-sm text-text-muted mb-4">Create a group to message a specific team, class, or set of members.</p>
           <button onClick={() => setShowCreate(true)}
-            className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             Create first group
           </button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-stone-200 overflow-hidden" style={{ height: 560 }}>
+        <div className="bg-white rounded-xl border border-app-border overflow-hidden" style={{ height: 560 }}>
           <div className="flex h-full">
             {/* Group list */}
-            <div className="w-64 border-r border-stone-200 flex flex-col flex-shrink-0">
-              <div className="px-4 py-3 border-b border-stone-200">
-                <span className="text-sm font-semibold text-stone-900">Groups ({groups.length})</span>
+            <div className="w-64 border-r border-app-border flex flex-col flex-shrink-0">
+              <div className="px-4 py-3 border-b border-app-border">
+                <span className="text-sm font-semibold text-text-primary">Groups ({groups.length})</span>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {groups.map((g) => {
@@ -345,24 +345,24 @@ function GroupsTab() {
                     <button
                       key={g.id}
                       onClick={() => setActiveGroup(g)}
-                      className={`w-full text-left px-4 py-3 border-b border-stone-100 hover:bg-stone-50 ${activeGroup?.id === g.id ? "bg-stone-100" : ""}`}
+                      className={`w-full text-left px-4 py-3 border-b border-app-border hover:bg-app-bg ${activeGroup?.id === g.id ? "bg-app-bg" : ""}`}
                     >
                       <div className="flex items-start gap-2">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${isBroadcast ? "bg-amber-100 text-amber-700" : "bg-stone-200 text-stone-700"}`}>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${isBroadcast ? "bg-orange-accent text-orange-accent" : "bg-app-border text-text-primary"}`}>
                           {isBroadcast ? "📢" : g.name[0]}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-stone-900 truncate">{g.name}</span>
+                            <span className="text-xs font-medium text-text-primary truncate">{g.name}</span>
                             {isBroadcast && (
-                              <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-600 font-medium flex-shrink-0">Broadcast</span>
+                              <span className="text-[9px] px-1 py-0.5 rounded bg-orange-accent/10 text-orange-accent font-medium flex-shrink-0">Broadcast</span>
                             )}
                           </div>
-                          <p className="text-[10px] text-stone-400">
+                          <p className="text-[10px] text-text-muted">
                             {g.members.length} member{g.members.length !== 1 ? "s" : ""}
                           </p>
                           {lastMsg && (
-                            <p className="text-[10px] text-stone-400 truncate mt-0.5">{lastMsg.body}</p>
+                            <p className="text-[10px] text-text-muted truncate mt-0.5">{lastMsg.body}</p>
                           )}
                         </div>
                       </div>
@@ -377,21 +377,21 @@ function GroupsTab() {
               {!activeGroup ? (
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
-                    <div className="text-3xl text-stone-200 mb-2">💬</div>
-                    <p className="text-sm text-stone-400">Select a group to view messages</p>
+                    <div className="text-3xl text-text-muted mb-2">💬</div>
+                    <p className="text-sm text-text-muted">Select a group to view messages</p>
                   </div>
                 </div>
               ) : (
                 <>
-                  <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between">
+                  <div className="px-4 py-3 border-b border-app-border flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-stone-900">{activeGroup.name}</span>
+                        <span className="text-sm font-semibold text-text-primary">{activeGroup.name}</span>
                         {activeGroup.type === "BROADCAST" && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-medium">Broadcast</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-accent/10 text-orange-accent font-medium">Broadcast</span>
                         )}
                       </div>
-                      <p className="text-xs text-stone-400">
+                      <p className="text-xs text-text-muted">
                         {activeGroup.members.map((m) => `${m.user.firstName} ${m.user.lastName}`).join(", ")}
                       </p>
                     </div>
@@ -405,24 +405,24 @@ function GroupsTab() {
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-3">
                     {messages.length === 0 ? (
-                      <div className="text-center text-sm text-stone-400 pt-8">No messages yet. Say something!</div>
+                      <div className="text-center text-sm text-text-muted pt-8">No messages yet. Say something!</div>
                     ) : (
                       messages.map((m) => {
                         const mine = m.sender.id === session?.user?.id;
                         return (
                           <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                             {!mine && (
-                              <div className="w-6 h-6 rounded-full bg-stone-200 flex items-center justify-center text-[10px] font-medium text-stone-700 mr-2 flex-shrink-0 mt-1">
+                              <div className="w-6 h-6 rounded-full bg-app-border flex items-center justify-center text-[10px] font-medium text-text-primary mr-2 flex-shrink-0 mt-1">
                                 {m.sender.firstName[0]}
                               </div>
                             )}
                             <div className={`max-w-[70%] ${mine ? "" : ""}`}>
                               {!mine && (
-                                <p className="text-[10px] text-stone-400 mb-0.5">{m.sender.firstName} {m.sender.lastName}</p>
+                                <p className="text-[10px] text-text-muted mb-0.5">{m.sender.firstName} {m.sender.lastName}</p>
                               )}
-                              <div className={`px-3 py-2 rounded-xl text-sm ${mine ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-900"}`}>
+                              <div className={`px-3 py-2 rounded-xl text-sm ${mine ? "bg-brand text-white" : "bg-app-bg text-text-primary"}`}>
                                 <p>{m.body}</p>
-                                <p className="text-[10px] mt-1 text-stone-400">
+                                <p className="text-[10px] mt-1 text-text-muted">
                                   {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                                 </p>
                               </div>
@@ -434,16 +434,16 @@ function GroupsTab() {
                     <div ref={bottomRef} />
                   </div>
 
-                  <form onSubmit={sendMessage} className="p-3 border-t border-stone-200 flex gap-2">
+                  <form onSubmit={sendMessage} className="p-3 border-t border-app-border flex gap-2">
                     <input
                       type="text"
                       value={msgBody}
                       onChange={(e) => setMsgBody(e.target.value)}
                       placeholder="Type a message…"
-                      className="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                      className="flex-1 px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                     />
                     <button type="submit" disabled={sending || !msgBody.trim()}
-                      className="px-3 py-2 bg-stone-900 text-white rounded-lg text-sm hover:bg-stone-700 disabled:opacity-50">
+                      className="px-3 py-2 bg-brand text-white rounded-lg text-sm hover:bg-brand-hover disabled:opacity-50">
                       Send
                     </button>
                   </form>
@@ -559,21 +559,21 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-stone-900">Create group</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
+          <h2 className="text-lg font-semibold text-text-primary">Create group</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Group name</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Group name</label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} required
               placeholder="Varsity Team, Morning Class, Parents…"
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Type</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Type</label>
             <div className="grid grid-cols-2 gap-2">
               {(["GROUP", "BROADCAST"] as const).map((t) => (
                 <button
@@ -582,12 +582,12 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
                   onClick={() => setType(t)}
                   className={`px-3 py-2 rounded-lg text-sm border text-left transition ${
                     type === t
-                      ? "border-stone-900 bg-stone-50 font-medium text-stone-900"
-                      : "border-stone-200 text-stone-600"
+                      ? "border-brand bg-app-bg font-medium text-text-primary"
+                      : "border-app-border text-text-muted"
                   }`}
                 >
                   <div className="font-medium">{t === "GROUP" ? "Group chat" : "Broadcast"}</div>
-                  <div className="text-xs text-stone-400 mt-0.5">
+                  <div className="text-xs text-text-muted mt-0.5">
                     {t === "GROUP" ? "Everyone can reply" : "Owner sends, no replies"}
                   </div>
                 </button>
@@ -595,8 +595,8 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             </div>
           </div>
 
-          <div className="pt-2 border-t border-stone-100">
-            <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">Filter members</p>
+          <div className="pt-2 border-t border-app-border">
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Filter members</p>
             <div className="flex gap-2 flex-wrap mb-3">
               {([
                 { val: "manual", label: "Select manually" },
@@ -610,8 +610,8 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
                   onClick={() => { setFilterMode(opt.val); setFilterValue(""); }}
                   className={`text-xs px-2.5 py-1 rounded-full border transition ${
                     filterMode === opt.val
-                      ? "border-stone-900 bg-stone-900 text-white"
-                      : "border-stone-200 text-stone-600 hover:border-stone-400"
+                      ? "border-brand bg-brand text-white"
+                      : "border-app-border text-text-muted hover:border-app-border"
                   }`}
                 >
                   {opt.label}
@@ -621,21 +621,21 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 
             {filterMode === "tag" && (
               <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white mb-2 focus:outline-none">
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white mb-2 focus:outline-none">
                 <option value="">All tags</option>
                 {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             )}
             {filterMode === "membership" && (
               <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white mb-2 focus:outline-none">
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white mb-2 focus:outline-none">
                 <option value="">All memberships</option>
                 {allMemberships.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             )}
             {filterMode === "status" && (
               <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white mb-2 focus:outline-none">
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white mb-2 focus:outline-none">
                 <option value="">All statuses</option>
                 <option value="ACTIVE">Active</option>
                 <option value="PROSPECT">Prospect</option>
@@ -644,27 +644,27 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             )}
 
             {/* Member list */}
-            <div className="border border-stone-200 rounded-lg overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 bg-stone-50 border-b border-stone-200">
-                <span className="text-xs text-stone-600 font-medium">
+            <div className="border border-app-border rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 bg-app-bg border-b border-app-border">
+                <span className="text-xs text-text-muted font-medium">
                   {filteredUsers.length} people · {selectedIds.size} selected
                 </span>
                 <div className="flex gap-2">
-                  <button type="button" onClick={selectAll} className="text-[10px] text-stone-600 hover:text-stone-900">Select all</button>
-                  <button type="button" onClick={clearAll} className="text-[10px] text-stone-400 hover:text-stone-600">Clear</button>
+                  <button type="button" onClick={selectAll} className="text-[10px] text-text-muted hover:text-text-primary">Select all</button>
+                  <button type="button" onClick={clearAll} className="text-[10px] text-text-muted hover:text-text-muted">Clear</button>
                 </div>
               </div>
               <div className="max-h-48 overflow-y-auto">
                 {filteredUsers.map((u) => (
-                  <label key={u.id} className="flex items-center gap-2 px-3 py-2 hover:bg-stone-50 cursor-pointer border-b border-stone-100 last:border-0">
+                  <label key={u.id} className="flex items-center gap-2 px-3 py-2 hover:bg-app-bg cursor-pointer border-b border-app-border last:border-0">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(u.id)}
                       onChange={() => toggleUser(u.id)}
                       className="w-3.5 h-3.5 accent-stone-900 flex-shrink-0"
                     />
-                    <span className="text-sm text-stone-900">{u.firstName} {u.lastName}</span>
-                    <span className="text-xs text-stone-400">{u.role.charAt(0) + u.role.slice(1).toLowerCase()}</span>
+                    <span className="text-sm text-text-primary">{u.firstName} {u.lastName}</span>
+                    <span className="text-xs text-text-muted">{u.role.charAt(0) + u.role.slice(1).toLowerCase()}</span>
                   </label>
                 ))}
               </div>
@@ -675,11 +675,11 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">
+              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Creating…" : "Create group"}
             </button>
           </div>
@@ -735,43 +735,43 @@ function DMsTab() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden" style={{ height: 520 }}>
+    <div className="bg-white rounded-xl border border-app-border overflow-hidden" style={{ height: 520 }}>
       <div className="flex h-full">
         {/* Sidebar */}
-        <div className="w-64 border-r border-stone-200 flex flex-col flex-shrink-0">
-          <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between">
-            <span className="text-sm font-semibold text-stone-900">Direct Messages</span>
+        <div className="w-64 border-r border-app-border flex flex-col flex-shrink-0">
+          <div className="px-4 py-3 border-b border-app-border flex items-center justify-between">
+            <span className="text-sm font-semibold text-text-primary">Direct Messages</span>
             <button
               onClick={() => setShowCompose(true)}
-              className="text-xs px-2 py-1 rounded bg-stone-900 text-white hover:bg-stone-700"
+              className="text-xs px-2 py-1 rounded bg-brand text-white hover:bg-brand-hover"
             >
               + New
             </button>
           </div>
           <div className="flex-1 overflow-y-auto">
             {loading ? (
-              <div className="p-4 text-sm text-stone-400 text-center">Loading…</div>
+              <div className="p-4 text-sm text-text-muted text-center">Loading…</div>
             ) : conversations.length === 0 ? (
-              <div className="p-4 text-xs text-stone-400 text-center">No conversations yet.</div>
+              <div className="p-4 text-xs text-text-muted text-center">No conversations yet.</div>
             ) : (
               conversations.map((c) => (
                 <button
                   key={c.user.id}
                   onClick={() => setActiveUser(c.user)}
-                  className={`w-full text-left px-4 py-3 border-b border-stone-100 hover:bg-stone-50 ${activeUser?.id === c.user.id ? "bg-stone-100" : ""}`}
+                  className={`w-full text-left px-4 py-3 border-b border-app-border hover:bg-app-bg ${activeUser?.id === c.user.id ? "bg-app-bg" : ""}`}
                 >
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-stone-200 flex items-center justify-center text-xs font-medium text-stone-700 flex-shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary flex-shrink-0">
                       {c.user.firstName[0]}{c.user.lastName[0]}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-stone-900">{c.user.firstName} {c.user.lastName}</span>
+                        <span className="text-xs font-medium text-text-primary">{c.user.firstName} {c.user.lastName}</span>
                         {c.unread > 0 && (
-                          <span className="text-[10px] bg-stone-900 text-white rounded-full w-4 h-4 flex items-center justify-center">{c.unread}</span>
+                          <span className="text-[10px] bg-brand text-white rounded-full w-4 h-4 flex items-center justify-center">{c.unread}</span>
                         )}
                       </div>
-                      <p className="text-[10px] text-stone-400 truncate">{c.lastMessage.body}</p>
+                      <p className="text-[10px] text-text-muted truncate">{c.lastMessage.body}</p>
                     </div>
                   </div>
                 </button>
@@ -785,18 +785,18 @@ function DMsTab() {
           {!activeUser ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <div className="text-3xl text-stone-200 mb-2">💬</div>
-                <p className="text-sm text-stone-400">Select a conversation or start a new one</p>
+                <div className="text-3xl text-text-muted mb-2">💬</div>
+                <p className="text-sm text-text-muted">Select a conversation or start a new one</p>
               </div>
             </div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b border-stone-200 flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-stone-200 flex items-center justify-center text-xs font-medium text-stone-700">
+              <div className="px-4 py-3 border-b border-app-border flex items-center gap-2">
+                <div className="w-7 h-7 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary">
                   {activeUser.firstName[0]}{activeUser.lastName[0]}
                 </div>
-                <span className="text-sm font-semibold text-stone-900">{activeUser.firstName} {activeUser.lastName}</span>
-                <span className="text-xs text-stone-400">{activeUser.role.charAt(0) + activeUser.role.slice(1).toLowerCase()}</span>
+                <span className="text-sm font-semibold text-text-primary">{activeUser.firstName} {activeUser.lastName}</span>
+                <span className="text-xs text-text-muted">{activeUser.role.charAt(0) + activeUser.role.slice(1).toLowerCase()}</span>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -804,9 +804,9 @@ function DMsTab() {
                   const mine = m.sender.id === session?.user?.id;
                   return (
                     <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[70%] px-3 py-2 rounded-xl text-sm ${mine ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-900"}`}>
+                      <div className={`max-w-[70%] px-3 py-2 rounded-xl text-sm ${mine ? "bg-brand text-white" : "bg-app-bg text-text-primary"}`}>
                         <p>{m.body}</p>
-                        <p className="text-[10px] mt-1 text-stone-400">
+                        <p className="text-[10px] mt-1 text-text-muted">
                           {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                         </p>
                       </div>
@@ -816,16 +816,16 @@ function DMsTab() {
                 <div ref={bottomRef} />
               </div>
 
-              <form onSubmit={sendMessage} className="p-3 border-t border-stone-200 flex gap-2">
+              <form onSubmit={sendMessage} className="p-3 border-t border-app-border flex gap-2">
                 <input
                   type="text"
                   value={msgBody}
                   onChange={(e) => setMsgBody(e.target.value)}
                   placeholder="Type a message…"
-                  className="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                  className="flex-1 px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                 />
                 <button type="submit" disabled={sending || !msgBody.trim()}
-                  className="px-3 py-2 bg-stone-900 text-white rounded-lg text-sm hover:bg-stone-700 disabled:opacity-50">
+                  className="px-3 py-2 bg-brand text-white rounded-lg text-sm hover:bg-brand-hover disabled:opacity-50">
                   Send
                 </button>
               </form>
@@ -883,15 +883,15 @@ function DMComposeModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-md">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-stone-900">New direct message</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">New direct message</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
         <form onSubmit={handleSend} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">To</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">To</label>
             <select value={selected} onChange={(e) => setSelected(e.target.value)} required
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
               <option value="">Select a staff member…</option>
               {staffList.map((u) => (
                 <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
@@ -899,15 +899,15 @@ function DMComposeModal({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Message</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Message</label>
             <textarea value={body} onChange={(e) => setBody(e.target.value)} required rows={4}
               placeholder="Type your message…"
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 resize-none" />
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
           </div>
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={sending} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={sending} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {sending ? "Sending…" : "Send"}
             </button>
           </div>

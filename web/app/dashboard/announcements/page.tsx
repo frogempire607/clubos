@@ -22,9 +22,9 @@ function getStatus(a: Announcement): Status {
 }
 
 const statusStyle: Record<Status, { bg: string; fg: string; label: string }> = {
-  LIVE:      { bg: "#EAF3DE", fg: "#27500A", label: "Live" },
-  SCHEDULED: { bg: "#FAEEDA", fg: "#633806", label: "Scheduled" },
-  EXPIRED:   { bg: "#F1EFE8", fg: "#5F5E5A", label: "Expired" },
+  LIVE:      { bg: "var(--color-success)", fg: "var(--color-text)", label: "Live" },
+  SCHEDULED: { bg: "var(--color-warning)", fg: "#fff", label: "Scheduled" },
+  EXPIRED:   { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Expired" },
 };
 
 const CHANNELS = [
@@ -68,27 +68,27 @@ export default function AnnouncementsPage() {
     <div className="p-8 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-stone-900 mb-1">Announcements</h1>
-          <p className="text-sm text-stone-500">Broadcast messages to all members</p>
+          <h1 className="text-3xl font-semibold text-text-primary mb-1">Announcements</h1>
+          <p className="text-sm text-text-muted">Broadcast messages to all members</p>
         </div>
         <button
           onClick={() => { setEditing(null); setShowModal(true); }}
-          className="px-4 py-2 bg-[#534AB7] text-white rounded-lg text-sm font-medium hover:bg-[#4239a6] transition-colors"
+          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors"
         >
           + New announcement
         </button>
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-1 bg-stone-100 rounded-lg p-1 mb-6 w-fit">
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit">
         {FILTER_OPTIONS.map((f) => (
           <button
             key={f.value}
             onClick={() => setFilter(f.value)}
             className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
               filter === f.value
-                ? "bg-white shadow-sm text-stone-900 font-medium"
-                : "text-stone-600 hover:text-stone-900"
+                ? "bg-white shadow-sm text-text-primary font-medium"
+                : "text-text-muted hover:text-text-primary"
             }`}
           >
             {f.label}
@@ -97,19 +97,19 @@ export default function AnnouncementsPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-16 text-stone-400 text-sm">Loading…</div>
+        <div className="text-center py-16 text-text-muted text-sm">Loading…</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-stone-200">
+        <div className="text-center py-16 bg-white rounded-xl border border-app-border">
           <div className="text-4xl mb-3">📢</div>
-          <h3 className="text-lg font-medium text-stone-900 mb-1">
+          <h3 className="text-lg font-medium text-text-primary mb-1">
             {filter === "ALL" ? "No announcements yet" : `No ${filter.toLowerCase()} announcements`}
           </h3>
-          <p className="text-sm text-stone-500 mb-4">
+          <p className="text-sm text-text-muted mb-4">
             Create your first announcement to reach all members at once.
           </p>
           <button
             onClick={() => { setEditing(null); setShowModal(true); }}
-            className="px-4 py-2 bg-[#534AB7] text-white rounded-lg text-sm font-medium hover:bg-[#4239a6] transition-colors"
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors"
           >
             + New announcement
           </button>
@@ -121,7 +121,7 @@ export default function AnnouncementsPage() {
             const s = statusStyle[st];
             const channelList = a.channels.split(",").map((c) => c.trim()).filter(Boolean);
             return (
-              <div key={a.id} className="bg-white rounded-xl border border-stone-200 p-5 hover:border-stone-300 transition-colors">
+              <div key={a.id} className="bg-white rounded-xl border border-app-border p-5 hover:border-app-border transition-colors">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -133,15 +133,15 @@ export default function AnnouncementsPage() {
                       </span>
                       <div className="flex gap-1">
                         {CHANNELS.filter((c) => channelList.includes(c.id)).map((c) => (
-                          <span key={c.id} className="text-xs px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">
+                          <span key={c.id} className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
                             {c.icon} {c.label}
                           </span>
                         ))}
                       </div>
                     </div>
-                    <h3 className="text-base font-semibold text-stone-900 mb-1">{a.title}</h3>
-                    <p className="text-sm text-stone-500 line-clamp-2">{a.body}</p>
-                    <div className="mt-2 text-xs text-stone-400 flex gap-3">
+                    <h3 className="text-base font-semibold text-text-primary mb-1">{a.title}</h3>
+                    <p className="text-sm text-text-muted line-clamp-2">{a.body}</p>
+                    <div className="mt-2 text-xs text-text-muted flex gap-3">
                       {a.publishAt && (
                         <span>Publishes {new Date(a.publishAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
                       )}
@@ -153,7 +153,7 @@ export default function AnnouncementsPage() {
                   <div className="flex gap-1 flex-shrink-0">
                     <button
                       onClick={() => { setEditing(a); setShowModal(true); }}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 transition-colors"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-muted hover:bg-app-bg transition-colors"
                     >
                       Edit
                     </button>
@@ -250,11 +250,11 @@ function AnnouncementModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-stone-900">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
+          <h2 className="text-lg font-semibold text-text-primary">
             {isEdit ? "Edit announcement" : "New announcement"}
           </h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -263,7 +263,7 @@ function AnnouncementModal({
           )}
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
+            <label className="block text-sm font-medium text-text-primary mb-1">
               Title <span className="text-red-500">*</span>
             </label>
             <input
@@ -272,12 +272,12 @@ function AnnouncementModal({
               onChange={(e) => setTitle(e.target.value)}
               required
               placeholder="Summer camp registration open!"
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#534AB7]"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
+            <label className="block text-sm font-medium text-text-primary mb-1">
               Body <span className="text-red-500">*</span>
             </label>
             <textarea
@@ -286,13 +286,13 @@ function AnnouncementModal({
               required
               rows={5}
               placeholder="Write your announcement here…"
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#534AB7] resize-none"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none"
             />
           </div>
 
           {/* Channels */}
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-2">Delivery channels</label>
+            <label className="block text-sm font-medium text-text-primary mb-2">Delivery channels</label>
             <div className="flex gap-2 flex-wrap">
               {CHANNELS.map((c) => (
                 <button
@@ -301,43 +301,43 @@ function AnnouncementModal({
                   onClick={() => toggleChannel(c.id)}
                   className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
                     channels.includes(c.id)
-                      ? "bg-[#534AB7] border-[#534AB7] text-white"
-                      : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                      ? "bg-brand border-brand text-white"
+                      : "border-app-border text-text-muted hover:bg-app-bg"
                   }`}
                 >
                   {c.icon} {c.label}
                 </button>
               ))}
             </div>
-            <p className="text-xs text-stone-400 mt-1">Email requires SMTP to be configured in your .env</p>
+            <p className="text-xs text-text-muted mt-1">Email requires SMTP to be configured in your .env</p>
           </div>
 
           {/* Schedule */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Publish at (optional)</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Publish at (optional)</label>
               <input
                 type="datetime-local"
                 value={publishAt}
                 onChange={(e) => setPublishAt(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#534AB7]"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
-              <p className="text-xs text-stone-400 mt-1">Leave blank to publish now</p>
+              <p className="text-xs text-text-muted mt-1">Leave blank to publish now</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Unpublish at (optional)</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Unpublish at (optional)</label>
               <input
                 type="datetime-local"
                 value={unpublishAt}
                 onChange={(e) => setUnpublishAt(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#534AB7]"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
           </div>
 
           {/* Email blast option */}
           {!isEdit && channels.includes("email") && (
-            <div className="flex items-center gap-3 py-2 px-3 border border-[#534AB7]/20 bg-[#534AB7]/5 rounded-lg">
+            <div className="flex items-center gap-3 py-2 px-3 border border-brand/20 bg-brand/5 rounded-lg">
               <input
                 type="checkbox"
                 id="sendNow"
@@ -345,7 +345,7 @@ function AnnouncementModal({
                 onChange={(e) => setSendNow(e.target.checked)}
                 className="rounded"
               />
-              <label htmlFor="sendNow" className="text-sm text-stone-700 cursor-pointer">
+              <label htmlFor="sendNow" className="text-sm text-text-primary cursor-pointer">
                 Send email immediately to all active members
               </label>
             </div>
@@ -355,14 +355,14 @@ function AnnouncementModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50"
+              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 px-4 py-2 bg-[#534AB7] text-white rounded-lg text-sm font-medium hover:bg-[#4239a6] disabled:opacity-50 transition-colors"
+              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 transition-colors"
             >
               {saving ? "Saving…" : isEdit ? "Save changes" : "Publish"}
             </button>

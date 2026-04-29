@@ -45,14 +45,14 @@ export default function ImageUpload({ value, onChange, label, shape = "square", 
   return (
     <div>
       {label && (
-        <label className="block text-sm font-medium text-stone-700 mb-2">{label}</label>
+        <label className="block text-sm font-medium text-text-primary mb-2">{label}</label>
       )}
       <div className="flex items-center gap-4">
         {/* Preview */}
         <div
           style={{
             width: 72, height: 72, borderRadius: radius, flexShrink: 0,
-            background: "#F5F3EE", border: "1px solid #E7E5E4",
+            background: "var(--color-bg)", border: "1px solid var(--color-border)",
             overflow: "hidden",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
@@ -61,7 +61,7 @@ export default function ImageUpload({ value, onChange, label, shape = "square", 
             // eslint-disable-next-line @next/next/no-img-element
             <img src={value} alt="Preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
-            <span style={{ color: "#c7c3bd", fontSize: 26 }}>{placeholder}</span>
+            <span style={{ color: "var(--color-muted)", fontSize: 26 }}>{placeholder}</span>
           )}
         </div>
 
@@ -72,7 +72,7 @@ export default function ImageUpload({ value, onChange, label, shape = "square", 
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={busy}
-              className="text-sm px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50 transition-colors"
+              className="text-sm px-3 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50 transition-colors"
             >
               {busy ? "Uploading…" : value ? "Change photo" : "Choose photo"}
             </button>
@@ -86,7 +86,7 @@ export default function ImageUpload({ value, onChange, label, shape = "square", 
               </button>
             )}
           </div>
-          <p className="text-xs text-stone-400 mt-1.5">JPG, PNG, WebP — max 10 MB</p>
+          <p className="text-xs text-text-muted mt-1.5">JPG, PNG, WebP — max 10 MB</p>
           {err && <p className="text-xs text-red-500 mt-1">{err}</p>}
         </div>
       </div>

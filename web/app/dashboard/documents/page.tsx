@@ -18,11 +18,11 @@ type Doc = {
 };
 
 const typeColors: Record<string, { bg: string; fg: string }> = {
-  Waiver: { bg: "#FCE4E0", fg: "#7B2415" },
-  Policy: { bg: "#E6F1FB", fg: "#0C447C" },
-  Agreement: { bg: "#EEEDFE", fg: "#3C3489" },
-  Handbook: { bg: "#EAF3DE", fg: "#27500A" },
-  Other: { bg: "#F1EFE8", fg: "#5F5E5A" },
+  Waiver: { bg: "var(--color-warning)", fg: "#fff" },
+  Policy: { bg: "var(--color-primary)", fg: "#fff" },
+  Agreement: { bg: "var(--color-primary)", fg: "#fff" },
+  Handbook: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  Other: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 
 const triggerLabels: Record<string, string> = {
@@ -58,31 +58,31 @@ export default function DocumentsPage() {
     <div className="p-8 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-stone-900 mb-1">Documents</h1>
-          <p className="text-sm text-stone-500">
+          <h1 className="text-3xl font-semibold text-text-primary mb-1">Documents</h1>
+          <p className="text-sm text-text-muted">
             Waivers, policies, handbooks, and agreements for your club.
           </p>
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
         >
           + New document
         </button>
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : docs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <div className="text-4xl mb-2 text-stone-300">▤</div>
-          <h3 className="text-lg font-medium text-stone-900 mb-1">No documents yet</h3>
-          <p className="text-sm text-stone-500 mb-4">
+        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
+          <div className="text-4xl mb-2 text-text-muted">▤</div>
+          <h3 className="text-lg font-medium text-text-primary mb-1">No documents yet</h3>
+          <p className="text-sm text-text-muted mb-4">
             Add waivers, policies, and handbooks that members need to review.
           </p>
           <button
             onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
           >
             Create your first document
           </button>
@@ -94,12 +94,12 @@ export default function DocumentsPage() {
             return (
               <div
                 key={d.id}
-                className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
+                className="bg-white rounded-xl border border-app-border p-4 hover:shadow-sm transition"
               >
                 <div className="flex items-center gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h3 className="text-sm font-semibold text-stone-900">{d.title}</h3>
+                      <h3 className="text-sm font-semibold text-text-primary">{d.title}</h3>
                       <span
                         className="text-[10px] px-2 py-0.5 rounded-full font-medium"
                         style={{ background: c.bg, color: c.fg }}
@@ -112,25 +112,25 @@ export default function DocumentsPage() {
                         </span>
                       )}
                       {d.requiresGuardianSignature && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/10 text-orange-accent">
                           Guardian sig
                         </span>
                       )}
                       {d.deliveryTrigger && d.deliveryTrigger !== "MANUAL" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand/10 text-brand">
                           {triggerLabels[d.deliveryTrigger] || d.deliveryTrigger}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-stone-500 line-clamp-1">
+                    <p className="text-xs text-text-muted line-clamp-1">
                       {d.body ? stripHtml(d.body) : "No content yet"}
                     </p>
                     <div className="flex items-center gap-3 mt-1">
-                      <p className="text-[10px] text-stone-400">
+                      <p className="text-[10px] text-text-muted">
                         Updated {new Date(d.updatedAt).toLocaleDateString()}
                       </p>
                       {d.expiresAt && (
-                        <p className="text-[10px] text-stone-400">
+                        <p className="text-[10px] text-text-muted">
                           Expires {new Date(d.expiresAt).toLocaleDateString()}
                         </p>
                       )}
@@ -139,13 +139,13 @@ export default function DocumentsPage() {
                   <div className="flex gap-1 flex-shrink-0">
                     <button
                       onClick={() => setViewing(d)}
-                      className="text-xs text-stone-600 hover:text-stone-900 px-2 py-1 rounded hover:bg-stone-100"
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
                     >
                       View
                     </button>
                     <button
                       onClick={() => setEditing(d)}
-                      className="text-xs text-stone-600 hover:text-stone-900 px-2 py-1 rounded hover:bg-stone-100"
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
                     >
                       Edit
                     </button>
@@ -189,7 +189,7 @@ type FormatCmd = "bold" | "italic" | "underline";
 function RichEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [fontSize, setFontSize] = useState("14px");
-  const [color, setColor] = useState("#1C1917");
+  const [color, setColor] = useState("#111111");
 
   function exec(cmd: FormatCmd) {
     document.execCommand(cmd, false);
@@ -229,38 +229,38 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
     }
   }, []);
 
-  const TEXT_COLORS = ["#1C1917", "#7B2415", "#0C447C", "#27500A", "#633806", "#78716C"];
+  const TEXT_COLORS = ["#111111", "#6D5DF6", "#A3E635", "#FF6A00", "#A32D2D", "#6B7280"];
   const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px"];
 
   return (
-    <div className="border border-stone-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-stone-900">
+    <div className="border border-app-border rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-stone-900">
       {/* Toolbar */}
-      <div className="flex items-center gap-1 px-2 py-1.5 bg-stone-50 border-b border-stone-200 flex-wrap">
+      <div className="flex items-center gap-1 px-2 py-1.5 bg-app-bg border-b border-app-border flex-wrap">
         {(["bold", "italic", "underline"] as FormatCmd[]).map((cmd) => (
           <button
             key={cmd}
             type="button"
             onMouseDown={(e) => { e.preventDefault(); exec(cmd); }}
-            className="w-7 h-7 flex items-center justify-center rounded text-stone-700 hover:bg-stone-200 text-sm"
+            className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border text-sm"
             title={cmd}
           >
             {cmd === "bold" ? <b>B</b> : cmd === "italic" ? <i>I</i> : <u>U</u>}
           </button>
         ))}
 
-        <div className="w-px h-4 bg-stone-300 mx-0.5" />
+        <div className="w-px h-4 bg-app-border mx-0.5" />
 
         <select
           value={fontSize}
           onChange={(e) => applySize(e.target.value)}
-          className="h-7 text-xs border border-stone-200 rounded px-1 bg-white text-stone-700 focus:outline-none"
+          className="h-7 text-xs border border-app-border rounded px-1 bg-white text-text-primary focus:outline-none"
         >
           {FONT_SIZES.map((s) => (
             <option key={s} value={s}>{s.replace("px", "")}</option>
           ))}
         </select>
 
-        <div className="w-px h-4 bg-stone-300 mx-0.5" />
+        <div className="w-px h-4 bg-app-border mx-0.5" />
 
         <div className="flex items-center gap-1">
           {TEXT_COLORS.map((c) => (
@@ -268,7 +268,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
               key={c}
               type="button"
               onMouseDown={(e) => { e.preventDefault(); applyColor(c); }}
-              className={`w-4 h-4 rounded-full border-2 transition ${color === c ? "border-stone-500" : "border-transparent"}`}
+              className={`w-4 h-4 rounded-full border-2 transition ${color === c ? "border-app-border" : "border-transparent"}`}
               style={{ background: c }}
               title={c}
             />
@@ -277,17 +277,17 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
             type="color"
             value={color}
             onChange={(e) => applyColor(e.target.value)}
-            className="w-5 h-5 rounded cursor-pointer border border-stone-200"
+            className="w-5 h-5 rounded cursor-pointer border border-app-border"
             title="Custom color"
           />
         </div>
 
-        <div className="w-px h-4 bg-stone-300 mx-0.5" />
+        <div className="w-px h-4 bg-app-border mx-0.5" />
 
         <button
           type="button"
           onMouseDown={(e) => { e.preventDefault(); document.execCommand("insertUnorderedList", false); sync(); }}
-          className="w-7 h-7 flex items-center justify-center rounded text-stone-700 hover:bg-stone-200 text-xs"
+          className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border text-xs"
           title="Bullet list"
         >
           ≡
@@ -295,7 +295,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
         <button
           type="button"
           onMouseDown={(e) => { e.preventDefault(); document.execCommand("removeFormat", false); sync(); }}
-          className="w-7 h-7 flex items-center justify-center rounded text-stone-700 hover:bg-stone-200 text-xs"
+          className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border text-xs"
           title="Clear formatting"
         >
           ✕
@@ -308,7 +308,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
         contentEditable
         suppressContentEditableWarning
         onInput={sync}
-        className="min-h-[240px] p-4 text-sm text-stone-900 leading-relaxed focus:outline-none"
+        className="min-h-[240px] p-4 text-sm text-text-primary leading-relaxed focus:outline-none"
         style={{ fontFamily: "inherit" }}
         data-placeholder="Write the full document content here…"
       />
@@ -372,32 +372,32 @@ function DocumentModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white z-10">
-          <h2 className="text-lg font-semibold text-stone-900">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white z-10">
+          <h2 className="text-lg font-semibold text-text-primary">
             {isEdit ? "Edit document" : "New document"}
           </h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Title</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Title</label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
                 placeholder="Liability Waiver"
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Type</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Type</label>
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand"
               >
                 <option>Waiver</option>
                 <option>Policy</option>
@@ -409,17 +409,17 @@ function DocumentModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Content</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Content</label>
             <RichEditor value={body} onChange={setBody} />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Show to member</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Show to member</label>
               <select
                 value={deliveryTrigger}
                 onChange={(e) => setDeliveryTrigger(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand"
               >
                 <option value="MANUAL">Manually</option>
                 <option value="MEMBERSHIP">On membership purchase</option>
@@ -428,14 +428,14 @@ function DocumentModal({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Expires (optional)</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Expires (optional)</label>
               <input
                 type="date"
                 value={expiresAt}
                 onChange={(e) => setExpiresAt(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
-              <p className="text-[10px] text-stone-400 mt-1">Member must re-sign after this date</p>
+              <p className="text-[10px] text-text-muted mt-1">Member must re-sign after this date</p>
             </div>
           </div>
 
@@ -447,7 +447,7 @@ function DocumentModal({
                 onChange={(e) => setRequired(e.target.checked)}
                 className="w-4 h-4 accent-stone-900"
               />
-              <span className="text-sm text-stone-700">
+              <span className="text-sm text-text-primary">
                 Required — members must sign before participating
               </span>
             </label>
@@ -459,7 +459,7 @@ function DocumentModal({
                 onChange={(e) => setRequiresGuardianSignature(e.target.checked)}
                 className="w-4 h-4 accent-stone-900"
               />
-              <span className="text-sm text-stone-700">
+              <span className="text-sm text-text-primary">
                 Requires guardian signature for minors
               </span>
             </label>
@@ -471,11 +471,11 @@ function DocumentModal({
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">
+              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : isEdit ? "Save changes" : "Create document"}
             </button>
           </div>
@@ -490,9 +490,9 @@ function DocumentViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-lg font-semibold text-stone-900">{doc.title}</h2>
+            <h2 className="text-lg font-semibold text-text-primary">{doc.title}</h2>
             <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
               {doc.type}
             </span>
@@ -500,22 +500,22 @@ function DocumentViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
               <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">Required</span>
             )}
             {doc.requiresGuardianSignature && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">Guardian sig</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/10 text-orange-accent">Guardian sig</span>
             )}
           </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
         <div className="p-6">
           {doc.body ? (
             <div
-              className="text-sm text-stone-700 leading-relaxed prose max-w-none"
+              className="text-sm text-text-primary leading-relaxed prose max-w-none"
               dangerouslySetInnerHTML={{ __html: doc.body }}
             />
           ) : (
-            <p className="text-sm text-stone-400 italic">No content added yet.</p>
+            <p className="text-sm text-text-muted italic">No content added yet.</p>
           )}
           {doc.expiresAt && (
-            <p className="text-xs text-stone-400 mt-6 pt-4 border-t border-stone-100">
+            <p className="text-xs text-text-muted mt-6 pt-4 border-t border-app-border">
               Expires: {new Date(doc.expiresAt).toLocaleDateString()}
             </p>
           )}

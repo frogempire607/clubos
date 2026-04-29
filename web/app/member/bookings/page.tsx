@@ -17,19 +17,19 @@ type Booking = {
 };
 
 const builtInColors: Record<string, { bg: string; fg: string }> = {
-  CLASS: { bg: "#E6F1FB", fg: "#0C447C" },
-  PRIVATE: { bg: "#EEEDFE", fg: "#3C3489" },
-  CLINIC: { bg: "#EAF3DE", fg: "#27500A" },
-  CAMP: { bg: "#FAEEDA", fg: "#633806" },
+  CLASS: { bg: "var(--color-primary)", fg: "#fff" },
+  PRIVATE: { bg: "var(--color-primary)", fg: "#fff" },
+  CLINIC: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  CAMP: { bg: "var(--color-warning)", fg: "#fff" },
   TOURNAMENT: { bg: "#FCE4E0", fg: "#7B2415" },
-  OTHER: { bg: "#F1EFE8", fg: "#5F5E5A" },
+  OTHER: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 
 const statusBadge: Record<string, { bg: string; fg: string; label: string }> = {
-  CONFIRMED: { bg: "#EAF3DE", fg: "#27500A", label: "Confirmed" },
-  WAITLISTED: { bg: "#FAEEDA", fg: "#633806", label: "Waitlisted" },
-  CANCELED: { bg: "#F1EFE8", fg: "#5F5E5A", label: "Canceled" },
-  ATTENDED: { bg: "#E6F1FB", fg: "#0C447C", label: "Attended" },
+  CONFIRMED: { bg: "var(--color-success)", fg: "var(--color-text)", label: "Confirmed" },
+  WAITLISTED: { bg: "var(--color-warning)", fg: "#fff", label: "Waitlisted" },
+  CANCELED: { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Canceled" },
+  ATTENDED: { bg: "var(--color-primary)", fg: "#fff", label: "Attended" },
   NO_SHOW: { bg: "#FCE4E0", fg: "#7B2415", label: "No show" },
 };
 

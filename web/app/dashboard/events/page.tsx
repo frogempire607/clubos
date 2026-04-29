@@ -49,12 +49,12 @@ type Event = {
 type Member = { id: string; firstName: string; lastName: string };
 
 const BUILT_IN_COLORS: Record<BuiltInType, { bg: string; fg: string }> = {
-  CLASS: { bg: "#E6F1FB", fg: "#0C447C" },
-  PRIVATE: { bg: "#EEEDFE", fg: "#3C3489" },
-  CLINIC: { bg: "#EAF3DE", fg: "#27500A" },
-  CAMP: { bg: "#FAEEDA", fg: "#633806" },
-  TOURNAMENT: { bg: "#FCE4E0", fg: "#7B2415" },
-  OTHER: { bg: "#F1EFE8", fg: "#5F5E5A" },
+  CLASS: { bg: "var(--color-primary)", fg: "#fff" },
+  PRIVATE: { bg: "var(--color-primary)", fg: "#fff" },
+  CLINIC: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  CAMP: { bg: "var(--color-warning)", fg: "#fff" },
+  TOURNAMENT: { bg: "var(--color-warning)", fg: "#fff" },
+  OTHER: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 const BUILT_IN_LABELS: Record<BuiltInType, string> = {
   CLASS: "Class", PRIVATE: "Private", CLINIC: "Clinic", CAMP: "Camp", TOURNAMENT: "Tournament", OTHER: "Other",
@@ -104,8 +104,8 @@ export default function EventsPage() {
 
   function getPublishStatus(e: Event): { label: string; bg: string; fg: string } | null {
     const now = new Date();
-    if (e.publishAt && new Date(e.publishAt) > now) return { label: "Scheduled", bg: "#FAEEDA", fg: "#633806" };
-    if (e.unpublishAt && new Date(e.unpublishAt) < now) return { label: "Unpublished", bg: "#F1EFE8", fg: "#5F5E5A" };
+    if (e.publishAt && new Date(e.publishAt) > now) return { label: "Scheduled", bg: "var(--color-warning)", fg: "#fff" };
+    if (e.unpublishAt && new Date(e.unpublishAt) < now) return { label: "Unpublished", bg: "var(--color-bg)", fg: "var(--color-muted)" };
     return null;
   }
 
@@ -115,35 +115,35 @@ export default function EventsPage() {
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-stone-900 mb-1">Events</h1>
-          <p className="text-sm text-stone-500">Classes, privates, clinics, camps, tournaments</p>
+          <h1 className="text-3xl font-semibold text-text-primary mb-1">Events</h1>
+          <p className="text-sm text-text-muted">Classes, privates, clinics, camps, tournaments</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-stone-200 text-stone-700 hover:bg-stone-50">
+          <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
             Manage event types
           </button>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             + Add event
           </button>
         </div>
       </div>
 
-      <div className="flex gap-1 bg-stone-100 rounded-lg p-1 mb-4 w-fit">
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-4 w-fit">
         {(["upcoming", "past", "all"] as const).map((f) => (
-          <button key={f} onClick={() => setFilter(f)} className={`text-xs px-3 py-1.5 rounded-md transition ${filter === f ? "bg-white shadow-sm text-stone-900 font-medium" : "text-stone-600"}`}>
+          <button key={f} onClick={() => setFilter(f)} className={`text-xs px-3 py-1.5 rounded-md transition ${filter === f ? "bg-surface shadow-sm text-text-primary font-medium" : "text-text-muted"}`}>
             {f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
+        <div className="bg-surface rounded-xl border border-app-border p-12 text-center">
           <div className="text-4xl mb-2">◈</div>
-          <h3 className="text-lg font-medium text-stone-900 mb-1">No events</h3>
-          <p className="text-sm text-stone-500 mb-4">{filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}</p>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+          <h3 className="text-lg font-medium text-text-primary mb-1">No events</h3>
+          <p className="text-sm text-text-muted mb-4">{filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}</p>
+          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             + Schedule your first event
           </button>
         </div>
@@ -156,24 +156,24 @@ export default function EventsPage() {
             const isFull = e.capacity && e._count.bookings >= e.capacity;
             const pubStatus = getPublishStatus(e);
             return (
-              <div key={e.id} className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition">
+              <div key={e.id} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition">
                 <div className="flex items-start gap-4">
-                  <div className="w-14 text-center bg-stone-50 rounded-lg py-2 flex-shrink-0">
-                    <div className="text-[10px] uppercase font-medium text-stone-500">{start.toLocaleString("en-US", { month: "short" })}</div>
-                    <div className="text-xl font-semibold text-stone-900 leading-tight">{start.getDate()}</div>
+                  <div className="w-14 text-center bg-app-bg rounded-lg py-2 flex-shrink-0">
+                    <div className="text-[10px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short" })}</div>
+                    <div className="text-xl font-semibold text-text-primary leading-tight">{start.getDate()}</div>
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h3 className="text-base font-semibold text-stone-900 truncate">{e.name}</h3>
+                      <h3 className="text-base font-semibold text-text-primary truncate">{e.name}</h3>
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: td.bg, color: td.fg }}>{td.name}</span>
                       {pubStatus && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: pubStatus.bg, color: pubStatus.fg }}>{pubStatus.label}</span>}
-                      {isFull && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-stone-900 text-white">Full</span>}
-                      {e.visibility === "MEMBERS_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">Members only</span>}
-                      {e.visibility === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-stone-900 text-white">Staff only</span>}
-                      {e.purchaseAccess === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-stone-300 text-stone-600">Staff books</span>}
+                      {isFull && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand text-white">Full</span>}
+                      {e.visibility === "MEMBERS_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Members only</span>}
+                      {e.visibility === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand text-white">Staff only</span>}
+                      {e.purchaseAccess === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-app-border text-text-muted">Staff books</span>}
                     </div>
-                    <div className="text-xs text-stone-500 flex items-center gap-3 flex-wrap">
+                    <div className="text-xs text-text-muted flex items-center gap-3 flex-wrap">
                       <span>
                         {start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}
                         {" – "}
@@ -192,7 +192,7 @@ export default function EventsPage() {
                     {e.sessions.length > 1 && (
                       <div className="mt-1.5 flex flex-wrap gap-2">
                         {e.sessions.map((s, i) => (
-                          <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-stone-50 border border-stone-200 text-stone-600">
+                          <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-app-bg border border-app-border text-text-muted">
                             {s.name || `Session ${i + 1}`}: {new Date(s.startsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}–{new Date(s.endsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}
                           </span>
                         ))}
@@ -201,8 +201,8 @@ export default function EventsPage() {
                   </div>
 
                   <div className="flex gap-1 flex-shrink-0">
-                    <button onClick={() => setViewingBookings(e.id)} className="text-xs text-stone-600 hover:text-stone-900 px-2 py-1 rounded hover:bg-stone-100">Bookings</button>
-                    <button onClick={() => setEditing(e)} className="text-xs text-stone-600 hover:text-stone-900 px-2 py-1 rounded hover:bg-stone-100">Edit</button>
+                    <button onClick={() => setViewingBookings(e.id)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Bookings</button>
+                    <button onClick={() => setEditing(e)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Edit</button>
                     <button onClick={() => handleDelete(e.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
                   </div>
                 </div>
@@ -236,14 +236,10 @@ export default function EventsPage() {
 
 // ── Event Modal ──────────────────────────────────────────────────────────────
 const COLOR_PRESETS = [
-  { bg: "#E6F1FB", fg: "#0C447C", name: "Blue" },
-  { bg: "#EAF3DE", fg: "#27500A", name: "Green" },
-  { bg: "#FAEEDA", fg: "#633806", name: "Amber" },
-  { bg: "#FCE4E0", fg: "#7B2415", name: "Red" },
-  { bg: "#EEEDFE", fg: "#3C3489", name: "Purple" },
-  { bg: "#F1EFE8", fg: "#5F5E5A", name: "Stone" },
-  { bg: "#FDE7F3", fg: "#7B1F5A", name: "Pink" },
-  { bg: "#D1FAE5", fg: "#065F46", name: "Teal" },
+  { bg: "var(--color-primary)", fg: "#fff", name: "Violet" },
+  { bg: "var(--color-success)", fg: "var(--color-text)", name: "Lime" },
+  { bg: "var(--color-warning)", fg: "#fff", name: "Orange" },
+  { bg: "var(--color-bg)", fg: "var(--color-muted)", name: "Neutral" },
 ];
 
 function toLocalInput(d: Date) {
@@ -352,10 +348,10 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-stone-900">{isEdit ? "Edit event" : "Create event"}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+      <div className="bg-surface rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
+          <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit event" : "Create event"}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -369,8 +365,8 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
 
           {/* Event type */}
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Event type</label>
-            <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white">
+            <label className="block text-sm font-medium text-text-primary mb-1">Event type</label>
+            <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
               <optgroup label="Built-in types">
                 <option value="CLASS">Class</option>
                 <option value="PRIVATE">Private session</option>
@@ -390,52 +386,52 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Name</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+            <label className="block text-sm font-medium text-text-primary mb-1">Name</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
           </div>
 
           {/* Main time (used when no sessions) */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Starts</label>
-              <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} required className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+              <label className="block text-sm font-medium text-text-primary mb-1">Starts</label>
+              <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Ends</label>
-              <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} required className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+              <label className="block text-sm font-medium text-text-primary mb-1">Ends</label>
+              <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
             </div>
           </div>
 
           {/* Sessions */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-stone-700">Sessions (optional)</label>
-              <button type="button" onClick={addSession} className="text-xs text-stone-600 hover:text-stone-900">+ Add session</button>
+              <label className="block text-sm font-medium text-text-primary">Sessions (optional)</label>
+              <button type="button" onClick={addSession} className="text-xs text-text-muted hover:text-text-primary">+ Add session</button>
             </div>
             {sessions.length === 0 ? (
-              <p className="text-xs text-stone-400">Add sessions for multi-part events (clinics with breaks, tournaments with multiple rounds, etc.)</p>
+              <p className="text-xs text-text-muted">Add sessions for multi-part events (clinics with breaks, tournaments with multiple rounds, etc.)</p>
             ) : (
               <div className="space-y-2">
                 {sessions.map((s, i) => (
-                  <div key={i} className="border border-stone-200 rounded-lg p-3 space-y-2">
+                  <div key={i} className="border border-app-border rounded-lg p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <input
                         type="text"
                         value={s.name || ""}
                         onChange={(e) => updateSession(i, "name", e.target.value || null)}
                         placeholder={`Session ${i + 1} name (optional)`}
-                        className="flex-1 px-2 py-1 border border-stone-200 rounded text-sm focus:outline-none focus:ring-1 focus:ring-stone-900"
+                        className="flex-1 px-2 py-1 border border-app-border rounded text-sm focus:outline-none focus:ring-1 focus:ring-brand"
                       />
-                      <button type="button" onClick={() => removeSession(i)} className="ml-2 text-stone-400 hover:text-red-600 text-lg leading-none">×</button>
+                      <button type="button" onClick={() => removeSession(i)} className="ml-2 text-text-muted hover:text-red-600 text-lg leading-none">×</button>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-xs text-stone-500 mb-0.5 block">Start</label>
-                        <input type="datetime-local" value={s.startsAt} onChange={(e) => updateSession(i, "startsAt", e.target.value)} className="w-full px-2 py-1.5 border border-stone-200 rounded text-sm" />
+                        <label className="text-xs text-text-muted mb-0.5 block">Start</label>
+                        <input type="datetime-local" value={s.startsAt} onChange={(e) => updateSession(i, "startsAt", e.target.value)} className="w-full px-2 py-1.5 border border-app-border rounded text-sm" />
                       </div>
                       <div>
-                        <label className="text-xs text-stone-500 mb-0.5 block">End</label>
-                        <input type="datetime-local" value={s.endsAt} onChange={(e) => updateSession(i, "endsAt", e.target.value)} className="w-full px-2 py-1.5 border border-stone-200 rounded text-sm" />
+                        <label className="text-xs text-text-muted mb-0.5 block">End</label>
+                        <input type="datetime-local" value={s.endsAt} onChange={(e) => updateSession(i, "endsAt", e.target.value)} className="w-full px-2 py-1.5 border border-app-border rounded text-sm" />
                       </div>
                     </div>
                   </div>
@@ -445,48 +441,48 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Capacity</label>
-            <input type="number" min="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Leave blank for unlimited" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+            <label className="block text-sm font-medium text-text-primary mb-1">Capacity</label>
+            <input type="number" min="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Leave blank for unlimited" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
           </div>
 
           {/* Pricing */}
-          <div className="border-t border-stone-100 pt-4">
-            <p className="text-xs uppercase tracking-wider text-stone-500 mb-3 font-medium">Pricing</p>
+          <div className="border-t border-app-border pt-4">
+            <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Pricing</p>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">Member price</label>
-                <input type="number" min="0" step="0.01" value={memberPrice} onChange={(e) => setMemberPrice(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+                <label className="block text-xs font-medium text-text-primary mb-1">Member price</label>
+                <input type="number" min="0" step="0.01" value={memberPrice} onChange={(e) => setMemberPrice(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">Non-member</label>
-                <input type="number" min="0" step="0.01" value={nonMemberPrice} onChange={(e) => setNonMemberPrice(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+                <label className="block text-xs font-medium text-text-primary mb-1">Non-member</label>
+                <input type="number" min="0" step="0.01" value={nonMemberPrice} onChange={(e) => setNonMemberPrice(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">Drop-in fee</label>
-                <input type="number" min="0" step="0.01" value={dropInFee} onChange={(e) => setDropInFee(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+                <label className="block text-xs font-medium text-text-primary mb-1">Drop-in fee</label>
+                <input type="number" min="0" step="0.01" value={dropInFee} onChange={(e) => setDropInFee(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
             </div>
             <label className="flex items-center gap-2 mt-3 cursor-pointer">
               <input type="checkbox" checked={allowMembershipPayment} onChange={(e) => setAllowMembershipPayment(e.target.checked)} className="rounded" />
-              <span className="text-sm text-stone-700">Allow members to use their membership to pay for this event</span>
+              <span className="text-sm text-text-primary">Allow members to use their membership to pay for this event</span>
             </label>
           </div>
 
           {/* Visibility & Access */}
-          <div className="border-t border-stone-100 pt-4">
-            <p className="text-xs uppercase tracking-wider text-stone-500 mb-3 font-medium">Visibility & Access</p>
+          <div className="border-t border-app-border pt-4">
+            <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Visibility & Access</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Who can see this event?</label>
-                <select value={visibility} onChange={(e) => setVisibility(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white">
+                <label className="block text-sm font-medium text-text-primary mb-1">Who can see this event?</label>
+                <select value={visibility} onChange={(e) => setVisibility(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
                   <option value="PUBLIC">Everyone (public)</option>
                   <option value="MEMBERS_ONLY">Active members only</option>
                   <option value="STAFF_ONLY">Staff & owner only</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Who can book/purchase?</label>
-                <select value={purchaseAccess} onChange={(e) => setPurchaseAccess(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white">
+                <label className="block text-sm font-medium text-text-primary mb-1">Who can book/purchase?</label>
+                <select value={purchaseAccess} onChange={(e) => setPurchaseAccess(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
                   <option value="ANYONE">Members can self-book</option>
                   <option value="STAFF_ONLY">Staff & owner only</option>
                 </select>
@@ -495,30 +491,30 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm resize-none" />
+            <label className="block text-sm font-medium text-text-primary mb-1">Description</label>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm resize-none" />
           </div>
 
-          <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs text-stone-600 hover:text-stone-900">
+          <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs text-text-muted hover:text-text-primary">
             {showAdvanced ? "− Hide" : "+ Show"} advanced options
           </button>
 
           {showAdvanced && (
-            <div className="space-y-3 pt-2 border-t border-stone-100">
+            <div className="space-y-3 pt-2 border-t border-app-border">
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Travel fee</label>
-                <input type="number" min="0" step="0.01" value={travelFee} onChange={(e) => setTravelFee(e.target.value)} placeholder="For tournaments / off-site events" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+                <label className="block text-sm font-medium text-text-primary mb-1">Travel fee</label>
+                <input type="number" min="0" step="0.01" value={travelFee} onChange={(e) => setTravelFee(e.target.value)} placeholder="For tournaments / off-site events" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Publish at</label>
-                  <input type="datetime-local" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
-                  <p className="text-[10px] text-stone-400 mt-1">Hide until this date</p>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Publish at</label>
+                  <input type="datetime-local" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+                  <p className="text-[10px] text-text-muted mt-1">Hide until this date</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Unpublish at</label>
-                  <input type="datetime-local" value={unpublishAt} onChange={(e) => setUnpublishAt(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
-                  <p className="text-[10px] text-stone-400 mt-1">Hide after this date</p>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Unpublish at</label>
+                  <input type="datetime-local" value={unpublishAt} onChange={(e) => setUnpublishAt(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+                  <p className="text-[10px] text-text-muted mt-1">Hide after this date</p>
                 </div>
               </div>
             </div>
@@ -527,8 +523,8 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 
           <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : isEdit ? "Save changes" : "Create event"}
             </button>
           </div>
@@ -573,19 +569,19 @@ function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[];
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
+      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
-            <h2 className="text-lg font-semibold text-stone-900">Manage event types</h2>
-            <p className="text-xs text-stone-500">Create custom types for your sport (e.g. Game, Match, Scrimmage)</p>
+            <h2 className="text-lg font-semibold text-text-primary">Manage event types</h2>
+            <p className="text-xs text-text-muted">Create custom types for your sport (e.g. Game, Match, Scrimmage)</p>
           </div>
-          <button onClick={() => { onSaved(); }} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+          <button onClick={() => { onSaved(); }} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <div className="p-6 space-y-4">
           {/* Built-in types */}
           <div>
-            <p className="text-xs uppercase tracking-wider text-stone-500 mb-2 font-medium">Built-in types</p>
+            <p className="text-xs uppercase tracking-wider text-text-muted mb-2 font-medium">Built-in types</p>
             <div className="flex flex-wrap gap-2">
               {(Object.entries(BUILT_IN_LABELS) as [BuiltInType, string][]).map(([key, label]) => {
                 const c = BUILT_IN_COLORS[key];
@@ -598,13 +594,13 @@ function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[];
 
           {/* Custom types */}
           <div>
-            <p className="text-xs uppercase tracking-wider text-stone-500 mb-2 font-medium">Your custom types</p>
+            <p className="text-xs uppercase tracking-wider text-text-muted mb-2 font-medium">Your custom types</p>
             {localTypes.length === 0 ? (
-              <p className="text-sm text-stone-400">No custom types yet.</p>
+              <p className="text-sm text-text-muted">No custom types yet.</p>
             ) : (
               <div className="space-y-1">
                 {localTypes.map((t) => (
-                  <div key={t.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-stone-50">
+                  <div key={t.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-app-bg">
                     <span className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: t.color, color: t.textColor }}>{t.name}</span>
                     <div className="flex-1" />
                     <button onClick={() => deleteType(t.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
@@ -615,19 +611,19 @@ function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[];
           </div>
 
           {/* Add new type */}
-          <div className="border-t border-stone-100 pt-4">
-            <p className="text-xs uppercase tracking-wider text-stone-500 mb-3 font-medium">Add new type</p>
+          <div className="border-t border-app-border pt-4">
+            <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Add new type</p>
             <div className="space-y-3">
-              <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Type name (e.g. Game, Match, Scrimmage)" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addType())} />
+              <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Type name (e.g. Game, Match, Scrimmage)" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addType())} />
               <div>
-                <p className="text-xs text-stone-500 mb-2">Badge color:</p>
+                <p className="text-xs text-text-muted mb-2">Badge color:</p>
                 <div className="flex flex-wrap gap-2">
                   {COLOR_PRESETS.map((p) => (
                     <button
                       key={p.name}
                       type="button"
                       onClick={() => { setNewColor(p.bg); setNewTextColor(p.fg); }}
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium border-2 transition ${newColor === p.bg ? "border-stone-900" : "border-transparent"}`}
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium border-2 transition ${newColor === p.bg ? "border-brand" : "border-transparent"}`}
                       style={{ background: p.bg, color: p.fg }}
                     >
                       {p.name}
@@ -635,12 +631,12 @@ function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[];
                   ))}
                 </div>
                 <div className="mt-2">
-                  <span className="text-xs text-stone-500 mr-2">Preview:</span>
+                  <span className="text-xs text-text-muted mr-2">Preview:</span>
                   <span className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: newColor, color: newTextColor }}>{newName || "New type"}</span>
                 </div>
               </div>
               {error && <div className="text-sm text-red-600">{error}</div>}
-              <button onClick={addType} disabled={!newName.trim() || saving} className="w-full px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+              <button onClick={addType} disabled={!newName.trim() || saving} className="w-full px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
                 {saving ? "Creating…" : "Create type"}
               </button>
             </div>
@@ -712,50 +708,50 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
+      <div className="bg-surface rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
-            <h2 className="text-lg font-semibold text-stone-900">Bookings · {totalBookings}{event?.capacity && `/${event.capacity}`}</h2>
-            {event && <p className="text-xs text-stone-500">{event.name}</p>}
+            <h2 className="text-lg font-semibold text-text-primary">Bookings · {totalBookings}{event?.capacity && `/${event.capacity}`}</h2>
+            {event && <p className="text-xs text-text-muted">{event.name}</p>}
           </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
         <div className="p-6">
           {loading ? (
-            <div className="text-center text-sm text-stone-500 py-4">Loading…</div>
+            <div className="text-center text-sm text-text-muted py-4">Loading…</div>
           ) : (
             <>
               <div className="mb-4 space-y-2">
-                <label className="block text-sm font-medium text-stone-700">Add member</label>
-                <select value={selectedMember} onChange={(e) => setSelectedMember(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white">
+                <label className="block text-sm font-medium text-text-primary">Add member</label>
+                <select value={selectedMember} onChange={(e) => setSelectedMember(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
                   <option value="">Select a member…</option>
                   {availableMembers.map((m) => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
                 </select>
                 {isPaid && (
-                  <select value={pricingType} onChange={(e) => setPricingType(e.target.value as any)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white">
+                  <select value={pricingType} onChange={(e) => setPricingType(e.target.value as any)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
                     {event?.memberPrice && <option value="MEMBER">Member price — ${Number(event.memberPrice).toFixed(2)}</option>}
                     {event?.nonMemberPrice && <option value="NON_MEMBER">Non-member — ${Number(event.nonMemberPrice).toFixed(2)}</option>}
                     {event?.dropInFee && <option value="DROP_IN">Drop-in — ${Number(event.dropInFee).toFixed(2)}</option>}
                   </select>
                 )}
-                <button onClick={handleAdd} disabled={!selectedMember || adding} className="w-full px-3 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+                <button onClick={handleAdd} disabled={!selectedMember || adding} className="w-full px-3 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
                   {adding ? "Processing…" : isPaid ? "Send checkout link" : "Book (free)"}
                 </button>
                 {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">{error}</div>}
               </div>
               {totalBookings === 0 ? (
-                <div className="text-sm text-stone-500 text-center py-6">No bookings yet.</div>
+                <div className="text-sm text-text-muted text-center py-6">No bookings yet.</div>
               ) : (
                 <div className="space-y-1">
                   {event?.bookings?.map((b: any) => (
-                    <div key={b.id} className="flex items-center justify-between py-2 px-3 rounded hover:bg-stone-50">
+                    <div key={b.id} className="flex items-center justify-between py-2 px-3 rounded hover:bg-app-bg">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-stone-200 flex items-center justify-center text-[10px] font-medium text-stone-700">
+                        <div className="w-7 h-7 rounded-full bg-app-border flex items-center justify-center text-[10px] font-medium text-text-primary">
                           {b.member.firstName[0]}{b.member.lastName[0]}
                         </div>
                         <div>
-                          <div className="text-sm font-medium text-stone-900">{b.member.firstName} {b.member.lastName}</div>
-                          <div className="text-[10px]" style={{ color: b.status === "WAITLISTED" ? "#633806" : "#27500A" }}>
+                          <div className="text-sm font-medium text-text-primary">{b.member.firstName} {b.member.lastName}</div>
+                          <div className="text-[10px]" style={{ color: b.status === "WAITLISTED" ? "var(--color-warning)" : "var(--color-text)" }}>
                             {b.status === "WAITLISTED" ? "Waitlisted" : "Confirmed"}
                           </div>
                         </div>

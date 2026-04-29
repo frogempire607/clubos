@@ -46,10 +46,10 @@ type Membership = { id: string; name: string; options: string; active: boolean; 
 type Option = { label: string; price: number; billingPeriod: string };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
-  ACTIVE: { bg: "#EAF3DE", fg: "#27500A" },
-  PROSPECT: { bg: "#E6F1FB", fg: "#0C447C" },
-  INACTIVE: { bg: "#F1EFE8", fg: "#5F5E5A" },
-  PAUSED: { bg: "#FAEEDA", fg: "#633806" },
+  ACTIVE: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  PROSPECT: { bg: "var(--color-primary)", fg: "#fff" },
+  INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
+  PAUSED: { bg: "var(--color-warning)", fg: "#fff" },
 };
 
 // ── Simple CSV parser ──────────────────────────────────────────────────────
@@ -150,50 +150,50 @@ export default function MembersPage() {
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-stone-900 mb-1">Members</h1>
-          <p className="text-sm text-stone-500">{members.length} total</p>
+          <h1 className="text-3xl font-semibold text-text-primary mb-1">Members</h1>
+          <p className="text-sm text-text-muted">{members.length} total</p>
         </div>
         <div className="flex gap-2">
-          <a href="/dashboard/custom-fields" className="text-sm px-3 py-2 rounded-lg border border-stone-200 text-stone-700 hover:bg-stone-50">
+          <a href="/dashboard/custom-fields" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
             Custom fields
           </a>
           <ExportMenu baseUrl="/api/export/members" label="Export" />
-          <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-stone-200 text-stone-700 hover:bg-stone-50">
+          <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
             Import CSV
           </button>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-[#534AB7] text-white rounded-lg text-sm font-medium hover:bg-[#4239a6] transition-colors">
+          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors">
             + Add member
           </button>
         </div>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <div className="flex gap-1 bg-stone-100 rounded-lg p-1">
+        <div className="flex gap-1 bg-app-bg rounded-lg p-1">
           {(["ALL", "ACTIVE", "PROSPECT", "INACTIVE", "PAUSED"] as const).map((s) => (
-            <button key={s} onClick={() => setFilter(s)} className={`text-xs px-3 py-1.5 rounded-md transition ${filter === s ? "bg-white shadow-sm text-stone-900 font-medium" : "text-stone-600"}`}>
+            <button key={s} onClick={() => setFilter(s)} className={`text-xs px-3 py-1.5 rounded-md transition ${filter === s ? "bg-surface shadow-sm text-text-primary font-medium" : "text-text-muted"}`}>
               {s.charAt(0) + s.slice(1).toLowerCase()} ({counts[s]})
             </button>
           ))}
         </div>
-        <input type="text" placeholder="Search by name or tag…" value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 max-w-xs px-3 py-1.5 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+        <input type="text" placeholder="Search by name or tag…" value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 max-w-xs px-3 py-1.5 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
       </div>
 
-      <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+      <div className="bg-surface rounded-xl border border-app-border overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-stone-500 text-sm">Loading…</div>
+          <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <div className="text-4xl mb-2">◉</div>
-            <h3 className="text-lg font-medium text-stone-900 mb-1">No members yet</h3>
-            <p className="text-sm text-stone-500 mb-4">Add your first member or import from a CSV file.</p>
+            <h3 className="text-lg font-medium text-text-primary mb-1">No members yet</h3>
+            <p className="text-sm text-text-muted mb-4">Add your first member or import from a CSV file.</p>
             <div className="flex gap-2 justify-center">
-              <button onClick={() => setShowImport(true)} className="px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Import CSV</button>
-              <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">+ Add member</button>
+              <button onClick={() => setShowImport(true)} className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Import CSV</button>
+              <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">+ Add member</button>
             </div>
           </div>
         ) : (
           <table className="w-full">
-            <thead className="bg-stone-50 border-b border-stone-200">
+            <thead className="bg-app-bg border-b border-app-border">
               <tr>
                 <Th>Name</Th>
                 <Th>Status</Th>
@@ -208,20 +208,20 @@ export default function MembersPage() {
                 const c = statusColors[m.status];
                 const activeSub = m.subscriptions?.find((s) => s.status === "active");
                 return (
-                  <tr key={m.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
+                  <tr key={m.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
                     <Td>
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs font-medium text-stone-700 flex-shrink-0 overflow-hidden">
+                        <div className="w-8 h-8 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary flex-shrink-0 overflow-hidden">
                           {(m as any).profileImageUrl
                             ? <img src={(m as any).profileImageUrl} alt="" className="w-full h-full object-cover" />
                             : <>{m.firstName[0]}{m.lastName[0]}</>
                           }
                         </div>
                         <div>
-                          <div className="text-sm font-medium text-stone-900">{m.firstName} {m.lastName}</div>
-                          {m.email && <div className="text-xs text-stone-400">{m.email}</div>}
+                          <div className="text-sm font-medium text-text-primary">{m.firstName} {m.lastName}</div>
+                          {m.email && <div className="text-xs text-text-muted">{m.email}</div>}
                           {m.isMinor && (
-                            <div className="text-xs text-stone-500 flex items-center gap-1">
+                            <div className="text-xs text-text-muted flex items-center gap-1">
                               <span>Minor</span>
                               {m.guardianName && <span>· Guardian: {m.guardianName}</span>}
                             </div>
@@ -237,28 +237,28 @@ export default function MembersPage() {
                     <Td>
                       <div className="flex gap-1 flex-wrap">
                         {m.tags.split(",").map((t) => t.trim()).filter(Boolean).map((t) => (
-                          <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-stone-100 text-stone-700">{t}</span>
+                          <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-primary">{t}</span>
                         ))}
                       </div>
                     </Td>
                     <Td>
                       {activeSub ? (
                         <div>
-                          <div className="text-sm text-stone-900">{activeSub.membership.name}</div>
-                          <div className="text-[10px] text-stone-500">{activeSub.optionLabel}</div>
+                          <div className="text-sm text-text-primary">{activeSub.membership.name}</div>
+                          <div className="text-[10px] text-text-muted">{activeSub.optionLabel}</div>
                         </div>
                       ) : (
-                        <button onClick={() => setSubscribing(m)} className="text-xs px-2 py-1 rounded text-stone-600 hover:bg-stone-100">
+                        <button onClick={() => setSubscribing(m)} className="text-xs px-2 py-1 rounded text-text-muted hover:bg-app-bg">
                           + Purchase membership
                         </button>
                       )}
                     </Td>
                     <Td>
-                      <span className="text-sm text-stone-500">{new Date(m.joinedAt).toLocaleDateString()}</span>
+                      <span className="text-sm text-text-muted">{new Date(m.joinedAt).toLocaleDateString()}</span>
                     </Td>
                     <Td>
                       <div className="flex gap-1 justify-end">
-                        <button onClick={() => setEditing(m)} className="text-xs text-stone-600 hover:text-stone-900 px-2 py-1 rounded hover:bg-stone-100">Edit</button>
+                        <button onClick={() => setEditing(m)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Edit</button>
                         <button onClick={() => handleDelete(m.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Remove</button>
                       </div>
                     </Td>
@@ -282,7 +282,7 @@ export default function MembersPage() {
 }
 
 function Th({ children }: { children?: React.ReactNode }) {
-  return <th className="text-left text-xs font-medium text-stone-500 uppercase tracking-wider px-5 py-3">{children}</th>;
+  return <th className="text-left text-xs font-medium text-text-muted uppercase tracking-wider px-5 py-3">{children}</th>;
 }
 function Td({ children }: { children: React.ReactNode }) {
   return <td className="px-5 py-3">{children}</td>;
@@ -377,10 +377,10 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-stone-900">{isEdit ? "Edit member" : "Add member"}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+      <div className="bg-surface rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
+          <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit member" : "Add member"}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -392,14 +392,14 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
           />
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
+            <label className="block text-sm font-medium text-text-primary mb-1">
               Athlete name <span className="text-red-500">*</span>
             </label>
-            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="First Last" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="First Last" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
+            <label className="block text-sm font-medium text-text-primary mb-1">
               Email {!isMinor && <span className="text-red-500">*</span>}
             </label>
             <input
@@ -408,21 +408,21 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
               onChange={(e) => setEmail(e.target.value)}
               required={!isMinor}
               placeholder={isMinor ? "Optional for minors" : "athlete@example.com"}
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
-            <p className="text-xs text-stone-400 mt-1">
+            <p className="text-xs text-text-muted mt-1">
               {isMinor ? "Guardian email is used as primary contact for minors" : "Used to link their member portal account"}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Phone</label>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 000-0000" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              <label className="block text-sm font-medium text-text-primary mb-1">Phone</label>
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 000-0000" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Gender</label>
-              <select value={gender} onChange={(e) => setGender(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+              <label className="block text-sm font-medium text-text-primary mb-1">Gender</label>
+              <select value={gender} onChange={(e) => setGender(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
                 <option value="">Prefer not to say</option>
                 <option value="Male">Male</option>
                 <option value="Female">Female</option>
@@ -433,28 +433,28 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Street address</label>
-            <input type="text" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} placeholder="123 Main St" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+            <label className="block text-sm font-medium text-text-primary mb-1">Street address</label>
+            <input type="text" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} placeholder="123 Main St" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-1">
-              <label className="block text-sm font-medium text-stone-700 mb-1">City</label>
-              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Springfield" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              <label className="block text-sm font-medium text-text-primary mb-1">City</label>
+              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Springfield" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">State</label>
-              <input type="text" value={state} onChange={(e) => setState(e.target.value)} placeholder="IL" maxLength={2} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              <label className="block text-sm font-medium text-text-primary mb-1">State</label>
+              <input type="text" value={state} onChange={(e) => setState(e.target.value)} placeholder="IL" maxLength={2} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Zip code</label>
-              <input type="text" value={zipCode} onChange={(e) => setZipCode(e.target.value)} placeholder="62701" maxLength={10} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              <label className="block text-sm font-medium text-text-primary mb-1">Zip code</label>
+              <input type="text" value={zipCode} onChange={(e) => setZipCode(e.target.value)} placeholder="62701" maxLength={10} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+            <label className="block text-sm font-medium text-text-primary mb-1">Status</label>
+            <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
               <option value="PROSPECT">Prospect</option>
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
@@ -463,27 +463,27 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Date of birth</label>
-            <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+            <label className="block text-sm font-medium text-text-primary mb-1">Date of birth</label>
+            <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
           {/* Minor toggle */}
-          <div className="flex items-center gap-3 py-2 border border-stone-200 rounded-lg px-3">
+          <div className="flex items-center gap-3 py-2 border border-app-border rounded-lg px-3">
             <input type="checkbox" id="isMinor" checked={isMinor} onChange={(e) => setIsMinor(e.target.checked)} className="rounded" />
-            <label htmlFor="isMinor" className="text-sm font-medium text-stone-700 cursor-pointer select-none">This member is a minor (under 18)</label>
+            <label htmlFor="isMinor" className="text-sm font-medium text-text-primary cursor-pointer select-none">This member is a minor (under 18)</label>
           </div>
 
           {isMinor && (
-            <div className="space-y-3 p-4 bg-amber-50 border border-amber-100 rounded-lg">
-              <p className="text-xs font-medium text-amber-800 uppercase tracking-wider">Guardian / Parent Information</p>
+            <div className="space-y-3 p-4 bg-orange-accent/10 border border-orange-accent/30 rounded-lg">
+              <p className="text-xs font-medium text-text-primary uppercase tracking-wider">Guardian / Parent Information</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-stone-700 mb-1">Guardian name</label>
-                  <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" placeholder="Full name" />
+                  <label className="block text-xs font-medium text-text-primary mb-1">Guardian name</label>
+                  <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="Full name" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-stone-700 mb-1">Relationship</label>
-                  <select value={guardianRelationship} onChange={(e) => setGuardianRelationship(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none">
+                  <label className="block text-xs font-medium text-text-primary mb-1">Relationship</label>
+                  <select value={guardianRelationship} onChange={(e) => setGuardianRelationship(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none">
                     <option value="">Select…</option>
                     <option value="Parent">Parent</option>
                     <option value="Mother">Mother</option>
@@ -495,55 +495,55 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">Guardian email</label>
-                <input type="email" value={guardianEmail} onChange={(e) => setGuardianEmail(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" placeholder="guardian@email.com" />
+                <label className="block text-xs font-medium text-text-primary mb-1">Guardian email</label>
+                <input type="email" value={guardianEmail} onChange={(e) => setGuardianEmail(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="guardian@email.com" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">Guardian phone <span className="text-red-500">*</span></label>
-                <input type="tel" value={guardianPhone} onChange={(e) => setGuardianPhone(e.target.value)} required={isMinor} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" placeholder="(555) 000-0000" />
+                <label className="block text-xs font-medium text-text-primary mb-1">Guardian phone <span className="text-red-500">*</span></label>
+                <input type="tel" value={guardianPhone} onChange={(e) => setGuardianPhone(e.target.value)} required={isMinor} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="(555) 000-0000" />
               </div>
 
               {siblings.length > 0 && (
-                <div className="p-3 bg-white border border-amber-200 rounded-lg">
-                  <p className="text-xs font-medium text-amber-800 mb-2">Existing athletes under this guardian:</p>
+                <div className="p-3 bg-surface border border-orange-accent/40 rounded-lg">
+                  <p className="text-xs font-medium text-text-primary mb-2">Existing athletes under this guardian:</p>
                   <div className="space-y-1">
                     {siblings.map((s) => (
-                      <div key={s.id} className="text-xs text-stone-700 flex items-center gap-1">
-                        <span className="text-amber-600">◉</span>
+                      <div key={s.id} className="text-xs text-text-primary flex items-center gap-1">
+                        <span className="text-orange-accent">◉</span>
                         {s.firstName} {s.lastName}
                       </div>
                     ))}
                   </div>
-                  <p className="text-xs text-stone-400 mt-2">This athlete will be linked to the same guardian.</p>
+                  <p className="text-xs text-text-muted mt-2">This athlete will be linked to the same guardian.</p>
                 </div>
               )}
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Tags</label>
-            <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Beginner, 14U, Travel team" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-            <p className="text-xs text-stone-400 mt-1">Comma-separated</p>
+            <label className="block text-sm font-medium text-text-primary mb-1">Tags</label>
+            <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Beginner, 14U, Travel team" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            <p className="text-xs text-text-muted mt-1">Comma-separated</p>
           </div>
 
           {customFields.length > 0 && (
-            <div className="pt-2 border-t border-stone-100">
-              <p className="text-xs uppercase tracking-wider text-stone-500 mb-3 font-medium">Custom fields</p>
+            <div className="pt-2 border-t border-app-border">
+              <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Custom fields</p>
               <div className="space-y-3">
                 {customFields.map((f) => {
                   const opts = (() => { try { return JSON.parse(f.options); } catch { return []; } })();
                   return (
                     <div key={f.id}>
-                      <label className="block text-sm font-medium text-stone-700 mb-1">{f.label}{f.required && <span className="text-red-500 ml-0.5">*</span>}</label>
+                      <label className="block text-sm font-medium text-text-primary mb-1">{f.label}{f.required && <span className="text-red-500 ml-0.5">*</span>}</label>
                       {f.fieldType === "textarea" ? (
-                        <textarea value={customValues[f.id] || ""} onChange={(e) => setCV(f.id, e.target.value)} required={f.required} rows={3} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 resize-none" />
+                        <textarea value={customValues[f.id] || ""} onChange={(e) => setCV(f.id, e.target.value)} required={f.required} rows={3} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
                       ) : f.fieldType === "select" ? (
-                        <select value={customValues[f.id] || ""} onChange={(e) => setCV(f.id, e.target.value)} required={f.required} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+                        <select value={customValues[f.id] || ""} onChange={(e) => setCV(f.id, e.target.value)} required={f.required} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
                           <option value="">Select…</option>
                           {opts.map((o: string) => <option key={o} value={o}>{o}</option>)}
                         </select>
                       ) : (
-                        <input type={f.fieldType === "number" ? "number" : f.fieldType === "date" ? "date" : f.fieldType === "email" ? "email" : f.fieldType === "phone" ? "tel" : "text"} value={customValues[f.id] || ""} onChange={(e) => setCV(f.id, e.target.value)} required={f.required} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                        <input type={f.fieldType === "number" ? "number" : f.fieldType === "date" ? "date" : f.fieldType === "email" ? "email" : f.fieldType === "phone" ? "tel" : "text"} value={customValues[f.id] || ""} onChange={(e) => setCV(f.id, e.target.value)} required={f.required} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
                       )}
                     </div>
                   );
@@ -553,15 +553,15 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
           )}
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 resize-none" />
+            <label className="block text-sm font-medium text-text-primary mb-1">Notes</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
           </div>
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 
           <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : isEdit ? "Save changes" : "Add member"}
             </button>
           </div>
@@ -653,11 +653,11 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
   if (done) {
     return (
       <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl w-full max-w-sm p-8 text-center">
+        <div className="bg-surface rounded-xl w-full max-w-sm p-8 text-center">
           <div className="text-3xl mb-2">✓</div>
-          <h3 className="text-lg font-semibold text-stone-900 mb-1">Membership assigned</h3>
-          <p className="text-sm text-stone-500 mb-6">{member.firstName} {member.lastName} is now enrolled in {currentMembership?.name}.</p>
-          <button onClick={onClose} className="px-6 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">Done</button>
+          <h3 className="text-lg font-semibold text-text-primary mb-1">Membership assigned</h3>
+          <p className="text-sm text-text-muted mb-6">{member.firstName} {member.lastName} is now enrolled in {currentMembership?.name}.</p>
+          <button onClick={onClose} className="px-6 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">Done</button>
         </div>
       </div>
     );
@@ -665,30 +665,30 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-stone-900">Assign membership</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
+          <h2 className="text-lg font-semibold text-text-primary">Assign membership</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
         <div className="p-6 space-y-4">
           {/* Member header */}
-          <div className="flex items-center gap-2 pb-2 border-b border-stone-100">
-            <div className="w-9 h-9 rounded-full bg-stone-200 flex items-center justify-center text-xs font-medium text-stone-700 flex-shrink-0">
+          <div className="flex items-center gap-2 pb-2 border-b border-app-border">
+            <div className="w-9 h-9 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary flex-shrink-0">
               {member.firstName[0]}{member.lastName[0]}
             </div>
             <div>
-              <div className="text-sm font-medium text-stone-900">{member.firstName} {member.lastName}</div>
-              {member.email && <div className="text-xs text-stone-400">{member.email}</div>}
+              <div className="text-sm font-medium text-text-primary">{member.firstName} {member.lastName}</div>
+              {member.email && <div className="text-xs text-text-muted">{member.email}</div>}
             </div>
           </div>
 
           {loading ? (
-            <div className="text-sm text-stone-500 text-center py-4">Loading plans…</div>
+            <div className="text-sm text-text-muted text-center py-4">Loading plans…</div>
           ) : (
             <>
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Membership plan</label>
-                <select value={selectedMembership} onChange={(e) => selectMembership(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+                <label className="block text-sm font-medium text-text-primary mb-1">Membership plan</label>
+                <select value={selectedMembership} onChange={(e) => selectMembership(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
                   <option value="">Select a plan…</option>
                   {memberships.filter((m) => m.active).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
@@ -696,8 +696,8 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
               {selectedMembership && (
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Purchase option</label>
-                  <select value={selectedOption} onChange={(e) => setSelectedOption(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+                  <label className="block text-sm font-medium text-text-primary mb-1">Purchase option</label>
+                  <select value={selectedOption} onChange={(e) => setSelectedOption(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
                     <option value="">Select an option…</option>
                     {options.map((o) => (
                       <option key={o.label} value={o.label}>
@@ -710,15 +710,15 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
               {selectedOption && !isOneTime && (
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Payment method</label>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Payment method</label>
                   <div className="flex gap-2">
                     {(["RECURRING", "MANUAL"] as const).map((t) => (
-                      <button key={t} type="button" onClick={() => setBillingType(t)} className={`flex-1 py-2 rounded-lg text-sm border transition ${billingType === t ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-700 hover:bg-stone-50"}`}>
+                      <button key={t} type="button" onClick={() => setBillingType(t)} className={`flex-1 py-2 rounded-lg text-sm border transition ${billingType === t ? "bg-brand text-white border-brand" : "border-app-border text-text-primary hover:bg-app-bg"}`}>
                         {t === "RECURRING" ? "Stripe Checkout" : "Manual / Cash"}
                       </button>
                     ))}
                   </div>
-                  <p className="text-xs text-stone-400 mt-1">
+                  <p className="text-xs text-text-muted mt-1">
                     {billingType === "RECURRING" ? "Sends a Stripe payment link. Auto-bills on the billing cycle." : "Records enrollment immediately. You handle payment outside ClubOS."}
                   </p>
                 </div>
@@ -728,45 +728,45 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
                 <>
                   {/* Auto-renew — only relevant for recurring */}
                   {billingType === "RECURRING" && !isOneTime && (
-                    <div className="flex items-center justify-between py-2 border border-stone-200 rounded-lg px-3">
+                    <div className="flex items-center justify-between py-2 border border-app-border rounded-lg px-3">
                       <div>
-                        <p className="text-sm font-medium text-stone-700">Auto-renew</p>
-                        <p className="text-xs text-stone-400">Cancel at period end if off</p>
+                        <p className="text-sm font-medium text-text-primary">Auto-renew</p>
+                        <p className="text-xs text-text-muted">Cancel at period end if off</p>
                       </div>
-                      <button type="button" onClick={() => setAutoRenew(!autoRenew)} className={`relative inline-flex h-5 w-9 rounded-full transition ${autoRenew ? "bg-stone-900" : "bg-stone-300"}`}>
-                        <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${autoRenew ? "translate-x-4" : "translate-x-0.5"}`} />
+                      <button type="button" onClick={() => setAutoRenew(!autoRenew)} className={`relative inline-flex h-5 w-9 rounded-full transition ${autoRenew ? "bg-brand" : "bg-app-border"}`}>
+                        <span className={`inline-block h-4 w-4 rounded-full bg-surface shadow transition-transform mt-0.5 ${autoRenew ? "translate-x-4" : "translate-x-0.5"}`} />
                       </button>
                     </div>
                   )}
 
                   {/* Advanced: dates + billing day */}
-                  <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs text-stone-500 hover:text-stone-800 underline">
+                  <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs text-text-muted hover:text-text-primary underline">
                     {showAdvanced ? "Hide" : "Show"} advanced options (start/end dates, billing day)
                   </button>
 
                   {showAdvanced && (
-                    <div className="space-y-3 p-4 bg-stone-50 border border-stone-200 rounded-lg">
+                    <div className="space-y-3 p-4 bg-app-bg border border-app-border rounded-lg">
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-medium text-stone-700 mb-1">Start date</label>
-                          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-                          <p className="text-xs text-stone-400 mt-0.5">Blank = today</p>
+                          <label className="block text-xs font-medium text-text-primary mb-1">Start date</label>
+                          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                          <p className="text-xs text-text-muted mt-0.5">Blank = today</p>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-stone-700 mb-1">End date</label>
-                          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-                          <p className="text-xs text-stone-400 mt-0.5">Override expiry</p>
+                          <label className="block text-xs font-medium text-text-primary mb-1">End date</label>
+                          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                          <p className="text-xs text-text-muted mt-0.5">Override expiry</p>
                         </div>
                       </div>
                       {billingType === "RECURRING" && !isOneTime && (
                         <div>
-                          <label className="block text-xs font-medium text-stone-700 mb-1">Bill on day of month <span className="text-stone-400 font-normal">(1–28)</span></label>
-                          <input type="number" min="1" max="28" value={billingDay} onChange={(e) => setBillingDay(e.target.value)} placeholder="Signup date" className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                          <label className="block text-xs font-medium text-text-primary mb-1">Bill on day of month <span className="text-text-muted font-normal">(1–28)</span></label>
+                          <input type="number" min="1" max="28" value={billingDay} onChange={(e) => setBillingDay(e.target.value)} placeholder="Signup date" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
                         </div>
                       )}
                       <div>
-                        <label className="block text-xs font-medium text-stone-700 mb-1">Internal notes</label>
-                        <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Migration note, pre-paid months, etc." className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                        <label className="block text-xs font-medium text-text-primary mb-1">Internal notes</label>
+                        <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Migration note, pre-paid months, etc." className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
                       </div>
                     </div>
                   )}
@@ -776,8 +776,8 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
               {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 
               <div className="flex gap-2 pt-2">
-                <button onClick={onClose} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Cancel</button>
-                <button onClick={handleSubmit} disabled={!selectedMembership || !selectedOption || submitting} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+                <button onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+                <button onClick={handleSubmit} disabled={!selectedMembership || !selectedOption || submitting} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
                   {submitting ? "Processing…" : billingType === "MANUAL" || isOneTime ? "Assign membership" : "Send Stripe Checkout"}
                 </button>
               </div>
@@ -879,10 +879,10 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-stone-900">Import members from CSV</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+      <div className="bg-surface rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
+          <h2 className="text-lg font-semibold text-text-primary">Import members from CSV</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <div className="p-6">
@@ -893,9 +893,9 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
               const active = stepKeys.indexOf(step) >= i;
               return (
                 <div key={s} className="flex items-center gap-2 flex-1">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${active ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-400"}`}>{i + 1}</div>
-                  <span className={`text-xs ${active ? "text-stone-900 font-medium" : "text-stone-400"}`}>{s}</span>
-                  {i < 3 && <div className="flex-1 h-px bg-stone-200" />}
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${active ? "bg-brand text-white" : "bg-app-bg text-text-muted"}`}>{i + 1}</div>
+                  <span className={`text-xs ${active ? "text-text-primary font-medium" : "text-text-muted"}`}>{s}</span>
+                  {i < 3 && <div className="flex-1 h-px bg-app-border" />}
                 </div>
               );
             })}
@@ -903,13 +903,13 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
 
           {step === "upload" && (
             <div className="text-center">
-              <div className="border-2 border-dashed border-stone-200 rounded-xl p-10 hover:border-stone-400 transition cursor-pointer" onClick={() => fileRef.current?.click()}>
+              <div className="border-2 border-dashed border-app-border rounded-xl p-10 hover:border-app-border transition cursor-pointer" onClick={() => fileRef.current?.click()}>
                 <div className="text-4xl mb-3">📄</div>
-                <p className="text-sm font-medium text-stone-900 mb-1">Drop a CSV file here or click to browse</p>
-                <p className="text-xs text-stone-500">Supports up to 500 members per import</p>
+                <p className="text-sm font-medium text-text-primary mb-1">Drop a CSV file here or click to browse</p>
+                <p className="text-xs text-text-muted">Supports up to 500 members per import</p>
                 <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />
               </div>
-              <div className="mt-4 text-xs text-stone-500 text-left bg-stone-50 rounded-lg p-3">
+              <div className="mt-4 text-xs text-text-muted text-left bg-app-bg rounded-lg p-3">
                 <p className="font-medium mb-1">CSV format tips:</p>
                 <ul className="space-y-0.5 list-disc list-inside">
                   <li>First row should be column headers</li>
@@ -924,60 +924,60 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
 
           {step === "map" && (
             <div>
-              <p className="text-sm text-stone-600 mb-4">
+              <p className="text-sm text-text-muted mb-4">
                 Match your CSV columns to member fields. We auto-detected some mappings — adjust as needed.
               </p>
               <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                 {headers.map((h, i) => (
                   <div key={i} className="flex items-center gap-3">
-                    <div className="w-48 text-sm text-stone-700 font-medium truncate flex-shrink-0">{h}</div>
-                    <div className="text-stone-400 text-xs flex-shrink-0">→</div>
-                    <select value={mapping[i] || "skip"} onChange={(e) => setMapping({ ...mapping, [i]: e.target.value })} className="flex-1 px-3 py-1.5 border border-stone-300 rounded-lg text-sm bg-white">
+                    <div className="w-48 text-sm text-text-primary font-medium truncate flex-shrink-0">{h}</div>
+                    <div className="text-text-muted text-xs flex-shrink-0">→</div>
+                    <select value={mapping[i] || "skip"} onChange={(e) => setMapping({ ...mapping, [i]: e.target.value })} className="flex-1 px-3 py-1.5 border border-app-border rounded-lg text-sm bg-surface">
                       {MEMBER_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
-                    <div className="text-xs text-stone-400 w-20 truncate flex-shrink-0">{rows[0]?.[i] || ""}</div>
+                    <div className="text-xs text-text-muted w-20 truncate flex-shrink-0">{rows[0]?.[i] || ""}</div>
                   </div>
                 ))}
               </div>
               <div className="flex gap-2 pt-4">
-                <button onClick={() => setStep("upload")} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Back</button>
-                <button onClick={() => setStep("preview")} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">Preview import</button>
+                <button onClick={() => setStep("upload")} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Back</button>
+                <button onClick={() => setStep("preview")} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">Preview import</button>
               </div>
             </div>
           )}
 
           {step === "preview" && (
             <div>
-              <p className="text-sm text-stone-600 mb-3">
+              <p className="text-sm text-text-muted mb-3">
                 Importing <strong>{rows.length}</strong> members. Preview of first {Math.min(5, preview.length)}:
               </p>
-              <div className="border border-stone-200 rounded-lg overflow-hidden mb-4">
+              <div className="border border-app-border rounded-lg overflow-hidden mb-4">
                 <table className="w-full text-sm">
-                  <thead className="bg-stone-50">
+                  <thead className="bg-app-bg">
                     <tr>
-                      <th className="text-left text-xs font-medium text-stone-500 px-3 py-2">Name</th>
-                      <th className="text-left text-xs font-medium text-stone-500 px-3 py-2">Email</th>
-                      <th className="text-left text-xs font-medium text-stone-500 px-3 py-2">Status</th>
-                      <th className="text-left text-xs font-medium text-stone-500 px-3 py-2">Guardian</th>
+                      <th className="text-left text-xs font-medium text-text-muted px-3 py-2">Name</th>
+                      <th className="text-left text-xs font-medium text-text-muted px-3 py-2">Email</th>
+                      <th className="text-left text-xs font-medium text-text-muted px-3 py-2">Status</th>
+                      <th className="text-left text-xs font-medium text-text-muted px-3 py-2">Guardian</th>
                     </tr>
                   </thead>
                   <tbody>
                     {preview.map((m, i) => (
-                      <tr key={i} className="border-t border-stone-100">
+                      <tr key={i} className="border-t border-app-border">
                         <td className="px-3 py-2 font-medium">{m.firstName} {m.lastName}</td>
-                        <td className="px-3 py-2 text-stone-500">{m.email || "—"}</td>
-                        <td className="px-3 py-2 text-stone-500">{m.status || "ACTIVE"}</td>
-                        <td className="px-3 py-2 text-stone-500">{m.guardianName || "—"}</td>
+                        <td className="px-3 py-2 text-text-muted">{m.email || "—"}</td>
+                        <td className="px-3 py-2 text-text-muted">{m.status || "ACTIVE"}</td>
+                        <td className="px-3 py-2 text-text-muted">{m.guardianName || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {rows.length > 5 && <p className="text-xs text-stone-400 mb-4">…and {rows.length - 5} more rows</p>}
+              {rows.length > 5 && <p className="text-xs text-text-muted mb-4">…and {rows.length - 5} more rows</p>}
               {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{error}</div>}
               <div className="flex gap-2">
-                <button onClick={() => setStep("map")} className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">Back</button>
-                <button onClick={handleImport} disabled={importing} className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
+                <button onClick={() => setStep("map")} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Back</button>
+                <button onClick={handleImport} disabled={importing} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
                   {importing ? "Importing…" : `Import ${rows.length} members`}
                 </button>
               </div>
@@ -987,34 +987,34 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
           {step === "done" && result && (
             <div className="text-center">
               <div className="text-5xl mb-4">{result.failed === 0 ? "✓" : "⚠"}</div>
-              <h3 className="text-lg font-semibold text-stone-900 mb-2">Import complete</h3>
+              <h3 className="text-lg font-semibold text-text-primary mb-2">Import complete</h3>
               <div className="flex justify-center gap-4 mb-4">
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-green-700">{result.created}</p>
-                  <p className="text-xs text-stone-500">imported</p>
+                  <p className="text-2xl font-bold text-text-primary">{result.created}</p>
+                  <p className="text-xs text-text-muted">imported</p>
                 </div>
                 {result.skipped > 0 && (
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-amber-600">{result.skipped}</p>
-                    <p className="text-xs text-stone-500">skipped</p>
+                    <p className="text-2xl font-bold text-orange-accent">{result.skipped}</p>
+                    <p className="text-xs text-text-muted">skipped</p>
                   </div>
                 )}
                 {result.failed > 0 && (
                   <div className="text-center">
                     <p className="text-2xl font-bold text-red-600">{result.failed}</p>
-                    <p className="text-xs text-stone-500">failed</p>
+                    <p className="text-xs text-text-muted">failed</p>
                   </div>
                 )}
               </div>
               {result.errors.length > 0 && (
-                <div className="text-left bg-stone-50 border border-stone-200 rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
-                  <p className="text-xs font-medium text-stone-600 mb-1.5">Notes:</p>
+                <div className="text-left bg-app-bg border border-app-border rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
+                  <p className="text-xs font-medium text-text-muted mb-1.5">Notes:</p>
                   {result.errors.map((e, i) => (
-                    <p key={i} className="text-xs text-stone-600 py-0.5 border-b border-stone-100 last:border-0">{e}</p>
+                    <p key={i} className="text-xs text-text-muted py-0.5 border-b border-app-border last:border-0">{e}</p>
                   ))}
                 </div>
               )}
-              <button onClick={onImported} className="px-6 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+              <button onClick={onImported} className="px-6 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
                 Done
               </button>
             </div>

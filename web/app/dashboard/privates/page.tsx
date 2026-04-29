@@ -55,12 +55,12 @@ type Staff  = { id: string; firstName: string; lastName: string };
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
-  REQUESTED:     "bg-amber-100 text-amber-800",
-  PENDING_COACH: "bg-blue-100 text-blue-800",
-  CONFIRMED:     "bg-green-100 text-green-800",
+  REQUESTED:     "bg-orange-accent text-white",
+  PENDING_COACH: "bg-brand text-white",
+  CONFIRMED:     "bg-lime-accent text-text-primary",
   DECLINED:      "bg-red-100 text-red-800",
-  CANCELED:      "bg-stone-100 text-stone-600",
-  COMPLETED:     "bg-purple-100 text-purple-800",
+  CANCELED:      "bg-app-bg text-text-muted",
+  COMPLETED:     "bg-brand text-white",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -141,59 +141,59 @@ function LessonTypeModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
-          <h2 className="font-semibold text-stone-900">{lt ? "Edit lesson type" : "New lesson type"}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+          <h2 className="font-semibold text-text-primary">{lt ? "Edit lesson type" : "New lesson type"}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Title *</label>
-            <input className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+            <label className="block text-xs font-medium text-text-muted mb-1">Title *</label>
+            <input className="w-full border border-app-border rounded-md px-3 py-2 text-sm" required
               value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Description</label>
-            <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+            <label className="block text-xs font-medium text-text-muted mb-1">Description</label>
+            <textarea className="w-full border border-app-border rounded-md px-3 py-2 text-sm" rows={2}
               value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Duration (min)</label>
-              <input type="number" min={1} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Duration (min)</label>
+              <input type="number" min={1} className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Max athletes</label>
-              <input type="number" min={1} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Max athletes</label>
+              <input type="number" min={1} className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.maxAthletes} onChange={(e) => setForm({ ...form, maxAthletes: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Base price ($)</label>
-              <input type="number" min={0} step="0.01" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Base price ($)</label>
+              <input type="number" min={0} step="0.01" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.basePrice} onChange={(e) => setForm({ ...form, basePrice: e.target.value })} />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Coach tier label</label>
-              <input className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" placeholder="e.g. Black Belt"
+              <label className="block text-xs font-medium text-text-muted mb-1">Coach tier label</label>
+              <input className="w-full border border-app-border rounded-md px-3 py-2 text-sm" placeholder="e.g. Black Belt"
                 value={form.coachTierLabel} onChange={(e) => setForm({ ...form, coachTierLabel: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Sort order</label>
-              <input type="number" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Sort order</label>
+              <input type="number" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: e.target.value })} />
             </div>
           </div>
 
           {staffList.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-2">Eligible coaches</label>
+              <label className="block text-xs font-medium text-text-muted mb-2">Eligible coaches</label>
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {staffList.map((s) => (
                   <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -211,8 +211,8 @@ function LessonTypeModal({
           </label>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : lt ? "Save changes" : "Create"}
             </button>
           </div>
@@ -276,22 +276,22 @@ function PackageModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
-          <h2 className="font-semibold text-stone-900">{pkg ? "Edit package" : "New package"}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+          <h2 className="font-semibold text-text-primary">{pkg ? "Edit package" : "New package"}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Title *</label>
-            <input className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+            <label className="block text-xs font-medium text-text-muted mb-1">Title *</label>
+            <input className="w-full border border-app-border rounded-md px-3 py-2 text-sm" required
               value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Lesson type (optional)</label>
-            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+            <label className="block text-xs font-medium text-text-muted mb-1">Lesson type (optional)</label>
+            <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
               value={form.lessonTypeId} onChange={(e) => setForm({ ...form, lessonTypeId: e.target.value })}>
               <option value="">Any lesson type</option>
               {lessonTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.title}</option>)}
@@ -299,32 +299,32 @@ function PackageModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Description</label>
-            <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+            <label className="block text-xs font-medium text-text-muted mb-1">Description</label>
+            <textarea className="w-full border border-app-border rounded-md px-3 py-2 text-sm" rows={2}
               value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Credits *</label>
-              <input type="number" min={1} required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Credits *</label>
+              <input type="number" min={1} required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.credits} onChange={(e) => setForm({ ...form, credits: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Bonus credits</label>
-              <input type="number" min={0} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Bonus credits</label>
+              <input type="number" min={0} className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.bonusCredits} onChange={(e) => setForm({ ...form, bonusCredits: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Price ($) *</label>
-              <input type="number" min={0} step="0.01" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Price ($) *</label>
+              <input type="number" min={0} step="0.01" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Expires after (days, optional)</label>
-            <input type="number" min={1} className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" placeholder="Leave blank = no expiry"
+            <label className="block text-xs font-medium text-text-muted mb-1">Expires after (days, optional)</label>
+            <input type="number" min={1} className="w-full border border-app-border rounded-md px-3 py-2 text-sm" placeholder="Leave blank = no expiry"
               value={form.expiresAfterDays} onChange={(e) => setForm({ ...form, expiresAfterDays: e.target.value })} />
           </div>
 
@@ -334,8 +334,8 @@ function PackageModal({
           </label>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : pkg ? "Save changes" : "Create"}
             </button>
           </div>
@@ -385,39 +385,39 @@ function BookingModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
-          <h2 className="font-semibold text-stone-900">Booking — {booking.member.firstName} {booking.member.lastName}</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+          <h2 className="font-semibold text-text-primary">Booking — {booking.member.firstName} {booking.member.lastName}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
 
         <div className="p-6 space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
 
           {/* Summary */}
-          <div className="bg-stone-50 rounded-lg p-4 space-y-2 text-sm">
+          <div className="bg-app-bg rounded-lg p-4 space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-stone-500">Lesson</span>
+              <span className="text-text-muted">Lesson</span>
               <span className="font-medium">{booking.lessonType.title}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-stone-500">Status</span>
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[booking.status] ?? "bg-stone-100 text-stone-600"}`}>
+              <span className="text-text-muted">Status</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[booking.status] ?? "bg-app-bg text-text-muted"}`}>
                 {STATUS_LABEL[booking.status] ?? booking.status}
               </span>
             </div>
             {booking.coach && (
               <div className="flex justify-between">
-                <span className="text-stone-500">Coach</span>
+                <span className="text-text-muted">Coach</span>
                 <span>{booking.coach.firstName} {booking.coach.lastName}</span>
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-stone-500">Payment</span>
+              <span className="text-text-muted">Payment</span>
               <span>{booking.paymentType ?? "—"}{booking.pricePaid != null ? ` · $${Number(booking.pricePaid).toFixed(2)}` : ""}</span>
             </div>
             {booking.notes && (
               <div className="flex justify-between">
-                <span className="text-stone-500">Notes</span>
+                <span className="text-text-muted">Notes</span>
                 <span className="text-right max-w-[60%]">{booking.notes}</span>
               </div>
             )}
@@ -425,10 +425,10 @@ function BookingModal({
 
           {/* Requested slots */}
           <div>
-            <p className="text-xs font-medium text-stone-600 mb-2">Requested times</p>
+            <p className="text-xs font-medium text-text-muted mb-2">Requested times</p>
             <div className="space-y-1">
               {booking.requestedSlots.map((s, i) => (
-                <div key={i} className="text-sm bg-amber-50 px-3 py-1.5 rounded">
+                <div key={i} className="text-sm bg-orange-accent/10 px-3 py-1.5 rounded">
                   {s.date} · {s.startTime}–{s.endTime}
                 </div>
               ))}
@@ -437,7 +437,7 @@ function BookingModal({
 
           {/* Confirmed time (if any) */}
           {booking.confirmedStartAt && (
-            <div className="text-sm bg-green-50 px-3 py-2 rounded">
+            <div className="text-sm bg-lime-accent px-3 py-2 rounded">
               Confirmed: {fmt(booking.confirmedStartAt)} – {booking.confirmedEndAt ? fmt(booking.confirmedEndAt) : ""}
             </div>
           )}
@@ -446,22 +446,22 @@ function BookingModal({
           {!action && (
             <div className="flex flex-wrap gap-2 pt-2">
               {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
-                <button onClick={() => setAction("assign")} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">
+                <button onClick={() => setAction("assign")} className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">
                   Assign / reassign coach
                 </button>
               )}
               {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
-                <button onClick={() => setAction("confirm")} className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700">
+                <button onClick={() => setAction("confirm")} className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:bg-lime-accent">
                   Confirm time
                 </button>
               )}
               {booking.status === "CONFIRMED" && !booking.ownerApproved && (
-                <button onClick={() => send({ action: "APPROVE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                <button onClick={() => send({ action: "APPROVE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
                   {saving ? "…" : "Approve"}
                 </button>
               )}
               {booking.status === "CONFIRMED" && (
-                <button onClick={() => send({ action: "COMPLETE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50">
+                <button onClick={() => send({ action: "COMPLETE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
                   {saving ? "…" : "Mark complete"}
                 </button>
               )}
@@ -475,16 +475,16 @@ function BookingModal({
 
           {action === "assign" && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-stone-700">Assign coach</p>
-              <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <p className="text-sm font-medium text-text-primary">Assign coach</p>
+              <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={selectedCoachId} onChange={(e) => setSelectedCoachId(e.target.value)}>
                 <option value="">Unassigned</option>
                 {staffList.map((s) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
               </select>
               <div className="flex gap-2">
-                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Back</button>
+                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Back</button>
                 <button onClick={() => send({ action: "ASSIGN_COACH", coachId: selectedCoachId || null })} disabled={saving}
-                  className="px-3 py-1.5 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
                   {saving ? "Saving…" : "Save assignment"}
                 </button>
               </div>
@@ -493,24 +493,24 @@ function BookingModal({
 
           {action === "confirm" && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-stone-700">Confirm time</p>
+              <p className="text-sm font-medium text-text-primary">Confirm time</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Start</label>
-                  <input type="datetime-local" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                  <label className="block text-xs font-medium text-text-muted mb-1">Start</label>
+                  <input type="datetime-local" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                     value={confirmedStart} onChange={(e) => setConfirmedStart(e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">End</label>
-                  <input type="datetime-local" className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+                  <label className="block text-xs font-medium text-text-muted mb-1">End</label>
+                  <input type="datetime-local" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                     value={confirmedEnd} onChange={(e) => setConfirmedEnd(e.target.value)} />
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Back</button>
+                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Back</button>
                 <button onClick={() => send({ action: "ACCEPT", confirmedStartAt: confirmedStart, confirmedEndAt: confirmedEnd })}
                   disabled={saving || !confirmedStart || !confirmedEnd}
-                  className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:bg-lime-accent disabled:opacity-50">
                   {saving ? "Confirming…" : "Confirm"}
                 </button>
               </div>
@@ -519,11 +519,11 @@ function BookingModal({
 
           {action === "cancel" && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-stone-700">Cancel booking</p>
-              <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+              <p className="text-sm font-medium text-text-primary">Cancel booking</p>
+              <textarea className="w-full border border-app-border rounded-md px-3 py-2 text-sm" rows={2}
                 placeholder="Reason (optional)" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
               <div className="flex gap-2">
-                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Back</button>
+                <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Back</button>
                 <button onClick={() => send({ action: "CANCEL", cancelReason: cancelReason || null })} disabled={saving}
                   className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50">
                   {saving ? "Canceling…" : "Confirm cancel"}
@@ -542,24 +542,24 @@ function BookingModal({
 function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => void }) {
   const slot = booking.requestedSlots[0];
   return (
-    <tr className="hover:bg-stone-50 cursor-pointer" onClick={onClick}>
-      <td className="px-4 py-3 text-sm font-medium text-stone-900">
+    <tr className="hover:bg-app-bg cursor-pointer" onClick={onClick}>
+      <td className="px-4 py-3 text-sm font-medium text-text-primary">
         {booking.member.firstName} {booking.member.lastName}
       </td>
-      <td className="px-4 py-3 text-sm text-stone-600">{booking.lessonType.title}</td>
-      <td className="px-4 py-3 text-sm text-stone-600">
-        {booking.coach ? `${booking.coach.firstName} ${booking.coach.lastName}` : <span className="text-amber-600">Unassigned</span>}
+      <td className="px-4 py-3 text-sm text-text-muted">{booking.lessonType.title}</td>
+      <td className="px-4 py-3 text-sm text-text-muted">
+        {booking.coach ? `${booking.coach.firstName} ${booking.coach.lastName}` : <span className="text-orange-accent">Unassigned</span>}
       </td>
-      <td className="px-4 py-3 text-sm text-stone-600">
+      <td className="px-4 py-3 text-sm text-text-muted">
         {slot ? `${slot.date} ${slot.startTime}` : "—"}
-        {booking.requestedSlots.length > 1 && <span className="ml-1 text-xs text-stone-400">+{booking.requestedSlots.length - 1}</span>}
+        {booking.requestedSlots.length > 1 && <span className="ml-1 text-xs text-text-muted">+{booking.requestedSlots.length - 1}</span>}
       </td>
       <td className="px-4 py-3">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[booking.status] ?? "bg-stone-100 text-stone-600"}`}>
+        <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[booking.status] ?? "bg-app-bg text-text-muted"}`}>
           {STATUS_LABEL[booking.status] ?? booking.status}
         </span>
       </td>
-      <td className="px-4 py-3 text-sm text-stone-400">{new Date(booking.createdAt).toLocaleDateString()}</td>
+      <td className="px-4 py-3 text-sm text-text-muted">{new Date(booking.createdAt).toLocaleDateString()}</td>
     </tr>
   );
 }
@@ -622,16 +622,16 @@ function NewBookingModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
-          <h2 className="font-semibold text-stone-900">New booking</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-xl leading-none">×</button>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+          <h2 className="font-semibold text-text-primary">New booking</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Member *</label>
-            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+            <label className="block text-xs font-medium text-text-muted mb-1">Member *</label>
+            <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm" required
               value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })}>
               <option value="">Select member…</option>
               {members.map((m) => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
@@ -639,8 +639,8 @@ function NewBookingModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Lesson type *</label>
-            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" required
+            <label className="block text-xs font-medium text-text-muted mb-1">Lesson type *</label>
+            <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm" required
               value={form.lessonTypeId} onChange={(e) => setForm({ ...form, lessonTypeId: e.target.value })}>
               <option value="">Select…</option>
               {lessonTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.title} — {lt.durationMin}min</option>)}
@@ -648,8 +648,8 @@ function NewBookingModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Coach (optional)</label>
-            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+            <label className="block text-xs font-medium text-text-muted mb-1">Coach (optional)</label>
+            <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
               value={form.coachId} onChange={(e) => setForm({ ...form, coachId: e.target.value })}>
               <option value="">Unassigned</option>
               {staffList.map((s) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
@@ -657,27 +657,27 @@ function NewBookingModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Requested date *</label>
-            <input type="date" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+            <label className="block text-xs font-medium text-text-muted mb-1">Requested date *</label>
+            <input type="date" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
               value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Start time *</label>
-              <input type="time" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">Start time *</label>
+              <input type="time" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">End time *</label>
-              <input type="time" required className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+              <label className="block text-xs font-medium text-text-muted mb-1">End time *</label>
+              <input type="time" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Payment type</label>
-            <select className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm"
+            <label className="block text-xs font-medium text-text-muted mb-1">Payment type</label>
+            <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
               value={form.paymentType} onChange={(e) => setForm({ ...form, paymentType: e.target.value as typeof form.paymentType })}>
               <option value="MANUAL">Manual / cash</option>
               <option value="CREDIT">Use credits</option>
@@ -686,8 +686,8 @@ function NewBookingModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-stone-600 mb-1">Notes</label>
-            <textarea className="w-full border border-stone-200 rounded-md px-3 py-2 text-sm" rows={2}
+            <label className="block text-xs font-medium text-text-muted mb-1">Notes</label>
+            <textarea className="w-full border border-app-border rounded-md px-3 py-2 text-sm" rows={2}
               value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
 
@@ -697,8 +697,8 @@ function NewBookingModal({
           </label>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-stone-200 rounded-md text-stone-700 hover:bg-stone-50">Cancel</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Creating…" : "Create booking"}
             </button>
           </div>
@@ -770,32 +770,32 @@ export default function PrivatesPage() {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900">Private Lessons</h1>
-          <p className="text-sm text-stone-500 mt-0.5">Manage booking requests, lesson types, and packages</p>
+          <h1 className="text-2xl font-semibold text-text-primary">Private Lessons</h1>
+          <p className="text-sm text-text-muted mt-0.5">Manage booking requests, lesson types, and packages</p>
         </div>
         {isOwner && tab === "bookings" && (
-          <button onClick={() => setNewBooking(true)} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800">
+          <button onClick={() => setNewBooking(true)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
             + New booking
           </button>
         )}
         {isOwner && tab === "types" && (
-          <button onClick={() => setEditLT(null)} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800">
+          <button onClick={() => setEditLT(null)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
             + New lesson type
           </button>
         )}
         {isOwner && tab === "packages" && (
-          <button onClick={() => setEditPkg(null)} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-md hover:bg-stone-800">
+          <button onClick={() => setEditPkg(null)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
             + New package
           </button>
         )}
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-stone-200 mb-6">
+      <div className="flex gap-1 border-b border-app-border mb-6">
         {(["bookings", "types", "packages"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition ${
-              tab === t ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-700"
+              tab === t ? "border-brand text-text-primary" : "border-transparent text-text-muted hover:text-text-primary"
             }`}>
             {t}
           </button>
@@ -803,34 +803,34 @@ export default function PrivatesPage() {
       </div>
 
       {loading ? (
-        <div className="text-sm text-stone-500 py-12 text-center">Loading…</div>
+        <div className="text-sm text-text-muted py-12 text-center">Loading…</div>
       ) : (
         <>
           {/* ── Bookings tab ─────────────────────────────────────── */}
           {tab === "bookings" && (
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <select className="border border-stone-200 rounded-md px-3 py-1.5 text-sm"
+                <select className="border border-app-border rounded-md px-3 py-1.5 text-sm"
                   value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                   <option value="">All statuses</option>
                   {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
-                <span className="text-sm text-stone-400">{bookings.length} bookings</span>
+                <span className="text-sm text-text-muted">{bookings.length} bookings</span>
               </div>
 
               {bookings.length === 0 ? (
-                <div className="text-center py-16 text-stone-400">No bookings found</div>
+                <div className="text-center py-16 text-text-muted">No bookings found</div>
               ) : (
-                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+                <div className="bg-white rounded-xl border border-app-border overflow-hidden">
                   <table className="w-full">
-                    <thead className="bg-stone-50 border-b border-stone-200">
+                    <thead className="bg-app-bg border-b border-app-border">
                       <tr>
                         {["Member", "Lesson type", "Coach", "Requested", "Status", "Date"].map((h) => (
-                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">{h}</th>
+                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-100">
+                    <tbody className="divide-y divide-app-border">
                       {bookings.map((b) => (
                         <BookingRow key={b.id} booking={b} onClick={() => setViewBooking(b)} />
                       ))}
@@ -845,32 +845,32 @@ export default function PrivatesPage() {
           {tab === "types" && (
             <div>
               {lessonTypes.length === 0 ? (
-                <div className="text-center py-16 text-stone-400">No lesson types yet</div>
+                <div className="text-center py-16 text-text-muted">No lesson types yet</div>
               ) : (
-                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+                <div className="bg-white rounded-xl border border-app-border overflow-hidden">
                   <table className="w-full">
-                    <thead className="bg-stone-50 border-b border-stone-200">
+                    <thead className="bg-app-bg border-b border-app-border">
                       <tr>
                         {["Title", "Duration", "Max", "Price", "Status", ""].map((h) => (
-                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">{h}</th>
+                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-100">
+                    <tbody className="divide-y divide-app-border">
                       {lessonTypes.map((lt) => (
-                        <tr key={lt.id} className="hover:bg-stone-50">
-                          <td className="px-4 py-3 text-sm font-medium text-stone-900">{lt.title}</td>
-                          <td className="px-4 py-3 text-sm text-stone-600">{lt.durationMin} min</td>
-                          <td className="px-4 py-3 text-sm text-stone-600">{lt.maxAthletes}</td>
-                          <td className="px-4 py-3 text-sm text-stone-600">${Number(lt.basePrice).toFixed(2)}</td>
+                        <tr key={lt.id} className="hover:bg-app-bg">
+                          <td className="px-4 py-3 text-sm font-medium text-text-primary">{lt.title}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{lt.durationMin} min</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{lt.maxAthletes}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">${Number(lt.basePrice).toFixed(2)}</td>
                           <td className="px-4 py-3">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${lt.active ? "bg-green-100 text-green-800" : "bg-stone-100 text-stone-500"}`}>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${lt.active ? "bg-lime-accent text-text-primary" : "bg-app-bg text-text-muted"}`}>
                               {lt.active ? "Active" : "Inactive"}
                             </span>
                           </td>
                           {isOwner && (
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => setEditLT(lt)} className="text-xs text-stone-500 hover:text-stone-800 mr-3">Edit</button>
+                              <button onClick={() => setEditLT(lt)} className="text-xs text-text-muted hover:text-text-primary mr-3">Edit</button>
                               <button onClick={() => deleteLessonType(lt.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
                             </td>
                           )}
@@ -887,35 +887,35 @@ export default function PrivatesPage() {
           {tab === "packages" && (
             <div>
               {packages.length === 0 ? (
-                <div className="text-center py-16 text-stone-400">No packages yet</div>
+                <div className="text-center py-16 text-text-muted">No packages yet</div>
               ) : (
-                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+                <div className="bg-white rounded-xl border border-app-border overflow-hidden">
                   <table className="w-full">
-                    <thead className="bg-stone-50 border-b border-stone-200">
+                    <thead className="bg-app-bg border-b border-app-border">
                       <tr>
                         {["Title", "Lesson type", "Credits", "Price", "Expires", "Status", ""].map((h) => (
-                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">{h}</th>
+                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-100">
+                    <tbody className="divide-y divide-app-border">
                       {packages.map((pkg) => (
-                        <tr key={pkg.id} className="hover:bg-stone-50">
-                          <td className="px-4 py-3 text-sm font-medium text-stone-900">{pkg.title}</td>
-                          <td className="px-4 py-3 text-sm text-stone-600">{pkg.lessonType?.title ?? "Any"}</td>
-                          <td className="px-4 py-3 text-sm text-stone-600">
+                        <tr key={pkg.id} className="hover:bg-app-bg">
+                          <td className="px-4 py-3 text-sm font-medium text-text-primary">{pkg.title}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{pkg.lessonType?.title ?? "Any"}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">
                             {pkg.credits}{pkg.bonusCredits > 0 ? ` +${pkg.bonusCredits} bonus` : ""}
                           </td>
-                          <td className="px-4 py-3 text-sm text-stone-600">${Number(pkg.price).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-stone-600">{pkg.expiresAfterDays ? `${pkg.expiresAfterDays}d` : "Never"}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">${Number(pkg.price).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{pkg.expiresAfterDays ? `${pkg.expiresAfterDays}d` : "Never"}</td>
                           <td className="px-4 py-3">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${pkg.active ? "bg-green-100 text-green-800" : "bg-stone-100 text-stone-500"}`}>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${pkg.active ? "bg-lime-accent text-text-primary" : "bg-app-bg text-text-muted"}`}>
                               {pkg.active ? "Active" : "Inactive"}
                             </span>
                           </td>
                           {isOwner && (
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => setEditPkg(pkg)} className="text-xs text-stone-500 hover:text-stone-800 mr-3">Edit</button>
+                              <button onClick={() => setEditPkg(pkg)} className="text-xs text-text-muted hover:text-text-primary mr-3">Edit</button>
                               <button onClick={() => deletePackage(pkg.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
                             </td>
                           )}
