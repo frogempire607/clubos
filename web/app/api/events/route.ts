@@ -22,6 +22,7 @@ export async function GET(req: Request) {
       location: { select: { name: true } },
       customEventType: { select: { id: true, name: true, color: true, textColor: true } },
       sessions: { orderBy: { sortOrder: "asc" } },
+      staffAssignments: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
       _count: { select: { bookings: true } },
     },
   });
@@ -56,6 +57,8 @@ const createSchema = z.object({
   purchaseAccess: z.enum(["ANYONE", "STAFF_ONLY"]).default("ANYONE"),
   allowMembershipPayment: z.boolean().default(false),
   imageUrl: z.string().optional().nullable(),
+  pricingOptions: z.array(z.object({ type: z.literal("membership"), membershipId: z.string() })).default([]),
+  staffUserIds: z.array(z.string()).default([]),
   sessions: z.array(sessionSchema).optional(),
 });
 
@@ -100,6 +103,7 @@ export async function POST(req: Request) {
         purchaseAccess: data.purchaseAccess,
         allowMembershipPayment: data.allowMembershipPayment,
         imageUrl: data.imageUrl ?? null,
+        pricingOptions: data.pricingOptions,
         sessions: data.sessions?.length
           ? {
               create: data.sessions.map((s, i) => ({
@@ -112,6 +116,18 @@ export async function POST(req: Request) {
           : undefined,
       },
     });
+
+    if (data.staffUserIds.length > 0) {
+      await prisma.eventStaffAssignment.createMany({
+        data: data.staffUserIds.map((userId) => ({
+          clubId: session.user.clubId,
+          eventId: event.id,
+          userId,
+          role: "COACH",
+        })),
+        skipDuplicates: true,
+      });
+    }
 
     return NextResponse.json(event, { status: 201 });
   } catch (err) {

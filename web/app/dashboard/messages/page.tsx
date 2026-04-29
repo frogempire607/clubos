@@ -30,10 +30,16 @@ type MessageGroup = {
 
 type ClubMember = {
   id: string;
+  userId?: string | null;
   firstName: string;
   lastName: string;
+  email?: string | null;
+  phone?: string | null;
   tags: string | null;
   status: string;
+  isMinor?: boolean;
+  guardianName?: string | null;
+  guardianEmail?: string | null;
   membership: { name: string } | null;
 };
 
@@ -700,6 +706,7 @@ function DMsTab() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showCompose, setShowCompose] = useState(false);
+  const [status, setStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function loadConversations() {
@@ -721,6 +728,7 @@ function DMsTab() {
     e.preventDefault();
     if (!activeUser || !msgBody.trim()) return;
     setSending(true);
+    setStatus(null);
     const res = await fetch(`/api/messages/dm/${activeUser.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -729,8 +737,12 @@ function DMsTab() {
     setSending(false);
     if (res.ok) {
       setMsgBody("");
+      setStatus({ type: "success", text: "Message sent." });
       loadMessages(activeUser.id);
       loadConversations();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setStatus({ type: "error", text: data.error?.toString() || "Message failed to send." });
     }
   }
 
@@ -829,6 +841,11 @@ function DMsTab() {
                   Send
                 </button>
               </form>
+              {status && (
+                <div className={`px-3 pb-3 text-xs ${status.type === "success" ? "text-text-primary" : "text-red-600"}`}>
+                  {status.text}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -852,23 +869,34 @@ function DMComposeModal({
   onSent: (user: DMUser) => void;
 }) {
   const [staffList, setStaffList] = useState<DMUser[]>([]);
+  const [members, setMembers] = useState<ClubMember[]>([]);
+  const [targetType, setTargetType] = useState<"member" | "staff">("member");
   const [selected, setSelected] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    fetch("/api/staff").then((r) => (r.ok ? r.json() : [])).then(setStaffList);
+    Promise.all([
+      fetch("/api/staff?includeOwners=true").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/members").then((r) => (r.ok ? r.json() : [])),
+    ]).then(([staff, memberRows]) => {
+      setStaffList(staff);
+      setMembers(memberRows.filter((m: ClubMember) => m.status !== "INACTIVE"));
+    });
   }, []);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!selected || !body.trim()) return;
     setSending(true);
-    const res = await fetch(`/api/messages/dm/${selected}`, {
+    setError("");
+    setSuccess("");
+    const res = await fetch(targetType === "member" ? "/api/messages/dm" : `/api/messages/dm/${selected}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: body.trim() }),
+      body: JSON.stringify(targetType === "member" ? { memberId: selected, body: body.trim() } : { body: body.trim() }),
     });
     setSending(false);
     if (!res.ok) {
@@ -876,8 +904,19 @@ function DMComposeModal({
       setError(data.error?.toString() || "Failed to send");
       return;
     }
-    const user = staffList.find((u) => u.id === selected);
-    if (user) onSent(user);
+    setSuccess("Message sent.");
+    if (targetType === "staff") {
+      const user = staffList.find((u) => u.id === selected);
+      if (user) onSent(user);
+      return;
+    }
+    const member = members.find((m) => m.id === selected);
+    if (member?.userId) {
+      onSent({ id: member.userId, firstName: member.firstName, lastName: member.lastName, role: "MEMBER" });
+    } else {
+      setBody("");
+      setSelected("");
+    }
   }
 
   return (
@@ -890,13 +929,36 @@ function DMComposeModal({
         <form onSubmit={handleSend} className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">To</label>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              {(["member", "staff"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => { setTargetType(type); setSelected(""); setError(""); setSuccess(""); }}
+                  className={`px-3 py-2 rounded-lg text-sm border ${targetType === type ? "border-brand bg-app-bg text-text-primary font-medium" : "border-app-border text-text-muted"}`}
+                >
+                  {type === "member" ? "Member" : "Staff / owner"}
+                </button>
+              ))}
+            </div>
             <select value={selected} onChange={(e) => setSelected(e.target.value)} required
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
-              <option value="">Select a staff member…</option>
-              {staffList.map((u) => (
-                <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
-              ))}
+              <option value="">Select {targetType === "member" ? "a member" : "a staff member"}…</option>
+              {targetType === "member"
+                ? members.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.firstName} {m.lastName}{m.isMinor ? ` (minor, guardian: ${m.guardianName || m.guardianEmail || "required"})` : ""}
+                    </option>
+                  ))
+                : staffList.map((u) => (
+                    <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
+                  ))}
             </select>
+            {targetType === "member" && (
+              <p className="text-xs text-text-muted mt-1">
+                Minor messages include the linked guardian account and the athlete account when available.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">Message</label>
@@ -905,6 +967,7 @@ function DMComposeModal({
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
           </div>
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+          {success && <div className="text-sm text-text-primary bg-lime-accent/30 border border-lime-accent rounded-lg px-3 py-2">{success}</div>}
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
             <button type="submit" disabled={sending} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">

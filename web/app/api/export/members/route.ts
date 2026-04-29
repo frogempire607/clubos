@@ -8,7 +8,9 @@ export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return new Response("Unauthorized", { status: 401 });
 
-  const format = parseExportFormat(new URL(req.url));
+  const url = new URL(req.url);
+  const format = parseExportFormat(url);
+  const ids = url.searchParams.get("ids")?.split(",").map((id) => id.trim()).filter(Boolean) ?? [];
 
   if (isAdvancedExport(format)) {
     const club = await prisma.club.findUnique({
@@ -25,7 +27,7 @@ export async function GET(req: Request) {
   }
 
   const members = await prisma.member.findMany({
-    where: { clubId: session.user.clubId, deletedAt: null },
+    where: { clubId: session.user.clubId, deletedAt: null, ...(ids.length ? { id: { in: ids } } : {}) },
     include: {
       membership: { select: { name: true } },
       subscriptions: { where: { status: "active" }, select: { optionLabel: true } },

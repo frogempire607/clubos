@@ -41,12 +41,16 @@ type Event = {
   visibility: string;
   purchaseAccess: string;
   allowMembershipPayment: boolean;
+  pricingOptions?: { type: "membership"; membershipId: string }[] | null;
   location: { name: string } | null;
   sessions: EventSession[];
+  staffAssignments?: { user: { id: string; firstName: string; lastName: string } }[];
   _count: { bookings: number };
 };
 
 type Member = { id: string; firstName: string; lastName: string };
+type Membership = { id: string; name: string; active: boolean };
+type Staff = { id: string; firstName: string; lastName: string };
 
 const BUILT_IN_COLORS: Record<BuiltInType, { bg: string; fg: string }> = {
   CLASS: { bg: "var(--color-primary)", fg: "#fff" },
@@ -71,6 +75,8 @@ function getTypeDisplay(e: Event): { name: string; bg: string; fg: string } {
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [clubEventTypes, setClubEventTypes] = useState<ClubEventType[]>([]);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Event | null>(null);
@@ -80,9 +86,16 @@ export default function EventsPage() {
 
   async function load() {
     setLoading(true);
-    const [eRes, tRes] = await Promise.all([fetch("/api/events"), fetch("/api/events/types")]);
+    const [eRes, tRes, mRes, sRes] = await Promise.all([
+      fetch("/api/events"),
+      fetch("/api/events/types"),
+      fetch("/api/memberships"),
+      fetch("/api/staff?includeOwners=true"),
+    ]);
     if (eRes.ok) setEvents(await eRes.json());
     if (tRes.ok) setClubEventTypes(await tRes.json());
+    if (mRes.ok) setMemberships((await mRes.json()).filter((m: Membership) => m.active));
+    if (sRes.ok) setStaffList(await sRes.json());
     setLoading(false);
   }
 
@@ -185,6 +198,13 @@ export default function EventsPage() {
                       {e.nonMemberPrice != null && <span>· Non-mem ${Number(e.nonMemberPrice).toFixed(2)}</span>}
                       {e.dropInFee != null && <span>· Drop-in ${Number(e.dropInFee).toFixed(2)}</span>}
                       {e.allowMembershipPayment && <span>· Membership accepted</span>}
+                      {(e.pricingOptions || []).map((p) => {
+                        const membership = memberships.find((m) => m.id === p.membershipId);
+                        return membership ? <span key={p.membershipId}>· {membership.name} accepted</span> : null;
+                      })}
+                      {e.staffAssignments && e.staffAssignments.length > 0 && (
+                        <span>· Staff: {e.staffAssignments.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(", ")}</span>
+                      )}
                       {e.capacity && <span>· {e._count.bookings}/{e.capacity}</span>}
                       {!e.capacity && e._count.bookings > 0 && <span>· {e._count.bookings} booked</span>}
                     </div>
@@ -216,6 +236,8 @@ export default function EventsPage() {
         <EventModal
           event={editing}
           clubEventTypes={clubEventTypes}
+          memberships={memberships}
+          staffList={staffList}
           onClose={() => { setShowAdd(false); setEditing(null); }}
           onSaved={() => { setShowAdd(false); setEditing(null); load(); }}
         />
@@ -247,9 +269,11 @@ function toLocalInput(d: Date) {
   return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
 }
 
-function EventModal({ event, clubEventTypes, onClose, onSaved }: {
+function EventModal({ event, clubEventTypes, memberships, staffList, onClose, onSaved }: {
   event: Event | null;
   clubEventTypes: ClubEventType[];
+  memberships: Membership[];
+  staffList: Staff[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -280,6 +304,10 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
   const [visibility, setVisibility] = useState(event?.visibility || "PUBLIC");
   const [purchaseAccess, setPurchaseAccess] = useState(event?.purchaseAccess || "ANYONE");
   const [allowMembershipPayment, setAllowMembershipPayment] = useState(event?.allowMembershipPayment || false);
+  const [allowedMembershipIds, setAllowedMembershipIds] = useState<string[]>(
+    (event?.pricingOptions || []).filter((p) => p.type === "membership").map((p) => p.membershipId)
+  );
+  const [staffUserIds, setStaffUserIds] = useState<string[]>((event?.staffAssignments || []).map((a) => a.user.id));
   const [sessions, setSessions] = useState<Omit<EventSession, "id">[]>(
     event?.sessions?.length
       ? event.sessions.map((s) => ({ name: s.name, startsAt: toLocalInput(new Date(s.startsAt)), endsAt: toLocalInput(new Date(s.endsAt)), sortOrder: s.sortOrder }))
@@ -304,6 +332,14 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
     const copy = [...sessions];
     (copy[i] as any)[key] = val;
     setSessions(copy);
+  }
+
+  function toggleMembership(id: string) {
+    setAllowedMembershipIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  function toggleStaff(id: string) {
+    setStaffUserIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -334,6 +370,8 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
         publishAt: publishAt ? new Date(publishAt).toISOString() : null,
         unpublishAt: unpublishAt ? new Date(unpublishAt).toISOString() : null,
         visibility, purchaseAccess, allowMembershipPayment,
+        pricingOptions: allowedMembershipIds.map((membershipId) => ({ type: "membership", membershipId })),
+        staffUserIds,
         imageUrl: imageUrl || null,
         sessions: sessions.length > 0
           ? sessions.map((s, i) => ({ name: s.name || null, startsAt: new Date(s.startsAt).toISOString(), endsAt: new Date(s.endsAt).toISOString(), sortOrder: i }))
@@ -466,7 +504,34 @@ function EventModal({ event, clubEventTypes, onClose, onSaved }: {
               <input type="checkbox" checked={allowMembershipPayment} onChange={(e) => setAllowMembershipPayment(e.target.checked)} className="rounded" />
               <span className="text-sm text-text-primary">Allow members to use their membership to pay for this event</span>
             </label>
+            {memberships.length > 0 && (
+              <div className="mt-3 border border-app-border rounded-lg p-3">
+                <p className="text-xs font-medium text-text-primary mb-2">Member can use purchase option to register</p>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {memberships.map((m) => (
+                    <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={allowedMembershipIds.includes(m.id)} onChange={() => toggleMembership(m.id)} />
+                      {m.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
+          {staffList.length > 0 && (
+            <div className="border-t border-app-border pt-4">
+              <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Assigned staff / coaches</p>
+              <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                {staffList.map((s) => (
+                  <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer border border-app-border rounded-lg px-3 py-2">
+                    <input type="checkbox" checked={staffUserIds.includes(s.id)} onChange={() => toggleStaff(s.id)} />
+                    {s.firstName} {s.lastName}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Visibility & Access */}
           <div className="border-t border-app-border pt-4">

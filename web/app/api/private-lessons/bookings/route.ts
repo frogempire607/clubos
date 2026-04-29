@@ -66,15 +66,34 @@ export async function POST(req: Request) {
     if (!member)     return NextResponse.json({ error: "Member not found" }, { status: 404 });
     if (!lessonType) return NextResponse.json({ error: "Lesson type not found or inactive" }, { status: 404 });
 
-    // Validate credit if using credits
+    let creditLedgerId = data.creditLedgerId || null;
+
+    // Validate lesson package balance if using a package.
     if (data.paymentType === "CREDIT" && data.creditLedgerId) {
       const ledger = await prisma.privateCreditLedger.findFirst({
-        where: { id: data.creditLedgerId, memberId: data.memberId, status: "active" },
+        where: { id: data.creditLedgerId, memberId: data.memberId, clubId: session.user.clubId, status: "active" },
       });
       if (!ledger) return NextResponse.json({ error: "No valid credits found" }, { status: 400 });
       if (ledger.creditsGranted - ledger.creditsUsed < 1) {
-        return NextResponse.json({ error: "No remaining credits on this entry" }, { status: 400 });
+        return NextResponse.json({ error: "No remaining lessons on this package" }, { status: 400 });
       }
+    }
+
+    if (data.paymentType === "CREDIT" && !creditLedgerId) {
+      const ledgers = await prisma.privateCreditLedger.findMany({
+        where: {
+          memberId: data.memberId,
+          clubId: session.user.clubId,
+          status: "active",
+          OR: [{ lessonTypeId: null }, { lessonTypeId: data.lessonTypeId }],
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      const ledger = ledgers.find((l) => l.creditsGranted - l.creditsUsed > 0);
+      if (!ledger) {
+        return NextResponse.json({ error: "No remaining private lesson package balance was found for this member." }, { status: 400 });
+      }
+      creditLedgerId = ledger.id;
     }
 
     const booking = await prisma.privateBooking.create({
@@ -84,7 +103,7 @@ export async function POST(req: Request) {
         lessonTypeId:   data.lessonTypeId,
         coachId:        data.coachId || null,
         requestedSlots: data.requestedSlots,
-        creditLedgerId: data.creditLedgerId || null,
+        creditLedgerId,
         paymentType:    data.paymentType,
         pricePaid:      data.paymentType === "CREDIT" ? 0 : Number(lessonType.basePrice),
         allowUnpaid:    data.allowUnpaid,

@@ -31,6 +31,8 @@ const updateSchema = z.object({
   purchaseAccess: z.enum(["ANYONE", "STAFF_ONLY"]).optional(),
   allowMembershipPayment: z.boolean().optional(),
   imageUrl: z.string().optional().nullable(),
+  pricingOptions: z.array(z.object({ type: z.literal("membership"), membershipId: z.string() })).optional(),
+  staffUserIds: z.array(z.string()).optional(),
   sessions: z.array(sessionSchema).optional(),
 });
 
@@ -50,6 +52,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       location: true,
       customEventType: true,
       sessions: { orderBy: { sortOrder: "asc" } },
+      staffAssignments: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
       bookings: {
         include: { member: { select: { id: true, firstName: true, lastName: true } } },
         orderBy: { createdAt: "asc" },
@@ -71,7 +74,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   try {
     const body = await req.json();
-    const { sessions, ...rest } = updateSchema.parse(body);
+    const { sessions, staffUserIds, ...rest } = updateSchema.parse(body);
 
     const baseType =
       "customEventTypeId" in rest
@@ -103,6 +106,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             endsAt: new Date(s.endsAt),
             sortOrder: s.sortOrder ?? i,
           })),
+        });
+      }
+    }
+
+    if (staffUserIds !== undefined) {
+      await prisma.eventStaffAssignment.deleteMany({ where: { eventId: params.id, clubId: session.user.clubId } });
+      if (staffUserIds.length > 0) {
+        await prisma.eventStaffAssignment.createMany({
+          data: staffUserIds.map((userId) => ({
+            clubId: session.user.clubId,
+            eventId: params.id,
+            userId,
+            role: "COACH",
+          })),
+          skipDuplicates: true,
         });
       }
     }

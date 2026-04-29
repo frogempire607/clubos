@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PricingOption = { type: "member" | "nonmember" | "dropin"; price: number };
+type PricingOption =
+  | { type: "member" | "nonmember" | "dropin"; price: number }
+  | { type: "membership"; membershipId: string };
 
 type RecurringClass = {
   id: string;
@@ -17,6 +19,7 @@ type RecurringClass = {
   recurrenceStartDate: string;
   recurrenceEndDate: string | null;
   pricingOptions: PricingOption[];
+  assignedStaffIds?: string[];
   active: boolean;
   locationId: string | null;
   location: { name: string } | null;
@@ -24,6 +27,8 @@ type RecurringClass = {
 };
 
 type Location = { id: string; name: string };
+type Membership = { id: string; name: string; active: boolean };
+type Staff = { id: string; firstName: string; lastName: string };
 
 type ClassSession = {
   id: string;
@@ -71,6 +76,8 @@ type FormData = {
   nonmemberPrice: string;
   dropinPriceEnabled: boolean;
   dropinPrice: string;
+  allowedMembershipIds: string[];
+  assignedStaffIds: string[];
 };
 
 const emptyForm = (): FormData => ({
@@ -89,13 +96,15 @@ const emptyForm = (): FormData => ({
   nonmemberPrice: "",
   dropinPriceEnabled: false,
   dropinPrice: "",
+  allowedMembershipIds: [],
+  assignedStaffIds: [],
 });
 
 function formFromClass(c: RecurringClass): FormData {
   const opts = c.pricingOptions ?? [];
-  const member = opts.find((o) => o.type === "member");
-  const nonmember = opts.find((o) => o.type === "nonmember");
-  const dropin = opts.find((o) => o.type === "dropin");
+  const member = opts.find((o) => o.type === "member") as ({ price: number } | undefined);
+  const nonmember = opts.find((o) => o.type === "nonmember") as ({ price: number } | undefined);
+  const dropin = opts.find((o) => o.type === "dropin") as ({ price: number } | undefined);
   return {
     name: c.name,
     description: c.description ?? "",
@@ -112,17 +121,23 @@ function formFromClass(c: RecurringClass): FormData {
     nonmemberPrice: nonmember?.price.toString() ?? "",
     dropinPriceEnabled: !!dropin,
     dropinPrice: dropin?.price.toString() ?? "",
+    allowedMembershipIds: opts.filter((o) => o.type === "membership").map((o) => o.membershipId),
+    assignedStaffIds: c.assignedStaffIds ?? [],
   };
 }
 
 function ClassModal({
   editing,
   locations,
+  memberships,
+  staffList,
   onSave,
   onClose,
 }: {
   editing: RecurringClass | null;
   locations: Location[];
+  memberships: Membership[];
+  staffList: Staff[];
   onSave: () => void;
   onClose: () => void;
 }) {
@@ -156,6 +171,9 @@ function ClassModal({
       pricingOptions.push({ type: "nonmember", price: parseFloat(form.nonmemberPrice) });
     if (form.dropinPriceEnabled && form.dropinPrice)
       pricingOptions.push({ type: "dropin", price: parseFloat(form.dropinPrice) });
+    for (const membershipId of form.allowedMembershipIds) {
+      pricingOptions.push({ type: "membership", membershipId });
+    }
 
     const payload = {
       name: form.name,
@@ -168,6 +186,7 @@ function ClassModal({
       recurrenceStartDate: form.recurrenceStartDate,
       recurrenceEndDate: form.recurrenceEndDate || null,
       pricingOptions,
+      assignedStaffIds: form.assignedStaffIds,
     };
 
     const url = editing ? `/api/classes/${editing.id}` : "/api/classes";
@@ -357,7 +376,42 @@ function ClassModal({
                 </div>
               ))}
             </div>
+            {memberships.length > 0 && (
+              <div className="mt-3 border border-app-border rounded-lg p-3">
+                <p className="text-xs font-medium text-text-primary mb-2">Member can use purchase option to register</p>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {memberships.map((m) => (
+                    <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.allowedMembershipIds.includes(m.id)}
+                        onChange={() => set("allowedMembershipIds", form.allowedMembershipIds.includes(m.id) ? form.allowedMembershipIds.filter((id) => id !== m.id) : [...form.allowedMembershipIds, m.id])}
+                      />
+                      {m.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
+          {staffList.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-text-primary mb-2">Assigned staff / coaches</label>
+              <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                {staffList.map((s) => (
+                  <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer border border-app-border rounded-lg px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={form.assignedStaffIds.includes(s.id)}
+                      onChange={() => set("assignedStaffIds", form.assignedStaffIds.includes(s.id) ? form.assignedStaffIds.filter((id) => id !== s.id) : [...form.assignedStaffIds, s.id])}
+                    />
+                    {s.firstName} {s.lastName}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
@@ -464,6 +518,8 @@ function SessionsModal({
 export default function ClassesPage() {
   const [classes, setClasses] = useState<RecurringClass[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"classes" | "events">("classes");
   const [showModal, setShowModal] = useState(false);
@@ -477,6 +533,10 @@ export default function ClassesPage() {
     if (cRes.ok) setClasses(await cRes.json());
     const lRes = await fetch("/api/club/locations").catch(() => null);
     if (lRes && lRes.ok) setLocations(await lRes.json().catch(() => []));
+    const mRes = await fetch("/api/memberships").catch(() => null);
+    if (mRes && mRes.ok) setMemberships((await mRes.json().catch(() => [])).filter((m: Membership) => m.active));
+    const sRes = await fetch("/api/staff?includeOwners=true").catch(() => null);
+    if (sRes && sRes.ok) setStaffList(await sRes.json().catch(() => []));
     setLoading(false);
   }
 
@@ -600,6 +660,16 @@ export default function ClassesPage() {
                         {cls.description && (
                           <div className="text-xs text-text-muted truncate max-w-[200px]">{cls.description}</div>
                         )}
+                        <div className="text-[10px] text-text-muted mt-0.5">
+                          {cls.assignedStaffIds?.length
+                            ? `Staff: ${cls.assignedStaffIds.map((id) => staffList.find((s) => s.id === id)).filter(Boolean).map((s) => `${s!.firstName} ${s!.lastName}`).join(", ")}`
+                            : "No staff assigned"}
+                        </div>
+                        {(cls.pricingOptions || []).filter((o) => o.type === "membership").length > 0 && (
+                          <div className="text-[10px] text-text-muted mt-0.5">
+                            Options: {(cls.pricingOptions || []).filter((o) => o.type === "membership").map((o) => memberships.find((m) => m.id === o.membershipId)?.name).filter(Boolean).join(", ")}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-text-muted">
                         <div>{fmtDays(cls.daysOfWeek)}</div>
@@ -681,6 +751,8 @@ export default function ClassesPage() {
         <ClassModal
           editing={editing}
           locations={locations}
+          memberships={memberships}
+          staffList={staffList}
           onSave={load}
           onClose={() => { setShowModal(false); setEditing(null); }}
         />

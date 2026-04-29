@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures } from "@/lib/tier";
+import { sendMemberMessage } from "@/lib/memberMessaging";
 
 async function requireGrowth(clubId: string) {
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });
@@ -55,4 +56,35 @@ export async function GET() {
   }
 
   return NextResponse.json(conversations);
+}
+
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const gate = await requireGrowth(session.user.clubId);
+  if (gate) return gate;
+
+  const body = await req.json().catch(() => ({}));
+  const memberId = typeof body.memberId === "string" ? body.memberId : "";
+  const messageBody = typeof body.body === "string" ? body.body.trim() : "";
+
+  if (!memberId || !messageBody) {
+    return NextResponse.json({ error: "Member and message are required." }, { status: 400 });
+  }
+
+  const result = await sendMemberMessage({
+    clubId: session.user.clubId,
+    senderId: session.user.id,
+    memberId,
+    body: messageBody,
+  });
+
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  return NextResponse.json(result, { status: 201 });
 }

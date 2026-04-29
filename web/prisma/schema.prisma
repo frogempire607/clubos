@@ -968,6 +968,7 @@ model RecurringClass {
   recurrenceStartDate DateTime
   recurrenceEndDate   DateTime? // null = ongoing; generate 1 yr ahead
   pricingOptions      Json      @default("[]") // [{type:"member"|"nonmember"|"dropin",price:number}]
+  assignedStaffIds    Json      @default("[]") // [userId, ...]
   active              Boolean   @default(true)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt

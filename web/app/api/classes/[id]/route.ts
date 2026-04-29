@@ -10,8 +10,12 @@ const updateSchema = z.object({
   locationId: z.string().optional().nullable(),
   capacity: z.number().int().positive().optional().nullable(),
   pricingOptions: z
-    .array(z.object({ type: z.enum(["member", "nonmember", "dropin"]), price: z.number() }))
+    .array(z.union([
+      z.object({ type: z.enum(["member", "nonmember", "dropin"]), price: z.number() }),
+      z.object({ type: z.literal("membership"), membershipId: z.string() }),
+    ]))
     .optional(),
+  assignedStaffIds: z.array(z.string()).optional(),
   active: z.boolean().optional(),
 });
 

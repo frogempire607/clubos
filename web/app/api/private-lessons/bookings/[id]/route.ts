@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { sendMemberMessage } from "@/lib/memberMessaging";
 
 const schema = z.object({
   action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "CANCEL", "ASSIGN_COACH", "APPROVE"]),
@@ -48,8 +49,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           confirmedEndAt:   new Date(confirmedEndAt),
         };
 
-        // Deduct credit if applicable
-        if (booking.creditLedgerId) {
+        // Deduct one lesson from the package balance when a requested lesson is scheduled.
+        if (booking.creditLedgerId && booking.status !== "CONFIRMED" && booking.status !== "COMPLETED") {
           await prisma.privateCreditLedger.update({
             where: { id: booking.creditLedgerId },
             data: { creditsUsed: { increment: 1 } },
@@ -64,14 +65,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           }
         }
 
-        // Notify member
-        await prisma.message.create({
-          data: {
-            clubId:      session.user.clubId,
-            senderId:    session.user.id,
-            recipientId: booking.memberId as string,
-            body: `Your private lesson "${booking.lessonType.title}" has been confirmed! Time: ${new Date(confirmedStartAt).toLocaleString()}.`,
-          },
+        await sendMemberMessage({
+          clubId: session.user.clubId,
+          senderId: session.user.id,
+          memberId: booking.memberId,
+          body: `Your private lesson "${booking.lessonType.title}" has been confirmed. Time: ${new Date(confirmedStartAt).toLocaleString()}.`,
         });
         break;
       }

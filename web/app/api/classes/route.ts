@@ -15,8 +15,12 @@ const createSchema = z.object({
   recurrenceStartDate: z.string(),
   recurrenceEndDate: z.string().optional().nullable(),
   pricingOptions: z
-    .array(z.object({ type: z.enum(["member", "nonmember", "dropin"]), price: z.number() }))
+    .array(z.union([
+      z.object({ type: z.enum(["member", "nonmember", "dropin"]), price: z.number() }),
+      z.object({ type: z.literal("membership"), membershipId: z.string() }),
+    ]))
     .default([]),
+  assignedStaffIds: z.array(z.string()).default([]),
 });
 
 function buildSessions(
@@ -105,6 +109,7 @@ export async function POST(req: Request) {
       recurrenceStartDate: recStart,
       recurrenceEndDate: recEnd,
       pricingOptions: d.pricingOptions,
+      assignedStaffIds: d.assignedStaffIds,
     },
   });
 

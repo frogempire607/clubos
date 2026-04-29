@@ -29,7 +29,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 const adjustSchema = z.object({
-  creditsGranted: z.number().int().positive(),
+  creditsGranted: z.number().int().positive().optional(),
+  packageId: z.string().optional().nullable(),
   expiresAfterDays: z.number().int().positive().optional().nullable(),
   notes: z.string().optional(),
   lessonTypeId: z.string().optional().nullable(),
@@ -48,19 +49,37 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   try {
     const data = adjustSchema.parse(await req.json());
-    const expiresAt = data.expiresAfterDays
-      ? new Date(Date.now() + data.expiresAfterDays * 86400000)
+    const pkg = data.packageId
+      ? await prisma.privatePackage.findFirst({
+          where: { id: data.packageId, clubId: session.user.clubId, deletedAt: null, active: true },
+        })
+      : null;
+
+    if (data.packageId && !pkg) {
+      return NextResponse.json({ error: "Package not found" }, { status: 404 });
+    }
+
+    const lessonsGranted = pkg ? pkg.credits + pkg.bonusCredits : data.creditsGranted;
+    if (!lessonsGranted) {
+      return NextResponse.json({ error: "Lesson quantity is required." }, { status: 400 });
+    }
+
+    const expiresAfterDays = data.expiresAfterDays ?? pkg?.expiresAfterDays ?? null;
+    const expiresAt = expiresAfterDays
+      ? new Date(Date.now() + expiresAfterDays * 86400000)
       : null;
 
     const entry = await prisma.privateCreditLedger.create({
       data: {
         clubId: session.user.clubId,
         memberId: params.id,
-        lessonTypeId: data.lessonTypeId || null,
-        creditsGranted: data.creditsGranted,
-        purchaseType: "MANUAL",
+        packageId: pkg?.id ?? null,
+        lessonTypeId: pkg?.lessonTypeId ?? data.lessonTypeId ?? null,
+        creditsGranted: lessonsGranted,
+        purchaseType: pkg ? "PACKAGE" : "MANUAL",
         expiresAt,
-        notes: data.notes || null,
+        pricePaid: pkg?.price ?? null,
+        notes: data.notes || (pkg ? `Package purchase: ${pkg.title}` : null),
         adjustedById: session.user.id,
       },
     });

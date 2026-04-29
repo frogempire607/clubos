@@ -26,6 +26,9 @@ const memberSchema = z.object({
   guardianName:  z.string().optional().nullable(),
   guardianEmail: z.string().optional().nullable(),
   guardianPhone: z.string().optional().nullable(),
+  guardianRelationship: z.string().optional().nullable(),
+  membershipName: z.string().optional().nullable(),
+  customFieldValues: z.record(z.string()).optional(),
 });
 
 const importSchema = z.object({
@@ -63,11 +66,22 @@ export async function POST(req: Request) {
         }
 
         const guardianEmail = m.guardianEmail?.trim().toLowerCase() || null;
+        if (m.isMinor && (!m.guardianName?.trim() || !guardianEmail || !m.guardianPhone?.trim())) {
+          results.failed++;
+          results.errors.push(`${m.firstName} ${m.lastName}: minors require guardian name, email, and phone`);
+          continue;
+        }
         const guardian = guardianEmail
           ? await upsertGuardianProfile(session.user.clubId, {
               guardianName: m.guardianName ?? null,
               guardianEmail,
               guardianPhone: m.guardianPhone ?? null,
+            })
+          : null;
+
+        const membership = m.membershipName
+          ? await prisma.membership.findFirst({
+              where: { clubId: session.user.clubId, deletedAt: null, name: { equals: m.membershipName.trim(), mode: "insensitive" } },
             })
           : null;
 
@@ -87,12 +101,14 @@ export async function POST(req: Request) {
             state:         m.state?.trim() || null,
             zipCode:       m.zipCode?.trim() || null,
             gender:        m.gender?.trim() || null,
-            customFieldValues: "{}",
+            membershipId: membership?.id ?? null,
+            customFieldValues: JSON.stringify(m.customFieldValues || {}),
             isMinor:       m.isMinor,
             guardianId:    guardian?.id ?? null,
             guardianName:  m.guardianName?.trim() || null,
             guardianEmail,
             guardianPhone: m.guardianPhone?.trim() || null,
+            guardianRelationship: m.guardianRelationship?.trim() || null,
           },
         });
         results.created++;

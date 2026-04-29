@@ -110,6 +110,13 @@ export default function MembersPage() {
   const [showImport, setShowImport] = useState(false);
   const [filter, setFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [membershipFilter, setMembershipFilter] = useState("");
+  const [genderFilter, setGenderFilter] = useState("");
+  const [ageFilter, setAgeFilter] = useState("");
+  const [customFieldFilter, setCustomFieldFilter] = useState("");
+  const [customFieldValue, setCustomFieldValue] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   async function load() {
     setLoading(true);
@@ -123,12 +130,39 @@ export default function MembersPage() {
 
   const filtered = members.filter((m) => {
     if (filter !== "ALL" && m.status !== filter) return false;
+    if (tagFilter && !m.tags.split(",").map((t) => t.trim()).includes(tagFilter)) return false;
+    const activeSub = m.subscriptions?.find((s) => s.status === "active");
+    if (membershipFilter && activeSub?.membership.name !== membershipFilter && m.membership?.name !== membershipFilter) return false;
+    if (genderFilter && m.gender !== genderFilter) return false;
+    if (ageFilter === "minor" && !m.isMinor) return false;
+    if (ageFilter === "adult" && m.isMinor) return false;
+    if (customFieldFilter && customFieldValue) {
+      let values: Record<string, string> = {};
+      try { values = JSON.parse(m.customFieldValues || "{}"); } catch {}
+      if ((values[customFieldFilter] || "").toLowerCase() !== customFieldValue.toLowerCase()) return false;
+    }
     if (search) {
       const q = search.toLowerCase();
-      return m.firstName.toLowerCase().includes(q) || m.lastName.toLowerCase().includes(q) || m.tags.toLowerCase().includes(q);
+      return [
+        m.firstName,
+        m.lastName,
+        m.email || "",
+        m.phone || "",
+        m.guardianName || "",
+        m.guardianEmail || "",
+        m.guardianPhone || "",
+        m.tags,
+      ].some((v) => v.toLowerCase().includes(q));
     }
     return true;
   });
+
+  const allTags = Array.from(new Set(members.flatMap((m) => m.tags.split(",").map((t) => t.trim()).filter(Boolean)))).sort();
+  const allMemberships = Array.from(new Set(members.flatMap((m) => [
+    m.membership?.name,
+    ...(m.subscriptions || []).filter((s) => s.status === "active").map((s) => s.membership.name),
+  ]).filter(Boolean) as string[])).sort();
+  const allGenders = Array.from(new Set(members.map((m) => m.gender).filter(Boolean) as string[])).sort();
 
   const counts = {
     ALL: members.length,
@@ -175,8 +209,48 @@ export default function MembersPage() {
             </button>
           ))}
         </div>
-        <input type="text" placeholder="Search by name or tag…" value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 max-w-xs px-3 py-1.5 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+        <input type="text" placeholder="Search name, email, phone, guardian…" value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 max-w-xs px-3 py-1.5 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
       </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+        <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+          <option value="">All tags</option>
+          {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={membershipFilter} onChange={(e) => setMembershipFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+          <option value="">All memberships</option>
+          {allMemberships.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+          <option value="">All genders</option>
+          {allGenders.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select value={ageFilter} onChange={(e) => setAgeFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+          <option value="">All ages</option>
+          <option value="minor">Minors</option>
+          <option value="adult">Adults</option>
+        </select>
+        <select value={customFieldFilter} onChange={(e) => { setCustomFieldFilter(e.target.value); setCustomFieldValue(""); }} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+          <option value="">Custom field</option>
+          {customFields.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+        {customFieldFilter && (
+          <input value={customFieldValue} onChange={(e) => setCustomFieldValue(e.target.value)} placeholder="Custom field value" className="px-3 py-2 border border-app-border rounded-lg text-sm" />
+        )}
+      </div>
+
+      {selectedIds.size > 0 && (
+        <div className="mb-4 flex items-center gap-3 bg-app-bg border border-app-border rounded-lg px-3 py-2">
+          <span className="text-sm text-text-primary">{selectedIds.size} selected</span>
+          <a
+            href={`/api/export/members?ids=${encodeURIComponent(Array.from(selectedIds).join(","))}`}
+            className="text-sm px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg"
+          >
+            Export selected
+          </a>
+          <button onClick={() => setSelectedIds(new Set())} className="text-sm text-text-muted hover:text-text-primary">Clear</button>
+        </div>
+      )}
 
       <div className="bg-surface rounded-xl border border-app-border overflow-hidden">
         {loading ? (
@@ -195,6 +269,13 @@ export default function MembersPage() {
           <table className="w-full">
             <thead className="bg-app-bg border-b border-app-border">
               <tr>
+                <Th>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every((m) => selectedIds.has(m.id))}
+                    onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((m) => m.id)) : new Set())}
+                  />
+                </Th>
                 <Th>Name</Th>
                 <Th>Status</Th>
                 <Th>Tags</Th>
@@ -209,6 +290,18 @@ export default function MembersPage() {
                 const activeSub = m.subscriptions?.find((s) => s.status === "active");
                 return (
                   <tr key={m.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                    <Td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(m.id)}
+                        onChange={() => setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(m.id)) next.delete(m.id);
+                          else next.add(m.id);
+                          return next;
+                        })}
+                      />
+                    </Td>
                     <Td>
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary flex-shrink-0 overflow-hidden">
@@ -274,9 +367,9 @@ export default function MembersPage() {
         <MemberModal member={editing} customFields={customFields} onClose={() => { setShowAdd(false); setEditing(null); }} onSaved={() => { setShowAdd(false); setEditing(null); load(); }} />
       )}
 
-      {subscribing && <PurchaseMembershipModal member={subscribing} onClose={() => setSubscribing(null)} />}
+  {subscribing && <PurchaseMembershipModal member={subscribing} onClose={() => setSubscribing(null)} />}
 
-      {showImport && <ImportCSVModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
+      {showImport && <ImportCSVModal customFields={customFields} onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
     </div>
   );
 }
@@ -790,7 +883,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 }
 
 // ── Import CSV Modal ─────────────────────────────────────────────────────────
-function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+function ImportCSVModal({ customFields, onClose, onImported }: { customFields: CustomField[]; onClose: () => void; onImported: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "map" | "preview" | "done">("upload");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -799,6 +892,14 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<{ created: number; skipped: number; failed: number; errors: string[] } | null>(null);
   const [error, setError] = useState("");
+  const mappingFields = [
+    ...MEMBER_FIELDS.slice(0, -1),
+    { key: "guardianRelationship", label: "Guardian relationship", required: false },
+    { key: "membershipName", label: "Membership / purchase option", required: false },
+    { key: "isMinor", label: "Minor/adult", required: false },
+    ...customFields.map((f) => ({ key: `custom:${f.id}`, label: `Custom: ${f.label}`, required: f.required })),
+    MEMBER_FIELDS[MEMBER_FIELDS.length - 1],
+  ];
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -827,7 +928,14 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
         else if (lh.includes("guardian") && lh.includes("name")) autoMap[i] = "guardianName";
         else if (lh.includes("guardian") && lh.includes("email")) autoMap[i] = "guardianEmail";
         else if (lh.includes("guardian") && lh.includes("phone")) autoMap[i] = "guardianPhone";
-        else autoMap[i] = "skip";
+        else if (lh.includes("guardian") && (lh.includes("relation") || lh.includes("relationship"))) autoMap[i] = "guardianRelationship";
+        else if (lh.includes("member") && lh.includes("ship")) autoMap[i] = "membershipName";
+        else if (lh.includes("minor") || lh.includes("adult")) autoMap[i] = "isMinor";
+        else {
+          const custom = customFields.find((f) => f.label.toLowerCase().replace(/\s+/g, "").replace(/_/g, "") === lh);
+          autoMap[i] = custom ? `custom:${custom.id}` : "skip";
+          return;
+        }
       });
       setMapping(autoMap);
       setStep("map");
@@ -860,7 +968,10 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
       guardianName: m.guardianName || undefined,
       guardianEmail: m.guardianEmail || undefined,
       guardianPhone: m.guardianPhone || undefined,
-      isMinor: !!(m.guardianName || m.guardianEmail),
+      guardianRelationship: m.guardianRelationship || undefined,
+      membershipName: m.membershipName || undefined,
+      customFieldValues: Object.fromEntries(Object.entries(m).filter(([k]) => k.startsWith("custom:")).map(([k, v]) => [k.replace("custom:", ""), v])),
+      isMinor: m.isMinor ? ["yes", "true", "minor", "under18", "under 18", "1"].includes(m.isMinor.toLowerCase()) : !!(m.guardianName || m.guardianEmail),
     }));
 
     const res = await fetch("/api/members/import", {
@@ -933,7 +1044,7 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
                     <div className="w-48 text-sm text-text-primary font-medium truncate flex-shrink-0">{h}</div>
                     <div className="text-text-muted text-xs flex-shrink-0">→</div>
                     <select value={mapping[i] || "skip"} onChange={(e) => setMapping({ ...mapping, [i]: e.target.value })} className="flex-1 px-3 py-1.5 border border-app-border rounded-lg text-sm bg-surface">
-                      {MEMBER_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                      {mappingFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
                     <div className="text-xs text-text-muted w-20 truncate flex-shrink-0">{rows[0]?.[i] || ""}</div>
                   </div>

@@ -306,12 +306,12 @@ function PackageModal({
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-text-muted mb-1">Credits *</label>
+              <label className="block text-xs font-medium text-text-muted mb-1">Lessons included *</label>
               <input type="number" min={1} required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.credits} onChange={(e) => setForm({ ...form, credits: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-text-muted mb-1">Bonus credits</label>
+              <label className="block text-xs font-medium text-text-muted mb-1">Bonus lessons</label>
               <input type="number" min={0} className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.bonusCredits} onChange={(e) => setForm({ ...form, bonusCredits: e.target.value })} />
             </div>
@@ -415,6 +415,12 @@ function BookingModal({
               <span className="text-text-muted">Payment</span>
               <span>{booking.paymentType ?? "—"}{booking.pricePaid != null ? ` · $${Number(booking.pricePaid).toFixed(2)}` : ""}</span>
             </div>
+            {booking.creditLedger && (
+              <div className="flex justify-between">
+                <span className="text-text-muted">Package balance</span>
+                <span>{booking.creditLedger.creditsGranted - booking.creditLedger.creditsUsed} lessons remaining</span>
+              </div>
+            )}
             {booking.notes && (
               <div className="flex justify-between">
                 <span className="text-text-muted">Notes</span>
@@ -680,7 +686,7 @@ function NewBookingModal({
             <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
               value={form.paymentType} onChange={(e) => setForm({ ...form, paymentType: e.target.value as typeof form.paymentType })}>
               <option value="MANUAL">Manual / cash</option>
-              <option value="CREDIT">Use credits</option>
+              <option value="CREDIT">Use lesson package balance</option>
               <option value="UNPAID">Unpaid</option>
             </select>
           </div>
@@ -708,6 +714,92 @@ function NewBookingModal({
   );
 }
 
+function AssignPackageModal({
+  packages,
+  members,
+  onClose,
+  onSave,
+}: {
+  packages: Package[];
+  members: Member[];
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const [memberId, setMemberId] = useState("");
+  const [packageId, setPackageId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const selectedPackage = packages.find((p) => p.id === packageId);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!memberId || !packageId) return;
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/members/${memberId}/credits`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packageId, notes: notes || undefined }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error?.toString() || "Could not assign package.");
+      return;
+    }
+    onSave();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+          <h2 className="font-semibold text-text-primary">Assign lesson package</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1">Member</label>
+            <select required value={memberId} onChange={(e) => setMemberId(e.target.value)} className="w-full border border-app-border rounded-md px-3 py-2 text-sm">
+              <option value="">Select member…</option>
+              {members.map((m) => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1">Package</label>
+            <select required value={packageId} onChange={(e) => setPackageId(e.target.value)} className="w-full border border-app-border rounded-md px-3 py-2 text-sm">
+              <option value="">Select package…</option>
+              {packages.filter((p) => p.active).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title} — {p.credits + p.bonusCredits} lessons · ${Number(p.price).toFixed(2)}
+                </option>
+              ))}
+            </select>
+            {selectedPackage && (
+              <p className="text-xs text-text-muted mt-1">
+                Creates a balance of {selectedPackage.credits + selectedPackage.bonusCredits} remaining lessons.
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1">Notes</label>
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full border border-app-border rounded-md px-3 py-2 text-sm" />
+          </div>
+          {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
+              {saving ? "Assigning…" : "Assign package"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 type Tab = "bookings" | "types" | "packages";
@@ -727,6 +819,7 @@ export default function PrivatesPage() {
 
   const [editLT, setEditLT]         = useState<LessonType | null | undefined>(undefined);
   const [editPkg, setEditPkg]       = useState<Package | null | undefined>(undefined);
+  const [assignPkg, setAssignPkg]   = useState(false);
   const [viewBooking, setViewBooking] = useState<Booking | null>(null);
   const [newBooking, setNewBooking] = useState(false);
 
@@ -771,7 +864,7 @@ export default function PrivatesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-text-primary">Private Lessons</h1>
-          <p className="text-sm text-text-muted mt-0.5">Manage booking requests, lesson types, and packages</p>
+          <p className="text-sm text-text-muted mt-0.5">Manage booking requests, lesson types, and lesson quantity packages</p>
         </div>
         {isOwner && tab === "bookings" && (
           <button onClick={() => setNewBooking(true)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
@@ -784,9 +877,14 @@ export default function PrivatesPage() {
           </button>
         )}
         {isOwner && tab === "packages" && (
-          <button onClick={() => setEditPkg(null)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
-            + New package
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setAssignPkg(true)} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">
+              Assign package
+            </button>
+            <button onClick={() => setEditPkg(null)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
+              + New package
+            </button>
+          </div>
         )}
       </div>
 
@@ -797,7 +895,7 @@ export default function PrivatesPage() {
             className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition ${
               tab === t ? "border-brand text-text-primary" : "border-transparent text-text-muted hover:text-text-primary"
             }`}>
-            {t}
+            {t === "packages" ? "Lesson packages" : t}
           </button>
         ))}
       </div>
@@ -893,7 +991,7 @@ export default function PrivatesPage() {
                   <table className="w-full">
                     <thead className="bg-app-bg border-b border-app-border">
                       <tr>
-                        {["Title", "Lesson type", "Credits", "Price", "Expires", "Status", ""].map((h) => (
+                        {["Title", "Lesson type", "Lessons", "Price", "Expires", "Status", ""].map((h) => (
                           <th key={h} className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
@@ -936,6 +1034,9 @@ export default function PrivatesPage() {
       )}
       {editPkg !== undefined && (
         <PackageModal pkg={editPkg} lessonTypes={lessonTypes} onClose={() => setEditPkg(undefined)} onSave={() => { setEditPkg(undefined); load(); }} />
+      )}
+      {assignPkg && (
+        <AssignPackageModal packages={packages} members={members} onClose={() => setAssignPkg(false)} onSave={() => { setAssignPkg(false); load(); }} />
       )}
       {viewBooking && (
         <BookingModal booking={viewBooking} staffList={staffList} onClose={() => setViewBooking(null)} onSave={() => { setViewBooking(null); load(); }} />
