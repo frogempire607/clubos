@@ -27,8 +27,46 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const event = await prisma.event.findFirst({
       where: { id: params.id, clubId: club.id, deletedAt: null },
+      include: { _count: { select: { bookings: true } } },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+
+    // If the event accepts certain memberships and this member has an active
+    // subscription on one of them, register them for free.
+    const acceptedMembershipIds = (
+      (event.pricingOptions as unknown as Array<{ type: string; membershipId?: string }> | null) || []
+    )
+      .filter((o) => o?.type === "membership" && o.membershipId)
+      .map((o) => o.membershipId as string);
+
+    if (acceptedMembershipIds.length > 0) {
+      const activeSub = await prisma.memberSubscription.findFirst({
+        where: {
+          memberId,
+          membershipId: { in: acceptedMembershipIds },
+          status: "active",
+        },
+      });
+      if (activeSub) {
+        const existing = await prisma.booking.findUnique({
+          where: { eventId_memberId: { eventId: event.id, memberId } },
+        });
+        if (existing) {
+          return NextResponse.json({ error: "Already booked" }, { status: 409 });
+        }
+        const status =
+          event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+        await prisma.booking.create({
+          data: { eventId: event.id, memberId, status },
+        });
+        const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+        return NextResponse.json({
+          coveredByMembership: true,
+          status,
+          url: `${baseUrl}/dashboard/events?booked=membership`,
+        });
+      }
+    }
 
     let priceCents: number;
     let priceLabel: string;

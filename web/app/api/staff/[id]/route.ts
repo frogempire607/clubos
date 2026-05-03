@@ -11,6 +11,11 @@ const updateSchema = z.object({
   hourlyRate: z.number().nullable().optional(),
   salary: z.number().nullable().optional(),
   appointmentPrice: z.number().nullable().optional(),
+  bio: z.string().max(2000).optional().nullable(),
+  publicEmail: z.string().optional().nullable(),
+  publicPhone: z.string().optional().nullable(),
+  photoUrl: z.string().optional().nullable(),
+  showOnPortal: z.boolean().optional(),
   permissions: z.object({
     members: permissionLevel,
     events: permissionLevel,
@@ -41,6 +46,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       ...(data.hourlyRate !== undefined && { hourlyRate: data.hourlyRate }),
       ...(data.salary !== undefined && { salary: data.salary }),
       ...(data.appointmentPrice !== undefined && { appointmentPrice: data.appointmentPrice }),
+      ...(data.bio !== undefined && { bio: data.bio }),
+      ...(data.publicEmail !== undefined && { publicEmail: data.publicEmail }),
+      ...(data.publicPhone !== undefined && { publicPhone: data.publicPhone }),
+      ...(data.photoUrl !== undefined && { photoUrl: data.photoUrl }),
+      ...(data.showOnPortal !== undefined && { showOnPortal: data.showOnPortal }),
       ...(data.permissions && { permissions: data.permissions }),
     };
 

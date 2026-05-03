@@ -109,10 +109,9 @@ export default function OnboardingPage() {
       <div className="max-w-2xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-7 h-7 rounded-md bg-stone-900 flex items-center justify-center">
-              <div className="w-3 h-3 rounded-full border-2 border-white" />
-            </div>
-            <span className="font-medium text-stone-900">ClubOS</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/icon.png" alt="" className="w-7 h-7 rounded-md" />
+            <span className="font-medium text-stone-900">AthletixOS</span>
           </div>
           <div className="flex gap-1">
             {steps.map((_, i) => (

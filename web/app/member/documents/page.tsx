@@ -23,13 +23,19 @@ const typeColors: Record<string, { bg: string; fg: string }> = {
 
 export default function MemberDocumentsPage() {
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [isMinor, setIsMinor] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [viewing, setViewing] = useState<Doc | null>(null);
 
   useEffect(() => {
-    fetch("/api/documents")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => { setDocs(d); setLoading(false); });
+    Promise.all([
+      fetch("/api/member/documents").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/member/portal").then((r) => (r.ok ? r.json() : null)),
+    ]).then(([docs, portal]) => {
+      setDocs(Array.isArray(docs) ? docs : []);
+      setIsMinor(!!portal?.user?.memberProfile?.isMinor);
+      setLoading(false);
+    });
   }, []);
 
   const requiredDocs = docs.filter((d) => d.required);
@@ -61,7 +67,7 @@ export default function MemberDocumentsPage() {
                 </span>
               </div>
               <div className="space-y-2">
-                {requiredDocs.map((d) => <DocCard key={d.id} doc={d} onView={() => setViewing(d)} />)}
+                {requiredDocs.map((d) => <DocCard key={d.id} doc={d} isMinor={isMinor} onView={() => setViewing(d)} />)}
               </div>
             </div>
           )}
@@ -70,7 +76,7 @@ export default function MemberDocumentsPage() {
             <div>
               <h2 className="text-sm font-semibold text-stone-900 mb-2">Other Documents</h2>
               <div className="space-y-2">
-                {otherDocs.map((d) => <DocCard key={d.id} doc={d} onView={() => setViewing(d)} />)}
+                {otherDocs.map((d) => <DocCard key={d.id} doc={d} isMinor={isMinor} onView={() => setViewing(d)} />)}
               </div>
             </div>
           )}
@@ -78,14 +84,16 @@ export default function MemberDocumentsPage() {
       )}
 
       {viewing && (
-        <DocViewer doc={viewing} onClose={() => setViewing(null)} />
+        <DocViewer doc={viewing} isMinor={isMinor} onClose={() => setViewing(null)} />
       )}
     </>
   );
 }
 
-function DocCard({ doc, onView }: { doc: Doc; onView: () => void }) {
+function DocCard({ doc, isMinor, onView }: { doc: Doc; isMinor: boolean; onView: () => void }) {
   const c = typeColors[doc.type] || typeColors.Other;
+  // The "guardian signature required" rule only applies to minors. Adults sign for themselves.
+  const guardianBadge = doc.requiresGuardianSignature && isMinor;
   return (
     <div className="bg-white rounded-xl border border-stone-200 p-4 flex items-center gap-4">
       <div className="flex-1 min-w-0">
@@ -94,7 +102,7 @@ function DocCard({ doc, onView }: { doc: Doc; onView: () => void }) {
           <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
             {doc.type}
           </span>
-          {doc.requiresGuardianSignature && (
+          {guardianBadge && (
             <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">
               Guardian signature required
             </span>
@@ -114,8 +122,9 @@ function DocCard({ doc, onView }: { doc: Doc; onView: () => void }) {
   );
 }
 
-function DocViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
+function DocViewer({ doc, isMinor, onClose }: { doc: Doc; isMinor: boolean; onClose: () => void }) {
   const c = typeColors[doc.type] || typeColors.Other;
+  const guardianGate = doc.requiresGuardianSignature && isMinor;
 
   function stripHtml(html: string) {
     return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -146,7 +155,7 @@ function DocViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
             <p className="text-sm text-stone-400 italic">No content added yet.</p>
           )}
 
-          {doc.requiresGuardianSignature && (
+          {guardianGate && (
             <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
               This document requires a parent or guardian signature. Your guardian will receive a notification to sign.
             </div>
@@ -159,9 +168,11 @@ function DocViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
               </p>
               <button
                 onClick={onClose}
-                className="px-5 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700"
+                disabled={guardianGate}
+                className="px-5 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title={guardianGate ? "Your guardian must sign this document" : undefined}
               >
-                I have read and acknowledge
+                {guardianGate ? "Awaiting guardian signature" : "I have read and acknowledge"}
               </button>
             </div>
           )}

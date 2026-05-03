@@ -57,6 +57,122 @@ type PortalData = {
   };
 };
 
+type ClubBannerData = {
+  name: string;
+  tagline: string | null;
+  logoUrl: string | null;
+  coverImageUrl: string | null;
+  aboutUs: string | null;
+  sport: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  websiteUrl: string | null;
+  socialLinks: { label: string; url: string }[] | null;
+  hoursOfOperation: Record<string, string> | null;
+};
+
+function ClubBanner() {
+  const [club, setClub] = useState<ClubBannerData | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/member/club")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setClub(d));
+  }, []);
+
+  if (!club) return null;
+  if (!club.logoUrl && !club.aboutUs && !club.tagline && !club.coverImageUrl) return null;
+
+  const aboutShort = club.aboutUs && club.aboutUs.length > 280 ? club.aboutUs.slice(0, 280) + "…" : club.aboutUs;
+  const hours = club.hoursOfOperation && Object.values(club.hoursOfOperation).some((v) => v?.trim()) ? club.hoursOfOperation : null;
+  const socials = (club.socialLinks ?? []).filter((l) => l?.url?.trim());
+
+  return (
+    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden mb-4">
+      {club.coverImageUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={club.coverImageUrl} alt="" className="w-full aspect-[3/1] object-cover" />
+      )}
+      <div className="p-5">
+        <div className="flex items-start gap-4">
+          {club.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={club.logoUrl} alt={club.name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-16 h-16 rounded-lg bg-stone-100 flex items-center justify-center text-2xl text-stone-300 flex-shrink-0">◉</div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold text-stone-900">{club.name}</h2>
+            {club.tagline && <p className="text-sm text-stone-600 mt-0.5">{club.tagline}</p>}
+            {club.aboutUs && (
+              <div className="mt-3">
+                <p className="text-sm text-stone-700 whitespace-pre-wrap">
+                  {expanded ? club.aboutUs : aboutShort}
+                </p>
+                {club.aboutUs.length > 280 && (
+                  <button
+                    onClick={() => setExpanded(!expanded)}
+                    className="text-xs text-stone-500 hover:text-stone-900 mt-1"
+                  >
+                    {expanded ? "Show less" : "Read more"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {(club.contactEmail || club.contactPhone || club.websiteUrl || socials.length > 0 || hours) && (
+          <div className="mt-4 pt-4 border-t border-stone-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {(club.contactEmail || club.contactPhone || club.websiteUrl || socials.length > 0) && (
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1.5">Contact</p>
+                <div className="space-y-1 text-sm text-stone-700">
+                  {club.contactEmail && (
+                    <div><a href={`mailto:${club.contactEmail}`} className="hover:underline">✉ {club.contactEmail}</a></div>
+                  )}
+                  {club.contactPhone && (
+                    <div><a href={`tel:${club.contactPhone.replace(/\D/g, "")}`} className="hover:underline">☎ {club.contactPhone}</a></div>
+                  )}
+                  {club.websiteUrl && (
+                    <div><a href={club.websiteUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">↗ {club.websiteUrl.replace(/^https?:\/\//, "")}</a></div>
+                  )}
+                  {socials.length > 0 && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                      {socials.map((s) => (
+                        <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="hover:underline">{s.label || s.url}</a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {hours && (
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1.5">Hours</p>
+                <div className="space-y-0.5 text-sm text-stone-700">
+                  {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((d) => {
+                    const v = hours[d];
+                    if (!v?.trim()) return null;
+                    return (
+                      <div key={d} className="flex justify-between gap-3">
+                        <span className="capitalize text-stone-500">{d}</span>
+                        <span>{v}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function getEventLabel(b: Booking): string {
   if (b.event.customEventType) return b.event.customEventType.name;
   return b.event.type.charAt(0) + b.event.type.slice(1).toLowerCase();
@@ -140,6 +256,8 @@ function AdultAthleteView({ data }: { data: PortalData }) {
         </p>
       </div>
 
+      <ClubBanner />
+
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-xl border border-stone-200 p-4">
           <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Status</p>
@@ -165,6 +283,23 @@ function AdultAthleteView({ data }: { data: PortalData }) {
         <UpcomingBookings bookings={member.bookings} />
       )}
 
+      <div className="mt-4">
+        <RecentAnnouncements />
+      </div>
+
+      <Link
+        href="/member/shop"
+        className="block mt-4 bg-stone-900 text-white rounded-xl p-5 hover:bg-stone-800 transition"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold mb-0.5">Browse the club</p>
+            <p className="text-xs text-stone-300">Memberships · Events · Shop</p>
+          </div>
+          <span className="text-2xl">›</span>
+        </div>
+      </Link>
+
       <div className="grid grid-cols-2 gap-3 mt-4">
         <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
           <p className="text-2xl mb-1">◷</p>
@@ -176,8 +311,54 @@ function AdultAthleteView({ data }: { data: PortalData }) {
           <p className="text-sm font-medium text-stone-900">Documents</p>
           <p className="text-xs text-stone-500">Waivers and forms</p>
         </Link>
+        <Link href="/member/staff" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">◎</p>
+          <p className="text-sm font-medium text-stone-900">Our team</p>
+          <p className="text-xs text-stone-500">Coaches & staff bios</p>
+        </Link>
       </div>
     </>
+  );
+}
+
+/* ─── Recent announcements card ─── */
+type RecentAnnouncement = { id: string; title: string; body: string; createdAt: string; publishAt: string | null };
+
+function RecentAnnouncements() {
+  const [items, setItems] = useState<RecentAnnouncement[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/member/announcements")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => {
+        setItems(Array.isArray(d) ? d.slice(0, 3) : []);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return null;
+  if (items.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-stone-200 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-stone-900">Latest from your club</h3>
+        <Link href="/member/announcements" className="text-xs text-stone-500 hover:text-stone-900">See all →</Link>
+      </div>
+      <div className="space-y-2">
+        {items.map((a) => (
+          <Link
+            key={a.id}
+            href="/member/announcements"
+            className="block py-2 border-b border-stone-100 last:border-0 hover:bg-stone-50 -mx-2 px-2 rounded"
+          >
+            <p className="text-sm font-medium text-stone-900 truncate">{a.title}</p>
+            <p className="text-xs text-stone-500 line-clamp-1 whitespace-pre-wrap">{a.body}</p>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -193,6 +374,8 @@ function MinorAthleteView({ data }: { data: PortalData }) {
         </h1>
         <p className="text-sm text-stone-500">{data.club.name}</p>
       </div>
+
+      <ClubBanner />
 
       {member?.guardianName && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
@@ -318,6 +501,8 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
           + Link child
         </button>
       </div>
+
+      <ClubBanner />
 
       {children.length === 0 ? (
         <div className="bg-white rounded-xl border border-stone-200 p-8 text-center mb-4">

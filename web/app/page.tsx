@@ -89,31 +89,28 @@ export default function Home() {
           style={{
             maxWidth: 1200, margin: "0 auto",
             display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "0 24px", height: 56,
+            padding: "0 24px", height: 72,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 28, height: 28, borderRadius: 8,
-                background: "#534AB7",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#fff", fontWeight: 700, fontSize: 13,
-              }}
-            >
-              C
-            </div>
-            <span
-              style={{
-                color: "#fff", fontWeight: 600, fontSize: 15,
-                fontFamily: "var(--font-fraunces, Georgia, serif)",
-                letterSpacing: "-0.01em",
-              }}
-            >
-              ClubOS
-            </span>
-          </div>
+          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/logo.PNG"
+              alt="AthletixOS"
+              style={{ height: 56, width: "auto", display: "block" }}
+            />
+          </Link>
           <nav style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Link
+              href="/pricing"
+              style={{
+                color: "rgba(255,255,255,0.65)", fontSize: 14,
+                padding: "6px 14px", borderRadius: 8,
+                textDecoration: "none",
+              }}
+            >
+              Pricing
+            </Link>
             <Link
               href="/login"
               style={{
@@ -145,7 +142,7 @@ export default function Home() {
           textAlign: "center",
         }}
       >
-        <div style={{ maxWidth: 700, margin: "0 auto" }}>
+        <div style={{ maxWidth: 820, margin: "0 auto" }}>
           <div
             style={{
               display: "inline-block",
@@ -159,16 +156,21 @@ export default function Home() {
           >
             Built for wrestling, BJJ, MMA, gymnastics, and every sport in between
           </div>
-          <h1
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/tagline.png"
+            alt="AthletixOS — Run your club. All in one system."
             style={{
-              fontSize: "clamp(40px, 7vw, 68px)", fontWeight: 700, lineHeight: 1.1,
-              color: "#fff", marginBottom: 20, letterSpacing: "-0.03em",
-              fontFamily: "var(--font-fraunces, Georgia, serif)",
+              display: "block",
+              maxWidth: "min(100%, 720px)",
+              width: "100%",
+              height: "auto",
+              margin: "0 auto 24px",
             }}
-          >
-            Run your gym.
-            <br />
-            <span style={{ color: "#a89ef8" }}>Not spreadsheets.</span>
+          />
+          {/* Visually-hidden H1 for SEO/screen readers since the headline is now inside the image */}
+          <h1 style={{ position: "absolute", left: -9999, width: 1, height: 1, overflow: "hidden" }}>
+            Run your club. All in one system.
           </h1>
           <p
             style={{
@@ -176,7 +178,7 @@ export default function Home() {
               lineHeight: 1.6, marginBottom: 40, maxWidth: 520, margin: "0 auto 40px",
             }}
           >
-            ClubOS is the all-in-one platform for gym and sports club owners — members,
+            AthletixOS is the all-in-one platform for gym and sports club owners — members,
             classes, payments, messaging, and more in one place.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
@@ -429,7 +431,7 @@ export default function Home() {
           Ready to run a better club?
         </h2>
         <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 17, marginBottom: 32 }}>
-          Join hundreds of clubs already using ClubOS. Start free in under 5 minutes.
+          Join hundreds of clubs already using AthletixOS. Start free in under 5 minutes.
         </p>
         <Link
           href="/signup"
@@ -459,12 +461,12 @@ export default function Home() {
           }}
         >
           <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
-            © {new Date().getFullYear()} ClubOS. All rights reserved.
+            © {new Date().getFullYear()} AthletixOS. All rights reserved.
           </span>
           <div style={{ display: "flex", gap: 24 }}>
-            {["Privacy", "Terms", "Contact"].map((l) => (
-              <span key={l} style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, cursor: "pointer" }}>{l}</span>
-            ))}
+            <Link href="/pricing" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Pricing</Link>
+            <Link href="/signup" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Sign up</Link>
+            <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13 }}>Contact</span>
           </div>
         </div>
       </footer>

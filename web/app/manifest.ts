@@ -2,8 +2,8 @@ import { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "ClubOS Member Portal",
-    short_name: "ClubOS",
+    name: "AthletixOS Member Portal",
+    short_name: "AthletixOS",
     description: "Your club in your pocket — schedule, bookings, and more.",
     start_url: "/member",
     scope: "/member",
@@ -14,15 +14,15 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ["sports", "fitness", "lifestyle"],
     icons: [
       {
-        src: "/icons/icon-192.svg",
-        sizes: "192x192",
-        type: "image/svg+xml",
+        src: "/brand/icon.png",
+        sizes: "any",
+        type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icons/icon-512.svg",
-        sizes: "512x512",
-        type: "image/svg+xml",
+        src: "/brand/icon.png",
+        sizes: "any",
+        type: "image/png",
         purpose: "maskable",
       },
     ],

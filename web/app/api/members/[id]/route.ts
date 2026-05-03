@@ -104,10 +104,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       }
     }
 
+    // Only allow ACTIVE if the member has at least one active subscription.
+    // Otherwise coerce to PROSPECT so status stays consistent with billing.
+    let nextStatus = data.status;
+    if (nextStatus === "ACTIVE") {
+      const activeSub = await prisma.memberSubscription.count({
+        where: { memberId: params.id, status: "active" },
+      });
+      if (activeSub === 0) nextStatus = "PROSPECT";
+    }
+
     const updated = await prisma.member.update({
       where: { id: params.id },
       data: {
         ...data,
+        ...(nextStatus !== undefined ? { status: nextStatus } : {}),
         ...guardianIdUpdate,
         guardianEmail: data.guardianEmail !== undefined
           ? (data.guardianEmail ? data.guardianEmail.toLowerCase() : null)
@@ -120,7 +131,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.errors }, { status: 400 });
+      return NextResponse.json({ error: err.flatten() }, { status: 400 });
     }
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

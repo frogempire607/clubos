@@ -8,7 +8,12 @@ const updateSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
   locationId: z.string().optional().nullable(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1).optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   capacity: z.number().int().positive().optional().nullable(),
+  recurrenceStartDate: z.string().optional(),
+  recurrenceEndDate: z.string().optional().nullable(),
   pricingOptions: z
     .array(z.union([
       z.object({ type: z.enum(["member", "nonmember", "dropin"]), price: z.number() }),
@@ -54,9 +59,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
+  const { recurrenceStartDate, recurrenceEndDate, ...rest } = parsed.data;
   const updated = await prisma.recurringClass.update({
     where: { id: params.id },
-    data: parsed.data,
+    data: {
+      ...rest,
+      ...(recurrenceStartDate !== undefined ? { recurrenceStartDate: new Date(recurrenceStartDate) } : {}),
+      ...(recurrenceEndDate !== undefined ? { recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null } : {}),
+    },
   });
   return NextResponse.json(updated);
 }

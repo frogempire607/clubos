@@ -11,7 +11,7 @@ export const TIER_FEATURES = {
   starter: {
     maxMembers: 150,
     maxLocations: 1,
-    directMessaging: false,
+    directMessaging: true,
     emailSms: false,
     reports: false,
     plaid: false,

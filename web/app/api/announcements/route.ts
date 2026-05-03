@@ -113,7 +113,7 @@ export async function POST(req: Request) {
           <div style="color:#57534e;line-height:1.6;white-space:pre-wrap">${data.body}</div>
           <hr style="border:none;border-top:1px solid #e7e5e4;margin:24px 0"/>
           <p style="color:#a8a29e;font-size:12px">
-            Sent by ${club?.name ?? "your club"} via ClubOS
+            Sent by ${club?.name ?? "your club"} via AthletixOS
           </p>
         </div>
       `;

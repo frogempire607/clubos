@@ -13,11 +13,31 @@ export async function GET(_req: Request, { params }: { params: { sessionId: stri
     where: { id: params.sessionId, clubId: session.user.clubId },
     include: {
       recurringClass: {
-        select: { name: true, capacity: true, daysOfWeek: true, startTime: true, endTime: true },
+        select: {
+          id: true,
+          name: true,
+          capacity: true,
+          daysOfWeek: true,
+          startTime: true,
+          endTime: true,
+          pricingOptions: true,
+        },
       },
     },
   });
   if (!classSession) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const pricingOptions =
+    (classSession.recurringClass.pricingOptions as Array<{ type: string; price?: number; membershipId?: string }> | null) || [];
+  const acceptedMembershipIds = pricingOptions
+    .filter((o) => o?.type === "membership" && o.membershipId)
+    .map((o) => o.membershipId as string);
+  const acceptedMemberships = acceptedMembershipIds.length
+    ? await prisma.membership.findMany({
+        where: { id: { in: acceptedMembershipIds }, clubId: session.user.clubId, deletedAt: null },
+        select: { id: true, name: true },
+      })
+    : [];
 
   const attendance = await prisma.attendanceRecord.findMany({
     where: { classSessionId: params.sessionId },
@@ -38,5 +58,10 @@ export async function GET(_req: Request, { params }: { params: { sessionId: stri
     orderBy: { createdAt: "asc" },
   });
 
-  return NextResponse.json({ session: classSession, attendance });
+  return NextResponse.json({
+    session: classSession,
+    attendance,
+    pricingOptions,
+    acceptedMemberships,
+  });
 }

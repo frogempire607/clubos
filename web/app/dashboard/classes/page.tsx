@@ -200,7 +200,11 @@ function ClassModal({
     setSaving(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(d.error?.formErrors?.[0] ?? "Failed to save class.");
+      const fieldErrs = d.error?.fieldErrors as Record<string, string[]> | undefined;
+      const firstField = fieldErrs ? Object.keys(fieldErrs)[0] : null;
+      const firstFieldErr = firstField && fieldErrs ? `${firstField}: ${fieldErrs[firstField][0]}` : null;
+      const formErr = d.error?.formErrors?.[0];
+      setError(formErr || firstFieldErr || (typeof d.error === "string" ? d.error : null) || "Failed to save class.");
       return;
     }
     onSave();
@@ -376,22 +380,41 @@ function ClassModal({
                 </div>
               ))}
             </div>
-            {memberships.length > 0 && (
-              <div className="mt-3 border border-app-border rounded-lg p-3">
-                <p className="text-xs font-medium text-text-primary mb-2">Member can use purchase option to register</p>
-                <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                  {memberships.map((m) => (
-                    <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={form.allowedMembershipIds.includes(m.id)}
-                        onChange={() => set("allowedMembershipIds", form.allowedMembershipIds.includes(m.id) ? form.allowedMembershipIds.filter((id) => id !== m.id) : [...form.allowedMembershipIds, m.id])}
-                      />
-                      {m.name}
-                    </label>
-                  ))}
-                </div>
+          </div>
+
+          {/* Accepted memberships */}
+          <div className="border-t border-app-border pt-4">
+            <label className="block text-xs font-medium text-text-primary mb-1">
+              Accepted Memberships / Purchase Options
+            </label>
+            <p className="text-[11px] text-text-muted mb-2">
+              Members on any selected plan can register at no extra cost. Others pay the prices above.
+            </p>
+            {memberships.length === 0 ? (
+              <div className="border border-dashed border-app-border rounded-lg p-3 text-xs text-text-muted">
+                No active memberships yet.{" "}
+                <a href="/dashboard/memberships" className="text-brand hover:underline">
+                  Create a membership →
+                </a>
               </div>
+            ) : (
+              <div className="border border-app-border rounded-lg p-3 space-y-1.5 max-h-40 overflow-y-auto">
+                {memberships.map((m) => (
+                  <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.allowedMembershipIds.includes(m.id)}
+                      onChange={() => set("allowedMembershipIds", form.allowedMembershipIds.includes(m.id) ? form.allowedMembershipIds.filter((id) => id !== m.id) : [...form.allowedMembershipIds, m.id])}
+                    />
+                    {m.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {form.allowedMembershipIds.length > 0 && (
+              <p className="text-[11px] text-text-muted mt-1">
+                {form.allowedMembershipIds.length} membership{form.allowedMembershipIds.length === 1 ? "" : "s"} selected
+              </p>
             )}
           </div>
 

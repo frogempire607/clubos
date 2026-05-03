@@ -66,6 +66,21 @@ model Club {
   plaidAccessToken         String?
   plaidItemId              String?
   notificationPrefs        Json      @default("{}")
+  // Member intake form configuration
+  // { enabledFields: string[], requiredFields: string[] }
+  // When null, the form is in "default" mode (Athlete Name + Email only).
+  memberFormConfig         Json?
+  // Long-form About Us content for the member portal
+  aboutUs                  String?
+  // Public-facing club profile
+  coverImageUrl            String?
+  contactEmail             String?
+  contactPhone             String?
+  websiteUrl               String?
+  // JSON array of {label, url} pairs (Instagram, Facebook, YouTube, …)
+  socialLinks              Json      @default("[]")
+  // JSON map of {monday: "9-5", tuesday: "...", ...} or free-form blob
+  hoursOfOperation         Json?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
   deletedAt                DateTime?
@@ -170,6 +185,12 @@ model StaffProfile {
   salary           Decimal? @db.Decimal(10, 2)
   appointmentPrice Decimal? @db.Decimal(10, 2)
   permissions      Json     @default("{}")
+  // Member-portal bio + visible contact (only shown when showOnPortal=true)
+  bio              String?
+  publicEmail      String?
+  publicPhone      String?
+  photoUrl         String?
+  showOnPortal     Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

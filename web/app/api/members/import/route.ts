@@ -27,7 +27,6 @@ const memberSchema = z.object({
   guardianEmail: z.string().optional().nullable(),
   guardianPhone: z.string().optional().nullable(),
   guardianRelationship: z.string().optional().nullable(),
-  membershipName: z.string().optional().nullable(),
   customFieldValues: z.record(z.string()).optional(),
 });
 
@@ -79,12 +78,6 @@ export async function POST(req: Request) {
             })
           : null;
 
-        const membership = m.membershipName
-          ? await prisma.membership.findFirst({
-              where: { clubId: session.user.clubId, deletedAt: null, name: { equals: m.membershipName.trim(), mode: "insensitive" } },
-            })
-          : null;
-
         await prisma.member.create({
           data: {
             clubId:        session.user.clubId,
@@ -101,7 +94,6 @@ export async function POST(req: Request) {
             state:         m.state?.trim() || null,
             zipCode:       m.zipCode?.trim() || null,
             gender:        m.gender?.trim() || null,
-            membershipId: membership?.id ?? null,
             customFieldValues: JSON.stringify(m.customFieldValues || {}),
             isMinor:       m.isMinor,
             guardianId:    guardian?.id ?? null,

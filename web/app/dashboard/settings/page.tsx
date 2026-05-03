@@ -796,7 +796,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
         <div className="space-y-3">
           {[
             { status: "done", label: "PWA (installable web app)", desc: "Live now — members install via browser" },
-            { status: "soon", label: "Custom app name & splash screen", desc: "Your club name replaces 'ClubOS' on install" },
+            { status: "soon", label: "Custom app name & splash screen", desc: "Your club name replaces 'AthletixOS' on install" },
             { status: "soon", label: "App Store listing (iOS & Android)", desc: "White-labeled app under your developer account" },
             { status: "soon", label: "Push notifications", desc: "Native push for bookings, messages, and announcements" },
             { status: "soon", label: "Offline full access", desc: "Complete offline mode with background sync" },

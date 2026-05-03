@@ -40,7 +40,7 @@ export async function sendEmail({
   });
 
   await transporter.sendMail({
-    from: process.env.EMAIL_FROM || "ClubOS <no-reply@clubos.app>",
+    from: process.env.EMAIL_FROM || "AthletixOS <no-reply@clubos.app>",
     to,
     subject,
     html,
@@ -54,11 +54,11 @@ function baseLayout(content: string): string {
     <div style="font-family:Inter,sans-serif;max-width:540px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E7E5E4">
       <div style="background:#1C1917;padding:20px 28px;display:flex;align-items:center;gap:10px">
         <div style="width:28px;height:28px;border-radius:8px;background:#534AB7;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px">C</div>
-        <span style="color:#fff;font-weight:600;font-size:15px">ClubOS</span>
+        <span style="color:#fff;font-weight:600;font-size:15px">AthletixOS</span>
       </div>
       <div style="padding:28px">${content}</div>
       <div style="padding:16px 28px;border-top:1px solid #E7E5E4;background:#F5F3EE">
-        <p style="color:#a8a29e;font-size:12px;margin:0">Sent via ClubOS · <a href="https://clubos.app" style="color:#78716C">clubos.app</a></p>
+        <p style="color:#a8a29e;font-size:12px;margin:0">Sent via AthletixOS · <a href="https://clubos.app" style="color:#78716C">clubos.app</a></p>
       </div>
     </div>
   `;
@@ -81,7 +81,7 @@ export async function sendWelcomeEmail({
     html: baseLayout(`
       <h2 style="color:#1c1917;margin:0 0 8px">Welcome, ${firstName}!</h2>
       <p style="color:#57534e;line-height:1.6;margin:0 0 20px">
-        You've been added to <strong>${clubName}</strong> on ClubOS.
+        You've been added to <strong>${clubName}</strong> on AthletixOS.
         You can log in to view your schedule, documents, and more.
       </p>
       <a href="${loginUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
@@ -107,12 +107,12 @@ export async function sendPasswordResetEmail({
 }) {
   await sendEmail({
     to,
-    subject: "Reset your ClubOS password",
+    subject: "Reset your AthletixOS password",
     html: baseLayout(`
       <h2 style="color:#1c1917;margin:0 0 8px">Reset your password</h2>
       <p style="color:#57534e;line-height:1.6;margin:0 0 4px">Hi ${firstName},</p>
       <p style="color:#57534e;line-height:1.6;margin:0 0 20px">
-        We received a request to reset your password for <strong>${clubName}</strong> on ClubOS.
+        We received a request to reset your password for <strong>${clubName}</strong> on AthletixOS.
       </p>
       <a href="${resetUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
         Reset password

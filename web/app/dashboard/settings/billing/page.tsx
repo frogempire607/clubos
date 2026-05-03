@@ -125,16 +125,16 @@ export default function BillingSettingsPage() {
         <h3 className="text-sm font-semibold text-text-primary mb-2">How payments work</h3>
         <ul className="text-xs text-text-muted space-y-1.5 leading-relaxed">
           <li>· Members pay with their card directly to your Stripe account</li>
-          <li>· ClubOS takes a small platform fee (2.5% Starter, 1.25% Growth, 0% Pro/Enterprise)</li>
+          <li>· AthletixOS takes a small platform fee (2.5% Starter, 1.25% Growth, 0% Pro/Enterprise)</li>
           <li>· You handle payouts, taxes, and refunds through Stripe</li>
           <li>· Test card: <code className="bg-white px-1 py-0.5 rounded">4242 4242 4242 4242</code> — any future date / any CVC</li>
         </ul>
       </div>
 
-      {/* ── ClubOS Subscription Plan ── */}
+      {/* ── AthletixOS Subscription Plan ── */}
       <div className="mt-8">
-        <h2 className="text-xl font-semibold text-text-primary mb-1">ClubOS Plan</h2>
-        <p className="text-sm text-text-muted mb-4">Your current ClubOS subscription tier.</p>
+        <h2 className="text-xl font-semibold text-text-primary mb-1">AthletixOS Plan</h2>
+        <p className="text-sm text-text-muted mb-4">Your current AthletixOS subscription tier.</p>
 
         {/* Current tier */}
         <div className="bg-white rounded-xl border border-app-border p-5 mb-4">

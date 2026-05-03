@@ -134,6 +134,11 @@ export async function POST(req: Request) {
       guardianPhone: data.guardianPhone,
     });
 
+    // A brand-new member can't yet have an active subscription, so we never
+    // create them as ACTIVE. They become ACTIVE later via the Stripe webhook
+    // (or manual subscription assignment) once a subscription kicks in.
+    const initialStatus = data.status === "ACTIVE" ? "PROSPECT" : data.status;
+
     const member = await prisma.member.create({
       data: {
         clubId: session.user.clubId,
@@ -142,7 +147,7 @@ export async function POST(req: Request) {
         email: data.email ? data.email.toLowerCase() : null,
         phone: data.phone || null,
         dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-        status: data.status,
+        status: initialStatus,
         tags: data.tags || "",
         notes: data.notes || null,
         streetAddress: data.streetAddress || null,
@@ -164,7 +169,7 @@ export async function POST(req: Request) {
     return NextResponse.json(member, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.errors }, { status: 400 });
+      return NextResponse.json({ error: err.flatten() }, { status: 400 });
     }
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

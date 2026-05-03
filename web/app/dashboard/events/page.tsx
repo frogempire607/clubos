@@ -197,7 +197,6 @@ export default function EventsPage() {
                       {e.memberPrice != null && <span>· Member ${Number(e.memberPrice).toFixed(2)}</span>}
                       {e.nonMemberPrice != null && <span>· Non-mem ${Number(e.nonMemberPrice).toFixed(2)}</span>}
                       {e.dropInFee != null && <span>· Drop-in ${Number(e.dropInFee).toFixed(2)}</span>}
-                      {e.allowMembershipPayment && <span>· Membership accepted</span>}
                       {(e.pricingOptions || []).map((p) => {
                         const membership = memberships.find((m) => m.id === p.membershipId);
                         return membership ? <span key={p.membershipId}>· {membership.name} accepted</span> : null;
@@ -369,7 +368,8 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
         travelFee: travelFee ? parseFloat(travelFee) : null,
         publishAt: publishAt ? new Date(publishAt).toISOString() : null,
         unpublishAt: unpublishAt ? new Date(unpublishAt).toISOString() : null,
-        visibility, purchaseAccess, allowMembershipPayment,
+        visibility, purchaseAccess,
+        allowMembershipPayment: allowedMembershipIds.length > 0,
         pricingOptions: allowedMembershipIds.map((membershipId) => ({ type: "membership", membershipId })),
         staffUserIds,
         imageUrl: imageUrl || null,
@@ -500,22 +500,37 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                 <input type="number" min="0" step="0.01" value={dropInFee} onChange={(e) => setDropInFee(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
             </div>
-            <label className="flex items-center gap-2 mt-3 cursor-pointer">
-              <input type="checkbox" checked={allowMembershipPayment} onChange={(e) => setAllowMembershipPayment(e.target.checked)} className="rounded" />
-              <span className="text-sm text-text-primary">Allow members to use their membership to pay for this event</span>
+          </div>
+
+          {/* Accepted memberships */}
+          <div className="border-t border-app-border pt-4">
+            <label className="block text-xs font-medium text-text-primary mb-1">
+              Accepted Memberships / Purchase Options
             </label>
-            {memberships.length > 0 && (
-              <div className="mt-3 border border-app-border rounded-lg p-3">
-                <p className="text-xs font-medium text-text-primary mb-2">Member can use purchase option to register</p>
-                <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                  {memberships.map((m) => (
-                    <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" checked={allowedMembershipIds.includes(m.id)} onChange={() => toggleMembership(m.id)} />
-                      {m.name}
-                    </label>
-                  ))}
-                </div>
+            <p className="text-[11px] text-text-muted mb-2">
+              Members on any selected plan can register at no extra cost. Others pay the prices above.
+            </p>
+            {memberships.length === 0 ? (
+              <div className="border border-dashed border-app-border rounded-lg p-3 text-xs text-text-muted">
+                No active memberships yet.{" "}
+                <a href="/dashboard/memberships" className="text-brand hover:underline">
+                  Create a membership →
+                </a>
               </div>
+            ) : (
+              <div className="border border-app-border rounded-lg p-3 space-y-1.5 max-h-40 overflow-y-auto">
+                {memberships.map((m) => (
+                  <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={allowedMembershipIds.includes(m.id)} onChange={() => toggleMembership(m.id)} />
+                    {m.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {allowedMembershipIds.length > 0 && (
+              <p className="text-[11px] text-text-muted mt-1">
+                {allowedMembershipIds.length} membership{allowedMembershipIds.length === 1 ? "" : "s"} selected
+              </p>
             )}
           </div>
 
@@ -716,6 +731,7 @@ function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[];
 function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
   const [event, setEvent] = useState<any>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const [allMemberships, setAllMemberships] = useState<Membership[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMember, setSelectedMember] = useState("");
   const [pricingType, setPricingType] = useState<"MEMBER" | "NON_MEMBER" | "DROP_IN">("MEMBER");
@@ -724,9 +740,14 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
 
   async function load() {
     setLoading(true);
-    const [eRes, mRes] = await Promise.all([fetch(`/api/events/${eventId}`), fetch("/api/members")]);
+    const [eRes, mRes, mpRes] = await Promise.all([
+      fetch(`/api/events/${eventId}`),
+      fetch("/api/members"),
+      fetch("/api/memberships"),
+    ]);
     if (eRes.ok) setEvent(await eRes.json());
     if (mRes.ok) setMembers(await mRes.json());
+    if (mpRes.ok) setAllMemberships(await mpRes.json());
     setLoading(false);
   }
 
@@ -746,7 +767,13 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
       });
       const data = await res.json();
       setAdding(false);
-      if (!res.ok || !data.url) { setError(data.error?.toString() || "Failed to start checkout"); return; }
+      if (!res.ok) { setError(data.error?.toString() || "Failed to start checkout"); return; }
+      if (data.coveredByMembership) {
+        setSelectedMember("");
+        load();
+        return;
+      }
+      if (!data.url) { setError("Failed to start checkout"); return; }
       window.open(data.url, "_blank");
     } else {
       const res = await fetch(`/api/events/${eventId}/bookings`, {
@@ -770,6 +797,10 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
   const bookedIds = new Set((event?.bookings || []).map((b: any) => b.member.id));
   const availableMembers = members.filter((m) => !bookedIds.has(m.id));
   const totalBookings = event?.bookings?.length ?? 0;
+  const acceptedMembershipIds: string[] = ((event?.pricingOptions as any[]) || [])
+    .filter((p) => p?.type === "membership" && p.membershipId)
+    .map((p) => p.membershipId);
+  const acceptedMemberships = allMemberships.filter((m) => acceptedMembershipIds.includes(m.id));
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -778,6 +809,12 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Bookings · {totalBookings}{event?.capacity && `/${event.capacity}`}</h2>
             {event && <p className="text-xs text-text-muted">{event.name}</p>}
+            {acceptedMemberships.length > 0 && (
+              <p className="text-[11px] text-text-muted mt-1">
+                <span className="font-medium text-text-primary">Accepted memberships:</span>{" "}
+                {acceptedMemberships.map((m) => m.name).join(", ")}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>

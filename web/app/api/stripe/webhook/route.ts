@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
+import { recomputeMemberStatus } from "@/lib/memberStatus";
 import type Stripe from "stripe";
 
 export async function POST(req: Request) {
@@ -45,6 +46,8 @@ export async function POST(req: Request) {
         const memberId  = session.metadata?.memberId;
         const clubId    = session.metadata?.clubId || "";
         const eventId   = session.metadata?.eventId;
+        const classId   = session.metadata?.classId;
+        const classSessionId = session.metadata?.classSessionId;
         const saleId    = session.metadata?.saleId; // product sale
 
         // ── Membership checkout ──────────────────────────────────────────────
@@ -104,6 +107,9 @@ export async function POST(req: Request) {
                 },
               });
             }
+
+            // Now that this member has an active subscription, promote them to ACTIVE.
+            await recomputeMemberStatus(memberSub.memberId);
           }
         }
 
@@ -120,6 +126,60 @@ export async function POST(req: Request) {
               type: "EVENT",
             },
           });
+
+          // Create the Booking that the charge route deferred to webhook on success.
+          // Idempotent — if the booking already exists (e.g. retried webhook), do nothing.
+          const existingBooking = await prisma.booking.findUnique({
+            where: { eventId_memberId: { eventId, memberId } },
+          });
+          if (!existingBooking) {
+            const event = await prisma.event.findFirst({
+              where: { id: eventId, clubId, deletedAt: null },
+              include: { _count: { select: { bookings: true } } },
+            });
+            if (event) {
+              const status =
+                event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+              await prisma.booking.create({
+                data: { eventId, memberId, status },
+              });
+            }
+          }
+        }
+
+        // ── Class session checkout ───────────────────────────────────────────
+        if (memberId && classId && classSessionId) {
+          await prisma.transaction.create({
+            data: {
+              clubId,
+              memberId,
+              amount:  (session.amount_total || 0) / 100,
+              status:  "SUCCEEDED",
+              stripePaymentIntentId: session.payment_intent as string,
+              description: `Class registration: ${session.metadata?.className || ""}`,
+              type: "CLASS",
+            },
+          });
+          // Mark the member as a paid drop-in on this session
+          const existing = await prisma.attendanceRecord.findFirst({
+            where: { classSessionId, memberId },
+          });
+          if (existing) {
+            await prisma.attendanceRecord.update({
+              where: { id: existing.id },
+              data: { status: "DROP_IN", checkedInAt: existing.checkedInAt ?? new Date() },
+            });
+          } else {
+            await prisma.attendanceRecord.create({
+              data: {
+                clubId,
+                classSessionId,
+                memberId,
+                status: "DROP_IN",
+                checkedInAt: new Date(),
+              },
+            });
+          }
         }
 
         // ── Product sale checkout ────────────────────────────────────────────
@@ -183,10 +243,15 @@ export async function POST(req: Request) {
         const invoice = event.data.object as Stripe.Invoice;
         const subscriptionId = invoice.subscription as string | null;
         if (subscriptionId) {
+          const subs = await prisma.memberSubscription.findMany({
+            where: { stripeSubscriptionId: subscriptionId },
+            select: { id: true, memberId: true },
+          });
           await prisma.memberSubscription.updateMany({
             where: { stripeSubscriptionId: subscriptionId },
             data: { status: "past_due" },
           });
+          for (const s of subs) await recomputeMemberStatus(s.memberId);
         }
         break;
       }
@@ -194,10 +259,15 @@ export async function POST(req: Request) {
       // ── Subscription canceled (auto-renew off or explicit cancel) ──────────
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
+        const subs = await prisma.memberSubscription.findMany({
+          where: { stripeSubscriptionId: subscription.id },
+          select: { id: true, memberId: true },
+        });
         await prisma.memberSubscription.updateMany({
           where: { stripeSubscriptionId: subscription.id },
           data: { status: "canceled", canceledAt: new Date() },
         });
+        for (const s of subs) await recomputeMemberStatus(s.memberId);
         break;
       }
 

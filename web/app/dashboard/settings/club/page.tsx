@@ -41,6 +41,13 @@ export default function ClubSettingsPage() {
   const [tagline, setTagline] = useState("");
   const [primaryColor, setPrimaryColor] = useState("#6D5DF6");
   const [logoUrl, setLogoUrl] = useState<string>("");
+  const [coverImageUrl, setCoverImageUrl] = useState<string>("");
+  const [aboutUs, setAboutUs] = useState<string>("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [socialLinks, setSocialLinks] = useState<{ label: string; url: string }[]>([]);
+  const [hours, setHours] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -57,6 +64,15 @@ export default function ClubSettingsPage() {
         setTagline(club.tagline || "");
         setPrimaryColor(club.primaryColor || "#6D5DF6");
         setLogoUrl(club.logoUrl || "");
+        setCoverImageUrl(club.coverImageUrl || "");
+        setAboutUs(club.aboutUs || "");
+        setContactEmail(club.contactEmail || "");
+        setContactPhone(club.contactPhone || "");
+        setWebsiteUrl(club.websiteUrl || "");
+        const links = Array.isArray(club.socialLinks) ? club.socialLinks : [];
+        setSocialLinks(links);
+        const h = club.hoursOfOperation && typeof club.hoursOfOperation === "object" ? club.hoursOfOperation : {};
+        setHours(h as Record<string, string>);
       }
       setLoading(false);
     }
@@ -72,7 +88,17 @@ export default function ClubSettingsPage() {
     const res = await fetch("/api/club/update", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, slug, sport, tagline, primaryColor, logoUrl: logoUrl || null }),
+      body: JSON.stringify({
+        name, slug, sport, tagline, primaryColor,
+        logoUrl: logoUrl || null,
+        coverImageUrl: coverImageUrl || null,
+        aboutUs: aboutUs || null,
+        contactEmail: contactEmail || null,
+        contactPhone: contactPhone || null,
+        websiteUrl: websiteUrl || null,
+        socialLinks: socialLinks.filter((l) => l.label.trim() && l.url.trim()),
+        hoursOfOperation: Object.keys(hours).length > 0 ? hours : null,
+      }),
     });
 
     setSaving(false);
@@ -158,6 +184,20 @@ export default function ClubSettingsPage() {
               placeholder="Where champions are made"
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
+            <p className="text-xs text-text-muted mt-1">Short one-liner shown next to your name on the member portal.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">About us</label>
+            <textarea
+              value={aboutUs}
+              onChange={(e) => setAboutUs(e.target.value)}
+              rows={6}
+              maxLength={5000}
+              placeholder="Tell members about your club — history, mission, philosophy, what makes you different…"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-y"
+            />
+            <p className="text-xs text-text-muted mt-1">Appears on the member portal home page. Up to 5,000 characters.</p>
           </div>
         </div>
 
@@ -170,6 +210,14 @@ export default function ClubSettingsPage() {
             onChange={setLogoUrl}
             shape="square"
             placeholder="◉"
+          />
+
+          <ImageUpload
+            label="Cover photo (member portal hero)"
+            value={coverImageUrl || null}
+            onChange={setCoverImageUrl}
+            shape="square"
+            placeholder="◌"
           />
 
           <div>
@@ -209,6 +257,116 @@ export default function ClubSettingsPage() {
               />
             </div>
           </div>
+        </div>
+
+        {/* Contact info */}
+        <div className="bg-white rounded-xl border border-app-border p-6 space-y-4">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Contact</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Public email</label>
+              <input
+                type="email"
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+                placeholder="hello@yourclub.com"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Phone</label>
+              <input
+                type="tel"
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                placeholder="(555) 000-0000"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Website</label>
+            <input
+              type="url"
+              value={websiteUrl}
+              onChange={(e) => setWebsiteUrl(e.target.value)}
+              placeholder="https://yourclub.com"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+          </div>
+        </div>
+
+        {/* Hours */}
+        <div className="bg-white rounded-xl border border-app-border p-6 space-y-3">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Hours</p>
+          <p className="text-xs text-text-muted">Leave a day blank to mark it closed.</p>
+          <div className="space-y-2">
+            {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((day) => (
+              <div key={day} className="flex items-center gap-3">
+                <span className="w-28 text-sm text-text-primary capitalize">{day}</span>
+                <input
+                  type="text"
+                  value={hours[day] || ""}
+                  onChange={(e) => setHours({ ...hours, [day]: e.target.value })}
+                  placeholder="9:00 AM – 9:00 PM"
+                  className="flex-1 px-3 py-1.5 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Social links */}
+        <div className="bg-white rounded-xl border border-app-border p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Social links</p>
+            <button
+              type="button"
+              onClick={() => setSocialLinks([...socialLinks, { label: "", url: "" }])}
+              className="text-xs text-brand hover:underline"
+            >
+              + Add link
+            </button>
+          </div>
+          {socialLinks.length === 0 ? (
+            <p className="text-xs text-text-muted">No social links yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {socialLinks.map((link, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={link.label}
+                    onChange={(e) => {
+                      const next = [...socialLinks];
+                      next[i] = { ...next[i], label: e.target.value };
+                      setSocialLinks(next);
+                    }}
+                    placeholder="Instagram"
+                    className="w-32 px-3 py-1.5 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
+                  <input
+                    type="url"
+                    value={link.url}
+                    onChange={(e) => {
+                      const next = [...socialLinks];
+                      next[i] = { ...next[i], url: e.target.value };
+                      setSocialLinks(next);
+                    }}
+                    placeholder="https://instagram.com/yourclub"
+                    className="flex-1 px-3 py-1.5 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSocialLinks(socialLinks.filter((_, idx) => idx !== i))}
+                    className="text-text-muted hover:text-red-600 px-2"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {error && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ImageUpload from "@/components/ImageUpload";
 
 type PermissionLevel = "none" | "view" | "edit" | "full" | "send";
 
@@ -367,6 +368,11 @@ function EditStaffModal({
   const [hourlyRate, setHourlyRate] = useState(staff.staffProfile?.hourlyRate || "");
   const [salary, setSalary] = useState(staff.staffProfile?.salary || "");
   const [appointmentPrice, setAppointmentPrice] = useState(staff.staffProfile?.appointmentPrice || "");
+  const [bio, setBio] = useState((staff.staffProfile as any)?.bio || "");
+  const [publicEmail, setPublicEmail] = useState((staff.staffProfile as any)?.publicEmail || "");
+  const [publicPhone, setPublicPhone] = useState((staff.staffProfile as any)?.publicPhone || "");
+  const [photoUrl, setPhotoUrl] = useState<string>((staff.staffProfile as any)?.photoUrl || "");
+  const [showOnPortal, setShowOnPortal] = useState<boolean>(!!(staff.staffProfile as any)?.showOnPortal);
   const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>({
     members: (existing.members as PermissionLevel) || "view",
     events: (existing.events as PermissionLevel) || "view",
@@ -393,6 +399,11 @@ function EditStaffModal({
         hourlyRate: hourlyRate ? parseFloat(hourlyRate) : null,
         salary: salary ? parseFloat(salary) : null,
         appointmentPrice: appointmentPrice ? parseFloat(appointmentPrice) : null,
+        bio: bio || null,
+        publicEmail: publicEmail || null,
+        publicPhone: publicPhone || null,
+        photoUrl: photoUrl || null,
+        showOnPortal,
         permissions,
       }),
     });
@@ -446,6 +457,53 @@ function EditStaffModal({
           <p className="text-xs text-text-muted -mt-2">
             Hourly rate and salary are for your records. Private rate is shown when booking 1-on-1 sessions.
           </p>
+
+          <div className="pt-2 border-t border-app-border">
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Member portal profile</p>
+            <p className="text-xs text-text-muted mb-3">When enabled, this staff member appears on your member portal's Staff page with their bio and visible contact info.</p>
+
+            <label className="flex items-center gap-3 py-2 mb-3 cursor-pointer">
+              <input type="checkbox" checked={showOnPortal} onChange={(e) => setShowOnPortal(e.target.checked)} className="rounded" />
+              <span className="text-sm text-text-primary">Show on member portal</span>
+            </label>
+
+            {showOnPortal && (
+              <div className="space-y-3">
+                <ImageUpload
+                  label="Profile photo"
+                  value={photoUrl || null}
+                  onChange={setPhotoUrl}
+                  shape="circle"
+                />
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Bio</label>
+                  <textarea
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    rows={4}
+                    maxLength={2000}
+                    placeholder="Coaching background, certifications, philosophy…"
+                    className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-y"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary mb-1">Public email</label>
+                    <input type="email" value={publicEmail} onChange={(e) => setPublicEmail(e.target.value)}
+                      placeholder="coach@club.com"
+                      className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary mb-1">Public phone</label>
+                    <input type="tel" value={publicPhone} onChange={(e) => setPublicPhone(e.target.value)}
+                      placeholder="(555) 000-0000"
+                      className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                  </div>
+                </div>
+                <p className="text-xs text-text-muted">Leave blank to hide. Members will only see what you fill in here, not the staff member's login email.</p>
+              </div>
+            )}
+          </div>
 
           <div className="pt-2 border-t border-app-border">
             <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Permissions</p>

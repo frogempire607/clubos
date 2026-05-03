@@ -530,7 +530,7 @@ function StripeTab() {
       {!loading && (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <StatCard label="Total revenue" value={`$${(data?.totals.revenue || 0).toFixed(2)}`} hint="All time, paid" />
-          <StatCard label="Platform fees" value={`$${(data?.totals.platformFees || 0).toFixed(2)}`} hint="Paid to ClubOS" />
+          <StatCard label="Platform fees" value={`$${(data?.totals.platformFees || 0).toFixed(2)}`} hint="Paid to AthletixOS" />
           <StatCard label="Net revenue" value={`$${(data?.totals.net || 0).toFixed(2)}`} hint="What you keep" />
         </div>
       )}

@@ -11,6 +11,13 @@ const schema = z.object({
   tagline: z.string().optional(),
   primaryColor: z.string().optional(),
   logoUrl: z.string().optional().nullable(),
+  aboutUs: z.string().max(5000).optional().nullable(),
+  coverImageUrl: z.string().optional().nullable(),
+  contactEmail: z.string().optional().nullable(),
+  contactPhone: z.string().optional().nullable(),
+  websiteUrl: z.string().optional().nullable(),
+  socialLinks: z.array(z.object({ label: z.string(), url: z.string() })).optional(),
+  hoursOfOperation: z.record(z.string()).optional().nullable(),
 });
 
 export async function PATCH(req: Request) {
@@ -38,6 +45,13 @@ export async function PATCH(req: Request) {
         tagline: data.tagline || null,
         primaryColor: data.primaryColor || "#534AB7",
         ...(data.logoUrl !== undefined ? { logoUrl: data.logoUrl || null } : {}),
+        ...(data.aboutUs !== undefined ? { aboutUs: data.aboutUs || null } : {}),
+        ...(data.coverImageUrl !== undefined ? { coverImageUrl: data.coverImageUrl || null } : {}),
+        ...(data.contactEmail !== undefined ? { contactEmail: data.contactEmail || null } : {}),
+        ...(data.contactPhone !== undefined ? { contactPhone: data.contactPhone || null } : {}),
+        ...(data.websiteUrl !== undefined ? { websiteUrl: data.websiteUrl || null } : {}),
+        ...(data.socialLinks !== undefined ? { socialLinks: data.socialLinks } : {}),
+        ...(data.hoursOfOperation !== undefined ? { hoursOfOperation: data.hoursOfOperation ?? undefined } : {}),
       },
     });
 

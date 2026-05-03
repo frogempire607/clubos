@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import ThemeToggle from "@/components/ThemeToggle";
 
 type NavChild = { id: string; label: string; href: string };
 type NavItem =
@@ -44,8 +45,15 @@ const NAV: NavItem[] = [
       { id: "calendar", label: "Calendar", href: "/dashboard/calendar" },
     ],
   },
-  { id: "messages", label: "Messaging", icon: "✉", href: "/dashboard/messages" },
-  { id: "announcements", label: "Announcements", icon: "!", href: "/dashboard/announcements" },
+  {
+    id: "communication",
+    label: "Communication",
+    icon: "✉",
+    children: [
+      { id: "messages", label: "Messaging", href: "/dashboard/messages" },
+      { id: "announcements", label: "Announcements", href: "/dashboard/announcements" },
+    ],
+  },
   { id: "attendance", label: "Attendance", icon: "✓", href: "/dashboard/attendance" },
   { id: "financials", label: "Financials", icon: "$", href: "/dashboard/financials" },
   { id: "reports", label: "Reports", icon: "▦", href: "/dashboard/reports" },
@@ -110,7 +118,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: BACKGROUND, color: TEXT }}>
+    <div className="dashboard-root" style={{ display: "flex", height: "100vh", background: BACKGROUND, color: TEXT }}>
 
       {/* ── Dark sidebar ── */}
       <aside style={{
@@ -125,20 +133,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Logo */}
         <div style={{ padding: "16px 14px", borderBottom: `1px solid ${SIDEBAR_BORDER}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 3 }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 8,
-              background: PRIMARY,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0,
-            }}>
-              <span style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>C</span>
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/icon.png"
+              alt=""
+              style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: "block" }}
+            />
             <span style={{
               color: "#fff", fontWeight: 600, fontSize: 15,
               letterSpacing: "-0.01em",
               fontFamily: "Georgia, serif",
             }}>
-              ClubOS
+              AthletixOS
             </span>
           </div>
           <div style={{ fontSize: 11, color: TEXT_DIM, paddingLeft: 38, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -181,7 +187,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     }
                   }}
                 >
-                  <span style={{ width: 16, textAlign: "center", fontSize: 12, opacity: 0.7 }}>{item.icon}</span>
+                  <span style={{ width: 22, textAlign: "center", fontSize: 17, opacity: 0.85, lineHeight: 1 }}>{item.icon}</span>
                   {item.label}
                 </Link>
               );
@@ -213,7 +219,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   }}
                 >
                   <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ width: 16, textAlign: "center", fontSize: 12, opacity: 0.7 }}>{item.icon}</span>
+                    <span style={{ width: 22, textAlign: "center", fontSize: 17, opacity: 0.85, lineHeight: 1 }}>{item.icon}</span>
                     {item.label}
                   </span>
                   <span style={{
@@ -270,8 +276,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
+        {/* Theme toggle */}
+        <div style={{ padding: "10px 10px 0", display: "flex" }}>
+          <ThemeToggle />
+        </div>
+
         {/* Sign out */}
-        <div style={{ padding: "10px 8px", borderTop: `1px solid ${SIDEBAR_BORDER}` }}>
+        <div style={{ padding: "10px 8px", borderTop: `1px solid ${SIDEBAR_BORDER}`, marginTop: 8 }}>
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
             style={{

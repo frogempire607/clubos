@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
 import ExportMenu from "@/components/ExportMenu";
+import {
+  DEFAULT_MEMBER_FORM_CONFIG,
+  isFieldEnabled,
+  isFieldRequired,
+  type MemberFormConfig,
+  type MemberFormFieldKey,
+} from "@/lib/memberForm";
 
 type GuardianProfile = {
   id: string;
@@ -52,6 +59,30 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
   PAUSED: { bg: "var(--color-warning)", fg: "#fff" },
 };
 
+// ── API error formatter ────────────────────────────────────────────────────
+// API errors arrive as: a string, a Zod flatten() result ({ formErrors, fieldErrors }),
+// a Zod issue array, or some other object. Coerce to a single human-readable line.
+function formatApiError(err: unknown, fallback: string): string {
+  if (typeof err === "string") return err;
+  if (Array.isArray(err)) {
+    const issue = err[0] as { message?: string; path?: string[] } | undefined;
+    if (issue?.message) {
+      const f = issue.path?.length ? `${issue.path.join(".")}: ` : "";
+      return `${f}${issue.message}`;
+    }
+  }
+  if (err && typeof err === "object") {
+    const e = err as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+    if (e.formErrors?.length) return e.formErrors[0];
+    if (e.fieldErrors) {
+      const first = Object.entries(e.fieldErrors)[0];
+      if (first) return `${first[0]}: ${first[1]?.[0] ?? "invalid"}`;
+    }
+    if ((err as { error?: string }).error) return String((err as { error: string }).error);
+  }
+  return fallback;
+}
+
 // ── Simple CSV parser ──────────────────────────────────────────────────────
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
@@ -81,23 +112,25 @@ function parseCSV(text: string): string[][] {
 }
 
 const MEMBER_FIELDS = [
-  { key: "firstName",     label: "First name",     required: true  },
-  { key: "lastName",      label: "Last name",       required: true  },
-  { key: "email",         label: "Email",           required: false },
-  { key: "phone",         label: "Phone",           required: false },
-  { key: "dateOfBirth",   label: "Date of birth",   required: false },
-  { key: "gender",        label: "Gender",          required: false },
-  { key: "streetAddress", label: "Street address",  required: false },
-  { key: "city",          label: "City",            required: false },
-  { key: "state",         label: "State",           required: false },
-  { key: "zipCode",       label: "Zip code",        required: false },
-  { key: "status",        label: "Status",          required: false },
-  { key: "tags",          label: "Tags",            required: false },
-  { key: "notes",         label: "Notes",           required: false },
-  { key: "guardianName",  label: "Guardian name",   required: false },
-  { key: "guardianEmail", label: "Guardian email",  required: false },
-  { key: "guardianPhone", label: "Guardian phone",  required: false },
-  { key: "skip",          label: "— Skip column —", required: false },
+  { key: "firstName",            label: "First name",            required: true  },
+  { key: "lastName",             label: "Last name",             required: true  },
+  { key: "email",                label: "Email",                 required: false },
+  { key: "phone",                label: "Phone",                 required: false },
+  { key: "dateOfBirth",          label: "Date of birth",         required: false },
+  { key: "gender",               label: "Gender",                required: false },
+  { key: "streetAddress",        label: "Street address",        required: false },
+  { key: "city",                 label: "City",                  required: false },
+  { key: "state",                label: "State",                 required: false },
+  { key: "zipCode",              label: "Zip code",              required: false },
+  { key: "status",               label: "Status",                required: false },
+  { key: "tags",                 label: "Tags",                  required: false },
+  { key: "notes",                label: "Notes",                 required: false },
+  { key: "isMinor",              label: "Minor (yes/no)",        required: false },
+  { key: "guardianName",         label: "Guardian name",         required: false },
+  { key: "guardianEmail",        label: "Guardian email",        required: false },
+  { key: "guardianPhone",        label: "Guardian phone",        required: false },
+  { key: "guardianRelationship", label: "Guardian relationship", required: false },
+  { key: "skip",                 label: "— Skip column —",       required: false },
 ];
 
 export default function MembersPage() {
@@ -117,12 +150,23 @@ export default function MembersPage() {
   const [customFieldFilter, setCustomFieldFilter] = useState("");
   const [customFieldValue, setCustomFieldValue] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [formConfig, setFormConfig] = useState<MemberFormConfig>(DEFAULT_MEMBER_FORM_CONFIG);
+  const [formCustomized, setFormCustomized] = useState<boolean>(false);
 
   async function load() {
     setLoading(true);
-    const [mRes, fRes] = await Promise.all([fetch("/api/members"), fetch("/api/custom-fields")]);
+    const [mRes, fRes, cRes] = await Promise.all([
+      fetch("/api/members"),
+      fetch("/api/custom-fields"),
+      fetch("/api/club/member-form"),
+    ]);
     if (mRes.ok) setMembers(await mRes.json());
     if (fRes.ok) setCustomFields(await fRes.json());
+    if (cRes.ok) {
+      const d = await cRes.json();
+      setFormConfig(d.config);
+      setFormCustomized(!!d.isCustomized);
+    }
     setLoading(false);
   }
 
@@ -178,6 +222,46 @@ export default function MembersPage() {
     if (res.ok) load();
   }
 
+  async function acceptDefaults() {
+    await fetch("/api/club/member-form", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(DEFAULT_MEMBER_FORM_CONFIG),
+    });
+    load();
+  }
+
+  // First-run gate: no members yet AND form is at default → must set up the intake form first.
+  const showSetupGate = !loading && members.length === 0 && !formCustomized;
+
+  if (showSetupGate) {
+    return (
+      <div className="p-8 max-w-2xl mx-auto">
+        <h1 className="text-3xl font-semibold text-text-primary mb-2">Set up your member intake form</h1>
+        <p className="text-sm text-text-muted mb-6">
+          Before you add your first athlete, decide what you want to collect. By default we only ask for
+          Athlete name and Email — pick any extra fields (phone, address, gender, guardian info, etc.) and
+          mark which ones are required for your club. You can change this any time, and CSV imports will
+          enforce the same required fields.
+        </p>
+        <div className="flex gap-2">
+          <a
+            href="/dashboard/settings/member-form"
+            className="px-5 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
+          >
+            Set up the form →
+          </a>
+          <button
+            onClick={acceptDefaults}
+            className="px-5 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg"
+          >
+            Keep the defaults
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-7xl">
       <StripeRequiredBanner feature="charge members for memberships" />
@@ -188,6 +272,9 @@ export default function MembersPage() {
           <p className="text-sm text-text-muted">{members.length} total</p>
         </div>
         <div className="flex gap-2">
+          <a href="/dashboard/settings/member-form" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+            Form settings
+          </a>
           <a href="/dashboard/custom-fields" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
             Custom fields
           </a>
@@ -364,12 +451,12 @@ export default function MembersPage() {
       </div>
 
       {(showAdd || editing) && (
-        <MemberModal member={editing} customFields={customFields} onClose={() => { setShowAdd(false); setEditing(null); }} onSaved={() => { setShowAdd(false); setEditing(null); load(); }} />
+        <MemberModal member={editing} customFields={customFields} formConfig={formConfig} onClose={() => { setShowAdd(false); setEditing(null); }} onSaved={() => { setShowAdd(false); setEditing(null); load(); }} />
       )}
 
   {subscribing && <PurchaseMembershipModal member={subscribing} onClose={() => setSubscribing(null)} />}
 
-      {showImport && <ImportCSVModal customFields={customFields} onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
+      {showImport && <ImportCSVModal customFields={customFields} formConfig={formConfig} onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
     </div>
   );
 }
@@ -382,7 +469,9 @@ function Td({ children }: { children: React.ReactNode }) {
 }
 
 // ── Member Modal ─────────────────────────────────────────────────────────────
-function MemberModal({ member, customFields, onClose, onSaved }: { member: Member | null; customFields: CustomField[]; onClose: () => void; onSaved: () => void }) {
+function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { member: Member | null; customFields: CustomField[]; formConfig: MemberFormConfig; onClose: () => void; onSaved: () => void }) {
+  const fieldEnabled = (k: MemberFormFieldKey) => isFieldEnabled(formConfig, k);
+  const fieldRequired = (k: MemberFormFieldKey) => isFieldRequired(formConfig, k);
   const isEdit = !!member;
   const initialCustomValues = (() => { try { return JSON.parse(member?.customFieldValues || "{}"); } catch { return {}; } })();
 
@@ -464,7 +553,11 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
       }),
     });
     setSaving(false);
-    if (!res.ok) { const data = await res.json(); setError(data.error?.toString() || "Save failed"); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(formatApiError(data.error, "Save failed"));
+      return;
+    }
     onSaved();
   }
 
@@ -477,12 +570,14 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <ImageUpload
-            label="Profile photo"
-            value={profileImageUrl || null}
-            onChange={setProfileImageUrl}
-            shape="circle"
-          />
+          {fieldEnabled("profileImageUrl") && (
+            <ImageUpload
+              label="Profile photo"
+              value={profileImageUrl || null}
+              onChange={setProfileImageUrl}
+              shape="circle"
+            />
+          )}
 
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">
@@ -491,101 +586,127 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
             <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="First Last" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">
-              Email {!isMinor && <span className="text-red-500">*</span>}
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required={!isMinor}
-              placeholder={isMinor ? "Optional for minors" : "athlete@example.com"}
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-            />
-            <p className="text-xs text-text-muted mt-1">
-              {isMinor ? "Guardian email is used as primary contact for minors" : "Used to link their member portal account"}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          {fieldEnabled("email") && (
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Phone</label>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 000-0000" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+              <label className="block text-sm font-medium text-text-primary mb-1">
+                Email {fieldRequired("email") && !isMinor && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required={fieldRequired("email") && !isMinor}
+                placeholder={isMinor ? "Optional for minors" : "athlete@example.com"}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+              <p className="text-xs text-text-muted mt-1">
+                {isMinor ? "Guardian email is used as primary contact for minors" : "Used to link their member portal account"}
+              </p>
             </div>
+          )}
+
+          {(fieldEnabled("phone") || fieldEnabled("gender")) && (
+            <div className="grid grid-cols-2 gap-3">
+              {fieldEnabled("phone") && (
+                <div className={fieldEnabled("gender") ? "" : "col-span-2"}>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Phone {fieldRequired("phone") && <span className="text-red-500">*</span>}</label>
+                  <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required={fieldRequired("phone")} placeholder="(555) 000-0000" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+              )}
+              {fieldEnabled("gender") && (
+                <div className={fieldEnabled("phone") ? "" : "col-span-2"}>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Gender {fieldRequired("gender") && <span className="text-red-500">*</span>}</label>
+                  <select value={gender} onChange={(e) => setGender(e.target.value)} required={fieldRequired("gender")} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
+                    <option value="">Prefer not to say</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Non-binary">Non-binary</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          {fieldEnabled("streetAddress") && (
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Gender</label>
-              <select value={gender} onChange={(e) => setGender(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
-                <option value="">Prefer not to say</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Non-binary">Non-binary</option>
-                <option value="Other">Other</option>
+              <label className="block text-sm font-medium text-text-primary mb-1">Street address {fieldRequired("streetAddress") && <span className="text-red-500">*</span>}</label>
+              <input type="text" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} required={fieldRequired("streetAddress")} placeholder="123 Main St" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+          )}
+
+          {(fieldEnabled("city") || fieldEnabled("state") || fieldEnabled("zipCode")) && (
+            <div className="grid grid-cols-3 gap-3">
+              {fieldEnabled("city") && (
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium text-text-primary mb-1">City {fieldRequired("city") && <span className="text-red-500">*</span>}</label>
+                  <input type="text" value={city} onChange={(e) => setCity(e.target.value)} required={fieldRequired("city")} placeholder="Springfield" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+              )}
+              {fieldEnabled("state") && (
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">State {fieldRequired("state") && <span className="text-red-500">*</span>}</label>
+                  <input type="text" value={state} onChange={(e) => setState(e.target.value)} required={fieldRequired("state")} placeholder="IL" maxLength={2} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+              )}
+              {fieldEnabled("zipCode") && (
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Zip code {fieldRequired("zipCode") && <span className="text-red-500">*</span>}</label>
+                  <input type="text" value={zipCode} onChange={(e) => setZipCode(e.target.value)} required={fieldRequired("zipCode")} placeholder="62701" maxLength={10} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {fieldEnabled("status") && (
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Status</label>
+              <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
+                <option value="PROSPECT">Prospect</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+                <option value="PAUSED">Paused</option>
               </select>
             </div>
-          </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Street address</label>
-            <input type="text" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} placeholder="123 Main St" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-1">
-              <label className="block text-sm font-medium text-text-primary mb-1">City</label>
-              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Springfield" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            </div>
+          {fieldEnabled("dateOfBirth") && (
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">State</label>
-              <input type="text" value={state} onChange={(e) => setState(e.target.value)} placeholder="IL" maxLength={2} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+              <label className="block text-sm font-medium text-text-primary mb-1">Date of birth {fieldRequired("dateOfBirth") && <span className="text-red-500">*</span>}</label>
+              <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} required={fieldRequired("dateOfBirth")} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Zip code</label>
-              <input type="text" value={zipCode} onChange={(e) => setZipCode(e.target.value)} placeholder="62701" maxLength={10} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand">
-              <option value="PROSPECT">Prospect</option>
-              <option value="ACTIVE">Active</option>
-              <option value="INACTIVE">Inactive</option>
-              <option value="PAUSED">Paused</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Date of birth</label>
-            <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-          </div>
+          )}
 
           {/* Minor toggle */}
-          <div className="flex items-center gap-3 py-2 border border-app-border rounded-lg px-3">
-            <input type="checkbox" id="isMinor" checked={isMinor} onChange={(e) => setIsMinor(e.target.checked)} className="rounded" />
-            <label htmlFor="isMinor" className="text-sm font-medium text-text-primary cursor-pointer select-none">This member is a minor (under 18)</label>
-          </div>
+          {fieldEnabled("isMinor") && (
+            <div className="flex items-center gap-3 py-2 border border-app-border rounded-lg px-3">
+              <input type="checkbox" id="isMinor" checked={isMinor} onChange={(e) => setIsMinor(e.target.checked)} className="rounded" />
+              <label htmlFor="isMinor" className="text-sm font-medium text-text-primary cursor-pointer select-none">This member is a minor (under 18)</label>
+            </div>
+          )}
 
           {isMinor && (
             <div className="space-y-3 p-4 bg-orange-accent/10 border border-orange-accent/30 rounded-lg">
               <p className="text-xs font-medium text-text-primary uppercase tracking-wider">Guardian / Parent Information</p>
               <div className="grid grid-cols-2 gap-3">
-                <div>
+                <div className={fieldEnabled("guardianRelationship") ? "" : "col-span-2"}>
                   <label className="block text-xs font-medium text-text-primary mb-1">Guardian name</label>
                   <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="Full name" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-primary mb-1">Relationship</label>
-                  <select value={guardianRelationship} onChange={(e) => setGuardianRelationship(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none">
-                    <option value="">Select…</option>
-                    <option value="Parent">Parent</option>
-                    <option value="Mother">Mother</option>
-                    <option value="Father">Father</option>
-                    <option value="Legal guardian">Legal guardian</option>
-                    <option value="Grandparent">Grandparent</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
+                {fieldEnabled("guardianRelationship") && (
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">Relationship {fieldRequired("guardianRelationship") && <span className="text-red-500">*</span>}</label>
+                    <select value={guardianRelationship} onChange={(e) => setGuardianRelationship(e.target.value)} required={fieldRequired("guardianRelationship")} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none">
+                      <option value="">Select…</option>
+                      <option value="Parent">Parent</option>
+                      <option value="Mother">Mother</option>
+                      <option value="Father">Father</option>
+                      <option value="Legal guardian">Legal guardian</option>
+                      <option value="Grandparent">Grandparent</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-text-primary mb-1">Guardian email</label>
@@ -613,11 +734,13 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Tags</label>
-            <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Beginner, 14U, Travel team" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            <p className="text-xs text-text-muted mt-1">Comma-separated</p>
-          </div>
+          {fieldEnabled("tags") && (
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Tags {fieldRequired("tags") && <span className="text-red-500">*</span>}</label>
+              <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} required={fieldRequired("tags")} placeholder="Beginner, 14U, Travel team" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+              <p className="text-xs text-text-muted mt-1">Comma-separated</p>
+            </div>
+          )}
 
           {customFields.length > 0 && (
             <div className="pt-2 border-t border-app-border">
@@ -645,10 +768,12 @@ function MemberModal({ member, customFields, onClose, onSaved }: { member: Membe
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
-          </div>
+          {fieldEnabled("notes") && (
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Notes {fieldRequired("notes") && <span className="text-red-500">*</span>}</label>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} required={fieldRequired("notes")} rows={3} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
+            </div>
+          )}
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 
@@ -732,7 +857,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
     const data = await res.json();
     setSubmitting(false);
 
-    if (!res.ok) { setError(data.error?.toString() || "Failed"); return; }
+    if (!res.ok) { setError(formatApiError(data.error, "Failed")); return; }
 
     // Manual assignment completes immediately
     if (data.type === "manual") { setDone(true); return; }
@@ -812,7 +937,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
                     ))}
                   </div>
                   <p className="text-xs text-text-muted mt-1">
-                    {billingType === "RECURRING" ? "Sends a Stripe payment link. Auto-bills on the billing cycle." : "Records enrollment immediately. You handle payment outside ClubOS."}
+                    {billingType === "RECURRING" ? "Sends a Stripe payment link. Auto-bills on the billing cycle." : "Records enrollment immediately. You handle payment outside AthletixOS."}
                   </p>
                 </div>
               )}
@@ -883,7 +1008,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 }
 
 // ── Import CSV Modal ─────────────────────────────────────────────────────────
-function ImportCSVModal({ customFields, onClose, onImported }: { customFields: CustomField[]; onClose: () => void; onImported: () => void }) {
+function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { customFields: CustomField[]; formConfig: MemberFormConfig; onClose: () => void; onImported: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "map" | "preview" | "done">("upload");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -892,13 +1017,41 @@ function ImportCSVModal({ customFields, onClose, onImported }: { customFields: C
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<{ created: number; skipped: number; failed: number; errors: string[] } | null>(null);
   const [error, setError] = useState("");
+
+  // Map the synthetic "athleteName" to its underlying CSV columns so we can show
+  // First/Last in the dropdown but still honor the owner's enabled/required config.
+  const cfgKeyToCsvKeys: Record<MemberFormFieldKey, string[]> = {
+    athleteName: ["firstName", "lastName"],
+    email: ["email"],
+    phone: ["phone"],
+    dateOfBirth: ["dateOfBirth"],
+    gender: ["gender"],
+    streetAddress: ["streetAddress"],
+    city: ["city"],
+    state: ["state"],
+    zipCode: ["zipCode"],
+    status: ["status"],
+    tags: ["tags"],
+    notes: ["notes"],
+    isMinor: ["isMinor"],
+    profileImageUrl: [], // not importable from CSV
+    guardianRelationship: ["guardianRelationship"],
+  };
+  const allowedCsvKeys = new Set<string>(
+    formConfig.enabledFields.flatMap((k) => cfgKeyToCsvKeys[k] ?? [])
+  );
+  // Guardian name/email/phone are always available — they're conditional on
+  // isMinor=true, not toggleable by the form config.
+  ["guardianName", "guardianEmail", "guardianPhone"].forEach((k) => allowedCsvKeys.add(k));
+
+  const requiredCsvKeys = new Set<string>(
+    formConfig.requiredFields.flatMap((k) => cfgKeyToCsvKeys[k] ?? [])
+  );
+
   const mappingFields = [
-    ...MEMBER_FIELDS.slice(0, -1),
-    { key: "guardianRelationship", label: "Guardian relationship", required: false },
-    { key: "membershipName", label: "Membership / purchase option", required: false },
-    { key: "isMinor", label: "Minor/adult", required: false },
+    ...MEMBER_FIELDS.slice(0, -1).filter((f) => allowedCsvKeys.has(f.key)),
     ...customFields.map((f) => ({ key: `custom:${f.id}`, label: `Custom: ${f.label}`, required: f.required })),
-    MEMBER_FIELDS[MEMBER_FIELDS.length - 1],
+    MEMBER_FIELDS[MEMBER_FIELDS.length - 1], // skip
   ];
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -918,23 +1071,27 @@ function ImportCSVModal({ customFields, onClose, onImported }: { customFields: C
       const autoMap: Record<number, string> = {};
       hdrs.forEach((h, i) => {
         const lh = h.toLowerCase().replace(/\s+/g, "").replace(/_/g, "");
-        if (lh.includes("first")) autoMap[i] = "firstName";
-        else if (lh.includes("last")) autoMap[i] = "lastName";
-        else if (lh.includes("email") && !lh.includes("guardian")) autoMap[i] = "email";
-        else if (lh.includes("dob") || lh.includes("birth") || lh.includes("birthdate")) autoMap[i] = "dateOfBirth";
-        else if (lh.includes("status")) autoMap[i] = "status";
-        else if (lh.includes("tag")) autoMap[i] = "tags";
-        else if (lh.includes("note")) autoMap[i] = "notes";
-        else if (lh.includes("guardian") && lh.includes("name")) autoMap[i] = "guardianName";
+        if (lh.includes("guardian") && lh.includes("name")) autoMap[i] = "guardianName";
         else if (lh.includes("guardian") && lh.includes("email")) autoMap[i] = "guardianEmail";
         else if (lh.includes("guardian") && lh.includes("phone")) autoMap[i] = "guardianPhone";
         else if (lh.includes("guardian") && (lh.includes("relation") || lh.includes("relationship"))) autoMap[i] = "guardianRelationship";
-        else if (lh.includes("member") && lh.includes("ship")) autoMap[i] = "membershipName";
-        else if (lh.includes("minor") || lh.includes("adult")) autoMap[i] = "isMinor";
+        else if (lh.includes("first")) autoMap[i] = "firstName";
+        else if (lh.includes("last")) autoMap[i] = "lastName";
+        else if (lh.includes("email")) autoMap[i] = "email";
+        else if (lh.includes("phone") || lh === "mobile" || lh === "cell") autoMap[i] = "phone";
+        else if (lh.includes("dob") || lh.includes("birth")) autoMap[i] = "dateOfBirth";
+        else if (lh.includes("gender") || lh === "sex") autoMap[i] = "gender";
+        else if (lh.includes("street") || lh === "address" || lh.includes("address1") || lh.includes("addressline")) autoMap[i] = "streetAddress";
+        else if (lh === "city" || lh.includes("town")) autoMap[i] = "city";
+        else if (lh === "state" || lh === "province" || lh === "region") autoMap[i] = "state";
+        else if (lh.includes("zip") || lh.includes("postal")) autoMap[i] = "zipCode";
+        else if (lh.includes("status")) autoMap[i] = "status";
+        else if (lh.includes("tag")) autoMap[i] = "tags";
+        else if (lh.includes("note")) autoMap[i] = "notes";
+        else if (lh.includes("minor") || lh.includes("adult") || lh.includes("under18")) autoMap[i] = "isMinor";
         else {
           const custom = customFields.find((f) => f.label.toLowerCase().replace(/\s+/g, "").replace(/_/g, "") === lh);
           autoMap[i] = custom ? `custom:${custom.id}` : "skip";
-          return;
         }
       });
       setMapping(autoMap);
@@ -961,7 +1118,13 @@ function ImportCSVModal({ customFields, onClose, onImported }: { customFields: C
       firstName: m.firstName || "(no name)",
       lastName: m.lastName || "",
       email: m.email || undefined,
+      phone: m.phone || undefined,
       dateOfBirth: m.dateOfBirth || undefined,
+      gender: m.gender || undefined,
+      streetAddress: m.streetAddress || undefined,
+      city: m.city || undefined,
+      state: m.state || undefined,
+      zipCode: m.zipCode || undefined,
       status: (["ACTIVE","PROSPECT","INACTIVE","PAUSED"].includes((m.status || "").toUpperCase()) ? m.status.toUpperCase() : "ACTIVE") as any,
       tags: m.tags || undefined,
       notes: m.notes || undefined,
@@ -969,7 +1132,6 @@ function ImportCSVModal({ customFields, onClose, onImported }: { customFields: C
       guardianEmail: m.guardianEmail || undefined,
       guardianPhone: m.guardianPhone || undefined,
       guardianRelationship: m.guardianRelationship || undefined,
-      membershipName: m.membershipName || undefined,
       customFieldValues: Object.fromEntries(Object.entries(m).filter(([k]) => k.startsWith("custom:")).map(([k, v]) => [k.replace("custom:", ""), v])),
       isMinor: m.isMinor ? ["yes", "true", "minor", "under18", "under 18", "1"].includes(m.isMinor.toLowerCase()) : !!(m.guardianName || m.guardianEmail),
     }));
@@ -981,7 +1143,7 @@ function ImportCSVModal({ customFields, onClose, onImported }: { customFields: C
     });
     const data = await res.json();
     setImporting(false);
-    if (!res.ok) { setError(data.error?.toString() || "Import failed"); return; }
+    if (!res.ok) { setError(formatApiError(data.error, "Import failed")); return; }
     setResult(data);
     setStep("done");
   }
@@ -1025,37 +1187,58 @@ function ImportCSVModal({ customFields, onClose, onImported }: { customFields: C
                 <ul className="space-y-0.5 list-disc list-inside">
                   <li>First row should be column headers</li>
                   <li>Required columns: First Name, Last Name</li>
-                  <li>Optional: Email, Date of Birth, Status, Tags, Notes</li>
-                  <li>Guardian columns: Guardian Name, Guardian Email, Guardian Phone</li>
+                  <li>Optional: Email, Phone, Date of Birth, Gender, Address, Status, Tags, Notes</li>
+                  <li>For minors: Guardian Name, Guardian Email, Guardian Phone (required)</li>
+                  <li>Any custom fields you've created are also mappable</li>
                 </ul>
               </div>
               {error && <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
             </div>
           )}
 
-          {step === "map" && (
-            <div>
-              <p className="text-sm text-text-muted mb-4">
-                Match your CSV columns to member fields. We auto-detected some mappings — adjust as needed.
-              </p>
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                {headers.map((h, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="w-48 text-sm text-text-primary font-medium truncate flex-shrink-0">{h}</div>
-                    <div className="text-text-muted text-xs flex-shrink-0">→</div>
-                    <select value={mapping[i] || "skip"} onChange={(e) => setMapping({ ...mapping, [i]: e.target.value })} className="flex-1 px-3 py-1.5 border border-app-border rounded-lg text-sm bg-surface">
-                      {mappingFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-                    </select>
-                    <div className="text-xs text-text-muted w-20 truncate flex-shrink-0">{rows[0]?.[i] || ""}</div>
+          {step === "map" && (() => {
+            const mappedKeys = new Set(Object.values(mapping).filter((v) => v && v !== "skip"));
+            const missingRequired = Array.from(requiredCsvKeys).filter((k) => !mappedKeys.has(k));
+            return (
+              <div>
+                <p className="text-sm text-text-muted mb-2">
+                  Match your CSV columns to member fields. We auto-detected some mappings — adjust as needed.
+                </p>
+                {requiredCsvKeys.size > 0 && (
+                  <p className="text-xs text-text-muted mb-4">
+                    Required by your member form: {Array.from(requiredCsvKeys).join(", ")}
+                  </p>
+                )}
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {headers.map((h, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-48 text-sm text-text-primary font-medium truncate flex-shrink-0">{h}</div>
+                      <div className="text-text-muted text-xs flex-shrink-0">→</div>
+                      <select value={mapping[i] || "skip"} onChange={(e) => setMapping({ ...mapping, [i]: e.target.value })} className="flex-1 px-3 py-1.5 border border-app-border rounded-lg text-sm bg-surface">
+                        {mappingFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                      </select>
+                      <div className="text-xs text-text-muted w-20 truncate flex-shrink-0">{rows[0]?.[i] || ""}</div>
+                    </div>
+                  ))}
+                </div>
+                {missingRequired.length > 0 && (
+                  <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    Map a column to each required field before importing: {missingRequired.join(", ")}
                   </div>
-                ))}
+                )}
+                <div className="flex gap-2 pt-4">
+                  <button onClick={() => setStep("upload")} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Back</button>
+                  <button
+                    onClick={() => setStep("preview")}
+                    disabled={missingRequired.length > 0}
+                    className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+                  >
+                    Preview import
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-2 pt-4">
-                <button onClick={() => setStep("upload")} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Back</button>
-                <button onClick={() => setStep("preview")} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">Preview import</button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {step === "preview" && (
             <div>

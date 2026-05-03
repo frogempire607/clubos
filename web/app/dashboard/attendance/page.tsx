@@ -95,13 +95,27 @@ function fmtDateHeader(dateStr: string) {
   });
 }
 
+// ─── Pricing types ────────────────────────────────────────────────────────────
+
+type PricingOption =
+  | { type: "member" | "nonmember" | "dropin"; price: number }
+  | { type: "membership"; membershipId: string };
+
+type AcceptedMembership = { id: string; name: string };
+
 // ─── Quick Add Member Form ────────────────────────────────────────────────────
 
 function QuickAddForm({
   sessionId,
+  classId,
+  pricingOptions,
+  acceptedMemberships,
   onAdded,
 }: {
   sessionId: string;
+  classId: string | null;
+  pricingOptions: PricingOption[];
+  acceptedMemberships: AcceptedMembership[];
   onAdded: () => void;
 }) {
   const [step, setStep] = useState<"search" | "add-new">("search");
@@ -115,6 +129,43 @@ function QuickAddForm({
   const [isMinor, setIsMinor] = useState(false);
   const [guardianName, setGuardianName] = useState("");
   const [error, setError] = useState("");
+  const [registeringId, setRegisteringId] = useState<string | null>(null);
+
+  const memberPrice    = pricingOptions.find((o) => o.type === "member")    as { type: "member"; price: number } | undefined;
+  const nonMemberPrice = pricingOptions.find((o) => o.type === "nonmember") as { type: "nonmember"; price: number } | undefined;
+  const dropInPrice    = pricingOptions.find((o) => o.type === "dropin")    as { type: "dropin"; price: number } | undefined;
+  const acceptsMembership = acceptedMemberships.length > 0;
+  const hasAnyPricing = !!(memberPrice || nonMemberPrice || dropInPrice || acceptsMembership);
+
+  async function register(memberId: string, pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" | "MEMBERSHIP") {
+    if (!classId) return;
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/classes/${classId}/charge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberId, classSessionId: sessionId, pricingType }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) {
+      setError(data.error?.toString?.() || "Failed to register member");
+      return;
+    }
+    if (data.coveredByMembership) {
+      setRegisteringId(null);
+      setQuery("");
+      setResults([]);
+      onAdded();
+      return;
+    }
+    if (data.url) {
+      window.open(data.url, "_blank");
+      setRegisteringId(null);
+      return;
+    }
+    setError("Unexpected response");
+  }
 
   useEffect(() => {
     fetch("/api/members")
@@ -247,33 +298,88 @@ function QuickAddForm({
           {results.map((m) => (
             <div
               key={m.id}
-              className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-app-bg border border-app-border"
+              className="px-3 py-2 rounded-lg hover:bg-app-bg border border-app-border"
             >
-              <div>
-                <div className="text-sm font-medium text-text-primary">
-                  {m.firstName} {m.lastName}
-                  {m.isMinor && <span className="ml-1.5 text-xs text-brand">(minor)</span>}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-text-primary">
+                    {m.firstName} {m.lastName}
+                    {m.isMinor && <span className="ml-1.5 text-xs text-brand">(minor)</span>}
+                  </div>
+                  {m.isMinor && m.guardianName && (
+                    <div className="text-xs text-text-muted">Guardian: {m.guardianName}</div>
+                  )}
                 </div>
-                {m.isMinor && m.guardianName && (
-                  <div className="text-xs text-text-muted">Guardian: {m.guardianName}</div>
-                )}
+                <div className="flex gap-1.5 flex-wrap justify-end">
+                  <button
+                    disabled={saving}
+                    onClick={() => checkIn(m.id, "PRESENT")}
+                    className="px-2 py-1 text-xs rounded bg-lime-accent text-text-primary hover:bg-lime-accent"
+                  >
+                    Present
+                  </button>
+                  <button
+                    disabled={saving}
+                    onClick={() => checkIn(m.id, "TRIAL")}
+                    className="px-2 py-1 text-xs rounded bg-brand/10 text-brand hover:bg-brand"
+                  >
+                    Trial
+                  </button>
+                  {hasAnyPricing && classId && (
+                    <button
+                      disabled={saving}
+                      onClick={() => setRegisteringId(registeringId === m.id ? null : m.id)}
+                      className="px-2 py-1 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                    >
+                      {registeringId === m.id ? "Cancel" : "Register"}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex gap-1.5">
-                <button
-                  disabled={saving}
-                  onClick={() => checkIn(m.id, "PRESENT")}
-                  className="px-2 py-1 text-xs rounded bg-lime-accent text-text-primary hover:bg-lime-accent"
-                >
-                  Present
-                </button>
-                <button
-                  disabled={saving}
-                  onClick={() => checkIn(m.id, "TRIAL")}
-                  className="px-2 py-1 text-xs rounded bg-brand/10 text-brand hover:bg-brand"
-                >
-                  Trial
-                </button>
-              </div>
+              {registeringId === m.id && hasAnyPricing && classId && (
+                <div className="mt-2 pt-2 border-t border-app-border space-y-1.5">
+                  {acceptsMembership && (
+                    <button
+                      disabled={saving}
+                      onClick={() => register(m.id, "MEMBERSHIP")}
+                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-brand/40 bg-brand/5 text-text-primary hover:bg-brand/10"
+                    >
+                      <span className="font-medium">Use accepted membership</span>
+                      <span className="block text-[10px] text-text-muted">
+                        Free if active on: {acceptedMemberships.map((a) => a.name).join(", ")}
+                      </span>
+                    </button>
+                  )}
+                  {memberPrice && (
+                    <button
+                      disabled={saving}
+                      onClick={() => register(m.id, "MEMBER")}
+                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                    >
+                      Member · ${memberPrice.price.toFixed(2)}
+                    </button>
+                  )}
+                  {nonMemberPrice && (
+                    <button
+                      disabled={saving}
+                      onClick={() => register(m.id, "NON_MEMBER")}
+                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                    >
+                      Non-member · ${nonMemberPrice.price.toFixed(2)}
+                    </button>
+                  )}
+                  {dropInPrice && (
+                    <button
+                      disabled={saving}
+                      onClick={() => register(m.id, "DROP_IN")}
+                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                    >
+                      Drop-in · ${dropInPrice.price.toFixed(2)}
+                    </button>
+                  )}
+                  {error && <p className="text-red-600 text-xs">{error}</p>}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -300,8 +406,12 @@ function AttendancePanel({
   onClose: () => void;
 }) {
   const [data, setData] = useState<{
-    session: ClassSession & { recurringClass: { name: string; capacity: number | null } };
+    session: ClassSession & {
+      recurringClass: { id: string; name: string; capacity: number | null };
+    };
     attendance: AttendanceRecord[];
+    pricingOptions: PricingOption[];
+    acceptedMemberships: AcceptedMembership[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -353,6 +463,13 @@ function AttendancePanel({
             <h2 className="font-semibold text-text-primary">{sessionName}</h2>
             <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
           </div>
+          {/* Accepted memberships */}
+          {(data?.acceptedMemberships?.length ?? 0) > 0 && (
+            <div className="mb-2 text-xs text-text-muted">
+              <span className="font-medium text-text-primary">Accepted memberships:</span>{" "}
+              {data!.acceptedMemberships.map((m) => m.name).join(", ")}
+            </div>
+          )}
           {/* Status summary */}
           <div className="flex gap-2 flex-wrap">
             {Object.entries(STATUS_CONFIG).map(([k, v]) => (
@@ -458,7 +575,13 @@ function AttendancePanel({
                         Hide
                       </button>
                     </div>
-                    <QuickAddForm sessionId={sessionId} onAdded={() => { load(); }} />
+                    <QuickAddForm
+                      sessionId={sessionId}
+                      classId={data?.session.recurringClass.id ?? null}
+                      pricingOptions={data?.pricingOptions ?? []}
+                      acceptedMemberships={data?.acceptedMemberships ?? []}
+                      onAdded={() => { load(); }}
+                    />
                   </div>
                 ) : (
                   <button

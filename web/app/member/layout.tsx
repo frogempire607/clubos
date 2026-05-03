@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 
 const NAV = [
   { href: "/member", label: "Home", icon: "⌂", exact: true },
+  { href: "/member/messages", label: "Messages", icon: "✉", exact: false },
   { href: "/member/bookings", label: "Bookings", icon: "◷", exact: false },
   { href: "/member/documents", label: "Documents", icon: "▤", exact: false },
   { href: "/member/profile", label: "Profile", icon: "◎", exact: false },
@@ -84,7 +85,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       <header className="bg-white border-b border-stone-200 sticky top-0 z-40 hidden md:block">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <span className="text-sm font-bold text-stone-900">ClubOS</span>
+            <Link href="/member" className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/icon.png" alt="" className="w-7 h-7 rounded-md" />
+              <span className="text-sm font-bold text-stone-900">AthletixOS</span>
+            </Link>
             <nav className="flex gap-1">
               {NAV.map((item) => (
                 <Link
@@ -117,7 +122,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       {/* ── Mobile top bar ── */}
       <header className="bg-white border-b border-stone-200 sticky top-0 z-40 md:hidden">
         <div className="px-4 h-12 flex items-center justify-between">
-          <span className="text-sm font-bold text-stone-900">ClubOS</span>
+          <Link href="/member" className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/icon.png" alt="" className="w-6 h-6 rounded-md" />
+            <span className="text-sm font-bold text-stone-900">AthletixOS</span>
+          </Link>
           <span className="text-sm text-stone-500">{session?.user?.name?.split(" ")[0]}</span>
         </div>
       </header>
@@ -154,7 +163,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
       {/* ── Bottom tab bar (mobile only) ── */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-stone-200 md:hidden">
-        <div className="grid grid-cols-4 h-16">
+        <div className="grid grid-cols-5 h-16">
           {NAV.map((item) => {
             const active = isActive(item);
             return (

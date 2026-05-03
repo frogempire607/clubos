@@ -65,13 +65,17 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4 py-8">
+    <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4 py-10">
       <div className="w-full max-w-md">
+        <div className="flex justify-center mb-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/circle.PNG" alt="AthletixOS" className="w-24 h-24 rounded-full" />
+        </div>
         <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-8">
           <div className="mb-6">
             <h1 className="text-2xl font-semibold text-stone-900 mb-1">Get started</h1>
             <p className="text-sm text-stone-500">
-              {mode === "create" ? "Create your club on ClubOS" : "Join an existing club"}
+              {mode === "create" ? "Create your club on AthletixOS" : "Join an existing club"}
             </p>
           </div>
 
