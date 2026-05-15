@@ -15,7 +15,8 @@ const schema = z.object({
   inventory:     z.number().int().nonnegative().optional().nullable(),
 });
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,7 +37,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "OWNER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -19,7 +19,8 @@ async function requireMembership(groupId: string, userId: string, clubId: string
 }
 
 // GET /api/member/messages/groups/[id]
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -40,7 +41,8 @@ const sendSchema = z.object({ body: z.string().min(1) });
 // POST /api/member/messages/groups/[id]
 // Members can post in regular GROUP threads they're in. BROADCAST groups are
 // owner-broadcast-only — members can read but not post.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

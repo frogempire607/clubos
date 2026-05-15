@@ -15,7 +15,8 @@ const schema = z.object({
 // against MemberGuardianUser). If the document requires a guardian signature
 // and the target member is a minor, the signer must be a guardian — not the
 // minor themselves.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

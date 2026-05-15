@@ -352,7 +352,7 @@ export default function MemberProfilePage() {
             <h3 className="text-base font-semibold text-stone-900 mb-1">Delete your account?</h3>
             <p className="text-sm text-stone-600 mb-3">
               This removes your access immediately. Your profile is retained by the club for record-keeping but you'll no longer be able to log in.
-              {member?.subscriptions && (
+              {member?.stripeCustomerId && (
                 <> Active recurring subscriptions are <strong>not</strong> auto-canceled — open the billing portal first if you want to cancel.</>
               )}
             </p>

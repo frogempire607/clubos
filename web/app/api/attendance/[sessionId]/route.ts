@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 
 // GET /api/attendance/[sessionId]
 // Returns attendance records for a class session with member details
-export async function GET(_req: Request, { params }: { params: { sessionId: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ sessionId: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

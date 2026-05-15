@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 // image, info, owner-defined registration form, and the price a non-member
 // would pay. Only resolves events that have a publicSlug and are within their
 // publish window.
-export async function GET(_req: Request, { params }: { params: { slug: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ slug: string }> }) {
+  const params = await context.params;
   const event = await prisma.event.findUnique({
     where: { publicSlug: params.slug },
     select: {

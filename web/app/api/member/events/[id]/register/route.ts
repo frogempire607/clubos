@@ -53,7 +53,8 @@ const schema = z.object({
 // POST /api/member/events/[id]/register
 // Member self-registers. Free path if active sub matches an accepted membership.
 // Otherwise opens Stripe Checkout for the chosen price (defaults to MEMBER).
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

@@ -13,7 +13,8 @@ function storageRoot(): string {
 // Streams a stored file ONLY if the requester is a logged-in user in the same
 // club as the file. Replaces the previous /public/uploads scheme where any URL
 // guesser could read every uploaded file.
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

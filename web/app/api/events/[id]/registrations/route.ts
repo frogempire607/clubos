@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 // GET /api/events/[id]/registrations
 // Owner/staff: list everyone who signed up via the public link (or was matched
 // as a member), with their custom form answers and payment status.
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

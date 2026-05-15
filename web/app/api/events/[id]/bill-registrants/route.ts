@@ -13,7 +13,8 @@ import { sendEmail } from "@/lib/email";
 // Events page also calls it automatically once the event's unpublish date has
 // passed). Idempotent via `event.variableCostBilledAt`; pass { force: true }
 // to re-bill anyone still unpaid.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

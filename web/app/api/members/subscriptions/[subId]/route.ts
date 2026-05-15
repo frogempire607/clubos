@@ -10,7 +10,8 @@ import { recomputeMemberStatus } from "@/lib/memberStatus";
 // attached, we cancel it on Stripe too (so renewals stop). Then we mark the
 // row canceled and recompute member status so they flip back to INACTIVE
 // automatically when this was their only active sub.
-export async function DELETE(_req: Request, { params }: { params: { subId: string } }) {
+export async function DELETE(_req: Request, context: { params: Promise<{ subId: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

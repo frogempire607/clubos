@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 
 // GET /api/documents/[id]/signatures
 // Owner/staff audit view: list every signature on this document.
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

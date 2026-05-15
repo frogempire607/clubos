@@ -7,7 +7,8 @@ import { prisma } from "@/lib/prisma";
 // GET /api/member/messages/dm/[userId]
 // Returns the thread between the current member and the other user, marks
 // incoming messages as read.
-export async function GET(_req: Request, { params }: { params: { userId: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ userId: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -48,7 +49,8 @@ const sendSchema = z.object({ body: z.string().min(1) });
 // POST /api/member/messages/dm/[userId]
 // Member can only reply to a thread the other party already started — prevents
 // members cold-DMing arbitrary users in the club.
-export async function POST(req: Request, { params }: { params: { userId: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ userId: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

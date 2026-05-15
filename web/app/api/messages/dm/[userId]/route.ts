@@ -7,8 +7,8 @@ import { sendMemberMessage } from "@/lib/memberMessaging";
 
 export async function GET(
   _req: Request,
-  { params }: { params: { userId: string } }
-) {
+  context: { params: Promise<{ userId: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -44,8 +44,8 @@ const sendSchema = z.object({ body: z.string().min(1) });
 
 export async function POST(
   req: Request,
-  { params }: { params: { userId: string } }
-) {
+  context: { params: Promise<{ userId: string }> }) {
+  const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

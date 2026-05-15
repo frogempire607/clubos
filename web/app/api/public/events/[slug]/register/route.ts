@@ -14,7 +14,8 @@ const schema = z.object({
 // NO AUTH. Creates an EventRegistration. If a price applies (non-member price
 // or ESTIMATED variable cost), returns a Stripe Checkout URL on the club's
 // connected account. Otherwise the registration is immediately confirmed.
-export async function POST(req: Request, { params }: { params: { slug: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ slug: string }> }) {
+  const params = await context.params;
   let body: z.infer<typeof schema>;
   try {
     body = schema.parse(await req.json());
