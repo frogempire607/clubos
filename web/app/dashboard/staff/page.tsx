@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from "react";
 import ImageUpload from "@/components/ImageUpload";
-
-type PermissionLevel = "none" | "view" | "edit" | "full" | "send";
+import {
+  PERMISSION_CATALOG,
+  DEFAULT_PERMISSIONS,
+  resolvePermissions,
+  type PermissionLevel,
+} from "@/lib/permissions";
 
 type StaffProfile = {
   title: string | null;
@@ -22,44 +26,12 @@ type StaffUser = {
   staffProfile: StaffProfile | null;
 };
 
-const PERMISSION_DEFS = [
-  {
-    key: "members",
-    label: "Members",
-    desc: "Member profiles, status, custom fields",
-    levels: ["none", "view", "edit", "full"] as PermissionLevel[],
-  },
-  {
-    key: "events",
-    label: "Events & Calendar",
-    desc: "Classes, clinics, bookings",
-    levels: ["none", "view", "edit", "full"] as PermissionLevel[],
-  },
-  {
-    key: "messages",
-    label: "Messages",
-    desc: "Announcements and group messages",
-    levels: ["none", "view", "send", "full"] as PermissionLevel[],
-  },
-  {
-    key: "finances",
-    label: "Finances",
-    desc: "Transactions, revenue, expenses",
-    levels: ["none", "view", "full"] as PermissionLevel[],
-  },
-  {
-    key: "documents",
-    label: "Documents",
-    desc: "Waivers, policies, forms",
-    levels: ["none", "view", "edit", "full"] as PermissionLevel[],
-  },
-  {
-    key: "staff",
-    label: "Staff",
-    desc: "Manage other staff members",
-    levels: ["none", "view", "full"] as PermissionLevel[],
-  },
-];
+const PERMISSION_DEFS = PERMISSION_CATALOG.map((p) => ({
+  key: p.key,
+  label: p.label,
+  desc: p.description,
+  levels: p.levels,
+}));
 
 const levelColors: Record<PermissionLevel, string> = {
   none: "bg-app-bg text-text-muted",
@@ -70,14 +42,7 @@ const levelColors: Record<PermissionLevel, string> = {
 };
 
 function defaultPermissions(): Record<string, PermissionLevel> {
-  return {
-    members: "view",
-    events: "view",
-    messages: "send",
-    finances: "none",
-    documents: "view",
-    staff: "none",
-  };
+  return { ...DEFAULT_PERMISSIONS };
 }
 
 export default function StaffPage() {
@@ -357,7 +322,7 @@ function EditStaffModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const existing = staff.staffProfile?.permissions || {};
+  const existing = resolvePermissions(staff.staffProfile?.permissions ?? null);
   const [title, setTitle] = useState(staff.staffProfile?.title || "");
   const [appointmentPrice, setAppointmentPrice] = useState(staff.staffProfile?.appointmentPrice || "");
   const [bio, setBio] = useState((staff.staffProfile as any)?.bio || "");
@@ -365,14 +330,7 @@ function EditStaffModal({
   const [publicPhone, setPublicPhone] = useState((staff.staffProfile as any)?.publicPhone || "");
   const [photoUrl, setPhotoUrl] = useState<string>((staff.staffProfile as any)?.photoUrl || "");
   const [showOnPortal, setShowOnPortal] = useState<boolean>(!!(staff.staffProfile as any)?.showOnPortal);
-  const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>({
-    members: (existing.members as PermissionLevel) || "view",
-    events: (existing.events as PermissionLevel) || "view",
-    messages: (existing.messages as PermissionLevel) || "send",
-    finances: (existing.finances as PermissionLevel) || "none",
-    documents: (existing.documents as PermissionLevel) || "view",
-    staff: (existing.staff as PermissionLevel) || "none",
-  });
+  const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>({ ...existing });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 

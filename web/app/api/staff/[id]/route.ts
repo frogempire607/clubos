@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { resolvePermissions } from "@/lib/permissions";
 
 const permissionLevel = z.enum(["none", "view", "edit", "full", "send"]);
 
@@ -17,14 +18,7 @@ const updateSchema = z.object({
   publicPhone: z.string().optional().nullable(),
   photoUrl: z.string().optional().nullable(),
   showOnPortal: z.boolean().optional(),
-  permissions: z.object({
-    members: permissionLevel,
-    events: permissionLevel,
-    messages: permissionLevel,
-    finances: permissionLevel,
-    documents: permissionLevel,
-    staff: permissionLevel,
-  }).optional(),
+  permissions: z.record(z.string(), permissionLevel).optional(),
 });
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -54,14 +48,18 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       ...(data.publicPhone !== undefined && { publicPhone: data.publicPhone }),
       ...(data.photoUrl !== undefined && { photoUrl: data.photoUrl }),
       ...(data.showOnPortal !== undefined && { showOnPortal: data.showOnPortal }),
-      ...(data.permissions && { permissions: data.permissions }),
+      ...(data.permissions && { permissions: resolvePermissions(data.permissions) }),
     };
 
     if (user.staffProfile) {
       await prisma.staffProfile.update({ where: { userId: user.id }, data: profileData });
     } else {
       await prisma.staffProfile.create({
-        data: { userId: user.id, ...profileData, permissions: data.permissions || {} },
+        data: {
+          userId: user.id,
+          ...profileData,
+          permissions: resolvePermissions(data.permissions ?? null),
+        },
       });
     }
 

@@ -106,6 +106,8 @@ model Club {
   productSales                ProductSale[]
   uploadedFiles               UploadedFile[]
   eventRegistrations          EventRegistration[]
+  contractors                 Contractor[]
+  contractorPayments          ContractorPayment[]
   privateLessonTypes          PrivateLessonType[]
   privatePackages             PrivatePackage[]
   staffAvailability           StaffAvailability[]
@@ -1191,6 +1193,51 @@ model StaffCompensation {
   @@map("staff_compensations")
 }
 
+// Lightweight non-auth contractor / guest coach. No User account, no login.
+// Owner logs payments and can later convert to full staff via invite.
+model Contractor {
+  id              String    @id @default(cuid())
+  clubId          String
+  name            String
+  email           String?
+  phone           String?
+  role            String? // "Referee", "Photographer", "Guest clinician", ...
+  w9Url           String? // private file URL from /api/upload (type=document)
+  payoutNotes     String?
+  active          Boolean   @default(true)
+  // Set when the contractor is converted into a full staff User account.
+  convertedUserId String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  club     Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  payments ContractorPayment[]
+
+  @@index([clubId])
+  @@map("contractors")
+}
+
+// A logged payment / service rendered by a contractor. Feeds future
+// payouts/payroll/accounting exports.
+model ContractorPayment {
+  id           String   @id @default(cuid())
+  clubId       String
+  contractorId String
+  amount       Decimal  @db.Decimal(10, 2)
+  date         DateTime @default(now())
+  service      String? // what the payment was for
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  club       Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  contractor Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@index([contractorId])
+  @@map("contractor_payments")
+}
+
 model CompensationBonus {
   id             String   @id @default(cuid())
   compensationId String
@@ -1264,6 +1311,16 @@ model ClassSession {
   startsAt  DateTime
   endsAt    DateTime
   canceled  Boolean  @default(false)
+  // Per-occurrence overrides. null = inherit the RecurringClass.
+  //   staffOverride: userId[] just for this session (substitute / replacement
+  //                  coach). [] means "explicitly nobody". null = inherit
+  //                  RecurringClass.assignedStaffIds.
+  //   note:          one-off instructions for this occurrence.
+  //   overridden:    true once any per-occurrence edit was made, so series
+  //                  regeneration preserves this row instead of recreating it.
+  staffOverride Json?
+  note          String?
+  overridden    Boolean  @default(false)
   createdAt DateTime @default(now())
 
   recurringClass RecurringClass     @relation(fields: [classId], references: [id], onDelete: Cascade)

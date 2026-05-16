@@ -5,6 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
+import { canAccessPath } from "@/lib/permissions";
 
 type NavChild = { id: string; label: string; href: string };
 type NavItem =
@@ -20,6 +21,7 @@ const NAV: NavItem[] = [
     icon: "◎",
     children: [
       { id: "staff-directory", label: "Directory", href: "/dashboard/staff" },
+      { id: "staff-contractors", label: "Guest & Contractors", href: "/dashboard/staff/contractors" },
       { id: "staff-schedule", label: "Schedule", href: "/dashboard/staff/schedule" },
       { id: "staff-availability", label: "Availability", href: "/dashboard/staff/availability" },
       { id: "staff-payroll", label: "Payroll / Payouts", href: "/dashboard/staff/payroll" },
@@ -83,6 +85,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router   = useRouter();
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [me, setMe] = useState<{ role: string; permissions: Record<string, unknown> | null; title?: string | null } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setMe(d); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -117,6 +127,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return pathname === href || pathname.startsWith(href + "/");
   }
 
+  // Role/permissions — prefer the live /api/me value, fall back to the
+  // session token so owners don't see a flash of a restricted nav.
+  const role = me?.role ?? ((session?.user as any)?.role as string | undefined);
+  const perms = me?.permissions ?? ((session?.user as any)?.permissions ?? null);
+  const isStaff = role === "STAFF";
+
+  const visibleNav: NavItem[] = NAV.flatMap((item) => {
+    if (!isStaff) return [item]; // owners see everything
+    if ("children" in item && item.children) {
+      const kids = item.children.filter((c) => canAccessPath(role, perms, c.href));
+      if (kids.length === 0) return [];
+      return [{ ...item, children: kids }];
+    }
+    const href = (item as { href: string }).href;
+    return canAccessPath(role, perms, href) ? [item] : [];
+  });
+
   return (
     <div className="dashboard-root" style={{ display: "flex", height: "100vh", background: BACKGROUND, color: TEXT }}>
 
@@ -150,11 +177,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div style={{ fontSize: 11, color: TEXT_DIM, paddingLeft: 38, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {session.user.email}
           </div>
+          {isStaff && (
+            <div style={{ marginLeft: 38, marginTop: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "#fff", background: "rgba(255,255,255,0.14)", padding: "2px 7px", borderRadius: 6 }}>
+                Staff view{me?.title ? ` · ${me.title}` : ""}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Nav */}
         <nav style={{ flex: 1, padding: "8px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
-          {NAV.map((item) => {
+          {visibleNav.map((item) => {
             const hasChildren = "children" in item && !!item.children;
 
             if (!hasChildren) {

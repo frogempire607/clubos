@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
+import { resolvePermissions } from "@/lib/permissions";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -35,14 +36,9 @@ const inviteSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   title: z.string().optional(),
-  permissions: z.object({
-    members: permissionLevel.default("view"),
-    events: permissionLevel.default("view"),
-    messages: permissionLevel.default("send"),
-    finances: permissionLevel.default("none"),
-    documents: permissionLevel.default("view"),
-    staff: permissionLevel.default("none"),
-  }).optional(),
+  // Accept any subset of permission keys; resolvePermissions normalizes and
+  // fills defaults so the editor can evolve without schema churn.
+  permissions: z.record(z.string(), permissionLevel).optional(),
 });
 
 export async function POST(req: Request) {
@@ -62,15 +58,7 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(data.password, 10);
-    const defaultPermissions = {
-      members: "view",
-      events: "view",
-      messages: "send",
-      finances: "none",
-      documents: "view",
-      staff: "none",
-      ...data.permissions,
-    };
+    const defaultPermissions = resolvePermissions(data.permissions ?? null);
 
     const user = await prisma.user.create({
       data: {

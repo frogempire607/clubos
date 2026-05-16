@@ -25,7 +25,7 @@ export async function GET(req: Request) {
 
   const clubId = session.user.clubId;
 
-  const [staff, availability, exceptions, classes, events] = await Promise.all([
+  const [staff, availability, exceptions, classes, events, sessionRows] = await Promise.all([
     prisma.user.findMany({
       where: { clubId, role: { in: ["OWNER", "STAFF"] }, deletedAt: null },
       select: { id: true, firstName: true, lastName: true, email: true, role: true, staffProfile: { select: { title: true } } },
@@ -69,22 +69,66 @@ export async function GET(req: Request) {
         },
       },
     }),
+    prisma.classSession.findMany({
+      where: { clubId, date: { gte: from, lte: to } },
+      select: {
+        id: true,
+        classId: true,
+        date: true,
+        startsAt: true,
+        endsAt: true,
+        canceled: true,
+        staffOverride: true,
+        note: true,
+      },
+    }),
   ]);
+
+  // Per-occurrence overrides keyed by `${classId}|YYYY-MM-DD`.
+  const sessionByKey = new Map<
+    string,
+    {
+      id: string;
+      startsAt: Date;
+      endsAt: Date;
+      canceled: boolean;
+      staffOverride: string[] | null;
+      note: string | null;
+    }
+  >();
+  for (const s of sessionRows) {
+    const key = `${s.classId}|${s.date.toISOString().slice(0, 10)}`;
+    sessionByKey.set(key, {
+      id: s.id,
+      startsAt: s.startsAt,
+      endsAt: s.endsAt,
+      canceled: s.canceled,
+      staffOverride: Array.isArray(s.staffOverride) ? (s.staffOverride as string[]) : null,
+      note: typeof s.note === "string" ? s.note : null,
+    });
+  }
+  const hhmm = (d: Date) =>
+    `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 
   // Build per-day class instances within the range
   type ClassInstance = {
     classId: string;
+    sessionId: string | null;
     name: string;
     date: string; // YYYY-MM-DD
     startTime: string;
     endTime: string;
-    staffIds: string[];
+    staffIds: string[]; // effective (override or series)
+    seriesStaffIds: string[];
+    isSubstitute: boolean; // a per-occurrence staff override is in effect
+    canceled: boolean;
+    note: string | null;
   };
   const classInstances: ClassInstance[] = [];
   for (const c of classes) {
     const daysOfWeek = Array.isArray(c.daysOfWeek) ? (c.daysOfWeek as number[]) : [];
-    const staffIds = Array.isArray(c.assignedStaffIds) ? (c.assignedStaffIds as string[]) : [];
-    if (daysOfWeek.length === 0 || staffIds.length === 0) continue;
+    const seriesStaff = Array.isArray(c.assignedStaffIds) ? (c.assignedStaffIds as string[]) : [];
+    if (daysOfWeek.length === 0) continue;
     const recStart = new Date(c.recurrenceStartDate);
     const recEnd = c.recurrenceEndDate ? new Date(c.recurrenceEndDate) : null;
     const cursor = new Date(from);
@@ -92,13 +136,28 @@ export async function GET(req: Request) {
     const end = new Date(to);
     while (cursor <= end) {
       if (cursor >= recStart && (!recEnd || cursor <= recEnd) && daysOfWeek.includes(cursor.getDay())) {
+        const dateStr = cursor.toISOString().slice(0, 10);
+        const ov = sessionByKey.get(`${c.id}|${dateStr}`);
+        const hasStaffOverride = !!ov && ov.staffOverride !== null;
+        const effectiveStaff = hasStaffOverride ? (ov!.staffOverride as string[]) : seriesStaff;
+        // Skip instances nobody is on (and no override clearing it) so the
+        // schedule stays clean — unless it's canceled (shown as canceled).
+        if (effectiveStaff.length === 0 && !(ov && ov.canceled)) {
+          cursor.setDate(cursor.getDate() + 1);
+          continue;
+        }
         classInstances.push({
           classId: c.id,
+          sessionId: ov?.id ?? null,
           name: c.name,
-          date: cursor.toISOString().slice(0, 10),
-          startTime: c.startTime,
-          endTime: c.endTime,
-          staffIds,
+          date: dateStr,
+          startTime: ov ? hhmm(ov.startsAt) : c.startTime,
+          endTime: ov ? hhmm(ov.endsAt) : c.endTime,
+          staffIds: effectiveStaff,
+          seriesStaffIds: seriesStaff,
+          isSubstitute: hasStaffOverride,
+          canceled: !!ov?.canceled,
+          note: ov?.note ?? null,
         });
       }
       cursor.setDate(cursor.getDate() + 1);

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures, getTierName, tierBlockedBody, upgradeRequired } from "@/lib/tier";
+import { requirePermission } from "@/lib/apiGuard";
 
 type Range = "month" | "last_month" | "last_30" | "last_90" | "ytd" | "year" | "all";
 
@@ -51,6 +52,8 @@ export async function GET(req: Request) {
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const denied = requirePermission(session, "reports", "view");
+  if (denied) return denied;
 
   const clubId = session.user.clubId;
   const clubTier = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });

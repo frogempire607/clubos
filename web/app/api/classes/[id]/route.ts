@@ -108,7 +108,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         classId: updated.id,
         date: { gte: todayStart },
         canceled: false,
-        // Don't blow away sessions that already have attendance recorded
+        // Preserve sessions with attendance AND any session that carries a
+        // per-occurrence override (substitute coach, one-off time/note).
+        overridden: false,
         attendance: { none: {} },
       },
     });
