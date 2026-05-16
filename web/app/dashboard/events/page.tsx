@@ -90,6 +90,30 @@ function getTypeDisplay(e: Event): { name: string; bg: string; fg: string } {
   return { name: BUILT_IN_LABELS[e.type] || e.type, bg: c.bg, fg: c.fg };
 }
 
+// Compact at-a-glance pricing badge so paid events are never mistaken for free.
+function getPricingBadge(e: Event, memberships: Membership[]): { label: string; bg: string; fg: string } {
+  const varTotal =
+    e.variableCostTotal != null
+      ? Number(e.variableCostTotal)
+      : e.variableCostEstimatedTotal != null
+        ? Number(e.variableCostEstimatedTotal)
+        : 0;
+  if (e.variableCostEnabled && varTotal > 0) {
+    return { label: "Variable cost — billed later", bg: "var(--color-warning)", fg: "#fff" };
+  }
+  const hasMembershipCover = ((e.pricingOptions as any[]) || []).some(
+    (p) => p?.type === "membership" && p.membershipId && memberships.some((m) => m.id === p.membershipId),
+  );
+  const isPaid = !!(e.memberPrice != null || e.nonMemberPrice != null || e.dropInFee != null);
+  if (hasMembershipCover) {
+    return { label: "Covered by memberships", bg: "var(--color-primary)", fg: "#fff" };
+  }
+  if (isPaid) {
+    return { label: "Requires payment", bg: "var(--color-warning)", fg: "#fff" };
+  }
+  return { label: "Free", bg: "var(--color-bg)", fg: "var(--color-muted)" };
+}
+
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [clubEventTypes, setClubEventTypes] = useState<ClubEventType[]>([]);
@@ -204,6 +228,10 @@ export default function EventsPage() {
                       {e.visibility === "MEMBERS_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Members only</span>}
                       {e.visibility === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand text-white">Staff only</span>}
                       {e.purchaseAccess === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-app-border text-text-muted">Staff books</span>}
+                      {(() => {
+                        const b = getPricingBadge(e, memberships);
+                        return <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: b.bg, color: b.fg }}>{b.label}</span>;
+                      })()}
                     </div>
                     <div className="text-xs text-text-muted flex items-center gap-3 flex-wrap">
                       <span>
@@ -552,7 +580,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                           className={`text-left px-3 py-2 rounded-lg border text-xs ${varCostMode === "ESTIMATED" ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"}`}
                         >
                           <span className="font-medium block">Estimated (prior)</span>
-                          <span className="text-text-muted">Charge each signup up front</span>
+                          <span className="text-text-muted">Bill before the event, estimated split</span>
                         </button>
                         <button
                           type="button"
@@ -560,7 +588,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                           className={`text-left px-3 py-2 rounded-lg border text-xs ${varCostMode === "OFFICIAL" ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"}`}
                         >
                           <span className="font-medium block">Official (post)</span>
-                          <span className="text-text-muted">Bill after the tournament</span>
+                          <span className="text-text-muted">Bill after the event, official split</span>
                         </button>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
@@ -603,11 +631,11 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                       <p className="text-[11px] text-text-muted">
                         {varCostMode === "ESTIMATED"
                           ? varCostTotal && varCostEstSignups
-                            ? `Each signup pays $${(Number(varCostTotal) / Number(varCostEstSignups || 1)).toFixed(2)} at registration.`
-                            : "Each signup pays total ÷ expected signups, charged at registration."
+                            ? `Signups register now (no charge yet). When you're ready, open Registrations → "Invoice all unpaid" to send each registrant a ~$${(Number(varCostTotal) / Number(varCostEstSignups || 1)).toFixed(2)} payment link (estimated total ÷ expected signups).`
+                            : "Signups register now (no charge at registration). You choose when to bill — open Registrations and send invoices using the estimated total ÷ expected signups."
                           : varCostEstTotal
-                            ? `Signups are free now. Parents see an estimate of ~$${Number(varCostEstTotal).toFixed(2)} total split across attendees. After the tournament, use “Send invoices” to bill the official total.`
-                            : "Signups are free now. Add an estimated total so parents have a rough idea, then use “Send invoices” after the tournament to bill the official total."}
+                            ? `Signups register now (no charge yet). Parents see an estimate of ~$${Number(varCostEstTotal).toFixed(2)} total. After the event, set the official total and use Registrations → "Invoice all unpaid" to split it across actual registrants.`
+                            : "Signups register now (no charge at registration). After the event, set the official total and send invoices from Registrations to split it across actual registrants."}
                       </p>
                     </>
                   )}
@@ -1024,6 +1052,59 @@ function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[];
 }
 
 // ── Bookings Modal ───────────────────────────────────────────────────────────
+// Plain-language banner so the owner always knows whether adding a member
+// will charge them, cover them via a membership, bill later, or be free.
+function PricingBanner({
+  isPaid,
+  hasVariableCost,
+  variableCostMode,
+  acceptedMemberships,
+}: {
+  isPaid: boolean;
+  hasVariableCost: boolean;
+  variableCostMode: string | null;
+  acceptedMemberships: string[];
+}) {
+  let tone: "warning" | "primary" | "success" | "muted" = "muted";
+  let title = "This event is free";
+  let detail = "Members are booked at no charge.";
+
+  if (hasVariableCost) {
+    tone = "warning";
+    title = "Variable cost — billed later";
+    detail =
+      variableCostMode === "OFFICIAL"
+        ? "Members register now. After the event, send invoices to split the official total across registrants."
+        : "Members register now. Send invoices when you're ready, using the estimated split.";
+  } else if (acceptedMemberships.length > 0 && isPaid) {
+    tone = "primary";
+    title = "Covered by selected memberships";
+    detail = `Free for members on: ${acceptedMemberships.join(", ")}. Everyone else pays.`;
+  } else if (acceptedMemberships.length > 0) {
+    tone = "primary";
+    title = "Covered by selected memberships";
+    detail = `Free for members on: ${acceptedMemberships.join(", ")}.`;
+  } else if (isPaid) {
+    tone = "warning";
+    title = "This event requires payment";
+    detail = "Adding a member sends them a checkout link (unless a selected membership covers it).";
+  }
+
+  const toneStyles: Record<string, string> = {
+    warning: "bg-orange-accent/10 border-orange-accent/30 text-text-primary",
+    primary: "bg-brand/10 border-brand/30 text-text-primary",
+    success: "bg-lime-accent/10 border-lime-accent/30 text-text-primary",
+    muted: "bg-app-bg border-app-border text-text-primary",
+  };
+
+  return (
+    <div className={`mb-4 rounded-lg border px-3 py-2.5 ${toneStyles[tone]}`}>
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="text-xs text-text-muted mt-0.5">{detail}</p>
+    </div>
+  );
+}
+
 function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
   const [event, setEvent] = useState<any>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -1050,12 +1131,19 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
   useEffect(() => { load(); }, [eventId]);
 
   const isPaid = !!(event?.memberPrice || event?.nonMemberPrice || event?.dropInFee);
+  const varTotalNum =
+    event?.variableCostTotal != null
+      ? Number(event.variableCostTotal)
+      : event?.variableCostEstimatedTotal != null
+        ? Number(event.variableCostEstimatedTotal)
+        : 0;
+  const hasVariableCost = !!event?.variableCostEnabled && varTotalNum > 0;
 
   async function handleAdd() {
     if (!selectedMember) return;
     setError("");
     setAdding(true);
-    if (isPaid) {
+    if (isPaid || hasVariableCost) {
       const res = await fetch(`/api/events/${eventId}/charge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1064,7 +1152,7 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
       const data = await res.json();
       setAdding(false);
       if (!res.ok) { setError(data.error?.toString() || "Failed to start checkout"); return; }
-      if (data.coveredByMembership) {
+      if (data.coveredByMembership || data.variableCost) {
         setSelectedMember("");
         load();
         return;
@@ -1119,6 +1207,12 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
             <div className="text-center text-sm text-text-muted py-4">Loading…</div>
           ) : (
             <>
+              <PricingBanner
+                isPaid={isPaid}
+                hasVariableCost={hasVariableCost}
+                variableCostMode={event?.variableCostMode ?? null}
+                acceptedMemberships={acceptedMemberships.map((m) => m.name)}
+              />
               <div className="mb-4 space-y-2">
                 <label className="block text-sm font-medium text-text-primary">Add member</label>
                 <select value={selectedMember} onChange={(e) => setSelectedMember(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
@@ -1133,7 +1227,13 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
                   </select>
                 )}
                 <button onClick={handleAdd} disabled={!selectedMember || adding} className="w-full px-3 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
-                  {adding ? "Processing…" : isPaid ? "Send checkout link" : "Book (free)"}
+                  {adding
+                    ? "Processing…"
+                    : hasVariableCost
+                      ? "Register (invoice later)"
+                      : isPaid
+                        ? "Send checkout link"
+                        : "Book (free)"}
                 </button>
                 {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">{error}</div>}
               </div>
@@ -1177,64 +1277,94 @@ type RegistrationRow = {
   amountDue: number | null;
   amountPaid: number | null;
   paymentUrl: string | null;
+  invoicedAt: string | null;
+  invoiceCount: number;
   formResponses: Record<string, string | boolean>;
   createdAt: string;
   member: { id: string; firstName: string; lastName: string } | null;
 };
 type RegFormField = { id: string; label: string };
 
+type RegistrationsData = {
+  event: {
+    name: string;
+    publicSlug: string | null;
+    registrationForm: RegFormField[] | null;
+    variableCostEnabled: boolean;
+    variableCostMode: string | null;
+    variableCostTotal: number | null;
+    variableCostEstimatedTotal: number | null;
+    variableCostEstimatedSignups: number | null;
+    variableCostBilledAt: string | null;
+  };
+  registrations: RegistrationRow[];
+  activeCount: number;
+  unpaidCount: number;
+  invoicedCount: number;
+  mode: "ESTIMATED" | "OFFICIAL";
+  perHead: number | null;
+};
+
 function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
-  const [data, setData] = useState<{
-    event: {
-      name: string;
-      publicSlug: string | null;
-      registrationForm: RegFormField[] | null;
-      variableCostEnabled: boolean;
-      variableCostMode: string | null;
-      variableCostTotal: number | null;
-      variableCostEstimatedTotal: number | null;
-      variableCostBilledAt: string | null;
-    };
-    registrations: RegistrationRow[];
-    activeCount: number;
-    officialPerHead: number | null;
-  } | null>(null);
+  const [data, setData] = useState<RegistrationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [billing, setBilling] = useState(false);
   const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   function load() {
     setLoading(true);
     fetch(`/api/events/${eventId}/registrations`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { setData(d); setLoading(false); });
+      .then((d) => { setData(d); setLoading(false); setSelected(new Set()); });
   }
   useEffect(() => { load(); }, [eventId]);
 
-  async function billRegistrants(force: boolean) {
-    if (!confirm(force ? "Re-send invoices to everyone still unpaid?" : "Send invoices now? The official total is split evenly across all registrants and each gets an emailed payment link.")) return;
+  async function invoice(opts: { force?: boolean; registrationIds?: string[] }) {
     setBilling(true);
     setMsg("");
+    setErr("");
     const res = await fetch(`/api/events/${eventId}/bill-registrants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force }),
+      body: JSON.stringify(opts),
     });
     const d = await res.json().catch(() => ({}));
     setBilling(false);
-    if (!res.ok) { setMsg(typeof d.error === "string" ? d.error : "Billing failed"); return; }
-    setMsg(`Billed ${d.billed} registrant(s) at $${d.perHead?.toFixed(2)} each. ${d.skipped ? `${d.skipped} already paid.` : ""}`);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not send invoices."); return; }
+    const parts = [`Invoiced ${d.billed} registrant(s) at $${Number(d.perHead).toFixed(2)} each`];
+    if (d.skipped) parts.push(`${d.skipped} already paid`);
+    if (d.errors?.length) parts.push(`${d.errors.length} failed`);
+    setMsg(parts.join(" · ") + ".");
     load();
   }
 
   const ev = data?.event;
   const customFields = ev?.registrationForm ?? [];
-  const isOfficial = ev?.variableCostEnabled && ev.variableCostMode === "OFFICIAL";
+  const isVariable = !!ev?.variableCostEnabled;
+  const mode = data?.mode ?? "ESTIMATED";
+
+  const selectableIds = (data?.registrations ?? [])
+    .filter((r) => r.status !== "PAID" && r.status !== "CANCELED")
+    .map((r) => r.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(selectableIds));
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-surface rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-app-border">
-        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Registrations</h2>
             {ev && <p className="text-xs text-text-muted">{ev.name}{ev.publicSlug ? ` · /e/${ev.publicSlug}` : ""}</p>}
@@ -1246,37 +1376,55 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
             <p className="text-sm text-text-muted text-center py-8">Loading…</p>
           ) : (
             <>
-              {isOfficial && (
+              {isVariable && (
                 <div className="bg-app-bg border border-app-border rounded-lg p-4 mb-4">
-                  <p className="text-sm text-text-primary font-medium mb-1">Send invoices (official cost split)</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm text-text-primary font-semibold">
+                      Mass invoice · {mode === "OFFICIAL" ? "Official split (after event)" : "Estimated split (bill when ready)"}
+                    </p>
+                    <span className="text-[11px] text-text-muted">
+                      {data.activeCount} active · {data.unpaidCount} unpaid · {data.invoicedCount} invoiced
+                    </span>
+                  </div>
                   <p className="text-xs text-text-muted mb-3">
-                    {data.activeCount} active registrant(s).
-                    {ev?.variableCostTotal != null && data.officialPerHead != null
-                      ? ` Official total $${Number(ev.variableCostTotal).toFixed(2)} ÷ ${data.activeCount} = $${data.officialPerHead.toFixed(2)} each.`
-                      : ev?.variableCostEstimatedTotal != null
-                        ? ` No official total set yet — estimated ~$${Number(ev.variableCostEstimatedTotal).toFixed(2)} total (≈ $${(Number(ev.variableCostEstimatedTotal) / Math.max(1, data.activeCount)).toFixed(2)} each). Set the official total on the event before sending invoices.`
-                        : " Set the official total on the event before sending invoices."}
-                    {ev?.variableCostBilledAt ? ` Invoices last sent ${new Date(ev.variableCostBilledAt).toLocaleString()}.` : ""}
+                    {data.perHead != null
+                      ? `Each registrant owes about $${data.perHead.toFixed(2)} ${
+                          mode === "OFFICIAL"
+                            ? `(official total ÷ ${data.activeCount} active)`
+                            : ev?.variableCostEstimatedSignups
+                              ? `(estimated total ÷ ${ev.variableCostEstimatedSignups} expected)`
+                              : `(estimated total ÷ ${data.activeCount} active)`
+                        }.`
+                      : mode === "OFFICIAL"
+                        ? "Set the official total cost on the event before sending invoices."
+                        : "Set an estimated total cost on the event before sending invoices."}
+                    {ev?.variableCostBilledAt ? ` Last batch sent ${new Date(ev.variableCostBilledAt).toLocaleString()}.` : ""}
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => billRegistrants(false)}
-                      disabled={billing || !ev?.variableCostTotal}
+                      onClick={() => invoice({})}
+                      disabled={billing || data.perHead == null}
                       className="text-xs px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                     >
-                      {billing ? "Sending…" : ev?.variableCostBilledAt ? "Send invoices again" : "Send invoices"}
+                      {billing ? "Sending…" : "Invoice all unpaid"}
                     </button>
-                    {ev?.variableCostBilledAt && (
-                      <button
-                        onClick={() => billRegistrants(true)}
-                        disabled={billing}
-                        className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
-                      >
-                        Re-send to unpaid
-                      </button>
-                    )}
+                    <button
+                      onClick={() => invoice({ registrationIds: [...selected] })}
+                      disabled={billing || data.perHead == null || selected.size === 0}
+                      className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-surface disabled:opacity-50"
+                    >
+                      Invoice selected ({selected.size})
+                    </button>
+                    <button
+                      onClick={() => invoice({ force: true })}
+                      disabled={billing || data.perHead == null || data.unpaidCount === 0}
+                      className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-surface disabled:opacity-50"
+                    >
+                      Re-send to all unpaid
+                    </button>
                   </div>
-                  {msg && <p className="text-xs text-text-muted mt-2">{msg}</p>}
+                  {msg && <p className="text-xs text-text-primary mt-2 bg-lime-accent/15 border border-lime-accent/30 rounded px-2 py-1">{msg}</p>}
+                  {err && <p className="text-xs text-red-700 mt-2 bg-red-50 border border-red-200 rounded px-2 py-1">{err}</p>}
                 </div>
               )}
 
@@ -1287,46 +1435,83 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-[11px] uppercase tracking-wider text-text-muted border-b border-app-border">
+                        {isVariable && (
+                          <th className="pb-2 font-medium w-8">
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              onChange={toggleAll}
+                              disabled={selectableIds.length === 0}
+                              aria-label="Select all unpaid"
+                            />
+                          </th>
+                        )}
                         <th className="pb-2 font-medium">Name</th>
                         <th className="pb-2 font-medium">Contact</th>
                         {customFields.map((f) => <th key={f.id} className="pb-2 font-medium">{f.label}</th>)}
+                        <th className="pb-2 font-medium">Invoice</th>
                         <th className="pb-2 font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.registrations.map((r) => (
-                        <tr key={r.id} className="border-b border-app-border last:border-0 align-top">
-                          <td className="py-2.5">
-                            <p className="text-text-primary font-medium">{r.name}</p>
-                            {r.member && <p className="text-[10px] text-brand">Member</p>}
-                          </td>
-                          <td className="py-2.5 text-text-muted text-xs">
-                            <p>{r.email}</p>
-                            {r.phone && <p>{r.phone}</p>}
-                          </td>
-                          {customFields.map((f) => (
-                            <td key={f.id} className="py-2.5 text-text-primary text-xs">
-                              {typeof r.formResponses?.[f.id] === "boolean"
-                                ? (r.formResponses[f.id] ? "Yes" : "No")
-                                : (r.formResponses?.[f.id] as string) || "—"}
+                      {data.registrations.map((r) => {
+                        const selectable = r.status !== "PAID" && r.status !== "CANCELED";
+                        return (
+                          <tr key={r.id} className="border-b border-app-border last:border-0 align-top">
+                            {isVariable && (
+                              <td className="py-2.5">
+                                {selectable && (
+                                  <input
+                                    type="checkbox"
+                                    checked={selected.has(r.id)}
+                                    onChange={() => toggle(r.id)}
+                                    aria-label={`Select ${r.name}`}
+                                  />
+                                )}
+                              </td>
+                            )}
+                            <td className="py-2.5">
+                              <p className="text-text-primary font-medium">{r.name}</p>
+                              {r.member && <p className="text-[10px] text-brand">Member</p>}
                             </td>
-                          ))}
-                          <td className="py-2.5">
-                            {r.status === "PAID" ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">Paid{r.amountPaid ? ` $${Number(r.amountPaid).toFixed(2)}` : ""}</span>
-                            ) : r.status === "CANCELED" ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Canceled</span>
-                            ) : (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium">
-                                {r.amountDue ? `Owes $${Number(r.amountDue).toFixed(2)}` : "Registered"}
-                              </span>
-                            )}
-                            {r.paymentUrl && r.status !== "PAID" && (
-                              <a href={r.paymentUrl} target="_blank" rel="noreferrer" className="block text-[10px] text-brand hover:underline mt-1">Payment link</a>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            <td className="py-2.5 text-text-muted text-xs">
+                              <p>{r.email}</p>
+                              {r.phone && <p>{r.phone}</p>}
+                            </td>
+                            {customFields.map((f) => (
+                              <td key={f.id} className="py-2.5 text-text-primary text-xs">
+                                {typeof r.formResponses?.[f.id] === "boolean"
+                                  ? (r.formResponses[f.id] ? "Yes" : "No")
+                                  : (r.formResponses?.[f.id] as string) || "—"}
+                              </td>
+                            ))}
+                            <td className="py-2.5 text-xs">
+                              {r.invoiceCount > 0 ? (
+                                <span className="text-text-muted">
+                                  Sent {r.invoicedAt ? new Date(r.invoicedAt).toLocaleDateString() : ""}
+                                  {r.invoiceCount > 1 ? ` · ${r.invoiceCount}×` : ""}
+                                </span>
+                              ) : (
+                                <span className="text-text-muted">Not invoiced</span>
+                              )}
+                              {r.paymentUrl && r.status !== "PAID" && (
+                                <a href={r.paymentUrl} target="_blank" rel="noreferrer" className="block text-[10px] text-brand hover:underline mt-1">Payment link</a>
+                              )}
+                            </td>
+                            <td className="py-2.5">
+                              {r.status === "PAID" ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-lime-accent/20 text-text-primary font-medium">Paid{r.amountPaid ? ` $${Number(r.amountPaid).toFixed(2)}` : ""}</span>
+                              ) : r.status === "CANCELED" ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Canceled</span>
+                              ) : (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-accent/15 text-text-primary font-medium">
+                                  {r.amountDue ? `Owes $${Number(r.amountDue).toFixed(2)}` : "Registered"}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

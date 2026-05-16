@@ -123,7 +123,62 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       }
     }
 
-    // No price configured at all → free booking
+    // Variable-cost events (shared tournament cost): the member is registered
+    // now but billed LATER by the owner via mass-invoice — it is NOT free.
+    // Booking is created so they hold a spot; an EventRegistration row is
+    // created so the owner can send an invoice/payment link when ready.
+    const varTotal =
+      event.variableCostTotal != null
+        ? Number(event.variableCostTotal)
+        : event.variableCostEstimatedTotal != null
+          ? Number(event.variableCostEstimatedTotal)
+          : 0;
+    const hasVariableCost = !!event.variableCostEnabled && varTotal > 0;
+
+    if (hasVariableCost) {
+      const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      await prisma.booking.create({ data: { eventId: event.id, memberId: member.id, status } });
+
+      // Estimated per-head is only known up front in ESTIMATED mode; OFFICIAL
+      // splits the real total across actual signups at bill time.
+      let perHead: number | null = null;
+      if (
+        event.variableCostMode === "ESTIMATED" &&
+        event.variableCostEstimatedSignups &&
+        event.variableCostEstimatedSignups > 0
+      ) {
+        perHead = +(varTotal / event.variableCostEstimatedSignups).toFixed(2);
+      }
+
+      // Mirror as an EventRegistration so mass-invoice can reach this member.
+      const already = await prisma.eventRegistration.findFirst({
+        where: { eventId: event.id, memberId: member.id, status: { not: "CANCELED" } },
+        select: { id: true },
+      });
+      if (!already) {
+        await prisma.eventRegistration.create({
+          data: {
+            eventId: event.id,
+            clubId: session.user.clubId,
+            memberId: member.id,
+            name: `${member.firstName} ${member.lastName}`.trim(),
+            email: member.email ?? "",
+            status: "REGISTERED",
+            amountDue: perHead,
+          },
+        });
+      }
+
+      return NextResponse.json({
+        variableCost: true,
+        billedLater: true,
+        mode: event.variableCostMode ?? "ESTIMATED",
+        perHead,
+        status,
+      });
+    }
+
+    // Genuinely free — no fixed price AND no variable cost AND no membership gate.
     const hasPrice = !!(event.memberPrice || event.nonMemberPrice || event.dropInFee);
     if (!hasPrice) {
       const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";

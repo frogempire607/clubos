@@ -93,6 +93,15 @@ export default function MemberEventsPage() {
       load();
       return;
     }
+    if (d.variableCost) {
+      const each = d.perHead != null ? ` Your estimated share is about $${Number(d.perHead).toFixed(2)}.` : "";
+      setInfo(
+        (d.status === "WAITLISTED" ? "You're on the waitlist. " : "Registered. ") +
+          `The club will send you an invoice for this event's shared cost.${each}`,
+      );
+      load();
+      return;
+    }
     if (d.free) {
       setInfo(d.status === "WAITLISTED" ? "You're on the waitlist." : "Registered.");
       load();

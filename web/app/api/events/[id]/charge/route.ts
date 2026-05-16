@@ -100,6 +100,66 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       }
     }
 
+    // Variable-cost events: register the member now, bill later via the
+    // Registrations → Send invoices flow. Never silently free, never an error.
+    const varTotal =
+      event.variableCostTotal != null
+        ? Number(event.variableCostTotal)
+        : event.variableCostEstimatedTotal != null
+          ? Number(event.variableCostEstimatedTotal)
+          : 0;
+    if (event.variableCostEnabled && varTotal > 0) {
+      const existing = await prisma.booking.findUnique({
+        where: { eventId_memberId: { eventId: event.id, memberId } },
+      });
+      if (existing) return NextResponse.json({ error: "Already booked" }, { status: 409 });
+
+      const m = await prisma.member.findFirst({
+        where: { id: memberId, clubId: club.id, deletedAt: null },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      if (!m) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+
+      const status =
+        event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      await prisma.booking.create({ data: { eventId: event.id, memberId, status } });
+
+      let perHead: number | null = null;
+      if (
+        event.variableCostMode === "ESTIMATED" &&
+        event.variableCostEstimatedSignups &&
+        event.variableCostEstimatedSignups > 0
+      ) {
+        perHead = +(varTotal / event.variableCostEstimatedSignups).toFixed(2);
+      }
+
+      const already = await prisma.eventRegistration.findFirst({
+        where: { eventId: event.id, memberId, status: { not: "CANCELED" } },
+        select: { id: true },
+      });
+      if (!already) {
+        await prisma.eventRegistration.create({
+          data: {
+            eventId: event.id,
+            clubId: club.id,
+            memberId,
+            name: `${m.firstName} ${m.lastName}`.trim(),
+            email: m.email ?? "",
+            status: "REGISTERED",
+            amountDue: perHead,
+          },
+        });
+      }
+
+      return NextResponse.json({
+        variableCost: true,
+        billedLater: true,
+        mode: event.variableCostMode ?? "ESTIMATED",
+        perHead,
+        status,
+      });
+    }
+
     let priceCents: number;
     let priceLabel: string;
     if (pricingType === "DROP_IN" && event.dropInFee) {

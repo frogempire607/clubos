@@ -1,18 +1,27 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { sendEmail } from "@/lib/email";
 
+const bodySchema = z.object({
+  // Re-invoice registrants who were already invoiced (still skips PAID).
+  force: z.boolean().optional().default(false),
+  // Invoice only these registrations. When omitted, invoice every active,
+  // unpaid registrant who hasn't been invoiced yet (or all of them if force).
+  registrationIds: z.array(z.string()).optional(),
+});
+
 // POST /api/events/[id]/bill-registrants
-// For an ATTEND tournament with OFFICIAL variable cost: split the official
-// total evenly across all non-canceled registrants and bill each one.
-//
-// This is the action that runs "on unpublish" — the owner triggers it (the
-// Events page also calls it automatically once the event's unpublish date has
-// passed). Idempotent via `event.variableCostBilledAt`; pass { force: true }
-// to re-bill anyone still unpaid.
+// Mass-invoice event registrants for a variable-cost event. Works for BOTH:
+//   OFFICIAL  — split variableCostTotal across actual active registrants
+//               (the "bill after the event" flow).
+//   ESTIMATED — split the estimated shared total by expected signups
+//               (the "bill before the event when you choose" flow).
+// Owner/staff trigger this whenever they're ready; payment never has to
+// happen at registration time.
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
@@ -20,10 +29,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const force = await req
-    .json()
-    .then((b) => !!b?.force)
-    .catch(() => false);
+  let body: z.infer<typeof bodySchema>;
+  try {
+    body = bodySchema.parse(await req.json().catch(() => ({})));
+  } catch (err) {
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
+    throw err;
+  }
 
   const event = await prisma.event.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
@@ -31,46 +43,102 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (!event.variableCostEnabled || event.variableCostMode !== "OFFICIAL") {
+  if (!event.variableCostEnabled) {
     return NextResponse.json(
-      { error: "This event isn't set up for official post-tournament billing." },
-      { status: 400 }
-    );
-  }
-  if (!event.variableCostTotal || Number(event.variableCostTotal) <= 0) {
-    return NextResponse.json({ error: "Set the official total cost first." }, { status: 400 });
-  }
-  if (event.variableCostBilledAt && !force) {
-    return NextResponse.json(
-      { error: "Registrants were already billed. Re-run with force to bill anyone still unpaid." },
-      { status: 409 }
+      { error: "This event isn't set up for variable-cost billing." },
+      { status: 400 },
     );
   }
   if (!event.club.stripeAccountId || !event.club.stripeChargesEnabled) {
     return NextResponse.json(
-      { error: "Connect Stripe before billing registrants." },
-      { status: 400 }
+      { error: "Connect Stripe before sending invoices." },
+      { status: 400 },
     );
   }
 
-  const registrations = await prisma.eventRegistration.findMany({
+  const mode = event.variableCostMode === "OFFICIAL" ? "OFFICIAL" : "ESTIMATED";
+
+  const allActive = await prisma.eventRegistration.findMany({
     where: { eventId: event.id, status: { not: "CANCELED" } },
   });
-  if (registrations.length === 0) {
-    return NextResponse.json({ error: "No active registrations to bill." }, { status: 400 });
+  const activeCount = allActive.length;
+  if (activeCount === 0) {
+    return NextResponse.json({ error: "No active registrations to invoice." }, { status: 400 });
   }
 
-  const perHead = +(Number(event.variableCostTotal) / registrations.length).toFixed(2);
+  // Resolve the per-head amount based on mode.
+  let total: number;
+  let divisor: number;
+  if (mode === "OFFICIAL") {
+    if (!event.variableCostTotal || Number(event.variableCostTotal) <= 0) {
+      return NextResponse.json(
+        { error: "Set the official total cost on the event before sending invoices." },
+        { status: 400 },
+      );
+    }
+    total = Number(event.variableCostTotal);
+    divisor = activeCount;
+  } else {
+    // ESTIMATED: prefer the entered total, fall back to the display estimate.
+    const estTotal =
+      event.variableCostTotal != null
+        ? Number(event.variableCostTotal)
+        : event.variableCostEstimatedTotal != null
+          ? Number(event.variableCostEstimatedTotal)
+          : 0;
+    if (estTotal <= 0) {
+      return NextResponse.json(
+        { error: "Set an estimated total cost on the event before sending invoices." },
+        { status: 400 },
+      );
+    }
+    total = estTotal;
+    divisor =
+      event.variableCostEstimatedSignups && event.variableCostEstimatedSignups > 0
+        ? event.variableCostEstimatedSignups
+        : activeCount;
+  }
+
+  const perHead = +(total / divisor).toFixed(2);
   const amountCents = Math.round(perHead * 100);
+  if (amountCents <= 0) {
+    return NextResponse.json({ error: "Computed share is $0 — check the total and split." }, { status: 400 });
+  }
+
+  // Decide which registrants to invoice.
+  let targets = allActive.filter((r) => r.status !== "PAID");
+  if (body.registrationIds && body.registrationIds.length > 0) {
+    const idSet = new Set(body.registrationIds);
+    targets = targets.filter((r) => idSet.has(r.id));
+  } else if (!body.force) {
+    // Default: only registrants who haven't been invoiced yet.
+    targets = targets.filter((r) => r.invoiceCount === 0);
+  }
+
+  if (targets.length === 0) {
+    return NextResponse.json(
+      { error: "No matching unpaid registrants to invoice. Use re-send to invoice everyone still unpaid." },
+      { status: 400 },
+    );
+  }
+
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const splitNote =
+    mode === "OFFICIAL"
+      ? `Official split: $${total.toFixed(2)} ÷ ${activeCount} attendees`
+      : `Estimated split: $${total.toFixed(2)} ÷ ${divisor} attendees`;
 
   let billed = 0;
   let skipped = 0;
   const errors: string[] = [];
 
-  for (const reg of registrations) {
+  for (const reg of targets) {
     if (reg.status === "PAID") {
       skipped++;
+      continue;
+    }
+    if (!reg.email) {
+      errors.push(`${reg.name}: no email on file`);
       continue;
     }
     try {
@@ -85,8 +153,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                 currency: "usd",
                 unit_amount: amountCents,
                 product_data: {
-                  name: `${event.name} — tournament cost share`,
-                  description: `Official split: $${Number(event.variableCostTotal).toFixed(2)} ÷ ${registrations.length} attendees`,
+                  name: `${event.name} — cost share`,
+                  description: splitNote,
                 },
               },
             },
@@ -99,7 +167,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           },
           metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: event.clubId },
         },
-        { stripeAccount: event.club.stripeAccountId }
+        { stripeAccount: event.club.stripeAccountId },
       );
 
       await prisma.eventRegistration.update({
@@ -108,21 +176,21 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           amountDue: perHead,
           paymentUrl: checkout.url,
           stripeCheckoutSessionId: checkout.id,
+          invoicedAt: new Date(),
+          invoiceCount: { increment: 1 },
         },
       });
 
-      // Email the payment link. Non-fatal if email isn't configured.
       try {
         await sendEmail({
           to: reg.email,
           subject: `Payment due for ${event.name}`,
           html: `
             <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto">
-              <h2 style="color:#1c1917">Tournament cost share</h2>
+              <h2 style="color:#1c1917">${event.name} — cost share</h2>
               <p style="color:#57534e;line-height:1.6">
-                Hi ${reg.name}, the final cost for <strong>${event.name}</strong> has been
-                calculated. Your share is <strong>$${perHead.toFixed(2)}</strong>
-                ($${Number(event.variableCostTotal).toFixed(2)} split across ${registrations.length} attendees).
+                Hi ${reg.name}, your share for <strong>${event.name}</strong> is
+                <strong>$${perHead.toFixed(2)}</strong> (${splitNote}).
               </p>
               <p><a href="${checkout.url}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Pay now</a></p>
             </div>`,
@@ -144,8 +212,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   return NextResponse.json({
     ok: true,
+    mode,
     perHead,
-    attendees: registrations.length,
+    total,
+    divisor,
+    attendees: activeCount,
+    targeted: targets.length,
     billed,
     skipped,
     errors,

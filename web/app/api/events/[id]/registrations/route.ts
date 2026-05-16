@@ -4,8 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/events/[id]/registrations
-// Owner/staff: list everyone who signed up via the public link (or was matched
-// as a member), with their custom form answers and payment status.
+// Owner/staff: list everyone who signed up (public link or matched member),
+// with form answers, payment status, and per-registrant invoice tracking.
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
@@ -20,6 +20,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       name: true,
       publicSlug: true,
       registrationForm: true,
+      memberPrice: true,
+      nonMemberPrice: true,
+      dropInFee: true,
       variableCostEnabled: true,
       variableCostMode: true,
       variableCostTotal: true,
@@ -37,13 +40,41 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   });
 
   const activeCount = registrations.filter((r) => r.status !== "CANCELED").length;
-  const officialPerHead =
-    event.variableCostEnabled &&
-    event.variableCostMode === "OFFICIAL" &&
-    event.variableCostTotal &&
-    activeCount > 0
-      ? +(Number(event.variableCostTotal) / activeCount).toFixed(2)
-      : null;
+  const unpaidCount = registrations.filter(
+    (r) => r.status !== "CANCELED" && r.status !== "PAID",
+  ).length;
+  const invoicedCount = registrations.filter((r) => r.invoiceCount > 0).length;
 
-  return NextResponse.json({ event, registrations, activeCount, officialPerHead });
+  // Compute the per-head share for the current mode so the UI can preview it.
+  const mode = event.variableCostMode === "OFFICIAL" ? "OFFICIAL" : "ESTIMATED";
+  let perHead: number | null = null;
+  if (event.variableCostEnabled && activeCount > 0) {
+    if (mode === "OFFICIAL" && event.variableCostTotal != null) {
+      perHead = +(Number(event.variableCostTotal) / activeCount).toFixed(2);
+    } else if (mode === "ESTIMATED") {
+      const estTotal =
+        event.variableCostTotal != null
+          ? Number(event.variableCostTotal)
+          : event.variableCostEstimatedTotal != null
+            ? Number(event.variableCostEstimatedTotal)
+            : 0;
+      const divisor =
+        event.variableCostEstimatedSignups && event.variableCostEstimatedSignups > 0
+          ? event.variableCostEstimatedSignups
+          : activeCount;
+      if (estTotal > 0 && divisor > 0) perHead = +(estTotal / divisor).toFixed(2);
+    }
+  }
+
+  return NextResponse.json({
+    event,
+    registrations,
+    activeCount,
+    unpaidCount,
+    invoicedCount,
+    mode,
+    perHead,
+    // Back-compat for any existing callers.
+    officialPerHead: mode === "OFFICIAL" ? perHead : null,
+  });
 }

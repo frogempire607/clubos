@@ -158,6 +158,9 @@ model User {
   resetToken    String?   @unique
   resetExpires  DateTime?
   lastLoginAt   DateTime?
+  // Per-user dashboard widget preferences: { order: string[], hidden: string[] }.
+  // Null = use sensible defaults.
+  dashboardWidgets Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
@@ -563,6 +566,10 @@ model EventRegistration {
   paymentUrl              String?
   stripeCheckoutSessionId String?
   stripePaymentIntentId   String?
+  // Mass-invoice tracking: when the most recent invoice/payment link was sent
+  // and how many times this registrant has been invoiced.
+  invoicedAt              DateTime?
+  invoiceCount            Int      @default(0)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 

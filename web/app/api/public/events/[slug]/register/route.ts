@@ -69,16 +69,31 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     select: { id: true },
   });
 
-  // Compute amount due.
-  let amountDue = 0;
+  // Variable-cost events (any mode) do NOT charge at registration. The
+  // registrant signs up now; the owner sends invoices/payment links when
+  // ready (estimated split before the event, official split after).
+  const varTotal =
+    event.variableCostTotal != null
+      ? Number(event.variableCostTotal)
+      : event.variableCostEstimatedTotal != null
+        ? Number(event.variableCostEstimatedTotal)
+        : 0;
+  const isVariableCost = !!event.variableCostEnabled && varTotal > 0;
+
+  // Estimated per-head, shown to the registrant as their expected share.
+  let estimatedShare: number | null = null;
   if (
-    event.variableCostEnabled &&
-    event.variableCostMode === "ESTIMATED" &&
-    event.variableCostTotal &&
-    event.variableCostEstimatedSignups
+    isVariableCost &&
+    event.variableCostMode !== "OFFICIAL" &&
+    event.variableCostEstimatedSignups &&
+    event.variableCostEstimatedSignups > 0
   ) {
-    amountDue = +(Number(event.variableCostTotal) / event.variableCostEstimatedSignups).toFixed(2);
-  } else if (event.nonMemberPrice && Number(event.nonMemberPrice) > 0) {
+    estimatedShare = +(varTotal / event.variableCostEstimatedSignups).toFixed(2);
+  }
+
+  // Immediate (charge-now) amount only applies to non-variable fixed pricing.
+  let amountDue = 0;
+  if (!isVariableCost && event.nonMemberPrice && Number(event.nonMemberPrice) > 0) {
     amountDue = Number(event.nonMemberPrice);
   }
 
@@ -91,10 +106,25 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       email: body.email.toLowerCase(),
       phone: body.phone || null,
       formResponses: body.formResponses,
-      status: amountDue > 0 ? "REGISTERED" : "REGISTERED",
-      amountDue: amountDue > 0 ? amountDue : null,
+      status: "REGISTERED",
+      amountDue: isVariableCost ? estimatedShare : amountDue > 0 ? amountDue : null,
     },
   });
+
+  // Variable cost — registered now, billed later by the owner.
+  if (isVariableCost) {
+    return NextResponse.json({
+      ok: true,
+      registrationId: registration.id,
+      variableCost: true,
+      billedLater: true,
+      estimatedShare,
+      message:
+        estimatedShare != null
+          ? `You're registered. Your estimated share is about $${estimatedShare.toFixed(2)} — the club will email you a payment link.`
+          : "You're registered. The club will email you a payment link for this event's shared cost.",
+    });
+  }
 
   // Free registration — done.
   if (amountDue <= 0) {
