@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { findOrAutoLinkMember } from "@/lib/memberLink";
 
 const schema = z.object({
   memberId: z.string().optional(),
@@ -36,6 +37,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const viewer = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
+      email: true,
       firstName: true,
       lastName: true,
       memberProfile: { select: { id: true, isMinor: true } },
@@ -44,19 +46,34 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   });
   if (!viewer) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Resolve own member profile — auto-link by email if not yet linked
+  let ownMemberId = viewer.memberProfile?.id ?? null;
+  let ownMemberIsMinor = !!viewer.memberProfile?.isMinor;
+  if (!ownMemberId) {
+    const autoLinked = await findOrAutoLinkMember(
+      session.user.id,
+      session.user.clubId,
+      viewer.email,
+    );
+    if (autoLinked) {
+      ownMemberId = autoLinked.id;
+      ownMemberIsMinor = autoLinked.isMinor;
+    }
+  }
+
   // Resolve target member
-  const targetMemberId = body.memberId ?? viewer.memberProfile?.id;
+  const targetMemberId = body.memberId ?? ownMemberId;
   if (!targetMemberId) {
     return NextResponse.json({ error: "No member context for signing" }, { status: 400 });
   }
 
-  const isSelf = viewer.memberProfile?.id === targetMemberId;
+  const isSelf = ownMemberId === targetMemberId;
   const linkedChild = viewer.guardianOf.find((g) => g.member.id === targetMemberId);
   if (!isSelf && !linkedChild) {
     return NextResponse.json({ error: "You don't have access to sign for this member" }, { status: 403 });
   }
 
-  const targetIsMinor = isSelf ? !!viewer.memberProfile?.isMinor : !!linkedChild?.member.isMinor;
+  const targetIsMinor = isSelf ? ownMemberIsMinor : !!linkedChild?.member.isMinor;
 
   // Guardian-signature rule: if the document requires guardian sig and the
   // target is a minor, the signer must be a guardian (not the minor signing

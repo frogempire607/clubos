@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { sendBookingConfirmationEmail } from "@/lib/email";
+import { findOrAutoLinkMember } from "@/lib/memberLink";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -73,12 +74,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
     if (!event) return NextResponse.json({ error: "Event not available" }, { status: 404 });
 
-    const member = await prisma.member.findFirst({
-      where: { userId: session.user.id, clubId: session.user.clubId, deletedAt: null },
+    const sessionUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { email: true },
     });
+    const member = sessionUser
+      ? await findOrAutoLinkMember(session.user.id, session.user.clubId, sessionUser.email)
+      : null;
     if (!member) {
       return NextResponse.json(
-        { error: "Your account isn't linked to a member profile yet. Contact your club." },
+        { error: "Your account isn't linked to a member profile yet. Contact your club to get added." },
         { status: 400 },
       );
     }

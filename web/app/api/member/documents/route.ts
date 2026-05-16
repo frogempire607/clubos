@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { findOrAutoLinkMember } from "@/lib/memberLink";
 
 // GET /api/member/documents?memberId=<id>
 // Returns club documents visible to the current viewer, with signature status
@@ -17,6 +18,7 @@ export async function GET(req: Request) {
   const viewer = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
+      email: true,
       memberProfile: { select: { id: true, isMinor: true, firstName: true, lastName: true } },
       guardianOf: {
         select: {
@@ -27,9 +29,27 @@ export async function GET(req: Request) {
   });
   if (!viewer) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Auto-link by email if no userId-linked member profile found
+  let linkedMemberProfile = viewer.memberProfile;
+  if (!linkedMemberProfile) {
+    const autoLinked = await findOrAutoLinkMember(
+      session.user.id,
+      session.user.clubId,
+      viewer.email,
+    );
+    if (autoLinked) {
+      linkedMemberProfile = {
+        id: autoLinked.id,
+        isMinor: autoLinked.isMinor,
+        firstName: autoLinked.firstName,
+        lastName: autoLinked.lastName,
+      };
+    }
+  }
+
   // Build the set of memberIds the viewer can act on
   const accessibleMemberIds = new Set<string>();
-  if (viewer.memberProfile?.id) accessibleMemberIds.add(viewer.memberProfile.id);
+  if (linkedMemberProfile?.id) accessibleMemberIds.add(linkedMemberProfile.id);
   for (const g of viewer.guardianOf) accessibleMemberIds.add(g.member.id);
 
   // Resolve the context member (the one we're showing signatures for)
@@ -39,8 +59,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     contextMemberId = requestedMemberId;
-  } else if (viewer.memberProfile?.id) {
-    contextMemberId = viewer.memberProfile.id;
+  } else if (linkedMemberProfile?.id) {
+    contextMemberId = linkedMemberProfile.id;
   } else if (viewer.guardianOf[0]) {
     contextMemberId = viewer.guardianOf[0].member.id;
   }
@@ -109,8 +129,8 @@ export async function GET(req: Request) {
   });
 
   const contextMember =
-    contextMemberId === viewer.memberProfile?.id
-      ? viewer.memberProfile
+    contextMemberId === linkedMemberProfile?.id
+      ? linkedMemberProfile
       : viewer.guardianOf.find((g) => g.member.id === contextMemberId)?.member ?? null;
 
   return NextResponse.json({
@@ -118,8 +138,8 @@ export async function GET(req: Request) {
     contextMemberId,
     contextMember,
     accessibleMembers: [
-      ...(viewer.memberProfile
-        ? [{ id: viewer.memberProfile.id, firstName: viewer.memberProfile.firstName, lastName: viewer.memberProfile.lastName, isMinor: viewer.memberProfile.isMinor, kind: "self" as const }]
+      ...(linkedMemberProfile
+        ? [{ id: linkedMemberProfile.id, firstName: linkedMemberProfile.firstName, lastName: linkedMemberProfile.lastName, isMinor: linkedMemberProfile.isMinor, kind: "self" as const }]
         : []),
       ...viewer.guardianOf.map((g) => ({
         id: g.member.id,

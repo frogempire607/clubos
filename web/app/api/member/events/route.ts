@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { findOrAutoLinkMember } from "@/lib/memberLink";
 
 // GET /api/member/events
 // Upcoming events visible to members. Filters out STAFF_ONLY visibility,
@@ -12,47 +13,53 @@ export async function GET() {
 
   const now = new Date();
 
-  const events = await prisma.event.findMany({
-    where: {
-      clubId: session.user.clubId,
-      deletedAt: null,
-      startsAt: { gte: now },
-      visibility: { in: ["PUBLIC", "MEMBERS_ONLY"] },
-      purchaseAccess: "ANYONE",
-      AND: [
-        { OR: [{ publishAt: null }, { publishAt: { lte: now } }] },
-        { OR: [{ unpublishAt: null }, { unpublishAt: { gt: now } }] },
-      ],
-    },
-    orderBy: { startsAt: "asc" },
-    include: {
-      location: { select: { name: true } },
-      customEventType: { select: { id: true, name: true, color: true, textColor: true } },
-      sessions: { orderBy: { sortOrder: "asc" } },
-      _count: { select: { bookings: true } },
-    },
-  });
+  const [events, user] = await Promise.all([
+    prisma.event.findMany({
+      where: {
+        clubId: session.user.clubId,
+        deletedAt: null,
+        startsAt: { gte: now },
+        visibility: { in: ["PUBLIC", "MEMBERS_ONLY"] },
+        purchaseAccess: "ANYONE",
+        AND: [
+          { OR: [{ publishAt: null }, { publishAt: { lte: now } }] },
+          { OR: [{ unpublishAt: null }, { unpublishAt: { gt: now } }] },
+        ],
+      },
+      orderBy: { startsAt: "asc" },
+      include: {
+        location: { select: { name: true } },
+        customEventType: { select: { id: true, name: true, color: true, textColor: true } },
+        sessions: { orderBy: { sortOrder: "asc" } },
+        _count: { select: { bookings: true } },
+      },
+    }),
+    prisma.user.findUnique({ where: { id: session.user.id }, select: { email: true } }),
+  ]);
 
-  // Member's existing bookings to flag "registered" state
-  const member = await prisma.member.findFirst({
-    where: { userId: session.user.id, clubId: session.user.clubId, deletedAt: null },
-    select: {
-      id: true,
-      bookings: {
-        where: { status: { in: ["CONFIRMED", "WAITLISTED"] } },
-        select: { eventId: true, status: true },
-      },
-      subscriptions: {
-        where: { status: "active" },
-        select: { membershipId: true },
-      },
-    },
-  });
+  // Auto-link by email if no userId-linked member exists yet
+  const member = user
+    ? await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email)
+    : null;
+
+  // Fetch bookings + subscriptions after resolving the member record
+  const [bookings, subscriptions] = member
+    ? await Promise.all([
+        prisma.booking.findMany({
+          where: { memberId: member.id, status: { in: ["CONFIRMED", "WAITLISTED"] } },
+          select: { eventId: true, status: true },
+        }),
+        prisma.memberSubscription.findMany({
+          where: { memberId: member.id, status: "active" },
+          select: { membershipId: true },
+        }),
+      ])
+    : [[], []];
 
   return NextResponse.json({
     events,
-    bookings: member?.bookings ?? [],
-    activeMembershipIds: (member?.subscriptions ?? []).map((s) => s.membershipId),
+    bookings,
+    activeMembershipIds: subscriptions.map((s) => s.membershipId),
     hasMemberProfile: !!member,
   });
 }
