@@ -1472,6 +1472,11 @@ model AttendanceRecord {
   checkedInAt    DateTime?
   addedById      String?
   notes          String?
+  // How the at-the-door / non-member fee was settled, for quick display.
+  // CASH | COMP | INVOICE | CARD | STRIPE | null. The authoritative money
+  // record is the linked Transaction (paymentMethod + status).
+  paymentMethod  String?
+  amountCharged  Decimal?  @db.Decimal(10, 2)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

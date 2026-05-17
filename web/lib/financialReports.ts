@@ -6,6 +6,7 @@ import {
   expenseCategoryLabel,
   paymentMethodLabel,
   isCashMethod,
+  isCompMethod,
 } from "@/lib/financials";
 
 export const REPORT_TYPES = [
@@ -176,27 +177,38 @@ export async function buildReport(
   }
 
   if (type === "cash_vs_card") {
-    const txs = await prisma.transaction.findMany({
-      where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateWhere(r) },
-      select: { amount: true, paymentMethod: true },
-    });
-    const donations = await prisma.donation.findMany({
-      where: { clubId, ...entityWhere, ...dateFilter(r) },
-      select: { amount: true, paymentMethod: true },
-    });
+    const [txs, pending, donations] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateWhere(r) },
+        select: { amount: true, paymentMethod: true },
+      }),
+      prisma.transaction.findMany({
+        where: { clubId, status: "PENDING", manual: true, ...entityWhere, ...txDateWhere(r) },
+        select: { amount: true },
+      }),
+      prisma.donation.findMany({
+        where: { clubId, ...entityWhere, ...dateFilter(r) },
+        select: { amount: true, paymentMethod: true },
+      }),
+    ]);
     let cash = 0;
     let card = 0;
+    let comp = 0;
     for (const t of [...txs, ...donations]) {
-      if (isCashMethod(t.paymentMethod)) cash += Number(t.amount);
+      if (isCompMethod(t.paymentMethod)) comp += Number(t.amount);
+      else if (isCashMethod(t.paymentMethod)) cash += Number(t.amount);
       else card += Number(t.amount);
     }
+    const invoiced = pending.reduce((s, p) => s + Number(p.amount), 0);
     return {
-      title: "Cash vs card revenue",
+      title: "Revenue by channel",
       columns: ["Channel", "Amount"],
       rows: [
-        ["Cash / check", money(cash)],
         ["Card / online / bank", money(card)],
-        ["Total", money(cash + card)],
+        ["Cash / check", money(cash)],
+        ["Comp / free", money(comp)],
+        ["Invoiced (unpaid)", money(invoiced)],
+        ["Collected total", money(cash + card)],
       ],
     };
   }

@@ -40,6 +40,8 @@ export const PAYMENT_METHODS = [
   { key: "STRIPE", label: "Stripe / Online" },
   { key: "BANK", label: "Bank transfer" },
   { key: "CHECK", label: "Check" },
+  { key: "INVOICE", label: "Invoice (unpaid)" },
+  { key: "COMP", label: "Comp / Free" },
   { key: "OTHER", label: "Other" },
 ] as const;
 
@@ -91,9 +93,14 @@ export function paymentMethodLabel(key: string | null | undefined): string {
   return METHOD_LABELS[key] ?? key;
 }
 
-// CASH is everything that isn't card/online/bank rails.
+// CASH is everything that isn't card/online/bank rails (and isn't comped).
 export function isCashMethod(method: string | null | undefined): boolean {
   return method === "CASH" || method === "CHECK";
+}
+
+// Comped / free attendance — tracked separately, never counted as revenue.
+export function isCompMethod(method: string | null | undefined): boolean {
+  return method === "COMP";
 }
 
 export const FINANCIAL_DISCLAIMER =

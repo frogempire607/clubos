@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-05-15
+Last updated: 2026-05-17
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -70,18 +70,25 @@ Avoid reintroducing random Tailwind color families such as `blue-*`, `green-*`, 
 
 ## Tier Model
 
-Four tiers stored on `Club.tier`. Definitions live in `lib/tier.ts` and `lib/stripe.ts`.
+**Three paid tiers** stored on `Club.tier` — there is NO free/Starter tier. Definitions live in `lib/tier.ts` (single source of truth; `normalizeTier()` maps any legacy/unknown value incl. `"starter"` → `growth`). `Club.tier` defaults to `growth`.
 
-| Tier       | Monthly | Setup | Tx fee | Members   | Locations  | Notable extras                                                |
-|------------|---------|-------|--------|-----------|------------|---------------------------------------------------------------|
-| Starter    | $0      | $0    | 2.5%   | 150       | 1          | Classes, events, attendance, direct messaging                  |
-| Growth     | $50     | $0    | 0%     | Unlimited | **1 only** | Reports, Plaid, discounts, document signatures                 |
-| Pro        | $99     | $50   | 0%     | Unlimited | 5          | Everything + email/SMS, branded mobile, multi-location, priority|
-| Enterprise | $199    | $50   | 0%     | Unlimited | Unlimited  | Multi-location analytics, API, dedicated support               |
+| Tier       | Monthly | Tx fee | Members   | Locations  | Notable extras                                                       |
+|------------|---------|--------|-----------|------------|----------------------------------------------------------------------|
+| Growth     | $50     | 0%     | 200       | 1          | Classes/events/attendance, memberships, private lessons, messaging, reports, CSV import |
+| Pro        | $99     | 0%     | Unlimited | 3          | + Plaid, email/SMS, branded app, advanced analytics, priority support |
+| Enterprise | $199+   | 0%     | Unlimited | Unlimited  | + API, SSO, advanced permissions, custom onboarding, enterprise reporting |
 
-**Growth is single-location on purpose** — the differentiator is "skip transaction fees on a tight budget"; multi-location requires Pro.
+AthletixOS takes **0% per-transaction platform fee on every tier** (`lib/stripe.ts` `calculatePlatformFee` always 0). Clubs may optionally pass Stripe's processing fee to the customer at checkout — centralized in `lib/fees.ts` (`Club.passProcessingFees`), toggled on the billing settings page, never hardcoded elsewhere.
 
-Enforcement is wired today in: `/api/members` (maxMembers), `/api/club/locations` (maxLocations), `/api/reports/overview` (reports flag), `/api/plaid/*` (plaid flag), `/api/announcements` (emailSms for broadcast).
+Tier enforcement: `/api/members` (maxMembers 200 on Growth → upgrade to Pro), `/api/club/locations` (maxLocations), `/api/reports/overview` (reports), `/api/plaid/*` (plaid), `/api/announcements` (emailSms). On platform-sub cancel the webhook keeps the tier and only sets `subscriptionStatus:"canceled"` (no Starter fallback).
+
+## Staff Permissions
+
+`lib/permissions.ts` is the single source of truth (10 keys: members, attendance, classes, events, schedule, messages, documents, finances, reports, staff). Permissions live in the JWT (set at login) + are surfaced live via `/api/me`. Middleware enforces per-section access for STAFF (owners bypass everything). `lib/apiGuard.ts` `requirePermission`/`requireOwner` guard API routes. **Permission-gating ≠ tier-gating** — never tier-gate cash/financial tracking.
+
+## Financial OS
+
+Lightweight accounting/tax-prep helper (NOT QuickBooks), permission-gated on `finances`, **never tier-gated**. `lib/financials.ts` (categories, payment methods incl. CASH/COMP/INVOICE, `isCashMethod`/`isCompMethod`, disclaimers) + `lib/financialReports.ts` (`buildReport`/`reportToCsv`). Transaction/Expense/Donation carry `legalEntityId` + `category` + `paymentMethod`; `Transaction.manual=true` for cash/comp/invoice (only manual records are deletable — never delete Stripe records). Reports separate Card / Cash / Comp / Invoiced. Cash option exists everywhere via `/api/financials/manual-payment` (Money In tab) and `/api/attendance/charge` (at-the-door non-member drop-in/trial/guest). Disclaimer shown; never claims tax filing.
 
 ## Dashboard Navigation
 
@@ -316,11 +323,22 @@ Migration folders currently present:
 - `20260514100000_uploaded_files_and_sig_frequency` — `uploaded_files` table + `documents.signatureValidForDays`
 - `20260514110000_stripe_webhook_events` — `stripe_webhook_events` table
 - `20260515000000_class_overrides_membership_trial` — `recurring_classes.dayOverrides`, `memberships.trialEnabled/trialDays/trialAppliesToReturning`
+- `20260515200000_event_registrations_tournaments` — `EventRegistration`, tournament/variable-cost fields
+- `20260516000000_member_relationships_staff_location` — `MemberRelationship`, GPS, perSessionRate
+- `20260516120000_modular_compensation` — `StaffCompensation`/`CompensationBonus`/`CompensationAssignment`
+- `20260517000000_event_invoicing_dashboard_widgets` — `event_registrations.invoicedAt/invoiceCount`, `users.dashboardWidgets`
+- `20260518000000_contractors_permissions_session_overrides` — `Contractor`/`ContractorPayment`, `class_sessions.staffOverride/note/overridden`
+- `20260519000000_member_migration_wizard` — Member migration fields + `MemberMigrationEvent`
+- `20260520000000_new_tier_system_processing_fees` — `clubs.tier` default `growth` (+ Starter→growth backfill), `clubs.passProcessingFees/processingFeeNote`
+- `20260521000000_financial_os` — Transaction/Expense entity+category+method+receipt, `clubs.defaultLegalEntityId`, `Donation` model (idempotent SQL)
+- `20260522000000_attendance_payment_method` — `attendance_records.paymentMethod/amountCharged`
 
 Current migration status:
 
-- `npx prisma migrate status` reports the database schema is up to date with 11 migrations.
+- `npx prisma migrate status` reports the database schema is up to date.
 - `npx prisma validate` passes.
+- New libs: `lib/permissions.ts`, `lib/apiGuard.ts`, `lib/fees.ts`, `lib/financials.ts`, `lib/financialReports.ts`, `lib/migration.ts`, `lib/migrationServer.ts`, `lib/memberLink.ts`, `lib/dashboardWidgets.ts`.
+- Major additions this cycle: member-portal club branding + auto-link, event mass-invoicing + tournament pricing fix, customizable dashboard, Guest/Contractor management, staff roles/permissions + restricted staff view, per-occurrence class schedule edits, Member Migration wizard, new 3-tier pricing + pass-through fees, Financial OS, attendance cash/comp/invoice for non-members.
 
 ## Migration Warning Notes
 

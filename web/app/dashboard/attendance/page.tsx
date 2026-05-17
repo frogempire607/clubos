@@ -130,6 +130,11 @@ function QuickAddForm({
   const [guardianName, setGuardianName] = useState("");
   const [error, setError] = useState("");
   const [registeringId, setRegisteringId] = useState<string | null>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState<"CASH" | "COMP" | "INVOICE">("CASH");
+  const [payStatus, setPayStatus] = useState<"DROP_IN" | "TRIAL" | "PRESENT">("DROP_IN");
+  const [payNotes, setPayNotes] = useState("");
 
   const memberPrice    = pricingOptions.find((o) => o.type === "member")    as { type: "member"; price: number } | undefined;
   const nonMemberPrice = pricingOptions.find((o) => o.type === "nonmember") as { type: "nonmember"; price: number } | undefined;
@@ -165,6 +170,45 @@ function QuickAddForm({
       return;
     }
     setError("Unexpected response");
+  }
+
+  function openPay(memberId: string) {
+    if (payingId === memberId) { setPayingId(null); return; }
+    const def = nonMemberPrice?.price ?? dropInPrice?.price ?? memberPrice?.price ?? 0;
+    setPayAmount(def ? String(def) : "");
+    setPayMethod("CASH");
+    setPayStatus("DROP_IN");
+    setPayNotes("");
+    setError("");
+    setRegisteringId(null);
+    setPayingId(memberId);
+  }
+
+  // Cash / comp / invoice — no Stripe. Records attendance + an internal
+  // transaction so it shows in reports under the right channel.
+  async function recordPay(memberId: string) {
+    if (!sessionId) return;
+    setSaving(true);
+    setError("");
+    const res = await fetch("/api/attendance/charge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classSessionId: sessionId,
+        memberId,
+        status: payStatus,
+        paymentMethod: payMethod,
+        amount: payMethod === "COMP" ? Number(payAmount || 0) : Number(payAmount || 0),
+        notes: payNotes || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { setError(typeof data.error === "string" ? data.error : "Could not record payment"); return; }
+    setPayingId(null);
+    setQuery("");
+    setResults([]);
+    onAdded();
   }
 
   useEffect(() => {
@@ -331,7 +375,16 @@ function QuickAddForm({
                       onClick={() => setRegisteringId(registeringId === m.id ? null : m.id)}
                       className="px-2 py-1 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
                     >
-                      {registeringId === m.id ? "Cancel" : "Register"}
+                      {registeringId === m.id ? "Cancel" : "Register (card)"}
+                    </button>
+                  )}
+                  {classId && (
+                    <button
+                      disabled={saving}
+                      onClick={() => openPay(m.id)}
+                      className="px-2 py-1 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                    >
+                      {payingId === m.id ? "Cancel" : "Cash / Comp"}
                     </button>
                   )}
                 </div>
@@ -377,6 +430,62 @@ function QuickAddForm({
                       Drop-in · ${dropInPrice.price.toFixed(2)}
                     </button>
                   )}
+                  {error && <p className="text-red-600 text-xs">{error}</p>}
+                </div>
+              )}
+              {payingId === m.id && classId && (
+                <div className="mt-2 pt-2 border-t border-app-border space-y-2">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(["CASH", "COMP", "INVOICE"] as const).map((pm) => (
+                      <button
+                        key={pm}
+                        type="button"
+                        onClick={() => setPayMethod(pm)}
+                        className={`px-2 py-1 text-[11px] rounded border ${
+                          payMethod === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
+                        }`}
+                      >
+                        {pm === "CASH" ? "Cash" : pm === "COMP" ? "Comp / Free" : "Invoice"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(e.target.value)}
+                      placeholder={payMethod === "COMP" ? "Value (optional)" : "Amount"}
+                      className="border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
+                    />
+                    <select
+                      value={payStatus}
+                      onChange={(e) => setPayStatus(e.target.value as "DROP_IN" | "TRIAL" | "PRESENT")}
+                      className="border border-app-border rounded-lg px-2 py-1.5 text-xs bg-white"
+                    >
+                      <option value="DROP_IN">Drop-in</option>
+                      <option value="TRIAL">Trial</option>
+                      <option value="PRESENT">Present</option>
+                    </select>
+                  </div>
+                  <input
+                    value={payNotes}
+                    onChange={(e) => setPayNotes(e.target.value)}
+                    placeholder="Notes (optional)"
+                    className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
+                  <button
+                    disabled={saving}
+                    onClick={() => recordPay(m.id)}
+                    className="w-full px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+                  >
+                    {saving
+                      ? "Saving…"
+                      : payMethod === "COMP"
+                        ? "Record comped attendance"
+                        : payMethod === "INVOICE"
+                          ? "Record as unpaid invoice"
+                          : `Record cash payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
+                  </button>
                   {error && <p className="text-red-600 text-xs">{error}</p>}
                 </div>
               )}

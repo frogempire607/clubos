@@ -8,6 +8,7 @@ import {
   revenueCategoryLabel,
   expenseCategoryLabel,
   isCashMethod,
+  isCompMethod,
 } from "@/lib/financials";
 import type { Prisma } from "@prisma/client";
 
@@ -85,6 +86,7 @@ export async function GET(req: Request) {
   let stripeFees = 0;
   let cashIn = 0;
   let cardIn = 0;
+  let compTotal = 0;
   let uncategorized = 0;
   let unpaidCount = 0;
   let unpaidTotal = 0;
@@ -93,8 +95,13 @@ export async function GET(req: Request) {
 
   for (const t of transactions) {
     const amt = Number(t.amount);
-    moneyIn += amt;
     stripeFees += Number(t.platformFee || 0);
+    // Comped / free is tracked on its own and never counted as revenue.
+    if (isCompMethod(t.paymentMethod)) {
+      compTotal += amt;
+      continue;
+    }
+    moneyIn += amt;
     if (isCashMethod(t.paymentMethod)) cashIn += amt;
     else cardIn += amt;
     const cat = resolveRevenueCategory(t);
@@ -151,6 +158,7 @@ export async function GET(req: Request) {
       net: moneyIn - moneyOut,
       cashIn,
       cardIn,
+      compTotal,
       stripeFees,
       donationsTotal,
       contractorTotal,
