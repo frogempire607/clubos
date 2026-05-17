@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import type { WidgetDef, WidgetPrefs } from "@/lib/dashboardWidgets";
+import { fmtTime, kindIsWallClockUTC, dayNumber, sameMonth } from "@/lib/datetime";
+
+type CalItem = { kind: string; id: string; name: string; startsAt: string };
 
 const sections = [
   { label: "Members", icon: "◉", href: "/dashboard/members", desc: "Manage your club roster" },
@@ -59,6 +62,7 @@ export default function DashboardPage() {
   const [recentMembers, setRecentMembers] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [allEvents, setAllEvents] = useState<any[]>([]);
+  const [calItems, setCalItems] = useState<CalItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [prefs, setPrefs] = useState<WidgetPrefs | null>(null);
   const [catalog, setCatalog] = useState<WidgetDef[]>([]);
@@ -72,9 +76,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function load() {
-      const [mRes, eRes, sRes, wRes] = await Promise.all([
+      const [mRes, eRes, cRes, sRes, wRes] = await Promise.all([
         fetch("/api/members"),
         fetch("/api/events"),
+        fetch("/api/calendar"),
         fetch("/api/dashboard/summary"),
         fetch("/api/dashboard/widgets"),
       ]);
@@ -86,6 +91,10 @@ export default function DashboardPage() {
       setRecentMembers(members.slice(0, 5));
       setUpcomingEvents(upcoming.slice(0, 5));
       setAllEvents(events);
+      if (cRes.ok) {
+        const cd = await cRes.json();
+        setCalItems(Array.isArray(cd?.items) ? cd.items : []);
+      }
       if (sRes.ok) setSummary(await sRes.json());
       if (wRes.ok) {
         const w = await wRes.json();
@@ -114,19 +123,19 @@ export default function DashboardPage() {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
+  // Mini-calendar reflects the full schedule (events + classes + privates),
+  // kind-aware so class wall-clock times land on the right day.
   const eventDays = new Set(
-    allEvents
-      .filter((e) => {
-        const d = new Date(e.startsAt);
-        return d.getFullYear() === year && d.getMonth() === month;
-      })
-      .map((e) => new Date(e.startsAt).getDate())
+    calItems
+      .filter((e) => sameMonth(e.startsAt, year, month, kindIsWallClockUTC(e.kind)))
+      .map((e) => dayNumber(e.startsAt, kindIsWallClockUTC(e.kind))),
   );
   const selectedDayEvents = selectedDay
-    ? allEvents.filter((e) => {
-        const d = new Date(e.startsAt);
-        return d.getFullYear() === year && d.getMonth() === month && d.getDate() === selectedDay;
-      })
+    ? calItems.filter(
+        (e) =>
+          sameMonth(e.startsAt, year, month, kindIsWallClockUTC(e.kind)) &&
+          dayNumber(e.startsAt, kindIsWallClockUTC(e.kind)) === selectedDay,
+      )
     : [];
   function prevMonth() {
     setCalMonth(({ year, month }) => (month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 }));
@@ -210,7 +219,7 @@ export default function DashboardPage() {
                       <div key={e.id} className="text-xs text-text-primary flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-brand flex-shrink-0" />
                         <span className="truncate">{e.name}</span>
-                        <span className="text-text-muted flex-shrink-0 ml-auto">{new Date(e.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+                        <span className="text-text-muted flex-shrink-0 ml-auto">{fmtTime(e.startsAt, { utc: kindIsWallClockUTC(e.kind) })}</span>
                       </div>
                     ))}
                   </div>
@@ -331,12 +340,12 @@ export default function DashboardPage() {
                   return (
                     <div key={c.id} className="flex items-center gap-3 px-5 py-3">
                       <div className="w-10 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
-                        <div className="text-[9px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short" })}</div>
-                        <div className="text-base font-semibold text-text-primary leading-tight">{start.getDate()}</div>
+                        <div className="text-[9px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short", timeZone: "UTC" })}</div>
+                        <div className="text-base font-semibold text-text-primary leading-tight">{start.getUTCDate()}</div>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-text-primary truncate">{c.name}</div>
-                        <div className="text-xs text-text-muted">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
+                        <div className="text-xs text-text-muted">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "UTC" })}</div>
                       </div>
                     </div>
                   );

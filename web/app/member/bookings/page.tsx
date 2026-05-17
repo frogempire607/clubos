@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Booking = {
   id: string;
@@ -83,10 +84,13 @@ export default function MemberBookingsPage() {
           });
         }
         setMembers(list);
-        setActiveId(list[0]?.id ?? null);
+        setActiveId(resolveActiveProfileId(list.map((m) => m.id)));
         setLoading(false);
       });
   }, []);
+
+  // Follow the account-level switcher (shared across all portal pages).
+  useEffect(() => onActiveProfileChange((id) => id && setActiveId(id)), []);
 
   const active = useMemo(() => members.find((m) => m.id === activeId), [members, activeId]);
 
@@ -105,25 +109,15 @@ export default function MemberBookingsPage() {
         <p className="text-sm text-stone-500">All your class and event registrations.</p>
       </div>
 
-      {members.length > 1 && (
-        <div className="mb-4">
-          <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1.5">Viewing bookings for</p>
-          <div className="flex flex-wrap gap-2">
-            {members.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setActiveId(m.id)}
-                className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                  activeId === m.id
-                    ? "border-stone-900 bg-stone-900 text-white"
-                    : "border-stone-200 text-stone-600 bg-white hover:bg-stone-50"
-                }`}
-              >
-                {m.kind === "self" ? "Me" : `${m.firstName} ${m.lastName}`}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Profile selection is handled account-wide by the ProfileSwitcher in
+          the portal layout — selection is shared across every portal page. */}
+      {active && members.length > 1 && (
+        <p className="text-sm text-stone-500 -mt-3 mb-4">
+          Showing bookings for{" "}
+          <span className="font-medium text-stone-900">
+            {active.kind === "self" ? "you" : `${active.firstName} ${active.lastName}`}
+          </span>
+        </p>
       )}
 
       <div className="flex gap-1 bg-stone-100 rounded-lg p-1 mb-6 w-fit">

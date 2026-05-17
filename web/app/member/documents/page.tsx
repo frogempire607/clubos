@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Signature = {
   signerName: string;
@@ -65,13 +66,21 @@ export default function MemberDocumentsPage() {
       .then((d: DocsResponse | null) => {
         if (d) {
           setData(d);
-          if (!activeMemberId) setActiveMemberId(d.contextMemberId);
+          if (!activeMemberId) {
+            // Honor the account-level switcher's persisted selection.
+            const resolved =
+              resolveActiveProfileId(d.accessibleMembers.map((m) => m.id)) ?? d.contextMemberId;
+            setActiveMemberId(resolved);
+          }
         }
         setLoading(false);
       });
   }, [activeMemberId]);
 
   useEffect(() => { load(activeMemberId); }, [activeMemberId, load]);
+
+  // Follow the account-level switcher (shared across all portal pages).
+  useEffect(() => onActiveProfileChange((id) => id && setActiveMemberId(id)), []);
 
   async function signDocument(doc: Doc) {
     if (!activeMemberId) return;
@@ -100,6 +109,8 @@ export default function MemberDocumentsPage() {
   const requiredDocs = docs.filter((d) => d.required);
   const otherDocs = docs.filter((d) => !d.required);
   const contextMember = data.contextMember;
+  const activeAccessible =
+    data.accessibleMembers.find((m) => m.id === (activeMemberId ?? data.contextMemberId)) ?? null;
   const showMemberPicker = data.accessibleMembers.length > 1;
   // A required doc is considered "outstanding" if there's no signature OR the
   // existing signature has expired against the configured frequency.
@@ -112,26 +123,17 @@ export default function MemberDocumentsPage() {
         <p className="text-sm text-stone-500">Club waivers, policies, and forms.</p>
       </div>
 
-      {showMemberPicker && (
-        <div className="mb-4">
-          <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1.5">Viewing documents for</p>
-          <div className="flex flex-wrap gap-2">
-            {data.accessibleMembers.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setActiveMemberId(m.id)}
-                className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                  activeMemberId === m.id
-                    ? "border-stone-900 bg-stone-900 text-white"
-                    : "border-stone-200 text-stone-600 bg-white hover:bg-stone-50"
-                }`}
-              >
-                {m.kind === "self" ? "Me" : `${m.firstName} ${m.lastName}`}
-                {m.isMinor && <span className="ml-1 text-[10px] opacity-70">(minor)</span>}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Profile selection is handled account-wide by the ProfileSwitcher in
+          the portal layout — selection is shared across every portal page. */}
+      {showMemberPicker && activeAccessible && (
+        <p className="text-sm text-stone-500 -mt-3 mb-4">
+          Showing documents for{" "}
+          <span className="font-medium text-stone-900">
+            {activeAccessible.kind === "self"
+              ? "you"
+              : `${activeAccessible.firstName} ${activeAccessible.lastName}`}
+          </span>
+        </p>
       )}
 
       {unsignedRequired > 0 && (

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import ProfileSwitcher from "@/components/member/ProfileSwitcher";
 
 const NAV = [
   { href: "/member",           label: "Home",      icon: HomeIcon,      exact: true  },
@@ -165,6 +166,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
       {/* ── Page content ── */}
       <main className="max-w-4xl mx-auto px-4 py-5 pb-24 md:pb-10">
+        <ProfileSwitcher />
         {children}
       </main>
 

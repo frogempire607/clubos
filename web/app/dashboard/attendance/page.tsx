@@ -66,6 +66,8 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; fg: string }> =
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// Class sessions store the owner's wall-clock as that clock time in UTC
+// (see lib/classSessions.ts / lib/datetime.ts) — render with UTC.
 function fmtTime(iso: string) {
   const date = new Date(iso);
   const h = date.getUTCHours();
@@ -73,6 +75,15 @@ function fmtTime(iso: string) {
   const ampm = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 || 12;
   return `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
+}
+
+// Events are true instants (datetime-local round-tripped through ISO) —
+// render in the viewer's local timezone, NOT UTC.
+function fmtTimeLocal(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function todayStr() {
@@ -898,7 +909,7 @@ function AttendancePageInner() {
                 key={ev.id}
                 label={ev.name}
                 sublabel={ev.location?.name}
-                timeRange={`${fmtTime(ev.startsAt)} – ${fmtTime(ev.endsAt)}`}
+                timeRange={`${fmtTimeLocal(ev.startsAt)} – ${fmtTimeLocal(ev.endsAt)}`}
                 checkedIn={ev._count.bookings}
                 capacity={ev.capacity}
                 type="event"

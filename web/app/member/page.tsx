@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Booking = {
   id: string;
@@ -482,9 +483,52 @@ function LinkChildModal({ onClose, onLinked }: { onClose: () => void; onLinked: 
 
 /* ─── Parent View ─── */
 function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => void }) {
-  const [activeChild, setActiveChild] = useState(0);
   const [showLinkChild, setShowLinkChild] = useState(false);
   const children = data.user.guardianOf;
+  const self = data.user.memberProfile;
+
+  // Every athlete this account manages: the account holder's own profile (if
+  // they're also a member) plus each linked child. The selected profile is
+  // shared with the account-level ProfileSwitcher in the portal layout.
+  type ManagedProfile = {
+    id: string;
+    firstName: string;
+    lastName: string;
+    status: string;
+    kind: "self" | "child";
+    bookings: Booking[];
+  };
+  const profiles: ManagedProfile[] = [
+    ...(self
+      ? [
+          {
+            id: self.id,
+            firstName: self.firstName,
+            lastName: self.lastName,
+            status: self.status,
+            kind: "self" as const,
+            bookings: self.bookings ?? [],
+          },
+        ]
+      : []),
+    ...children.map((c) => ({
+      id: c.member.id,
+      firstName: c.member.firstName,
+      lastName: c.member.lastName,
+      status: c.member.status,
+      kind: "child" as const,
+      bookings: c.member.bookings ?? [],
+    })),
+  ];
+
+  const [activeId, setActiveId] = useState<string | null>(() =>
+    resolveActiveProfileId(profiles.map((p) => p.id)),
+  );
+  useEffect(() => onActiveProfileChange((id) => id && setActiveId(id)), []);
+  const activeProfile = profiles.find((p) => p.id === activeId) ?? profiles[0] ?? null;
+  const activeSub = self && activeProfile?.kind === "self"
+    ? self.subscriptions?.find((s) => s.status === "active")
+    : null;
 
   return (
     <>
@@ -504,7 +548,7 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
 
       <ClubBanner />
 
-      {children.length === 0 ? (
+      {children.length === 0 && !self ? (
         <div className="bg-white rounded-xl border border-stone-200 p-8 text-center mb-4">
           <p className="text-3xl mb-2">👨‍👧</p>
           <h3 className="text-base font-medium text-stone-900 mb-1">No children linked yet</h3>
@@ -516,48 +560,40 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
           </button>
         </div>
       ) : (
-        <>
-          {/* Child selector */}
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {children.map((c, i) => (
-              <button
-                key={c.member.id}
-                onClick={() => setActiveChild(i)}
-                className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                  activeChild === i
-                    ? "border-stone-900 bg-stone-900 text-white"
-                    : "border-stone-200 text-stone-600"
-                }`}
-              >
-                {c.member.firstName} {c.member.lastName}
-              </button>
-            ))}
-          </div>
-
-          {children[activeChild] && (
-            <>
-              <div className="bg-white rounded-xl border border-stone-200 p-4 mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center text-sm font-bold text-stone-700">
-                    {children[activeChild].member.firstName[0]}{children[activeChild].member.lastName[0]}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-stone-900">
-                      {children[activeChild].member.firstName} {children[activeChild].member.lastName}
-                    </p>
-                    <p className={`text-xs ${children[activeChild].member.status === "ACTIVE" ? "text-green-700" : "text-stone-500"}`}>
-                      {children[activeChild].member.status}
-                    </p>
-                  </div>
+        activeProfile && (
+          <>
+            <div className="bg-white rounded-xl border border-stone-200 p-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center text-sm font-bold text-stone-700">
+                  {activeProfile.firstName[0]}
+                  {activeProfile.lastName[0]}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-stone-900">
+                    {activeProfile.firstName} {activeProfile.lastName}
+                    {activeProfile.kind === "self" && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wide text-stone-400">
+                        you
+                      </span>
+                    )}
+                  </p>
+                  <p
+                    className={`text-xs ${
+                      activeProfile.status === "ACTIVE" ? "text-green-700" : "text-stone-500"
+                    }`}
+                  >
+                    {activeProfile.status}
+                    {activeSub ? ` · ${activeSub.membership.name}` : ""}
+                  </p>
                 </div>
               </div>
-              <UpcomingBookings
-                bookings={children[activeChild].member.bookings}
-                label={`${children[activeChild].member.firstName}'s Schedule`}
-              />
-            </>
-          )}
-        </>
+            </div>
+            <UpcomingBookings
+              bookings={activeProfile.bookings}
+              label={`${activeProfile.firstName}'s Schedule`}
+            />
+          </>
+        )
       )}
 
       <div className="grid grid-cols-2 gap-3 mt-4">
@@ -600,10 +636,13 @@ export default function MemberHome() {
   if (!data) return <div className="text-center py-16 text-stone-400 text-sm">Could not load your profile.</div>;
 
   const member = data.user.memberProfile;
-  const isParentOnly = !member && data.user.guardianOf.length > 0;
+  // Any account that manages at least one linked child gets the multi-athlete
+  // ParentView (which now also includes the account holder's own profile when
+  // they're a member too), so parents can switch between every athlete.
+  const hasChildren = data.user.guardianOf.length > 0;
   const isMinor = member?.isMinor;
 
-  if (isParentOnly) return <ParentView data={data} onRefresh={load} />;
+  if (hasChildren) return <ParentView data={data} onRefresh={load} />;
   if (isMinor) return <MinorAthleteView data={data} />;
   return <AdultAthleteView data={data} />;
 }

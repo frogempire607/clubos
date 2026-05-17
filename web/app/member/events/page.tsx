@@ -54,6 +54,7 @@ export default function MemberEventsPage() {
   const [events, setEvents] = useState<EventCard[]>([]);
   const [bookings, setBookings] = useState<BookingRef[]>([]);
   const [activeMembershipIds, setActiveMembershipIds] = useState<string[]>([]);
+  const [isActiveMember, setIsActiveMember] = useState(false);
   const [hasMemberProfile, setHasMemberProfile] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export default function MemberEventsPage() {
           setEvents(d.events || []);
           setBookings(d.bookings || []);
           setActiveMembershipIds(d.activeMembershipIds || []);
+          setIsActiveMember(!!d.isActiveMember);
           setHasMemberProfile(d.hasMemberProfile);
         }
         setLoading(false);
@@ -157,6 +159,23 @@ export default function MemberEventsPage() {
             const dropInFee = fmtPrice(e.dropInFee);
             const hasPrice = !!(memberPrice || nonMemberPrice || dropInFee);
 
+            // Auto-detect which price applies to THIS viewer. Active members
+            // see the member rate; everyone else sees the full non-member
+            // (full event) price. Drop-in is a single-session alternative
+            // offered only on multi-session events.
+            const isMultiSession = (e.sessions?.length ?? 0) > 1;
+            const yourPrice = isActiveMember
+              ? memberPrice ?? nonMemberPrice ?? dropInFee
+              : nonMemberPrice ?? memberPrice ?? dropInFee;
+            const yourPriceLabel = isActiveMember
+              ? memberPrice
+                ? "Member price"
+                : "Price"
+              : nonMemberPrice
+                ? "Non-member price (full event)"
+                : "Price";
+            const showDropIn = isMultiSession && !!dropInFee;
+
             return (
               <div key={e.id} className="bg-white rounded-xl border border-stone-200 p-4">
                 <div className="flex items-start gap-4">
@@ -198,25 +217,49 @@ export default function MemberEventsPage() {
                     )}
                     {hasPrice && !coveredByActiveSub && (
                       <div className="text-xs text-stone-500 mt-1 flex flex-wrap gap-x-3">
-                        {memberPrice && <span>Member ${memberPrice}</span>}
-                        {nonMemberPrice && <span>Non-member ${nonMemberPrice}</span>}
-                        {dropInFee && <span>Drop-in ${dropInFee}</span>}
+                        {yourPrice && (
+                          <span>
+                            {yourPriceLabel}{" "}
+                            <span className="font-semibold text-stone-700">${yourPrice}</span>
+                          </span>
+                        )}
+                        {showDropIn && (
+                          <span>
+                            Drop-in (1 session){" "}
+                            <span className="font-semibold text-stone-700">${dropInFee}</span>
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
-                  <div className="flex-shrink-0">
+                  <div className="flex-shrink-0 flex flex-col items-stretch gap-1.5">
                     {booked ? (
-                      <span className="text-xs px-3 py-1.5 rounded-lg bg-green-50 text-green-700 font-medium">
+                      <span className="text-xs px-3 py-1.5 rounded-lg bg-green-50 text-green-700 font-medium text-center">
                         {booked.status === "WAITLISTED" ? "Waitlisted" : "Registered"}
                       </span>
                     ) : (
-                      <button
-                        disabled={!hasMemberProfile || busy === e.id}
-                        onClick={() => register(e.id, "MEMBER")}
-                        className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50"
-                      >
-                        {busy === e.id ? "…" : coveredByActiveSub || !hasPrice ? "Register" : `Register · $${memberPrice ?? dropInFee ?? nonMemberPrice ?? 0}`}
-                      </button>
+                      <>
+                        <button
+                          disabled={!hasMemberProfile || busy === e.id}
+                          onClick={() => register(e.id, "MEMBER")}
+                          className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50"
+                        >
+                          {busy === e.id
+                            ? "…"
+                            : coveredByActiveSub || !hasPrice
+                              ? "Register"
+                              : `Register · $${yourPrice ?? 0}`}
+                        </button>
+                        {showDropIn && !coveredByActiveSub && (
+                          <button
+                            disabled={!hasMemberProfile || busy === e.id}
+                            onClick={() => register(e.id, "DROP_IN")}
+                            className="px-3 py-1.5 bg-white border border-stone-300 text-stone-700 rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50"
+                          >
+                            Drop-in · ${dropInFee}
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

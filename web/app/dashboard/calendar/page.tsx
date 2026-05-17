@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { fmtTime, kindIsWallClockUTC, dayNumber, sameMonth } from "@/lib/datetime";
 
 type Kind = "event" | "class" | "private";
 
@@ -138,13 +139,14 @@ export default function CalendarPage() {
   ];
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const itemsThisMonth = filteredItems.filter((e) => {
-    const d = new Date(e.startsAt);
-    return d.getFullYear() === year && d.getMonth() === month;
-  });
+  const itemsThisMonth = filteredItems.filter((e) =>
+    sameMonth(e.startsAt, year, month, kindIsWallClockUTC(e.kind)),
+  );
 
   function itemsOnDay(day: number) {
-    return itemsThisMonth.filter((e) => new Date(e.startsAt).getDate() === day);
+    return itemsThisMonth.filter(
+      (e) => dayNumber(e.startsAt, kindIsWallClockUTC(e.kind)) === day,
+    );
   }
 
   const isToday = (day: number) =>
@@ -221,10 +223,7 @@ export default function CalendarPage() {
           <h2 className="text-base font-semibold text-text-primary">
             {MONTHS[month]} {year}
             <span className="ml-2 text-xs text-text-muted font-normal">
-              {filteredItems.filter((e) => {
-                const d = new Date(e.startsAt);
-                return d.getFullYear() === year && d.getMonth() === month;
-              }).length} item{itemsThisMonth.length === 1 ? "" : "s"}
+              {itemsThisMonth.length} item{itemsThisMonth.length === 1 ? "" : "s"}
             </span>
           </h2>
           <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted">›</button>
@@ -270,7 +269,7 @@ export default function CalendarPage() {
                               title={it.name}
                             >
                               <span className="opacity-70 mr-0.5">
-                                {new Date(it.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                                {fmtTime(it.startsAt, { utc: kindIsWallClockUTC(it.kind) })}
                               </span>
                               {it.name}
                             </button>
@@ -309,9 +308,10 @@ export default function CalendarPage() {
               <div className="text-sm text-text-muted">
                 {new Date(selected.startsAt).toLocaleString("en-US", {
                   weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit",
+                  ...(kindIsWallClockUTC(selected.kind) ? { timeZone: "UTC" as const } : {}),
                 })}
                 {" – "}
-                {new Date(selected.endsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                {fmtTime(selected.endsAt, { utc: kindIsWallClockUTC(selected.kind) })}
               </div>
               {selected.detail && (
                 <div className="text-xs text-text-muted mt-0.5">{selected.detail}</div>

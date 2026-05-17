@@ -71,7 +71,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         visibility: { in: ["PUBLIC", "MEMBERS_ONLY"] },
         purchaseAccess: "ANYONE",
       },
-      include: { _count: { select: { bookings: true } } },
+      include: {
+        _count: { select: { bookings: true } },
+        sessions: { select: { id: true } },
+      },
     });
     if (!event) return NextResponse.json({ error: "Event not available" }, { status: 404 });
 
@@ -204,24 +207,54 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
     }
 
+    // Auto-detect: is this person an active member of the club? We do NOT
+    // trust the client's pricingType for member vs non-member — the server
+    // decides from real subscription state so a non-member can't pay the
+    // member rate. The only client-driven choice is opting into DROP_IN
+    // (single-session price), and only on multi-session events.
+    const activeSubCount = await prisma.memberSubscription.count({
+      where: { memberId: member.id, status: "active" },
+    });
+    const isActiveMember = activeSubCount > 0 || member.status === "ACTIVE";
+    const isMultiSession = event.sessions.length > 1;
+
+    const memberCents = event.memberPrice != null ? Math.round(Number(event.memberPrice) * 100) : null;
+    const nonMemberCents =
+      event.nonMemberPrice != null ? Math.round(Number(event.nonMemberPrice) * 100) : null;
+    const dropInCents = event.dropInFee != null ? Math.round(Number(event.dropInFee) * 100) : null;
+
     let priceCents = 0;
-    let priceLabel = "Member";
-    if (pricingType === "DROP_IN" && event.dropInFee) {
-      priceCents = Math.round(Number(event.dropInFee) * 100);
-      priceLabel = "Drop-in";
-    } else if (pricingType === "NON_MEMBER" && event.nonMemberPrice) {
-      priceCents = Math.round(Number(event.nonMemberPrice) * 100);
-      priceLabel = "Non-member";
-    } else if (event.memberPrice) {
-      priceCents = Math.round(Number(event.memberPrice) * 100);
-      priceLabel = "Member";
-    } else if (event.dropInFee) {
-      priceCents = Math.round(Number(event.dropInFee) * 100);
-      priceLabel = "Drop-in";
-    } else if (event.nonMemberPrice) {
-      priceCents = Math.round(Number(event.nonMemberPrice) * 100);
-      priceLabel = "Non-member";
+    let priceLabel = "";
+
+    if (pricingType === "DROP_IN") {
+      // Drop-in = pay for a single session. Only valid on multi-session events.
+      if (!isMultiSession) {
+        return NextResponse.json(
+          { error: "Drop-in pricing is only available for events with multiple sessions." },
+          { status: 400 },
+        );
+      }
+      if (dropInCents == null) {
+        return NextResponse.json(
+          { error: "This event doesn't offer a single-session drop-in price." },
+          { status: 400 },
+        );
+      }
+      priceCents = dropInCents;
+      priceLabel = "Drop-in (single session)";
+    } else if (isActiveMember) {
+      // Active member → member price (full event). Fall back to non-member
+      // price if the club only set one number.
+      priceCents = memberCents ?? nonMemberCents ?? dropInCents ?? 0;
+      priceLabel = memberCents != null ? "Member" : nonMemberCents != null ? "Non-member" : "Drop-in";
     } else {
+      // Non-member → full event (non-member) price.
+      priceCents = nonMemberCents ?? memberCents ?? dropInCents ?? 0;
+      priceLabel =
+        nonMemberCents != null ? "Non-member" : memberCents != null ? "Member" : "Drop-in";
+    }
+
+    if (priceCents <= 0) {
       return NextResponse.json({ error: "No price configured" }, { status: 400 });
     }
 

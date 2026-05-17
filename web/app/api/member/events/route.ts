@@ -56,10 +56,16 @@ export async function GET() {
       ])
     : [[], []];
 
+  // An "active member" of the club = has at least one active membership
+  // subscription (manual or Stripe), or the profile is marked ACTIVE.
+  // Drives member vs non-member event pricing automatically.
+  const isActiveMember = subscriptions.length > 0 || member?.status === "ACTIVE";
+
   return NextResponse.json({
     events,
     bookings,
     activeMembershipIds: subscriptions.map((s) => s.membershipId),
+    isActiveMember,
     hasMemberProfile: !!member,
   });
 }
