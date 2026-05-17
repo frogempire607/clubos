@@ -100,7 +100,8 @@ type Row = {
   legacySource: string | null; legacyMembershipName: string | null;
   legacyMembershipPrice: string | number | null; legacyBillingFrequency: string | null;
   billingAnchorDate: string | null; commitmentEndDate: string | null;
-  migrationStatus: string; paymentSetupStatus: string | null;
+  migrationStatus: string; approvalStatus: string | null; paymentSetupStatus: string | null;
+  requestedBillingDate: string | null;
   activationEmailSentAt: string | null; activationEmailSendCount: number;
   activatedAt: string | null; migrationCompletedAt: string | null; importedAt: string | null;
 };
@@ -138,6 +139,7 @@ export default function MigrationPage() {
   const [msg, setMsg] = useState("");
   const [showImport, setShowImport] = useState(false);
   const [historyFor, setHistoryFor] = useState<Row | null>(null);
+  const [drawerFor, setDrawerFor] = useState<Row | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -357,6 +359,11 @@ export default function MigrationPage() {
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[r.migrationStatus] || "bg-app-bg text-text-muted"}`}>
                         {r.migrationStatus?.replace("_", " ")}
                       </span>
+                      {r.approvalStatus === "PENDING_APPROVAL" && (
+                        <span className="block mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/20 text-text-primary">
+                          Needs approval
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-xs text-text-muted">
                       {r.activationEmailSendCount > 0
@@ -364,10 +371,26 @@ export default function MigrationPage() {
                         : "—"}
                     </td>
                     <td className="px-3 py-3 text-right whitespace-nowrap">
+                      {r.approvalStatus === "PENDING_APPROVAL" ? (
+                        <button
+                          onClick={() => setDrawerFor(r)}
+                          className="text-xs px-2 py-1 bg-brand text-white rounded-lg hover:bg-brand-hover"
+                        >
+                          Review &amp; approve
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setDrawerFor(r)}
+                          disabled={r.migrationStatus === "COMPLETED"}
+                          className="text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
+                        >
+                          Set up
+                        </button>
+                      )}
                       <button
                         onClick={() => resendOne(r.id)}
                         disabled={busy || noEmail || r.migrationStatus === "COMPLETED"}
-                        className="text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
+                        className="text-xs px-2 py-1 ml-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
                       >
                         Resend
                       </button>
@@ -400,6 +423,245 @@ export default function MigrationPage() {
 
       {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
       {historyFor && <HistoryDrawer row={historyFor} onClose={() => setHistoryFor(null)} />}
+      {drawerFor && (
+        <MigrationDrawer
+          memberId={drawerFor.id}
+          onClose={() => setDrawerFor(null)}
+          onChanged={() => { setDrawerFor(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Set up / Review & approve a single migrating member ──────────────────────
+type Detail = {
+  id: string; firstName: string; lastName: string; email: string | null; guardianEmail: string | null;
+  legacySource: string | null; legacyMembershipName: string | null;
+  legacyMembershipPrice: string | number | null; legacyBillingFrequency: string | null;
+  billingAnchorDate: string | null; commitmentEndDate: string | null;
+  migrationStatus: string; approvalStatus: string | null; paymentSetupStatus: string | null;
+  migrationMembershipId: string | null;
+  activationEditableFields: Record<string, boolean> | null;
+  requestedBillingDate: string | null; requestedBillingNote: string | null; activationNote: string | null;
+};
+const EDITABLE_KEYS: { key: string; label: string }[] = [
+  { key: "phone", label: "Phone number" },
+  { key: "email", label: "Email address" },
+  { key: "billingDateRequest", label: "Request a different billing date" },
+  { key: "notes", label: "Leave a note / comment" },
+];
+function dInput(iso: string | null | undefined) {
+  return iso ? new Date(iso).toISOString().slice(0, 10) : "";
+}
+
+function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; onClose: () => void; onChanged: () => void }) {
+  const [d, setD] = useState<Detail | null>(null);
+  const [activationUrl, setActivationUrl] = useState<string | null>(null);
+  const [memberships, setMemberships] = useState<{ id: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const [planId, setPlanId] = useState("");
+  const [anchor, setAnchor] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [editable, setEditable] = useState<Record<string, boolean>>({
+    phone: true, email: false, billingDateRequest: true, notes: true,
+  });
+  const [approveDate, setApproveDate] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/members/migration/${memberId}`).then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/memberships").then((r) => (r.ok ? r.json() : [])),
+    ]).then(([detail, mships]) => {
+      if (detail?.member) {
+        const m: Detail = detail.member;
+        setD(m);
+        setActivationUrl(detail.activationUrl || null);
+        setPlanId(m.migrationMembershipId || "");
+        setAnchor(dInput(m.billingAnchorDate));
+        setEndDate(dInput(m.commitmentEndDate));
+        setApproveDate(dInput(m.requestedBillingDate || m.billingAnchorDate));
+        if (m.activationEditableFields) {
+          setEditable({
+            phone: m.activationEditableFields.phone ?? true,
+            email: m.activationEditableFields.email ?? false,
+            billingDateRequest: m.activationEditableFields.billingDateRequest ?? true,
+            notes: m.activationEditableFields.notes ?? true,
+          });
+        }
+      }
+      setMemberships(Array.isArray(mships) ? mships.map((x: { id: string; name: string }) => ({ id: x.id, name: x.name })) : []);
+      setLoading(false);
+    });
+  }, [memberId]);
+
+  async function saveSetup() {
+    setSaving(true); setMsg("");
+    const res = await fetch(`/api/members/migration/${memberId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        migrationMembershipId: planId || null,
+        billingAnchorDate: anchor || null,
+        commitmentEndDate: endDate || null,
+        activationEditableFields: editable,
+      }),
+    });
+    const r = await res.json().catch(() => ({}));
+    setSaving(false);
+    setMsg(res.ok ? "Saved." : typeof r.error === "string" ? r.error : "Save failed");
+    if (res.ok) onChanged();
+  }
+
+  async function approve(acceptRequested: boolean) {
+    if (!confirm("Approve this member? Billing will be scheduled on the agreed date — they are not charged today.")) return;
+    setSaving(true); setMsg("");
+    const res = await fetch(`/api/members/migration/${memberId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        acceptRequested ? { acceptRequestedDate: true } : { billingAnchorDate: approveDate || null },
+      ),
+    });
+    const r = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { setMsg(typeof r.error === "string" ? r.error : "Approval failed"); return; }
+    onChanged();
+  }
+
+  function copyLink() {
+    if (!activationUrl) return;
+    navigator.clipboard.writeText(activationUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const pending = d?.approvalStatus === "PENDING_APPROVAL";
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[92vh] overflow-y-auto border border-app-border" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
+          <h2 className="text-base font-semibold text-text-primary">
+            {pending ? "Review & approve" : "Set up migration"}{d ? ` · ${d.firstName} ${d.lastName}` : ""}
+          </h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+        </div>
+        <div className="p-6 space-y-5">
+          {loading || !d ? (
+            <p className="text-sm text-text-muted text-center py-8">Loading…</p>
+          ) : (
+            <>
+              {pending && (
+                <div className="bg-orange-accent/10 border border-orange-accent/30 rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-semibold text-text-primary">Client submitted — awaiting your approval</p>
+                  <p className="text-xs text-text-muted">
+                    Payment method on file: <strong>{d.paymentSetupStatus === "COMPLETE" ? "Yes ✓" : "Not yet"}</strong>.
+                    Billing has NOT started. Approving schedules the first charge on the date below.
+                  </p>
+                  {d.requestedBillingDate && (
+                    <p className="text-xs text-text-primary">
+                      Requested billing date: <strong>{new Date(d.requestedBillingDate).toLocaleDateString()}</strong>
+                      {d.requestedBillingNote ? ` — “${d.requestedBillingNote}”` : ""}
+                    </p>
+                  )}
+                  {d.activationNote && (
+                    <p className="text-xs text-text-primary">Note from client: “{d.activationNote}”</p>
+                  )}
+                  <div className="flex flex-wrap items-end gap-2 pt-1">
+                    <div>
+                      <label className="block text-[11px] text-text-muted mb-1">Approve billing on</label>
+                      <input type="date" value={approveDate} onChange={(e) => setApproveDate(e.target.value)}
+                        className="inp" style={{ width: 160 }} />
+                    </div>
+                    <button onClick={() => approve(false)} disabled={saving}
+                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+                      {saving ? "Approving…" : "Approve & schedule billing"}
+                    </button>
+                    {d.requestedBillingDate && (
+                      <button onClick={() => approve(true)} disabled={saving}
+                        className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50">
+                        Accept requested date
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1">Membership this continues</label>
+                <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="inp">
+                  <option value="">— Use imported plan ({d.legacyMembershipName || "none"}) —</option>
+                  {memberships.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Imported: {d.legacyMembershipName || "—"}
+                  {d.legacyMembershipPrice != null ? ` · $${Number(d.legacyMembershipPrice).toFixed(2)}` : ""}
+                  {d.legacyBillingFrequency ? ` / ${d.legacyBillingFrequency.toLowerCase()}` : ""}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Next billing date</label>
+                  <input type="date" value={anchor} onChange={(e) => setAnchor(e.target.value)} className="inp" />
+                  <p className="text-[11px] text-text-muted mt-1">First Stripe charge (old cycle or edit it)</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">End / commitment date</label>
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="inp" />
+                  <p className="text-[11px] text-text-muted mt-1">Optional — matches prior contract</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1">Client can edit during activation</label>
+                <div className="space-y-1.5">
+                  {EDITABLE_KEYS.map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 text-sm text-text-primary">
+                      <input
+                        type="checkbox"
+                        checked={!!editable[f.key]}
+                        onChange={(e) => setEditable((p) => ({ ...p, [f.key]: e.target.checked }))}
+                      />
+                      {f.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {activationUrl && (
+                <div className="bg-app-bg border border-app-border rounded-lg p-3">
+                  <p className="text-xs font-medium text-text-primary mb-1">Activation link</p>
+                  <div className="flex items-center gap-2">
+                    <input readOnly value={activationUrl} className="inp text-xs" />
+                    <button onClick={copyLink} className="text-xs px-3 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover whitespace-nowrap">
+                      {copied ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-text-muted mt-1">
+                    Share this directly if email isn&apos;t configured — it works the same as the emailed link.
+                  </p>
+                </div>
+              )}
+
+              {msg && <p className="text-sm text-text-muted">{msg}</p>}
+
+              <div className="flex gap-2 justify-end border-t border-app-border pt-4">
+                <button onClick={onClose} className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Close</button>
+                <button onClick={saveSetup} disabled={saving} className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+                  {saving ? "Saving…" : "Save setup"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

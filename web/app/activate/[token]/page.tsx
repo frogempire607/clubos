@@ -5,12 +5,14 @@ import { useParams, useSearchParams } from "next/navigation";
 
 type Data = {
   completed: boolean;
+  pendingApproval: boolean;
   member: {
     firstName: string; lastName: string; email: string | null; phone: string | null;
     isMinor: boolean; guardianName: string | null; guardianEmail: string | null;
   };
   club: { name: string; slug: string; logoUrl: string | null; primaryColor: string | null };
   membership: { name: string | null; price: number | null; frequency: string | null; nextBillingDate: string | null; commitmentEndDate: string | null };
+  editable: { phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean };
   paymentEnabled: boolean;
   requiredDocument: { id: string; title: string; body: string | null } | null;
 };
@@ -25,9 +27,13 @@ export default function ActivatePage() {
   const [loading, setLoading] = useState(true);
 
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [autopay, setAutopay] = useState(false);
   const [signed, setSigned] = useState(false);
+  const [reqDate, setReqDate] = useState("");
+  const [reqNote, setReqNote] = useState("");
+  const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -39,6 +45,7 @@ export default function ActivatePage() {
         if (!r.ok) { setLoadErr(d.error || "This link is no longer valid."); setLoading(false); return; }
         setData(d);
         setPhone(d.member?.phone || "");
+        setEmail(d.member?.email || "");
         setLoading(false);
       })
       .catch(() => { setLoadErr("Something went wrong. Please try again."); setLoading(false); });
@@ -58,8 +65,12 @@ export default function ActivatePage() {
       body: JSON.stringify({
         password,
         phone: phone || null,
+        email: data?.editable.email && email ? email : null,
         autopayAccepted: true,
         signedDocumentId: data?.requiredDocument?.id || null,
+        requestedBillingDate: data?.editable.billingDateRequest && reqDate ? reqDate : null,
+        requestedBillingNote: data?.editable.billingDateRequest && reqNote ? reqNote : null,
+        activationNote: data?.editable.notes && note ? note : null,
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -85,7 +96,11 @@ export default function ActivatePage() {
   }
   if (!data) return null;
 
-  const done = justDone || data.completed || !!successMsg;
+  const done = justDone || data.completed || data.pendingApproval || !!successMsg;
+  const doneMsg = data.completed
+    ? `Thanks, ${data.member.firstName}! Your membership at ${data.club.name} is active and continuing without interruption.`
+    : successMsg ||
+      `Thanks, ${data.member.firstName}! Your details and payment method are saved. ${data.club.name} will review and confirm your billing — you have not been charged, and won't be until they approve and your billing date arrives.`;
 
   return (
     <div className="min-h-screen bg-stone-50 py-10 px-4">
@@ -110,9 +125,7 @@ export default function ActivatePage() {
           {done ? (
             <div className="text-center">
               <p className="text-3xl mb-2">🎉</p>
-              <p className="text-stone-700 leading-relaxed">
-                {successMsg || `Thanks, ${data.member.firstName}! Your membership at ${data.club.name} is continuing without interruption.`}
-              </p>
+              <p className="text-stone-700 leading-relaxed">{doneMsg}</p>
               <p className="text-sm text-stone-500 mt-3">
                 You can sign in any time at the {data.club.name} member portal.
               </p>
@@ -151,19 +164,47 @@ export default function ActivatePage() {
               <div className="space-y-4 mb-5">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
-                  <input value={data.member.email || data.member.guardianEmail || ""} disabled
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-stone-50 text-stone-500" />
+                  <input
+                    value={data.editable.email ? email : data.member.email || data.member.guardianEmail || ""}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={!data.editable.email}
+                    className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.email ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Phone</label>
                   <input value={phone} onChange={(e) => setPhone(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="(555) 555-5555" />
+                    disabled={!data.editable.phone}
+                    className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
+                    placeholder="(555) 555-5555" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
                   <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
                 </div>
+                {data.editable.billingDateRequest && (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">
+                      Request a different billing date <span className="text-stone-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="date" value={reqDate} onChange={(e) => setReqDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+                    <input value={reqNote} onChange={(e) => setReqNote(e.target.value)}
+                      placeholder="Why? (optional — your club reviews this)"
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm mt-2" />
+                  </div>
+                )}
+                {data.editable.notes && (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">
+                      Note for your club <span className="text-stone-400 font-normal">(optional)</span>
+                    </label>
+                    <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                      placeholder="Anything the club should know" />
+                  </div>
+                )}
               </div>
 
               {/* Required document */}
@@ -186,7 +227,7 @@ export default function ActivatePage() {
                 <span>
                   I authorize {data.club.name} to automatically charge my payment method for this
                   membership on its recurring billing date. {data.paymentEnabled
-                    ? "I'll add my card on the next secure step — my first charge is on my existing billing date, not today."
+                    ? "I'll add my card on the next secure step. The club reviews and confirms my billing — I'm not charged today."
                     : "The club will confirm billing details with me."}
                 </span>
               </label>

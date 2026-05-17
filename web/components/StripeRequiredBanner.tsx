@@ -25,7 +25,7 @@ export default function StripeRequiredBanner({ feature = "accept payments" }: { 
         <span className="font-medium">Connect Stripe to {feature}.</span>{" "}
         Until you connect, members won't be able to pay you.
       </div>
-      <Link href="/dashboard/settings/billing" className="text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap" style={{ background: "#fff", color: "white" }}>
+      <Link href="/dashboard/settings/billing" className="text-xs px-3 py-1.5 rounded-md font-semibold whitespace-nowrap" style={{ background: "#fff", color: "var(--color-warning)" }}>
         Connect Stripe →
       </Link>
     </div>

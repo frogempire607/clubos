@@ -223,35 +223,50 @@ export async function POST(req: Request) {
 
         // ── Member migration: finalize the switch once payment is set up ─────
         // The subscription was activated above (memberSubscriptionId branch).
-        // Now flip the migrated member to COMPLETED so the migration dashboard
-        // reflects that billing continuity is fully in place.
-        if (session.metadata?.migrationMemberId) {
+        // Migration SETUP-mode checkout completed: the client added a card but
+        // billing has NOT started. Save the payment method and mark payment
+        // setup complete — the member stays PENDING_APPROVAL until the owner
+        // reviews and approves (that's when the subscription is created).
+        if (session.metadata?.migrationMemberId && session.mode === "setup") {
           const migMemberId = session.metadata.migrationMemberId;
           try {
             const mig = await prisma.member.findUnique({
               where: { id: migMemberId },
-              select: { id: true, clubId: true, migrationStatus: true },
+              select: { id: true, clubId: true, migrationStatus: true, club: { select: { stripeAccountId: true } } },
             });
             if (mig && mig.migrationStatus !== "COMPLETED") {
+              let pmId: string | null = null;
+              const siId = session.setup_intent as string | null;
+              if (siId && mig.club.stripeAccountId) {
+                try {
+                  const si = await stripe.setupIntents.retrieve(siId, {
+                    stripeAccount: mig.club.stripeAccountId,
+                  });
+                  pmId = (si.payment_method as string) || null;
+                } catch (e) {
+                  console.error("SetupIntent retrieve failed:", e);
+                }
+              }
               await prisma.member.update({
                 where: { id: migMemberId },
                 data: {
-                  migrationStatus: "COMPLETED",
                   paymentSetupStatus: "COMPLETE",
-                  migrationCompletedAt: new Date(),
+                  ...(pmId ? { stripeSetupPaymentMethodId: pmId } : {}),
+                  ...(mig.migrationStatus ? {} : { migrationStatus: "ACTIVATED" }),
+                  approvalStatus: "PENDING_APPROVAL",
                 },
               });
               await prisma.memberMigrationEvent.create({
                 data: {
                   clubId: mig.clubId,
                   memberId: migMemberId,
-                  type: "COMPLETED",
-                  message: "Payment method added, autopay active — migration complete",
+                  type: "NOTE",
+                  message: "Payment method on file — awaiting club review & approval before billing starts",
                 },
               });
             }
           } catch (e) {
-            console.error("Migration completion update failed:", e);
+            console.error("Migration setup completion update failed:", e);
           }
         }
 

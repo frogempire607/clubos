@@ -290,6 +290,23 @@ model Member {
   activationEmailSendCount Int      @default(0)
   activatedAt              DateTime?
   migrationCompletedAt     DateTime?
+  // Owner-assigned plan this migration continues (a real Membership.id).
+  // Preferred over the legacy* snapshot when set.
+  migrationMembershipId    String?
+  // Which fields/abilities the client may edit on the activation page.
+  // Shape: { phone, email, billingDateRequest, notes }. null = defaults.
+  activationEditableFields Json?
+  // Client-submitted requests captured at activation (owner reviews these).
+  requestedBillingDate       DateTime?
+  requestedBillingNote       String?
+  activationNote             String?
+  // null | PENDING_APPROVAL | APPROVED. Billing NEVER starts until APPROVED.
+  approvalStatus             String?
+  // Stripe Customer + PaymentMethod on the club's CONNECTED account, saved
+  // via setup-mode checkout. The subscription is created from these only
+  // after the owner approves — never at activation time.
+  stripeSetupCustomerId      String?
+  stripeSetupPaymentMethodId String?
 
   club              Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user              User?                 @relation(fields: [userId], references: [id])

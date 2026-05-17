@@ -2,11 +2,24 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
-import { MIGRATION_STATUS, PAYMENT_SETUP, resolveBillingAnchor } from "@/lib/migration";
-import { recurringUnitWithFee } from "@/lib/fees";
+import { stripe } from "@/lib/stripe";
+import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
 
 // NO AUTH — token-gated public activation endpoint.
+
+type EditableFields = { phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean };
+const DEFAULT_EDITABLE: EditableFields = { phone: true, email: false, billingDateRequest: true, notes: true };
+
+function resolveEditable(raw: unknown): EditableFields {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    phone: o.phone === undefined ? DEFAULT_EDITABLE.phone : !!o.phone,
+    email: o.email === undefined ? DEFAULT_EDITABLE.email : !!o.email,
+    billingDateRequest:
+      o.billingDateRequest === undefined ? DEFAULT_EDITABLE.billingDateRequest : !!o.billingDateRequest,
+    notes: o.notes === undefined ? DEFAULT_EDITABLE.notes : !!o.notes,
+  };
+}
 
 async function loadByToken(token: string) {
   const member = await prisma.member.findFirst({
@@ -20,12 +33,46 @@ async function loadByToken(token: string) {
   return { member };
 }
 
+type LoadedMember = Extract<Awaited<ReturnType<typeof loadByToken>>, { member: unknown }>["member"];
+
+// Resolve the plan this migration continues: owner-assigned Membership first,
+// else the legacy snapshot captured at import.
+async function resolvePlan(m: LoadedMember) {
+  if (m.migrationMembershipId) {
+    const plan = await prisma.membership.findFirst({
+      where: { id: m.migrationMembershipId, clubId: m.clubId, deletedAt: null },
+      select: { id: true, name: true, options: true },
+    });
+    if (plan) {
+      let price: number | null = m.legacyMembershipPrice ? Number(m.legacyMembershipPrice) : null;
+      let frequency = m.legacyBillingFrequency || "MONTHLY";
+      try {
+        const opts = JSON.parse((plan.options as unknown as string) || "[]");
+        if (Array.isArray(opts) && opts[0]) {
+          if (price == null && typeof opts[0].price === "number") price = opts[0].price;
+          if (opts[0].billingPeriod) frequency = opts[0].billingPeriod;
+        }
+      } catch {
+        /* options not JSON — fall back to legacy snapshot */
+      }
+      return { membershipId: plan.id, name: plan.name, price, frequency };
+    }
+  }
+  return {
+    membershipId: null as string | null,
+    name: m.legacyMembershipName,
+    price: m.legacyMembershipPrice ? Number(m.legacyMembershipPrice) : null,
+    frequency: m.legacyBillingFrequency || "MONTHLY",
+  };
+}
+
 // GET — render data for the activation page.
 export async function GET(_req: Request, context: { params: Promise<{ token: string }> }) {
   const { token } = await context.params;
   const r = await loadByToken(token);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: 404 });
   const m = r.member;
+  const plan = await resolvePlan(m);
 
   const requiredDoc = await prisma.document.findFirst({
     where: {
@@ -40,6 +87,8 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
 
   return NextResponse.json({
     completed: m.migrationStatus === MIGRATION_STATUS.COMPLETED,
+    // Card on file & waiting for the club to review/approve billing.
+    pendingApproval: m.approvalStatus === "PENDING_APPROVAL",
     member: {
       firstName: m.firstName,
       lastName: m.lastName,
@@ -51,12 +100,13 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     },
     club: { name: m.club.name, slug: m.club.slug, logoUrl: m.club.logoUrl, primaryColor: m.club.primaryColor },
     membership: {
-      name: m.legacyMembershipName,
-      price: m.legacyMembershipPrice ? Number(m.legacyMembershipPrice) : null,
-      frequency: m.legacyBillingFrequency,
+      name: plan.name,
+      price: plan.price,
+      frequency: plan.frequency,
       nextBillingDate: m.billingAnchorDate ? m.billingAnchorDate.toISOString() : null,
       commitmentEndDate: m.commitmentEndDate ? m.commitmentEndDate.toISOString() : null,
     },
+    editable: resolveEditable(m.activationEditableFields),
     paymentEnabled: !!(m.club.stripeAccountId && m.club.stripeChargesEnabled),
     requiredDocument: requiredDoc,
   });
@@ -65,14 +115,19 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
 const postSchema = z.object({
   password: z.string().min(8),
   phone: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable(),
   autopayAccepted: z.literal(true),
   signedDocumentId: z.string().optional().nullable(),
+  // Client requests — owner reviews these before billing starts.
+  requestedBillingDate: z.string().optional().nullable(),
+  requestedBillingNote: z.string().max(500).optional().nullable(),
+  activationNote: z.string().max(1000).optional().nullable(),
 });
 
 // POST — complete activation: set password, confirm profile, accept autopay,
-// (optionally) sign a waiver, then open Stripe to add the payment method.
-// Billing NEVER starts here — Stripe collects the card and only charges on the
-// member's existing billing date (trial_end = billingAnchorDate).
+// optionally sign a waiver, capture billing-date/notes requests, then collect
+// a payment method via Stripe SETUP mode. NO charge, NO subscription is
+// created here — billing only starts after the owner approves.
 export async function POST(req: Request, context: { params: Promise<{ token: string }> }) {
   const { token } = await context.params;
   const r = await loadByToken(token);
@@ -98,7 +153,10 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     throw err;
   }
 
-  const contactEmail = (member.isMinor ? member.guardianEmail || member.email : member.email)?.toLowerCase() || null;
+  const editable = resolveEditable(member.activationEditableFields);
+  const newEmail = editable.email && body.email ? body.email.toLowerCase() : null;
+  const contactEmail =
+    (member.isMinor ? member.guardianEmail || member.email : newEmail || member.email)?.toLowerCase() || null;
   if (!contactEmail) {
     return NextResponse.json(
       { error: "No email on file. Contact your club to finish setup." },
@@ -125,17 +183,25 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       },
     });
   }
-  if (!member.userId) {
-    await prisma.member.update({ where: { id: member.id }, data: { userId: user.id } });
-  }
 
-  // Confirm profile + record acceptance / activation.
+  const requestedDate = body.requestedBillingDate ? new Date(body.requestedBillingDate) : null;
+  const validRequested = requestedDate && !isNaN(requestedDate.getTime()) ? requestedDate : null;
+
   await prisma.member.update({
     where: { id: member.id },
     data: {
-      phone: body.phone?.trim() || member.phone,
+      ...(member.userId ? {} : { userId: user.id }),
+      ...(editable.phone && body.phone?.trim() ? { phone: body.phone.trim() } : {}),
+      ...(newEmail ? { email: newEmail } : {}),
+      ...(editable.billingDateRequest && validRequested ? { requestedBillingDate: validRequested } : {}),
+      ...(editable.billingDateRequest && body.requestedBillingNote
+        ? { requestedBillingNote: body.requestedBillingNote.trim() }
+        : {}),
+      ...(editable.notes && body.activationNote ? { activationNote: body.activationNote.trim() } : {}),
       migrationStatus: MIGRATION_STATUS.ACTIVATED,
       activatedAt: new Date(),
+      // Goes into the owner's review queue. Billing does NOT begin.
+      approvalStatus: "PENDING_APPROVAL",
     },
   });
 
@@ -147,25 +213,17 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     });
     if (doc) {
       const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
+      const sig = {
+        signerUserId: user.id,
+        signerName: `${member.firstName} ${member.lastName}`.trim(),
+        relationship: member.isMinor ? "GUARDIAN" : "SELF",
+        ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
+        userAgent: req.headers.get("user-agent"),
+      };
       await prisma.documentSignature.upsert({
         where: { documentId_memberId: { documentId: doc.id, memberId: member.id } },
-        update: {
-          signerUserId: user.id,
-          signerName: `${member.firstName} ${member.lastName}`.trim(),
-          relationship: member.isMinor ? "GUARDIAN" : "SELF",
-          signedAt: new Date(),
-          ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
-          userAgent: req.headers.get("user-agent"),
-        },
-        create: {
-          documentId: doc.id,
-          memberId: member.id,
-          signerUserId: user.id,
-          signerName: `${member.firstName} ${member.lastName}`.trim(),
-          relationship: member.isMinor ? "GUARDIAN" : "SELF",
-          ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
-          userAgent: req.headers.get("user-agent"),
-        },
+        update: { ...sig, signedAt: new Date() },
+        create: { documentId: doc.id, memberId: member.id, ...sig },
       });
     }
   }
@@ -175,130 +233,63 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       clubId: club.id,
       memberId: member.id,
       type: "ACTIVATED",
-      message: "Account activated, profile confirmed, autopay accepted",
+      message:
+        "Account activated, autopay accepted" +
+        (validRequested ? ` · client requested billing on ${validRequested.toLocaleDateString()}` : "") +
+        (body.activationNote ? " · left a note" : ""),
     },
   });
 
-  const price = member.legacyMembershipPrice ? Number(member.legacyMembershipPrice) : 0;
-  const period = member.legacyBillingFrequency || "MONTHLY";
-
-  // No online payment possible (club not connected) or no price on file →
-  // account is activated; the club follows up on billing. Never auto-charge.
-  if (!club.stripeAccountId || !club.stripeChargesEnabled || price <= 0) {
-    await prisma.memberMigrationEvent.create({
-      data: {
-        clubId: club.id,
-        memberId: member.id,
-        type: "NOTE",
-        message: price <= 0
-          ? "No membership price on file — club to confirm billing manually."
-          : "Club has no online payments — billing to be set up by the club.",
-      },
+  // No online payments on the club → activated; owner handles billing manually.
+  if (!club.stripeAccountId || !club.stripeChargesEnabled) {
+    await prisma.member.update({
+      where: { id: member.id },
+      data: { paymentSetupStatus: PAYMENT_SETUP.REQUIRED },
     });
     return NextResponse.json({
       ok: true,
       noPayment: true,
       message:
-        "Your account is activated. Your club will confirm your billing details — you have not been charged.",
+        "Your account is activated. Your club will confirm billing details — you have not been charged.",
     });
   }
 
-  // Find or create the membership plan this continues.
-  let membership = await prisma.membership.findFirst({
-    where: {
-      clubId: club.id,
-      deletedAt: null,
-      name: { equals: member.legacyMembershipName || "Membership", mode: "insensitive" },
-    },
-  });
-  if (!membership) {
-    membership = await prisma.membership.create({
-      data: {
-        clubId: club.id,
-        name: member.legacyMembershipName || "Continued membership",
-        options: JSON.stringify([{ label: "Continued", price, billingPeriod: period }]),
-      },
-    });
-  }
+  // Collect a payment method WITHOUT charging. A Customer on the connected
+  // account holds the saved card so it can be reused when the owner approves.
+  const customer = member.stripeSetupCustomerId
+    ? { id: member.stripeSetupCustomerId }
+    : await stripe.customers.create(
+        {
+          email: contactEmail,
+          name: `${member.firstName} ${member.lastName}`.trim(),
+          metadata: { migrationMemberId: member.id, clubId: club.id },
+        },
+        { stripeAccount: club.stripeAccountId },
+      );
 
-  const memberSub = await prisma.memberSubscription.create({
-    data: {
-      memberId: member.id,
-      membershipId: membership.id,
-      optionLabel: member.legacyMembershipName || "Continued",
-      price,
-      billingPeriod: period,
-      billingType: "RECURRING",
-      autoRenew: true,
-      status: "pending",
-      startDate: member.membershipStartDate ?? new Date(),
-      billingAnchorDate: member.billingAnchorDate,
-      notes: `Migrated from ${member.legacySource || "previous software"}`,
-    },
-  });
-
-  // Re-resolve the anchor at activation so we never bill retroactively.
-  const anchor = resolveBillingAnchor({
-    nextBillingDate: member.billingAnchorDate,
-    membershipStartDate: member.membershipStartDate,
-    frequency: period,
-    now: new Date(),
-  });
-  const trialEnd =
-    anchor && anchor.getTime() > Date.now() + 60_000 ? Math.floor(anchor.getTime() / 1000) : undefined;
-
-  const amountInCents = Math.round(price * 100);
-  const stripeInterval = billingPeriodToStripeInterval(period);
-  const appFeePercent = 0;
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
-  const recurringAmount = recurringUnitWithFee(amountInCents, club.passProcessingFees);
-
   const checkout = await stripe.checkout.sessions.create(
     {
-      mode: "subscription",
-      customer_email: contactEmail,
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "usd",
-            unit_amount: recurringAmount,
-            product_data: {
-              name: `${membership.name} — continued from ${member.legacySource || "previous club"}`,
-              ...(club.passProcessingFees ? { description: "Includes processing fee" } : {}),
-            },
-            ...(stripeInterval ? { recurring: stripeInterval } : { recurring: { interval: "month" } }),
-          },
-        },
-      ],
+      mode: "setup",
+      customer: customer.id,
+      currency: "usd",
       success_url: `${baseUrl}/activate/${token}?done=true`,
       cancel_url: `${baseUrl}/activate/${token}?canceled=true`,
       metadata: {
-        memberSubscriptionId: memberSub.id,
-        memberId: member.id,
-        clubId: club.id,
         migrationMemberId: member.id,
+        clubId: club.id,
+        setupCustomerId: customer.id,
       },
-      subscription_data: {
-        application_fee_percent: appFeePercent,
-        metadata: {
-          memberSubscriptionId: memberSub.id,
-          memberId: member.id,
-          clubId: club.id,
-          migrationMemberId: member.id,
-        },
-        // Card is collected now; first charge waits until the member's
-        // existing billing date, so service continues without interruption
-        // and nobody is charged on import/activation day.
-        ...(trialEnd ? { trial_end: trialEnd } : {}),
+      setup_intent_data: {
+        metadata: { migrationMemberId: member.id, clubId: club.id },
       },
     },
     { stripeAccount: club.stripeAccountId },
   );
 
-  await prisma.memberSubscription.update({
-    where: { id: memberSub.id },
-    data: { stripeCheckoutSessionId: checkout.id },
+  await prisma.member.update({
+    where: { id: member.id },
+    data: { stripeSetupCustomerId: customer.id, paymentSetupStatus: PAYMENT_SETUP.REQUIRED },
   });
 
   return NextResponse.json({ ok: true, url: checkout.url });
