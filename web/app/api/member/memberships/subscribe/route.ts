@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 
 const schema = z.object({
   membershipId: z.string(),
@@ -86,21 +87,35 @@ export async function POST(req: Request) {
     const isRecurring = billingType === "RECURRING" && stripeInterval !== null;
 
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const checkoutMode: "subscription" | "payment" = isRecurring ? "subscription" : "payment";
+    const passFees = club.passProcessingFees;
+
+    // Subscription line items can't carry a one-time add-on, so fold the
+    // optional processing fee into the recurring amount. One-time payments get
+    // a separate, clearly labeled "Processing fee" line.
+    const recurringAmount =
+      checkoutMode === "subscription" ? recurringUnitWithFee(amountInCents, passFees) : amountInCents;
     const lineItem: Record<string, unknown> = {
       quantity: 1,
       price_data: {
         currency: "usd",
-        unit_amount: amountInCents,
+        unit_amount: recurringAmount,
         product_data: {
           name: `${membership.name} — ${option.label}`,
-          ...(membership.description ? { description: membership.description } : {}),
+          ...((() => {
+            const d =
+              (membership.description ?? "") +
+              (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
+            return d.trim() ? { description: d.trim() } : {};
+          })()),
         },
         ...(isRecurring ? { recurring: stripeInterval } : {}),
       },
     };
+    const feeItem =
+      checkoutMode === "payment" ? processingFeeLineItem(amountInCents, passFees) : null;
 
-    const checkoutMode: "subscription" | "payment" = isRecurring ? "subscription" : "payment";
-    const appFeePercent = club.tier === "starter" ? 2.5 : 0;
+    const appFeePercent = 0;
 
     // Honor trial rules — same logic as owner-side subscribe
     let trialPeriodDays: number | null = null;
@@ -117,7 +132,7 @@ export async function POST(req: Request) {
     const checkoutSession = await stripe.checkout.sessions.create(
       {
         mode: checkoutMode,
-        line_items: [lineItem],
+        line_items: feeItem ? [lineItem, feeItem] : [lineItem],
         success_url: `${baseUrl}/member/memberships?subscribed=true`,
         cancel_url:  `${baseUrl}/member/memberships?canceled=true`,
         metadata: {

@@ -2,100 +2,93 @@ import Link from "next/link";
 
 const tiers = [
   {
-    name: "Starter",
-    price: 0,
-    fee: "2.5%",
-    desc: "For new clubs getting started.",
-    cta: "Start free",
-    href: "/signup",
-    featured: false,
-    highlights: [
-      "Up to 150 members",
-      "1 location",
-      "Recurring classes & one-off events",
-      "Private lessons & packages",
-      "Direct & group messaging",
-      "Member CSV import + custom fields",
-      "Attendance tracking",
-      "Stripe Connect payouts",
-    ],
-  },
-  {
     name: "Growth",
     price: 50,
-    fee: "0%",
-    desc: "Skip the transaction fees — perfect for single-location clubs.",
-    cta: "Start Growth",
+    tagline: "Everything you need to run your club.",
+    desc: "Best for newer and single-location clubs.",
+    cta: "Start with Growth",
     href: "/signup",
     featured: true,
     highlights: [
-      "Unlimited members",
-      "0% transaction fees",
+      "Up to 200 members",
+      "1 location",
+      "Classes & events",
+      "Memberships & billing",
+      "Attendance tracking",
+      "Direct & group messaging + announcements",
+      "Private lessons & packages",
+      "Stripe Connect payouts",
       "Reports & analytics",
-      "Plaid bank reconciliation",
-      "Discount codes & coupons",
-      "Document signatures",
-      "Single location only",
+      "CSV import & custom fields",
     ],
   },
   {
     name: "Pro",
     price: 99,
-    fee: "0%",
-    desc: "For established clubs that want it all.",
-    cta: "Start Pro",
+    tagline: "Built for growing, professional organizations.",
+    desc: "For established clubs scaling operations.",
+    cta: "Start with Pro",
     href: "/signup",
     featured: false,
     highlights: [
       "Everything in Growth",
-      "Email & SMS messaging",
+      "Unlimited members",
+      "Up to 3 locations",
+      "Plaid bank reconciliation & sync",
+      "Email + SMS messaging",
       "Branded iOS + Android app",
-      "Full analytics suite",
+      "Advanced analytics",
       "Priority support",
     ],
   },
   {
     name: "Enterprise",
     price: 199,
-    fee: "0%",
-    desc: "Multi-location organizations.",
+    tagline: "Powerful infrastructure for large-scale operations.",
+    desc: "For large organizations and multi-location brands.",
     cta: "Contact sales",
     href: "mailto:hello@clubos.app",
     featured: false,
     highlights: [
+      "Everything in Pro",
       "Unlimited locations",
-      "Multi-location analytics",
-      "Custom onboarding",
       "API access",
+      "SSO",
+      "Advanced permissions",
+      "Custom onboarding",
       "Dedicated account manager",
-      "SSO + advanced permissions",
+      "Enterprise analytics & reporting",
     ],
   },
 ];
 
 const compareRows = [
-  { label: "Members",                values: ["150",      "Unlimited", "Unlimited", "Unlimited"] },
-  { label: "Locations",              values: ["1",        "1",         "5",         "Unlimited"] },
-  { label: "Transaction fee",        values: ["2.5%",     "0%",        "0%",        "0%"] },
-  { label: "Stripe Connect payouts", values: ["✓",        "✓",         "✓",         "✓"] },
-  { label: "Classes & events",       values: ["✓",        "✓",         "✓",         "✓"] },
-  { label: "Memberships & billing",  values: ["✓",        "✓",         "✓",         "✓"] },
-  { label: "Attendance tracking",    values: ["✓",        "✓",         "✓",         "✓"] },
-  { label: "Announcements",          values: ["Basic",    "Full",      "Full",      "Full"] },
-  { label: "Direct messaging",       values: ["✓",        "✓",         "✓",         "✓"] },
-  { label: "Reports & analytics",    values: ["—",        "✓",         "Advanced",  "Advanced"] },
-  { label: "Plaid bank sync",        values: ["—",        "✓",         "✓",         "✓"] },
-  { label: "Email + SMS",            values: ["—",        "—",         "✓",         "✓"] },
-  { label: "Branded mobile app",     values: ["—",        "—",         "✓",         "✓"] },
-  { label: "Private lessons",        values: ["✓",        "✓",         "✓",         "✓"] },
-  { label: "API access",             values: ["—",        "—",         "—",         "✓"] },
-  { label: "Dedicated support",      values: ["Community","Email",     "Priority",  "Dedicated"] },
+  { label: "Members",                values: ["200",       "Unlimited", "Unlimited"] },
+  { label: "Locations",              values: ["1",         "3",         "Unlimited"] },
+  { label: "AthletixOS platform fee",values: ["0%",        "0%",        "0%"] },
+  { label: "Stripe Connect payouts", values: ["✓",         "✓",         "✓"] },
+  { label: "Classes & events",       values: ["✓",         "✓",         "✓"] },
+  { label: "Memberships & billing",  values: ["✓",         "✓",         "✓"] },
+  { label: "Attendance tracking",    values: ["✓",         "✓",         "✓"] },
+  { label: "Messaging & announcements", values: ["✓",      "✓",         "✓"] },
+  { label: "Private lessons",        values: ["✓",         "✓",         "✓"] },
+  { label: "Reports & analytics",    values: ["✓",         "Advanced",  "Enterprise"] },
+  { label: "Plaid bank sync",        values: ["—",         "✓",         "✓"] },
+  { label: "Email + SMS",            values: ["—",         "✓",         "✓"] },
+  { label: "Branded mobile app",     values: ["—",         "✓",         "✓"] },
+  { label: "API access",             values: ["—",         "—",         "✓"] },
+  { label: "SSO + advanced permissions", values: ["—",     "—",         "✓"] },
+  { label: "Support",                values: ["Standard",  "Priority",  "Dedicated"] },
 ];
 
 const faqs = [
   {
-    q: "How does the transaction fee work?",
-    a: "Stripe charges its standard processing fee (2.9% + $0.30) on every payment. AthletixOS adds a 2.5% platform fee on Starter; Growth, Pro, and Enterprise pay 0% on top of Stripe. Payouts go directly to your bank, not through us.",
+    q: "Are there any per-transaction fees from AthletixOS?",
+    a: "No. AthletixOS charges 0% on every plan — your flat monthly subscription is all you pay us. Stripe charges its own standard processing fee (2.9% + $0.30) on each payment; you can optionally pass that fee to members at checkout from your settings, so the club nets the full amount.",
+  },
+  {
+    q: "Can members be charged the processing fee instead of the club?",
+    a: "Yes. Enable “Pass processing fees to customer” in payment settings and the fee is transparently added to the member's checkout total with a clear breakdown before they pay.",
   },
   {
     q: "Can I switch plans later?",
@@ -108,10 +101,6 @@ const faqs = [
   {
     q: "What about minors and guardians?",
     a: "Every plan includes guardian-aware billing and messaging. Minors don't need their own logins; guardians sign documents, receive announcements, and pay on their behalf.",
-  },
-  {
-    q: "Is there a free trial?",
-    a: "The Starter plan is free forever for clubs under 150 members. You can also try Growth or Pro free for 14 days — no credit card required.",
   },
   {
     q: "Can I cancel anytime?",
@@ -163,7 +152,7 @@ export default function PricingPage() {
                 padding: "7px 16px", borderRadius: 8, textDecoration: "none",
               }}
             >
-              Get started free
+              Get started
             </Link>
           </nav>
         </div>
@@ -188,7 +177,7 @@ export default function PricingPage() {
             Pricing for every stage of your club
           </h1>
           <p style={{ fontSize: 17, color: "rgba(255,255,255,0.65)", lineHeight: 1.6 }}>
-            Start free. Pay nothing until you charge a member. No setup fees, no contracts, no surprise charges.
+            One flat monthly price. 0% platform fee on every plan. No setup fees, no contracts, no surprise charges.
           </p>
         </div>
       </section>
@@ -237,9 +226,12 @@ export default function PricingPage() {
                     <span style={{ color: t.featured ? "rgba(255,255,255,0.4)" : "#78716C", fontSize: 14 }}>/mo</span>
                   </div>
                   <div style={{ fontSize: 12, color: t.featured ? "rgba(255,255,255,0.45)" : "#78716C" }}>
-                    + {t.fee} platform fee per transaction
+                    0% platform fee · cancel anytime
                   </div>
-                  <div style={{ fontSize: 13, color: t.featured ? "rgba(255,255,255,0.55)" : "#78716C", marginTop: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: t.featured ? "#fff" : "#1C1917", marginTop: 10 }}>
+                    {t.tagline}
+                  </div>
+                  <div style={{ fontSize: 12, color: t.featured ? "rgba(255,255,255,0.55)" : "#78716C", marginTop: 4 }}>
                     {t.desc}
                   </div>
                 </div>
@@ -362,10 +354,10 @@ export default function PricingPage() {
             fontFamily: "var(--font-fraunces, Georgia, serif)",
           }}
         >
-          Start free in under 5 minutes
+          Set up your club in under 5 minutes
         </h2>
         <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 16, marginBottom: 28 }}>
-          No credit card required. Upgrade once your club is growing.
+          Start on Growth and scale up the moment you need more. Cancel anytime.
         </p>
         <Link
           href="/signup"

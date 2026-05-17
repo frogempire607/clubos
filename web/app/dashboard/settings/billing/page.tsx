@@ -12,14 +12,14 @@ type Status = {
   stripePayoutsEnabled: boolean;
 };
 
-const TIER_ORDER: Tier[] = ["starter", "growth", "pro", "enterprise"];
+const TIER_ORDER: Tier[] = ["growth", "pro", "enterprise"];
 
 export default function BillingSettingsPage() {
   const { data: session } = useSession();
   void session;
   const params = useSearchParams();
   const [status, setStatus] = useState<Status | null>(null);
-  const [clubTier, setClubTier] = useState<Tier>("starter");
+  const [clubTier, setClubTier] = useState<Tier>("growth");
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -41,8 +41,8 @@ export default function BillingSettingsPage() {
     if (statusRes.ok) setStatus(await statusRes.json());
     if (infoRes.ok) {
       const info = await infoRes.json();
-      const tier = (info?.tier ?? "starter") as Tier;
-      setClubTier(["starter", "growth", "pro", "enterprise"].includes(tier) ? tier : "starter");
+      const tier = (info?.tier ?? "growth") as Tier;
+      setClubTier(["growth", "pro", "enterprise"].includes(tier) ? tier : "growth");
       setSubscriptionStatus(info?.subscriptionStatus ?? null);
     }
     setLoading(false);
@@ -51,7 +51,6 @@ export default function BillingSettingsPage() {
   useEffect(() => { load(); }, []);
 
   async function startUpgrade(tier: Tier) {
-    if (tier === "starter") return;
     setUpgradingTo(tier);
     setError("");
     try {
@@ -188,11 +187,15 @@ export default function BillingSettingsPage() {
         <h3 className="text-sm font-semibold text-text-primary mb-2">How payments work</h3>
         <ul className="text-xs text-text-muted space-y-1.5 leading-relaxed">
           <li>· Members pay with their card directly to your Stripe account</li>
-          <li>· AthletixOS takes a small platform fee (2.5% Starter; 0% on Growth, Pro, Enterprise)</li>
+          <li>· AthletixOS charges <strong>0% platform fee</strong> on every plan — your monthly subscription is all you pay us</li>
+          <li>· Optionally pass Stripe&apos;s processing fee to members at checkout (toggle below)</li>
           <li>· You handle payouts, taxes, and refunds through Stripe</li>
           <li>· Test card: <code className="bg-white px-1 py-0.5 rounded">4242 4242 4242 4242</code> — any future date / any CVC</li>
         </ul>
       </div>
+
+      {/* ── Pass processing fees to customer ── */}
+      <ProcessingFeeToggle />
 
       {/* ── AthletixOS Subscription Plan ── */}
       <div className="mt-8">
@@ -206,11 +209,7 @@ export default function BillingSettingsPage() {
               <div className="text-sm text-text-muted mb-1">Current plan</div>
               <div className="text-xl font-semibold text-text-primary">{getTierName(currentTier)}</div>
               <div className="text-sm text-text-muted mt-0.5">
-                {TIER_PRICES[currentTier as Tier]?.monthly === 0
-                  ? "Free forever"
-                  : `$${TIER_PRICES[currentTier as Tier]?.monthly}/month`}
-                {" · "}
-                {TIER_FEATURES[currentTier as Tier]?.transactionFeePercent}% transaction fee
+                ${TIER_PRICES[currentTier as Tier]?.monthly}/month · 0% platform fee
               </div>
             </div>
             <span
@@ -241,17 +240,17 @@ export default function BillingSettingsPage() {
                 <div className="text-xs font-medium mb-1" style={{ color: isCurrent ? "rgba(255,255,255,0.6)" : "var(--color-muted)" }}>
                   {price.label}
                 </div>
-                <div className="text-lg font-bold mb-0.5">
-                  {price.monthly === 0 ? "Free" : `$${price.monthly}/mo`}
-                </div>
+                <div className="text-lg font-bold mb-0.5">${price.monthly}/mo</div>
                 <div className="text-xs mb-3" style={{ color: isCurrent ? "rgba(255,255,255,0.55)" : "var(--color-muted)" }}>
-                  {TIER_FEATURES[tier].transactionFeePercent}% fee
+                  {TIER_FEATURES[tier].maxLocations === null
+                    ? "Unlimited locations"
+                    : `${TIER_FEATURES[tier].maxLocations} location${TIER_FEATURES[tier].maxLocations === 1 ? "" : "s"}`}
                 </div>
                 {isCurrent ? (
                   <div className="text-xs font-medium text-center py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,0.15)" }}>
                     Current
                   </div>
-                ) : isHigher && tier !== "starter" ? (
+                ) : isHigher ? (
                   <button
                     onClick={() => startUpgrade(tier)}
                     disabled={upgradingTo === tier}
@@ -262,7 +261,7 @@ export default function BillingSettingsPage() {
                   </button>
                 ) : (
                   <div className="text-xs text-center py-1.5 rounded-lg" style={{ color: "var(--color-muted)" }}>
-                    {tier === "starter" ? "Downgrade via portal" : "Lower tier"}
+                    Manage in portal
                   </div>
                 )}
               </div>
@@ -270,15 +269,13 @@ export default function BillingSettingsPage() {
           })}
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          {currentTier !== "starter" && (
-            <button
-              onClick={openManageBilling}
-              disabled={openingPortal}
-              className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
-            >
-              {openingPortal ? "Opening…" : "Manage billing"}
-            </button>
-          )}
+          <button
+            onClick={openManageBilling}
+            disabled={openingPortal}
+            className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+          >
+            {openingPortal ? "Opening…" : "Manage billing"}
+          </button>
           <a
             href="/dashboard/settings/diagnostics"
             className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
@@ -288,9 +285,97 @@ export default function BillingSettingsPage() {
         </div>
         <p className="text-[11px] text-text-muted mt-3">
           Use Manage billing to update your card, view invoices, switch plans, or cancel.
-          Downgrading to Starter is handled through that portal.
         </p>
       </div>
+    </div>
+  );
+}
+
+/* ── Pass Stripe processing fees to the customer ── */
+function ProcessingFeeToggle() {
+  const [enabled, setEnabled] = useState(false);
+  const [note, setNote] = useState("");
+  const [feeDesc, setFeeDesc] = useState("2.9%");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/club/payment-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setEnabled(!!d.passProcessingFees);
+          setNote(d.processingFeeNote || "");
+          if (d.feeDescription) setFeeDesc(d.feeDescription);
+        }
+        setLoaded(true);
+      });
+  }, []);
+
+  async function save(next: boolean, nextNote: string) {
+    setSaving(true);
+    setSaved(false);
+    const res = await fetch("/api/club/payment-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passProcessingFees: next, processingFeeNote: nextNote || null }),
+    });
+    setSaving(false);
+    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 2500); }
+  }
+
+  return (
+    <div className="mt-6 bg-white rounded-xl border border-app-border p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary mb-1">Pass processing fees to customer</h3>
+          <p className="text-xs text-text-muted leading-relaxed max-w-xl">
+            When enabled, Stripe&apos;s processing fee ({feeDesc}) is transparently added to the
+            member&apos;s checkout total so you receive the full intended amount. Members see a clear
+            breakdown before paying. Applies to memberships, events, classes, products, and private
+            lessons.
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={enabled}
+          disabled={!loaded || saving}
+          onClick={() => { const n = !enabled; setEnabled(n); save(n, note); }}
+          className="relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition disabled:opacity-50"
+          style={{ background: enabled ? "var(--color-primary)" : "var(--color-border)" }}
+        >
+          <span
+            className="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform mt-0.5"
+            style={{ transform: enabled ? "translateX(22px)" : "translateX(2px)" }}
+          />
+        </button>
+      </div>
+
+      {enabled && (
+        <div className="mt-4">
+          <label className="block text-xs font-medium text-text-primary mb-1">
+            Optional explanation shown to members (optional)
+          </label>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onBlur={() => save(enabled, note)}
+            placeholder="e.g. A small processing fee keeps your membership price the same for the club."
+            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface"
+            maxLength={300}
+          />
+          <div className="mt-3 bg-app-bg border border-app-border rounded-lg p-3 text-xs text-text-muted">
+            <p className="font-medium text-text-primary mb-1">Example member sees</p>
+            <div className="flex justify-between"><span>Membership</span><span>$100.00</span></div>
+            <div className="flex justify-between"><span>Processing fee</span><span>$2.90</span></div>
+            <div className="flex justify-between font-semibold text-text-primary border-t border-app-border mt-1 pt-1">
+              <span>Total</span><span>$102.90</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {saved && <p className="text-xs text-text-muted mt-2">Saved.</p>}
     </div>
   );
 }

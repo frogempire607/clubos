@@ -17,7 +17,7 @@ export async function POST() {
     where: { id: session.user.clubId },
     select: { tier: true },
   });
-  const features = getTierFeatures(club?.tier ?? "starter");
+  const features = getTierFeatures(club?.tier ?? "growth");
   if (!features.plaid) {
     return NextResponse.json(
       {

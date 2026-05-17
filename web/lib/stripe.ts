@@ -8,19 +8,15 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2023-10-16",
 });
 
-export function platformFeeBps(tier: string): number {
-  switch (tier) {
-    case "starter": return 250;   // 2.5%
-    case "growth": return 0;      // Flat $50/mo, no per-transaction cut
-    case "pro": return 0;
-    case "enterprise": return 0;
-    default: return 250;
-  }
+// AthletixOS takes NO per-transaction platform cut on any plan — every tier is
+// a flat monthly subscription. Kept as a function so existing Connect
+// application_fee call sites stay valid (they just resolve to 0).
+export function platformFeeBps(_tier: string): number {
+  return 0;
 }
 
-export function calculatePlatformFee(amountInCents: number, tier: string): number {
-  const bps = platformFeeBps(tier);
-  return Math.round((amountInCents * bps) / 10000);
+export function calculatePlatformFee(_amountInCents: number, _tier: string): number {
+  return 0;
 }
 
 // Convert our billingPeriod enum -> Stripe recurring config

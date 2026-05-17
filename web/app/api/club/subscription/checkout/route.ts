@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 
     // If the club already has an active subscription, redirect them to the
     // customer portal to swap plans rather than starting a fresh checkout.
-    if (club.stripeSubscriptionId && club.tier !== "starter") {
+    if (club.stripeSubscriptionId) {
       return NextResponse.json(
         { error: "You already have an active plan. Use 'Manage billing' to change it." },
         { status: 400 }

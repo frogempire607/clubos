@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       where: { id: session.user.clubId },
       select: { tier: true },
     });
-    const features = getTierFeatures(club?.tier ?? "starter");
+    const features = getTierFeatures(club?.tier ?? "growth");
     if (features.maxLocations !== null) {
       const count = await prisma.location.count({
         where: { clubId: session.user.clubId, deletedAt: null },
@@ -47,8 +47,8 @@ export async function POST(req: Request) {
         return NextResponse.json(
           tierBlockedBody({
             message:
-              `Your ${getTierName(club?.tier ?? "starter")} plan allows up to ${features.maxLocations} location${features.maxLocations === 1 ? "" : "s"}. Upgrade to add more.`,
-            upgradeRequired: upgradeRequired(club?.tier ?? "starter", "maxLocations"),
+              `Your ${getTierName(club?.tier ?? "growth")} plan allows up to ${features.maxLocations} location${features.maxLocations === 1 ? "" : "s"}. Upgrade to add more.`,
+            upgradeRequired: upgradeRequired(club?.tier ?? "growth", "maxLocations"),
           }),
           { status: 403 },
         );

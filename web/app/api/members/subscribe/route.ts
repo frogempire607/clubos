@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 
 const schema = z.object({
@@ -148,20 +149,30 @@ export async function POST(req: Request) {
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
     const isRecurring = resolvedBillingType === "RECURRING" && stripeInterval !== null;
 
+    const checkoutMode: "subscription" | "payment" = isRecurring ? "subscription" : "payment";
+    const passFees = club.passProcessingFees;
+    const recurringAmount =
+      checkoutMode === "subscription" ? recurringUnitWithFee(amountInCents, passFees) : amountInCents;
+
     const lineItem: Record<string, unknown> = {
       quantity: 1,
       price_data: {
         currency: "usd",
-        unit_amount: amountInCents,
+        unit_amount: recurringAmount,
         product_data: {
           name: `${membership.name} — ${option.label}`,
-          ...(membership.description ? { description: membership.description } : {}),
+          ...((() => {
+            const d =
+              (membership.description ?? "") +
+              (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
+            return d.trim() ? { description: d.trim() } : {};
+          })()),
         },
         ...(isRecurring ? { recurring: stripeInterval } : {}),
       },
     };
-
-    const checkoutMode: "subscription" | "payment" = isRecurring ? "subscription" : "payment";
+    const feeItem =
+      checkoutMode === "payment" ? processingFeeLineItem(amountInCents, passFees) : null;
 
     // Trial rules: if the membership has a trial and either the member has no
     // prior active sub on this plan OR the plan allows returning trials, grant
@@ -177,9 +188,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // Build subscription_data with optional billing anchor
-    const appFeePercent =
-      club.tier === "starter" ? 2.5 : 0; // Growth/Pro/Enterprise are all 0% now
+    // Build subscription_data with optional billing anchor. AthletixOS takes
+    // no per-transaction platform cut on any plan.
+    const appFeePercent = 0;
     const subscriptionData: Record<string, unknown> = {
       application_fee_percent: appFeePercent,
       metadata: { memberSubscriptionId: memberSub.id, memberId, clubId: club.id },
@@ -195,7 +206,7 @@ export async function POST(req: Request) {
     const checkoutSession = await stripe.checkout.sessions.create(
       {
         mode: checkoutMode,
-        line_items: [lineItem],
+        line_items: feeItem ? [lineItem, feeItem] : [lineItem],
         success_url: `${baseUrl}/dashboard/members?subscribed=true`,
         cancel_url:  `${baseUrl}/dashboard/members?canceled=true`,
         metadata: {

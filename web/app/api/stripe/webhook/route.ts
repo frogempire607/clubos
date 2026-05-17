@@ -518,10 +518,14 @@ export async function POST(req: Request) {
           });
           for (const s of subs) await recomputeMemberStatus(s.memberId);
         } else {
-          // ClubOS platform sub (club paying ClubOS) — downgrade to Starter
+          // ClubOS platform sub (club paying ClubOS) canceled. There is no
+          // free tier to fall back to — keep the tier on record and just mark
+          // the subscription canceled so billing/settings can prompt a
+          // re-subscribe. Access is governed by subscriptionStatus, not a
+          // Starter downgrade.
           await prisma.club.updateMany({
             where: { stripeSubscriptionId: subscription.id },
-            data: { tier: "starter", subscriptionStatus: "canceled" },
+            data: { subscriptionStatus: "canceled" },
           });
         }
         break;

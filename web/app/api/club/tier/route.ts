@@ -10,10 +10,8 @@ const PROMO_CODES: Record<string, string> = {
   "PRO-TRIAL": "pro",
 };
 
-const TIER_ORDER = ["starter", "growth", "pro", "enterprise"];
-
 const schema = z.object({
-  tier: z.enum(["starter", "growth", "pro", "enterprise"]).optional(),
+  tier: z.enum(["growth", "pro", "enterprise"]).optional(),
   promoCode: z.string().optional(),
 });
 
@@ -42,12 +40,12 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Provide a tier or promo code" }, { status: 400 });
     }
 
-    // Direct tier-set without a promo code is only allowed for the free tier.
-    // Paid tiers must go through Stripe Checkout (/api/club/subscription/checkout)
-    // so the club is actually billed.
-    if (!body.promoCode && newTier !== "starter") {
+    // There is no free tier. Every plan is paid, so a direct tier set is only
+    // permitted via a promo/partner code — normal plan changes must go through
+    // Stripe Checkout (/api/club/subscription/checkout) so the club is billed.
+    if (!body.promoCode) {
       return NextResponse.json(
-        { error: "Paid plans require checkout. Use the Subscribe button instead." },
+        { error: "Plan changes require checkout. Use the Subscribe button instead." },
         { status: 400 }
       );
     }

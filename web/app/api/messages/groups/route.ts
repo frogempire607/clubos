@@ -7,7 +7,7 @@ import { getTierFeatures } from "@/lib/tier";
 
 async function requireGrowth(clubId: string) {
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });
-  const features = getTierFeatures(club?.tier ?? "starter");
+  const features = getTierFeatures(club?.tier ?? "growth");
   if (!features.directMessaging) {
     return NextResponse.json(
       { error: "Group messaging requires a Growth plan or higher.", code: "UPGRADE_REQUIRED", upgradeRequired: "growth" },

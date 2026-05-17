@@ -35,38 +35,26 @@ const features = [
 
 const tiers = [
   {
-    name: "Starter",
-    price: 0,
-    fee: "2.5%",
-    desc: "For new clubs getting started",
-    highlights: ["Up to 150 members", "1 location", "Classes & events", "Attendance tracking", "Basic announcements"],
-    cta: "Start free",
-    featured: false,
-  },
-  {
     name: "Growth",
     price: 50,
-    fee: "0%",
-    desc: "Single-location clubs that want zero transaction fees",
-    highlights: ["Unlimited members", "0% transaction fees", "Single location", "Reports & analytics", "Plaid bank sync"],
-    cta: "Start Growth",
+    desc: "Everything you need to run your club.",
+    highlights: ["Up to 200 members", "1 location", "Classes, events & attendance", "Memberships & billing", "Messaging & private lessons", "Reports & analytics"],
+    cta: "Start with Growth",
     featured: true,
   },
   {
     name: "Pro",
     price: 99,
-    fee: "0%",
-    desc: "For established clubs wanting more",
-    highlights: ["Everything in Growth", "Email & SMS messaging", "Branded iOS + Android app", "Full analytics", "Priority support"],
-    cta: "Start Pro",
+    desc: "Built for growing, professional organizations.",
+    highlights: ["Everything in Growth", "Unlimited members", "Up to 3 locations", "Plaid bank sync", "Email & SMS messaging", "Branded iOS + Android app"],
+    cta: "Start with Pro",
     featured: false,
   },
   {
     name: "Enterprise",
     price: 199,
-    fee: "0%",
-    desc: "Multi-location organizations",
-    highlights: ["Unlimited locations", "Multi-location analytics", "Custom onboarding", "API access", "Dedicated support"],
+    desc: "Powerful infrastructure for large-scale operations.",
+    highlights: ["Everything in Pro", "Unlimited locations", "API access", "SSO & advanced permissions", "Custom onboarding", "Dedicated account manager"],
     cta: "Contact us",
     featured: false,
   },
@@ -128,7 +116,7 @@ export default function Home() {
                 padding: "7px 16px", borderRadius: 8, textDecoration: "none",
               }}
             >
-              Get started free
+              Get started
             </Link>
           </nav>
         </div>
@@ -190,7 +178,7 @@ export default function Home() {
                 display: "inline-block",
               }}
             >
-              Start for free — no credit card
+              Start with Growth — $50/mo
             </Link>
             <Link
               href="/login"
@@ -335,7 +323,7 @@ export default function Home() {
               Simple, honest pricing
             </h2>
             <p style={{ color: "#78716C", fontSize: 17 }}>
-              Start free. Upgrade when you&apos;re ready. No hidden fees.
+              One flat monthly price. 0% platform fee. No hidden charges.
             </p>
           </div>
           <div
@@ -379,7 +367,7 @@ export default function Home() {
                     <span style={{ color: t.featured ? "rgba(255,255,255,0.4)" : "#78716C", fontSize: 14 }}>/mo</span>
                   </div>
                   <div style={{ fontSize: 12, color: t.featured ? "rgba(255,255,255,0.45)" : "#78716C" }}>
-                    + {t.fee} per transaction
+                    0% platform fee
                   </div>
                   <div style={{ fontSize: 13, color: t.featured ? "rgba(255,255,255,0.55)" : "#78716C", marginTop: 8 }}>
                     {t.desc}
@@ -431,7 +419,7 @@ export default function Home() {
           Ready to run a better club?
         </h2>
         <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 17, marginBottom: 32 }}>
-          Join hundreds of clubs already using AthletixOS. Start free in under 5 minutes.
+          Join hundreds of clubs already using AthletixOS. Set up yours in under 5 minutes.
         </p>
         <Link
           href="/signup"
@@ -441,7 +429,7 @@ export default function Home() {
             padding: "14px 36px", borderRadius: 10, textDecoration: "none",
           }}
         >
-          Create your club — it&apos;s free
+          Create your club
         </Link>
       </section>
 

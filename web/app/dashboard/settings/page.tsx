@@ -41,36 +41,28 @@ function mapsUrl(lat: number, lng: number) {
 
 const TIERS = [
   {
-    id: "starter",
-    name: "Starter",
-    price: "Free",
-    fee: "2.5% per transaction",
-    color: "var(--color-muted)",
-    features: ["Up to 150 members", "1 location", "Basic messaging", "Events & bookings", "Document management"],
-  },
-  {
     id: "growth",
     name: "Growth",
     price: "$50/mo",
-    fee: "0% transaction fee",
+    fee: "Everything you need to run your club.",
     color: "#fff",
-    features: ["Unlimited members", "0% transaction fees", "Reports & analytics", "Bank integration (Plaid)", "Direct member messaging", "Single location"],
+    features: ["Up to 200 members", "1 location", "Classes, events & attendance", "Memberships & billing", "Private lessons & packages", "Direct & group messaging", "Reports & analytics", "CSV import & custom fields"],
   },
   {
     id: "pro",
     name: "Pro",
     price: "$99/mo",
-    fee: "0% transaction fee",
+    fee: "Built for growing, professional organizations.",
     color: "#fff",
-    features: ["Everything in Growth", "Up to 5 locations", "Branded iOS & Android app", "Email & SMS broadcasts", "Priority support"],
+    features: ["Everything in Growth", "Unlimited members", "Up to 3 locations", "Plaid bank reconciliation", "Email & SMS messaging", "Branded iOS & Android app", "Advanced analytics", "Priority support"],
   },
   {
     id: "enterprise",
     name: "Enterprise",
-    price: "$199/mo",
-    fee: "0% transaction fee",
+    price: "$199+/mo",
+    fee: "Powerful infrastructure for large-scale operations.",
     color: "var(--color-text)",
-    features: ["Everything in Pro", "Multi-location management", "API access", "Custom onboarding", "Dedicated account manager", "White-label branding"],
+    features: ["Everything in Pro", "Unlimited locations", "API access", "SSO", "Advanced permissions", "Custom onboarding", "Dedicated account manager", "Enterprise reporting"],
   },
 ];
 
@@ -349,19 +341,8 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
 
   async function upgradeTo(tier: string) {
     setUpgradingTo(tier);
-    if (tier === "starter") {
-      // Downgrades go through the Stripe Customer Portal (cancel subscription).
-      const res = await fetch("/api/club/subscription/portal", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      setUpgradingTo(null);
-      if (res.ok && data.url) {
-        window.location.href = data.url;
-      } else {
-        setPromoError(typeof data.error === "string" ? data.error : "Could not open billing portal");
-      }
-      return;
-    }
-    // Paid plans go through Stripe Checkout.
+    // All plans are paid — changes go through Stripe Checkout. Downgrades /
+    // cancellation are handled in the Stripe billing portal ("Manage in Stripe").
     const res = await fetch("/api/club/subscription/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -484,7 +465,7 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
                       disabled={upgradingTo === tier.id}
                       className="text-xs px-2.5 py-1 rounded-md border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
                     >
-                      {upgradingTo === tier.id ? "…" : tier.id === "starter" ? "Downgrade" : "Subscribe"}
+                      {upgradingTo === tier.id ? "…" : "Subscribe"}
                     </button>
                   )}
                 </div>

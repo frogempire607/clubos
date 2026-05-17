@@ -7,7 +7,7 @@ import { sendMemberMessage } from "@/lib/memberMessaging";
 
 async function requireGrowth(clubId: string) {
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });
-  const features = getTierFeatures(club?.tier ?? "starter");
+  const features = getTierFeatures(club?.tier ?? "growth");
   if (!features.directMessaging) {
     return NextResponse.json(
       {

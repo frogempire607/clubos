@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
+import { processingFeeLineItem } from "@/lib/fees";
 import { sendEmail } from "@/lib/email";
 
 const bodySchema = z.object({
@@ -158,6 +159,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                 },
               },
             },
+            ...(() => {
+              const fi = processingFeeLineItem(amountCents, event.club.passProcessingFees);
+              return fi ? [fi] : [];
+            })(),
           ],
           success_url: `${baseUrl}/e/${event.publicSlug ?? ""}?paid=true`,
           cancel_url: `${baseUrl}/e/${event.publicSlug ?? ""}?canceled=true`,

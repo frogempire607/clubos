@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { MIGRATION_STATUS, PAYMENT_SETUP, resolveBillingAnchor } from "@/lib/migration";
+import { recurringUnitWithFee } from "@/lib/fees";
 
 // NO AUTH — token-gated public activation endpoint.
 
@@ -248,8 +249,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
 
   const amountInCents = Math.round(price * 100);
   const stripeInterval = billingPeriodToStripeInterval(period);
-  const appFeePercent = club.tier === "starter" ? 2.5 : 0;
+  const appFeePercent = 0;
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const recurringAmount = recurringUnitWithFee(amountInCents, club.passProcessingFees);
 
   const checkout = await stripe.checkout.sessions.create(
     {
@@ -260,8 +262,11 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           quantity: 1,
           price_data: {
             currency: "usd",
-            unit_amount: amountInCents,
-            product_data: { name: `${membership.name} — continued from ${member.legacySource || "previous club"}` },
+            unit_amount: recurringAmount,
+            product_data: {
+              name: `${membership.name} — continued from ${member.legacySource || "previous club"}`,
+              ...(club.passProcessingFees ? { description: "Includes processing fee" } : {}),
+            },
             ...(stripeInterval ? { recurring: stripeInterval } : { recurring: { interval: "month" } }),
           },
         },

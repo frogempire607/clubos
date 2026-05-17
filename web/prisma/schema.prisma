@@ -48,7 +48,14 @@ model Club {
   id                       String    @id @default(cuid())
   name                     String
   slug                     String    @unique
-  tier                     String    @default("starter")
+  // Plans: growth | pro | enterprise. There is no free/Starter tier — every
+  // club is on at least Growth. Definitions live in lib/tier.ts.
+  tier                     String    @default("growth")
+  // When true, Stripe processing fees are transparently added to the
+  // member/customer's checkout total so the club nets the full amount.
+  // Centralized math lives in lib/fees.ts — never hardcode the % elsewhere.
+  passProcessingFees       Boolean   @default(false)
+  processingFeeNote        String?
   tagline                  String?
   sport                    String?
   primaryColor             String?   @default("#534AB7")

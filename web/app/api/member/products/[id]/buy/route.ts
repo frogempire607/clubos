@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
+import { processingFeeLineItem } from "@/lib/fees";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
@@ -64,6 +65,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
 
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const feeItem = processingFeeLineItem(totalCents, club.passProcessingFees);
 
     const checkoutSession = await stripe.checkout.sessions.create(
       {
@@ -80,6 +82,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
               },
             },
           },
+          ...(feeItem ? [feeItem] : []),
         ],
         success_url: `${baseUrl}/member/products?bought=true`,
         cancel_url:  `${baseUrl}/member/products?canceled=true`,

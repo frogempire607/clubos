@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getTierFeatures } from "@/lib/tier";
+import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { expireStaleProspects } from "@/lib/memberStatus";
 
@@ -77,12 +77,12 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = createSchema.parse(body);
 
-    // ── Tier gating: Starter plan caps at 150 members ──────────────────────
+    // ── Tier gating: Growth caps at 200 members; Pro/Enterprise unlimited ──
     const club = await prisma.club.findUnique({
       where: { id: session.user.clubId },
       select: { tier: true },
     });
-    const features = getTierFeatures(club?.tier ?? "starter");
+    const features = getTierFeatures(club?.tier ?? "growth");
     if (features.maxMembers !== null) {
       const count = await prisma.member.count({
         where: { clubId: session.user.clubId, deletedAt: null },
@@ -90,9 +90,9 @@ export async function POST(req: Request) {
       if (count >= features.maxMembers) {
         return NextResponse.json(
           {
-            error: `Your Starter plan allows up to ${features.maxMembers} members. Upgrade to Growth for unlimited members.`,
+            error: `Your ${getTierName(club?.tier ?? "growth")} plan allows up to ${features.maxMembers} members. Upgrade to Pro for unlimited members.`,
             code: "MEMBER_LIMIT_REACHED",
-            upgradeRequired: "growth",
+            upgradeRequired: "pro",
           },
           { status: 403 }
         );

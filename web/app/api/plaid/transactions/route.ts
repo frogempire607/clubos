@@ -14,7 +14,7 @@ export async function GET() {
   const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
 
   // Tier gate: Plaid requires Growth+
-  const features = getTierFeatures(club?.tier ?? "starter");
+  const features = getTierFeatures(club?.tier ?? "growth");
   if (!features.plaid) {
     return NextResponse.json(
       {
