@@ -108,6 +108,9 @@ model Club {
   clubProfile                 ClubProfile?
   legalEntities               LegalEntity[]
   donationLinks               DonationLink[]
+  donations                   Donation[]
+  // Optional fallback entity stamped on money records when none is chosen.
+  defaultLegalEntityId        String?
   discounts                   Discount[]
   products                    Product[]
   productSales                ProductSale[]
@@ -712,14 +715,33 @@ model Transaction {
   stripeInvoiceId       String?
   stripeSubscriptionId  String?
   type                  String            @default("CHARGE")
+  // ── Financial OS ──────────────────────────────────────────────────────
+  // Revenue category (memberships, classes, events, products, donations,
+  // manual_invoice, cash_payment, sponsorships, other_income …). Null = needs
+  // review / uncategorized. Never auto-overwrite an owner's choice.
+  category              String?
+  // CASH | CARD | STRIPE | BANK | CHECK | OTHER
+  paymentMethod         String?           @default("STRIPE")
+  // Optional legal entity this money belongs to.
+  legalEntityId         String?
+  // Free-text payer/source for manual & cash entries.
+  source                String?
+  notes                 String?
+  // True for manually recorded payments / cash / invoices (not from Stripe).
+  manual                Boolean           @default(false)
+  // Effective accounting date (owner-set for manual entries). Falls back to
+  // createdAt for reporting when null.
+  txDate                DateTime?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
-  club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  member Member? @relation(fields: [memberId], references: [id])
+  club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member      Member?      @relation(fields: [memberId], references: [id])
+  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
 
   @@index([clubId])
   @@index([memberId])
+  @@index([legalEntityId])
   @@map("transactions")
 }
 
@@ -822,22 +844,63 @@ model DocumentSignature {
 }
 
 model Expense {
-  id          String   @id @default(cuid())
-  clubId      String
-  description String
-  amount      Decimal  @db.Decimal(10, 2)
-  category    String   @default("OTHER")
-  date        DateTime @default(now())
-  isRecurring Boolean  @default(false)
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  clubId        String
+  description   String
+  amount        Decimal  @db.Decimal(10, 2)
+  category      String   @default("OTHER")
+  date          DateTime @default(now())
+  isRecurring   Boolean  @default(false)
+  notes         String?
+  // ── Financial OS ────────────────────────────────────────────────────────
+  vendor        String?
+  // CASH | CARD | BANK | CHECK | OTHER
+  paymentMethod String?
+  legalEntityId String?
+  reimbursable  Boolean  @default(false)
+  // Receipt: private file URL from /api/upload (type=document) or null.
+  receiptUrl    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
 
   @@index([clubId])
   @@index([date])
+  @@index([legalEntityId])
   @@map("expenses")
+}
+
+// Tracked donation / sponsorship for nonprofit & foundation entities.
+// Distinct from DonationLink (a reusable Stripe payment link) — this is the
+// actual recorded gift for receipts and year-end giving summaries.
+model Donation {
+  id            String   @id @default(cuid())
+  clubId        String
+  legalEntityId String?
+  donorName     String
+  donorEmail    String?
+  amount        Decimal  @db.Decimal(10, 2)
+  // Fund / program / purpose the gift is designated for.
+  fund          String?
+  // Restricted = donor-designated for a specific purpose.
+  restricted    Boolean  @default(false)
+  sponsorship   Boolean  @default(false)
+  paymentMethod String   @default("CASH") // CASH | CARD | STRIPE | CHECK | BANK | OTHER
+  date          DateTime @default(now())
+  receiptUrl    String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
+
+  @@index([clubId])
+  @@index([legalEntityId])
+  @@index([date])
+  @@map("donations")
 }
 
 model MessageGroup {
@@ -920,6 +983,9 @@ model LegalEntity {
   updatedAt  DateTime  @updatedAt
 
   donationLinks DonationLink[]
+  transactions  Transaction[]
+  expenses      Expense[]
+  donations     Donation[]
 
   @@index([clubId])
   @@map("legal_entities")

@@ -3,37 +3,43 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import type { Prisma } from "@prisma/client";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "view");
   if (denied) return denied;
 
+  const { searchParams } = new URL(req.url);
+  const entity = searchParams.get("entity");
+  const from = searchParams.get("from");
+  const to = searchParams.get("to");
+
+  const where: Prisma.TransactionWhereInput = {
+    clubId: session.user.clubId,
+    ...(entity && entity !== "all" ? { legalEntityId: entity } : {}),
+    ...(from || to
+      ? { createdAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }
+      : {}),
+  };
+
   const transactions = await prisma.transaction.findMany({
-    where: { clubId: session.user.clubId },
+    where,
     orderBy: { createdAt: "desc" },
     include: {
       member: { select: { id: true, firstName: true, lastName: true } },
+      legalEntity: { select: { id: true, name: true } },
     },
-    take: 100,
+    take: 250,
   });
 
-  // Quick totals
-  const totalRevenue = transactions
-    .filter((t) => t.status === "SUCCEEDED")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-
-  const totalFees = transactions
-    .filter((t) => t.status === "SUCCEEDED")
-    .reduce((sum, t) => sum + Number(t.platformFee || 0), 0);
+  const succeeded = transactions.filter((t) => t.status === "SUCCEEDED");
+  const totalRevenue = succeeded.reduce((s, t) => s + Number(t.amount), 0);
+  const totalFees = succeeded.reduce((s, t) => s + Number(t.platformFee || 0), 0);
 
   return NextResponse.json({
     transactions,
-    totals: {
-      revenue: totalRevenue,
-      platformFees: totalFees,
-      net: totalRevenue - totalFees,
-    },
+    totals: { revenue: totalRevenue, platformFees: totalFees, net: totalRevenue - totalFees },
   });
 }

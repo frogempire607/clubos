@@ -15,9 +15,12 @@ export async function GET(req: Request) {
   const from = searchParams.get("from");
   const to = searchParams.get("to");
 
+  const entity = searchParams.get("entity");
+
   const expenses = await prisma.expense.findMany({
     where: {
       clubId: session.user.clubId,
+      ...(entity && entity !== "all" ? { legalEntityId: entity } : {}),
       ...(from || to ? {
         date: {
           ...(from ? { gte: new Date(from) } : {}),
@@ -26,18 +29,26 @@ export async function GET(req: Request) {
       } : {}),
     },
     orderBy: { date: "desc" },
+    include: { legalEntity: { select: { id: true, name: true } } },
   });
 
   return NextResponse.json(expenses);
 }
 
+// Category is a free string with a suggested catalog (lib/financials.ts) —
+// custom categories are allowed, so we don't gate it behind an enum.
 const createSchema = z.object({
   description: z.string().min(1),
   amount: z.number().min(0),
-  category: z.enum(["RENT", "UTILITIES", "INSURANCE", "SOFTWARE", "PAYROLL", "EQUIPMENT", "EVENTS", "MARKETING", "OTHER"]).default("OTHER"),
+  category: z.string().min(1).default("OTHER"),
   date: z.string().optional(),
   isRecurring: z.boolean().default(false),
   notes: z.string().optional(),
+  vendor: z.string().optional().nullable(),
+  paymentMethod: z.string().optional().nullable(),
+  legalEntityId: z.string().optional().nullable(),
+  reimbursable: z.boolean().optional().default(false),
+  receiptUrl: z.string().optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -57,6 +68,11 @@ export async function POST(req: Request) {
         date: data.date ? new Date(data.date) : new Date(),
         isRecurring: data.isRecurring,
         notes: data.notes || null,
+        vendor: data.vendor || null,
+        paymentMethod: data.paymentMethod || null,
+        legalEntityId: data.legalEntityId || null,
+        reimbursable: data.reimbursable ?? false,
+        receiptUrl: data.receiptUrl || null,
       },
     });
     return NextResponse.json(expense, { status: 201 });

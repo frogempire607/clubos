@@ -187,6 +187,8 @@ export async function POST(req: Request) {
                   stripePaymentIntentId: session.payment_intent as string | undefined,
                   description: `Membership purchase: ${memberSub.optionLabel}`,
                   type: "MEMBERSHIP",
+                  category: "memberships",
+                  paymentMethod: "STRIPE",
                 },
               });
             }
@@ -264,6 +266,8 @@ export async function POST(req: Request) {
               stripePaymentIntentId: session.payment_intent as string,
               description: `Event booking: ${session.metadata?.eventName || ""}`,
               type: "EVENT",
+              category: "events",
+              paymentMethod: "STRIPE",
             },
           });
 
@@ -345,6 +349,8 @@ export async function POST(req: Request) {
               stripePaymentIntentId: session.payment_intent as string,
               description: `Class registration: ${session.metadata?.className || ""}`,
               type: "CLASS",
+              category: "classes",
+              paymentMethod: "STRIPE",
             },
           });
           // Mark the member as a paid drop-in on this session
@@ -414,6 +420,8 @@ export async function POST(req: Request) {
                 stripePaymentIntentId: session.payment_intent as string | undefined,
                 description: `Event registration: ${reg.event.name}`,
                 type: "EVENT",
+                category: "events",
+                paymentMethod: "STRIPE",
               },
             });
             // If they matched an existing member, also create a Booking so it
@@ -456,6 +464,8 @@ export async function POST(req: Request) {
             stripeInvoiceId: invoice.id,
             description: `Membership renewal: ${memberSub.optionLabel}`,
             type: "MEMBERSHIP",
+            category: "memberships",
+            paymentMethod: "STRIPE",
           },
         });
 

@@ -7,10 +7,15 @@ import { prisma } from "@/lib/prisma";
 const updateSchema = z.object({
   description: z.string().min(1).optional(),
   amount: z.number().min(0).optional(),
-  category: z.enum(["RENT", "UTILITIES", "INSURANCE", "SOFTWARE", "PAYROLL", "EQUIPMENT", "EVENTS", "MARKETING", "OTHER"]).optional(),
+  category: z.string().min(1).optional(),
   date: z.string().optional(),
   isRecurring: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  vendor: z.string().optional().nullable(),
+  paymentMethod: z.string().optional().nullable(),
+  legalEntityId: z.string().optional().nullable(),
+  reimbursable: z.boolean().optional(),
+  receiptUrl: z.string().optional().nullable(),
 });
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
