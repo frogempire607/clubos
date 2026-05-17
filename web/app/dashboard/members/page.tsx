@@ -296,6 +296,9 @@ export default function MembersPage() {
           <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
             Import CSV
           </button>
+          <Link href="/dashboard/members/migration" className="text-sm px-3 py-2 rounded-lg border border-brand text-brand hover:bg-brand/10">
+            Import / Migrate
+          </Link>
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors">
             + Add member
           </button>

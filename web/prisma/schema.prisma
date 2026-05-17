@@ -108,6 +108,7 @@ model Club {
   eventRegistrations          EventRegistration[]
   contractors                 Contractor[]
   contractorPayments          ContractorPayment[]
+  memberMigrationEvents       MemberMigrationEvent[]
   privateLessonTypes          PrivateLessonType[]
   privatePackages             PrivatePackage[]
   staffAvailability           StaffAvailability[]
@@ -250,6 +251,36 @@ model Member {
 
   guardianId String?
 
+  // ── Member migration / software-switch ──────────────────────────────────
+  // Populated when a member is brought over from another club platform via the
+  // migration wizard. Never tier-gated. Imported members are NEVER auto-charged
+  // — billing only starts after they activate and add a payment method.
+  legacySource             String? // e.g. "Jackrabbit", "Mindbody", "Spreadsheet"
+  legacyMemberId           String? // their ID in the old system (for support)
+  importedAt               DateTime?
+  // null = not a migrated member.
+  // IMPORTED | INVITED | ACTIVATED | COMPLETED | FAILED | NEEDS_REVIEW
+  migrationStatus          String?
+  // null | REQUIRED | COMPLETE
+  paymentSetupStatus       String?
+  // Legacy membership snapshot (display only until activation creates the sub)
+  legacyMembershipName     String?
+  legacyMembershipPrice    Decimal? @db.Decimal(10, 2)
+  legacyBillingFrequency   String? // WEEKLY | MONTHLY | QUARTERLY | ANNUAL | ...
+  membershipStartDate      DateTime?
+  nextBillingDate          DateTime?
+  // THE key field: when Stripe should take the first charge so billing
+  // continues on the member's existing cycle (not on import day).
+  billingAnchorDate        DateTime?
+  commitmentEndDate        DateTime?
+  // Secure activation link
+  activationToken          String?  @unique
+  activationTokenExpires   DateTime?
+  activationEmailSentAt    DateTime?
+  activationEmailSendCount Int      @default(0)
+  activatedAt              DateTime?
+  migrationCompletedAt     DateTime?
+
   club              Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user              User?                 @relation(fields: [userId], references: [id])
   membership        Membership?           @relation(fields: [membershipId], references: [id])
@@ -264,6 +295,7 @@ model Member {
   attendanceRecords AttendanceRecord[]
   documentSignatures DocumentSignature[]
   eventRegistrations EventRegistration[]
+  migrationEvents    MemberMigrationEvent[]
   relationshipsFrom  MemberRelationship[] @relation("RelationshipFrom")
   relationshipsTo    MemberRelationship[] @relation("RelationshipTo")
 
@@ -271,6 +303,28 @@ model Member {
   @@index([status])
   @@index([guardianId])
   @@map("members")
+}
+
+// Append-only migration audit / history log. One row per meaningful event in a
+// member's migration lifecycle (imported, activation sent, reminder, activated,
+// completed, failed, note). Never deleted — preserves the legacy paper trail.
+model MemberMigrationEvent {
+  id        String   @id @default(cuid())
+  clubId    String
+  memberId  String
+  // IMPORTED | ACTIVATION_SENT | REMINDER_SENT | ACTIVATED | COMPLETED |
+  // FAILED | NOTE
+  type      String
+  message   String?
+  actorUserId String?
+  createdAt DateTime @default(now())
+
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@index([memberId])
+  @@map("member_migration_events")
 }
 
 // A relationship between two members (siblings, cousins, friends, teammates,

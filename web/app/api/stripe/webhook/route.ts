@@ -219,6 +219,40 @@ export async function POST(req: Request) {
           }
         }
 
+        // ── Member migration: finalize the switch once payment is set up ─────
+        // The subscription was activated above (memberSubscriptionId branch).
+        // Now flip the migrated member to COMPLETED so the migration dashboard
+        // reflects that billing continuity is fully in place.
+        if (session.metadata?.migrationMemberId) {
+          const migMemberId = session.metadata.migrationMemberId;
+          try {
+            const mig = await prisma.member.findUnique({
+              where: { id: migMemberId },
+              select: { id: true, clubId: true, migrationStatus: true },
+            });
+            if (mig && mig.migrationStatus !== "COMPLETED") {
+              await prisma.member.update({
+                where: { id: migMemberId },
+                data: {
+                  migrationStatus: "COMPLETED",
+                  paymentSetupStatus: "COMPLETE",
+                  migrationCompletedAt: new Date(),
+                },
+              });
+              await prisma.memberMigrationEvent.create({
+                data: {
+                  clubId: mig.clubId,
+                  memberId: migMemberId,
+                  type: "COMPLETED",
+                  message: "Payment method added, autopay active — migration complete",
+                },
+              });
+            }
+          } catch (e) {
+            console.error("Migration completion update failed:", e);
+          }
+        }
+
         // ── Event charge checkout ────────────────────────────────────────────
         if (memberId && eventId) {
           await prisma.transaction.create({

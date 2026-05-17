@@ -287,3 +287,90 @@ export async function sendPaymentFailedEmail({
     `),
   });
 }
+
+// Branded migration activation email — a "membership card reveal". Used by the
+// Member Migration wizard for the first invite AND reminders. Never asks for
+// card details in the email; the CTA links to the secure activation page only.
+export async function sendMemberMigrationActivationEmail({
+  to,
+  athleteName,
+  clubName,
+  clubLogoUrl,
+  membershipName,
+  nextBillingDate,
+  activationUrl,
+  isReminder = false,
+}: {
+  to: string;
+  athleteName: string;
+  clubName: string;
+  clubLogoUrl?: string | null;
+  membershipName?: string | null;
+  nextBillingDate?: string | null;
+  activationUrl: string;
+  isReminder?: boolean;
+}) {
+  const subject = isReminder
+    ? `Reminder: activate your ${clubName} membership`
+    : `Your ${clubName} membership is ready to continue`;
+
+  const logoBlock = clubLogoUrl
+    ? `<img src="${clubLogoUrl}" alt="${clubName}" style="width:56px;height:56px;border-radius:14px;object-fit:cover;display:block;margin:0 auto 14px" />`
+    : `<div style="width:56px;height:56px;border-radius:14px;background:rgba(255,255,255,0.18);color:#fff;font-weight:700;font-size:22px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px">${clubName.charAt(0).toUpperCase()}</div>`;
+
+  const html = `
+  <div style="font-family:Inter,Segoe UI,sans-serif;max-width:560px;margin:0 auto;background:#F5F3EE;padding:24px">
+    <div style="background:#fff;border-radius:16px;overflow:hidden;border:1px solid #E7E5E4">
+      <!-- Envelope / reveal header -->
+      <div style="background:linear-gradient(135deg,#534AB7 0%,#3F3796 100%);padding:32px 28px;text-align:center">
+        ${logoBlock}
+        <p style="color:rgba(255,255,255,0.85);font-size:13px;margin:0 0 4px;letter-spacing:0.04em;text-transform:uppercase">${clubName}</p>
+        <h1 style="color:#fff;font-size:22px;margin:0;font-weight:700">Your membership is ready to continue</h1>
+      </div>
+
+      <div style="padding:28px">
+        <p style="color:#57534e;line-height:1.65;margin:0 0 18px">
+          Hi ${athleteName}, <strong>${clubName}</strong> has moved to AthletixOS. We've prepared
+          your account using the email from your previous club software. Activate your account and
+          securely add your billing method to continue your membership without interruption.
+        </p>
+
+        <!-- Digital membership card -->
+        <div style="background:#1C1917;border-radius:14px;padding:20px 22px;margin:0 0 22px">
+          <p style="color:#a8a29e;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 10px">Membership</p>
+          <p style="color:#fff;font-size:18px;font-weight:700;margin:0 0 14px">${membershipName || "Your membership"}</p>
+          <div style="display:flex;justify-content:space-between">
+            <div>
+              <p style="color:#a8a29e;font-size:11px;margin:0 0 2px">MEMBER</p>
+              <p style="color:#fff;font-size:14px;margin:0">${athleteName}</p>
+            </div>
+            <div style="text-align:right">
+              <p style="color:#a8a29e;font-size:11px;margin:0 0 2px">NEXT BILLING</p>
+              <p style="color:#fff;font-size:14px;margin:0">${nextBillingDate || "After activation"}</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align:center;margin:0 0 20px">
+          <a href="${activationUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">
+            Activate My Membership
+          </a>
+        </div>
+
+        <div style="background:#F5F3EE;border-radius:10px;padding:14px 16px;margin:0 0 8px">
+          <p style="color:#78716C;font-size:12.5px;line-height:1.6;margin:0">
+            You won't be charged until you add a payment method and accept autopay, and billing
+            continues on your existing date${nextBillingDate ? ` (${nextBillingDate})` : ""} — not today.
+            We never ask for card details by email; the button above opens your secure AthletixOS page.
+          </p>
+        </div>
+      </div>
+
+      <div style="padding:14px 28px;border-top:1px solid #E7E5E4;background:#fff;text-align:center">
+        <p style="color:#a8a29e;font-size:11px;margin:0">Powered by <strong style="color:#78716C">AthletixOS</strong> · <a href="https://clubos.app" style="color:#78716C;text-decoration:none">clubos.app</a></p>
+      </div>
+    </div>
+  </div>`;
+
+  await sendEmail({ to, subject, html });
+}
