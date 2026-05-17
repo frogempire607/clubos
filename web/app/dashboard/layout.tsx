@@ -5,6 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
+import GlobalSearch from "@/components/GlobalSearch";
 import { canAccessPath } from "@/lib/permissions";
 
 type NavChild = { id: string; label: string; href: string };
@@ -315,6 +316,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <ThemeToggle />
         </div>
 
+        {/* Need help */}
+        <div style={{ padding: "10px 8px 0" }}>
+          <Link
+            href="/dashboard/help"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              width: "100%", textAlign: "left",
+              padding: "7px 12px", borderRadius: 8,
+              fontSize: 13, textDecoration: "none",
+              background: isActive("/dashboard/help") ? SIDEBAR_HOVER : "transparent",
+              color: isActive("/dashboard/help") ? "#fff" : TEXT_DIM,
+              transition: "background 0.15s, color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
+              (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive("/dashboard/help")) {
+                (e.currentTarget as HTMLElement).style.background = "transparent";
+                (e.currentTarget as HTMLElement).style.color = TEXT_DIM;
+              }
+            }}
+          >
+            <span style={{ width: 22, textAlign: "center", fontSize: 16, opacity: 0.85, lineHeight: 1 }}>?</span>
+            Need help?
+          </Link>
+        </div>
+
         {/* Sign out */}
         <div style={{ padding: "10px 8px", borderTop: `1px solid ${SIDEBAR_BORDER}`, marginTop: 8 }}>
           <button
@@ -341,7 +371,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* ── Main content ── */}
-      <main style={{ flex: 1, overflowY: "auto" }}>{children}</main>
+      <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div
+          style={{
+            position: "sticky", top: 0, zIndex: 30,
+            background: "var(--color-surface)",
+            borderBottom: "1px solid var(--color-app-border, var(--color-border))",
+            padding: "10px 16px",
+            display: "flex", alignItems: "center", gap: 12,
+          }}
+        >
+          <GlobalSearch />
+        </div>
+        <div style={{ flex: 1 }}>{children}</div>
+      </main>
     </div>
   );
 }

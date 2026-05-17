@@ -156,6 +156,7 @@ Dashboard pages:
 - `/dashboard/reports` — KPI cards, revenue chart, breakdowns, top events, CSV exports (gated by tier)
 - `/dashboard/documents`
 - `/dashboard/custom-fields`
+- `/dashboard/help` — searchable help/FAQ center (knowledge base `lib/helpContent.ts`; retrieval = `/api/help/search`, AI-assistant-ready, no AI built)
 - `/dashboard/settings`
 - `/dashboard/settings/billing` — Stripe Connect + ClubOS subscription upgrade/portal + Diagnostics link
 - `/dashboard/settings/club`
@@ -223,6 +224,8 @@ Core dashboard:
 - `/api/attendance`
 - `/api/attendance/[sessionId]` — also returns the parent class's `pricingOptions` and resolved `acceptedMemberships`
 - `/api/calendar` — unified feed of events + class sessions + confirmed private lessons (used by `/dashboard/calendar`)
+- `/api/search?q=` — universal club-scoped, permission-filtered search (members/staff/classes/events/products/memberships/documents/messages) with deep links; powers the dashboard top-bar `GlobalSearch` (⌘K, recent searches)
+- `/api/help/search?q=` — keyword retrieval over `lib/helpContent.ts` (the layer a future AI assistant will call)
 
 Reports:
 
