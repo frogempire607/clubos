@@ -2,9 +2,19 @@ import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 import { canAccessPath } from "@/lib/permissions";
 
+// Public routes that live under a protected prefix but must be reachable
+// while logged OUT (e.g. prospective members creating an account).
+function isPublicPath(pathname: string) {
+  return pathname === "/member/signup" || pathname.startsWith("/member/signup/");
+}
+
 export default withAuth(
   function middleware(req) {
     const { pathname } = req.nextUrl;
+
+    // Let the public member-signup page render without a session.
+    if (isPublicPath(pathname)) return NextResponse.next();
+
     const role = req.nextauth.token?.role as string | undefined;
     const permissions = (req.nextauth.token as any)?.permissions ?? null;
 
@@ -38,7 +48,13 @@ export default withAuth(
 
     return NextResponse.next();
   },
-  { callbacks: { authorized: ({ token }) => !!token } }
+  {
+    callbacks: {
+      // `/member/signup` is public; everything else under the matcher needs a token.
+      authorized: ({ token, req }) =>
+        isPublicPath(req.nextUrl.pathname) ? true : !!token,
+    },
+  }
 );
 
 export const config = {

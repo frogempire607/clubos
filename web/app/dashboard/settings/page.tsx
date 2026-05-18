@@ -170,6 +170,11 @@ export default function SettingsPage() {
                 <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-primary)", color: "#fff" }}>S</span>
                 Stripe
               </Link>
+              <Link href="/dashboard/settings/branded-app"
+                className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-warning)", color: "#fff" }}>A</span>
+                Branded App
+              </Link>
               <Link href="/dashboard/custom-fields"
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg block">
                 Custom Fields

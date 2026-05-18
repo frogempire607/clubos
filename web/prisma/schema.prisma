@@ -60,6 +60,10 @@ model Club {
   sport                    String?
   primaryColor             String?   @default("#534AB7")
   logoUrl                  String?
+  // Branded mobile-app configuration (owner-customizable). Shape:
+  // { appName, shortDescription, iconUrl, themeColor, splashColor,
+  //   iosBundleId, androidPackage, enabled }
+  brandedAppConfig         Json?
   // Stripe Connect (the club's own Stripe account that receives payments)
   stripeAccountId          String?   @unique
   stripeOnboardingComplete Boolean   @default(false)
