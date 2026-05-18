@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 
@@ -9,6 +9,12 @@ type AccountType = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "PARENT";
 export default function MemberSignupPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [clubSlug, setClubSlug] = useState("");
+
+  // Prefill the club when arriving from a kiosk QR (/c/[id] → ?club=slug).
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get("club");
+    if (c) setClubSlug(c.toLowerCase());
+  }, []);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");

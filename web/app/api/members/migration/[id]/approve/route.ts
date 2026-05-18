@@ -88,6 +88,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       membershipId = null;
     }
   }
+
+  // Owner price override set before activation wins over every other source.
+  if (member.migrationPriceOverride != null) {
+    price = Number(member.migrationPriceOverride);
+  }
+
   if (!membershipId) {
     const created = await prisma.membership.create({
       data: {

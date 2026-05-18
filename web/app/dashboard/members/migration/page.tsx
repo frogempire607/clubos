@@ -442,6 +442,8 @@ type Detail = {
   billingAnchorDate: string | null; commitmentEndDate: string | null;
   migrationStatus: string; approvalStatus: string | null; paymentSetupStatus: string | null;
   migrationMembershipId: string | null;
+  migrationPriceOverride: string | number | null;
+  migrationDiscountNote: string | null;
   activationEditableFields: Record<string, boolean> | null;
   requestedBillingDate: string | null; requestedBillingNote: string | null; activationNote: string | null;
 };
@@ -465,6 +467,8 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
   const [copied, setCopied] = useState(false);
 
   const [planId, setPlanId] = useState("");
+  const [priceOverride, setPriceOverride] = useState("");
+  const [discountNote, setDiscountNote] = useState("");
   const [anchor, setAnchor] = useState("");
   const [endDate, setEndDate] = useState("");
   const [editable, setEditable] = useState<Record<string, boolean>>({
@@ -482,6 +486,10 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
         setD(m);
         setActivationUrl(detail.activationUrl || null);
         setPlanId(m.migrationMembershipId || "");
+        setPriceOverride(
+          m.migrationPriceOverride != null ? String(m.migrationPriceOverride) : "",
+        );
+        setDiscountNote(m.migrationDiscountNote || "");
         setAnchor(dInput(m.billingAnchorDate));
         setEndDate(dInput(m.commitmentEndDate));
         setApproveDate(dInput(m.requestedBillingDate || m.billingAnchorDate));
@@ -506,6 +514,8 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         migrationMembershipId: planId || null,
+        priceOverride: priceOverride.trim() === "" ? null : Number(priceOverride),
+        discountNote: discountNote.trim() || null,
         billingAnchorDate: anchor || null,
         commitmentEndDate: endDate || null,
         activationEditableFields: editable,
@@ -604,6 +614,40 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                   {d.legacyMembershipPrice != null ? ` · $${Number(d.legacyMembershipPrice).toFixed(2)}` : ""}
                   {d.legacyBillingFrequency ? ` / ${d.legacyBillingFrequency.toLowerCase()}` : ""}
                 </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">
+                    Price override ($)
+                  </label>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={priceOverride}
+                    onChange={(e) => setPriceOverride(e.target.value)}
+                    placeholder="Leave blank to use plan price"
+                    className="inp"
+                  />
+                  <p className="text-[11px] text-text-muted mt-1">
+                    Set the exact recurring price (e.g. a discounted rate). Wins
+                    over the plan &amp; imported price. The client sees this
+                    amount on their activation page.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">
+                    Discount note
+                  </label>
+                  <input
+                    type="text"
+                    value={discountNote}
+                    onChange={(e) => setDiscountNote(e.target.value)}
+                    placeholder="e.g. Founding member 20% off"
+                    maxLength={200}
+                    className="inp"
+                  />
+                  <p className="text-[11px] text-text-muted mt-1">Internal note — why the price differs.</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

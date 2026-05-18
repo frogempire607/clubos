@@ -41,7 +41,9 @@ export default function CheckinPage({ params }: { params: { id: string } }) {
   }
 
   const accent = d.club.primaryColor || "#1C1917";
-  const signInUrl = `/login?club=${encodeURIComponent(d.club.slug)}&role=member`;
+  const clubQ = encodeURIComponent(d.club.slug);
+  const signUpUrl = `/member/signup?club=${clubQ}`;
+  const signInUrl = `/login?club=${clubQ}&role=member`;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-stone-50 px-4 py-10 print:bg-white">
@@ -78,16 +80,22 @@ export default function CheckinPage({ params }: { params: { id: string } }) {
             {d.title}
           </h1>
 
-          {/* Sign in */}
+          {/* Sign up (primary) + Sign in */}
           <a
-            href={signInUrl}
+            href={signUpUrl}
             className="w-full py-3.5 rounded-xl text-white text-base font-semibold text-center"
             style={{ background: accent }}
           >
-            Sign in
+            Create an account
+          </a>
+          <a
+            href={signInUrl}
+            className="w-full py-3 mt-2 rounded-xl border border-stone-300 text-stone-700 text-base font-semibold text-center"
+          >
+            I already have an account
           </a>
           <p className="text-xs text-stone-400 mt-3">
-            New here? You can create an account on the next screen.
+            Joining {d.club.name} for the first time? Tap “Create an account”.
           </p>
         </div>
       </div>

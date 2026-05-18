@@ -23,6 +23,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       legacyBillingFrequency: true, membershipStartDate: true, nextBillingDate: true,
       billingAnchorDate: true, commitmentEndDate: true, migrationStatus: true,
       approvalStatus: true, paymentSetupStatus: true, migrationMembershipId: true,
+      migrationPriceOverride: true, migrationDiscountNote: true,
       activationEditableFields: true, requestedBillingDate: true, requestedBillingNote: true,
       activationNote: true, activationToken: true, activationTokenExpires: true,
       activationEmailSentAt: true, activationEmailSendCount: true,
@@ -40,6 +41,8 @@ const patchSchema = z.object({
   migrationMembershipId: z.string().optional().nullable(),
   billingAnchorDate: z.string().optional().nullable(),
   commitmentEndDate: z.string().optional().nullable(),
+  priceOverride: z.number().nonnegative().optional().nullable(),
+  discountNote: z.string().max(200).optional().nullable(),
   activationEditableFields: z
     .object({
       phone: z.boolean().optional(),
@@ -102,6 +105,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         : {}),
       ...(data.commitmentEndDate !== undefined
         ? { commitmentEndDate: parseDate(data.commitmentEndDate) }
+        : {}),
+      ...(data.priceOverride !== undefined
+        ? { migrationPriceOverride: data.priceOverride }
+        : {}),
+      ...(data.discountNote !== undefined
+        ? { migrationDiscountNote: data.discountNote?.trim() || null }
         : {}),
       ...(data.activationEditableFields !== undefined
         ? { activationEditableFields: data.activationEditableFields ?? undefined }

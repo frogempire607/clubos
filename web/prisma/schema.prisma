@@ -302,6 +302,12 @@ model Member {
   // Owner-assigned plan this migration continues (a real Membership.id).
   // Preferred over the legacy* snapshot when set.
   migrationMembershipId    String?
+  // Owner price override set BEFORE the activation link is sent. When non-null
+  // this is the exact recurring price the migrated member pays — it wins over
+  // both the legacy snapshot price and the assigned plan's option price.
+  migrationPriceOverride   Decimal? @db.Decimal(10, 2)
+  // Free-text note for why (e.g. "Founding member 20% off"). Display only.
+  migrationDiscountNote    String?
   // Which fields/abilities the client may edit on the activation page.
   // Shape: { phone, email, billingDateRequest, notes }. null = defaults.
   activationEditableFields Json?

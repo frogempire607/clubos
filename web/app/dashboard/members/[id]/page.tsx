@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, use } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
 type Sub = {
@@ -67,8 +67,8 @@ function fmtMoney(v: string | number | null) {
   return Number(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-export default function MemberProfilePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function MemberProfilePage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const [m, setM] = useState<MemberDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingSub, setEditingSub] = useState<Sub | null>(null);

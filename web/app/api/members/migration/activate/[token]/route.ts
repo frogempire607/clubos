@@ -73,6 +73,11 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: 404 });
   const m = r.member;
   const plan = await resolvePlan(m);
+  // Owner price override (set before the link was sent) is what the client
+  // sees and agrees to.
+  if (m.migrationPriceOverride != null) {
+    plan.price = Number(m.migrationPriceOverride);
+  }
 
   const requiredDoc = await prisma.document.findFirst({
     where: {

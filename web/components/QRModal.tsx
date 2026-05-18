@@ -100,7 +100,8 @@ export default function QRModal({
             </div>
           )}
           <p className="text-xs text-text-muted mt-4 text-center">
-            Staff: scan with a phone or tablet to open check-in for this session.
+            Post this at the door. Anyone walking in can scan it to see the class
+            and sign in. Use Print for a paper copy.
           </p>
 
           <div className="grid grid-cols-3 gap-2 w-full mt-5">
