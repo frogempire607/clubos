@@ -267,7 +267,7 @@ export default function DashboardPage() {
             ) : (
               <div className="divide-y divide-app-border">
                 {recentMembers.map((m) => {
-                  const statusColor: Record<string, string> = { ACTIVE: "var(--color-text)", PROSPECT: "#fff", INACTIVE: "var(--color-muted)", PAUSED: "#fff" };
+                  const statusColor: Record<string, string> = { ACTIVE: "#1F1F23", PROSPECT: "#fff", INACTIVE: "var(--color-muted)", PAUSED: "#fff" };
                   const statusBg: Record<string, string> = { ACTIVE: "var(--color-success)", PROSPECT: "var(--color-primary)", INACTIVE: "var(--color-bg)", PAUSED: "var(--color-warning)" };
                   return (
                     <div key={m.id} className="flex items-center gap-3 px-5 py-3">

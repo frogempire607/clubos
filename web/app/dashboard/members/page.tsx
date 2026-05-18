@@ -54,7 +54,7 @@ type Membership = { id: string; name: string; options: string; active: boolean; 
 type Option = { label: string; price: number; billingPeriod: string };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
-  ACTIVE: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  ACTIVE: { bg: "var(--color-success)", fg: "#1F1F23" },
   PROSPECT: { bg: "var(--color-primary)", fg: "#fff" },
   INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   PAUSED: { bg: "var(--color-warning)", fg: "#fff" },

@@ -51,7 +51,7 @@ type MemberDetail = {
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
-  ACTIVE: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  ACTIVE: { bg: "var(--color-success)", fg: "#1F1F23" },
   PROSPECT: { bg: "var(--color-warning)", fg: "#fff" },
   INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   PAUSED: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
@@ -317,9 +317,11 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
   const [startDate, setStartDate] = useState(sub.startDate ? sub.startDate.slice(0, 10) : "");
   const [endDate, setEndDate] = useState(sub.endDate ? sub.endDate.slice(0, 10) : "");
   const [status, setStatus] = useState(sub.status);
+  const [price, setPrice] = useState(sub.price != null ? String(sub.price) : "");
   const [notes, setNotes] = useState(sub.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
 
   async function save() {
     setSaving(true);
@@ -332,12 +334,18 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
         endDate: endDate || null,
         status,
         notes: notes || null,
+        ...(price.trim() !== "" ? { price: parseFloat(price) } : {}),
       }),
     });
     setSaving(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       setError(typeof d.error === "string" ? d.error : "Save failed");
+      return;
+    }
+    const d = await res.json().catch(() => ({}));
+    if (d.stripeNote) {
+      setInfo(d.stripeNote);
       return;
     }
     onSaved();
@@ -366,14 +374,22 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-text-primary mb-1">Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
-              {["pending", "active", "past_due", "canceled", "expired"].map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-text-primary mb-1">Status</label>
+              <select value={status} onChange={(e) => setStatus(e.target.value)}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+                {["pending", "active", "past_due", "canceled", "expired"].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-primary mb-1">Price ($)</label>
+              <input type="number" min="0" step="0.01" value={price}
+                onChange={(e) => setPrice(e.target.value)} placeholder="0.00"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
+            </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-text-primary mb-1">Notes</label>
@@ -381,11 +397,24 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
           </div>
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+          {info && (
+            <div className="text-sm text-text-primary bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              {info}
+            </div>
+          )}
           <div className="flex gap-2">
-            <button onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
-            <button onClick={save} disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
-              {saving ? "Saving…" : "Save"}
-            </button>
+            {info ? (
+              <button onClick={onSaved} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
+                Done
+              </button>
+            ) : (
+              <>
+                <button onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+                <button onClick={save} disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -324,7 +324,8 @@ function EditStaffModal({
 }) {
   const existing = resolvePermissions(staff.staffProfile?.permissions ?? null);
   const [title, setTitle] = useState(staff.staffProfile?.title || "");
-  const [appointmentPrice, setAppointmentPrice] = useState(staff.staffProfile?.appointmentPrice || "");
+  // Preserved (no longer edited here — pricing now lives on lesson types).
+  const appointmentPrice = staff.staffProfile?.appointmentPrice || "";
   const [bio, setBio] = useState((staff.staffProfile as any)?.bio || "");
   const [publicEmail, setPublicEmail] = useState((staff.staffProfile as any)?.publicEmail || "");
   const [publicPhone, setPublicPhone] = useState((staff.staffProfile as any)?.publicPhone || "");
@@ -382,12 +383,15 @@ function EditStaffModal({
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
-          <div className="w-1/2">
-            <label className="block text-sm font-medium text-text-primary mb-1">Private lesson display price ($)</label>
-            <input type="number" min="0" step="0.01" value={appointmentPrice}
-              onChange={(e) => setAppointmentPrice(e.target.value)} placeholder="0.00"
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            <p className="text-xs text-text-muted mt-1">Shown to members when booking a 1-on-1 with this coach. Pay is set in the compensation plan below.</p>
+          <div className="pt-2 border-t border-app-border">
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">
+              Private lesson types
+            </p>
+            <p className="text-xs text-text-muted mb-3">
+              Pick which lesson types this coach offers. Prices live on the lesson
+              type (and its purchase options) under Purchase Options → Privates.
+            </p>
+            <CoachLessonTypes coachId={staff.id} />
           </div>
 
           <div className="pt-2 border-t border-app-border">
@@ -715,6 +719,103 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
         </button>
         {saved && <span className="text-sm text-green-600">Saved</span>}
       </div>
+    </div>
+  );
+}
+
+// ─── CoachLessonTypes ─────────────────────────────────────────────────────────
+// Self-contained: lists the club's private lesson types and toggles whether
+// this coach is eligible (writes to PrivateLessonType.eligibleCoachIds).
+type CoachLT = {
+  id: string;
+  title: string;
+  durationMin: number;
+  basePrice: number;
+  eligibleCoachIds: string[];
+  priceOptions?: { id: string; label: string; price: number; coachIds: string[] }[];
+};
+
+function CoachLessonTypes({ coachId }: { coachId: string }) {
+  const [types, setTypes] = useState<CoachLT[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/private-lessons/types")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => {
+        setTypes(Array.isArray(d) ? d : []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  function isEligible(lt: CoachLT) {
+    if (lt.eligibleCoachIds?.includes(coachId)) return true;
+    return (lt.priceOptions || []).some((o) => o.coachIds?.includes(coachId));
+  }
+
+  async function toggle(lt: CoachLT) {
+    setBusyId(lt.id);
+    setError("");
+    const has = lt.eligibleCoachIds?.includes(coachId);
+    const next = has
+      ? lt.eligibleCoachIds.filter((c) => c !== coachId)
+      : [...(lt.eligibleCoachIds || []), coachId];
+    const res = await fetch(`/api/private-lessons/types/${lt.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eligibleCoachIds: next }),
+    });
+    setBusyId(null);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Could not update");
+      return;
+    }
+    setTypes((prev) =>
+      prev.map((t) => (t.id === lt.id ? { ...t, eligibleCoachIds: next } : t)),
+    );
+  }
+
+  if (loading) return <p className="text-xs text-text-muted">Loading lesson types…</p>;
+  if (types.length === 0)
+    return (
+      <p className="text-xs text-text-muted">
+        No lesson types yet. Create them under Purchase Options → Privates.
+      </p>
+    );
+
+  return (
+    <div className="space-y-1.5">
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      {types.map((lt) => {
+        const on = isEligible(lt);
+        return (
+          <label
+            key={lt.id}
+            className="flex items-center justify-between gap-3 px-3 py-2 border border-app-border rounded-lg cursor-pointer hover:bg-app-bg"
+          >
+            <span className="flex items-center gap-2 text-sm text-text-primary">
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={busyId === lt.id}
+                onChange={() => toggle(lt)}
+                className="rounded"
+              />
+              {lt.title}
+            </span>
+            <span className="text-xs text-text-muted">
+              {lt.durationMin}min · ${Number(lt.basePrice).toFixed(2)}
+              {lt.priceOptions && lt.priceOptions.length > 0
+                ? ` · ${lt.priceOptions.length} option${lt.priceOptions.length === 1 ? "" : "s"}`
+                : ""}
+            </span>
+          </label>
+        );
+      })}
     </div>
   );
 }

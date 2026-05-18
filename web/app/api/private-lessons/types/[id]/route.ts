@@ -4,6 +4,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+const priceOption = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1).max(60),
+  price: z.number().nonnegative(),
+  coachIds: z.array(z.string()).default([]),
+});
+
 const schema = z.object({
   title:            z.string().min(1).max(100).optional(),
   description:      z.string().max(500).optional().nullable(),
@@ -13,6 +20,7 @@ const schema = z.object({
   locationId:       z.string().optional().nullable(),
   coachTierLabel:   z.string().optional().nullable(),
   eligibleCoachIds: z.array(z.string()).optional(),
+  priceOptions:     z.array(priceOption).optional(),
   active:           z.boolean().optional(),
   sortOrder:        z.number().int().optional(),
 });

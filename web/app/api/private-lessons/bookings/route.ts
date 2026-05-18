@@ -42,6 +42,7 @@ const slotSchema = z.object({
 const schema = z.object({
   memberId:        z.string(),
   lessonTypeId:    z.string(),
+  priceOptionId:   z.string().optional().nullable(),
   coachId:         z.string().optional().nullable(),
   requestedSlots:  z.array(slotSchema).min(1).max(3),
   creditLedgerId:  z.string().optional().nullable(),
@@ -96,6 +97,31 @@ export async function POST(req: Request) {
       creditLedgerId = ledger.id;
     }
 
+    // Resolve the chosen purchase option (if any). Each lesson type can
+    // have several priced options, each limited to a set of coaches.
+    type Opt = { id: string; label: string; price: number; coachIds: string[] };
+    const options = Array.isArray(lessonType.priceOptions)
+      ? (lessonType.priceOptions as unknown as Opt[])
+      : [];
+    const chosenOption = data.priceOptionId
+      ? options.find((o) => o.id === data.priceOptionId) || null
+      : null;
+    if (data.priceOptionId && !chosenOption) {
+      return NextResponse.json({ error: "That pricing option is no longer available." }, { status: 400 });
+    }
+    if (
+      chosenOption &&
+      chosenOption.coachIds.length > 0 &&
+      data.coachId &&
+      !chosenOption.coachIds.includes(data.coachId)
+    ) {
+      return NextResponse.json(
+        { error: "That coach isn't available for the selected pricing option." },
+        { status: 400 },
+      );
+    }
+    const optionPrice = chosenOption ? Number(chosenOption.price) : Number(lessonType.basePrice);
+
     const booking = await prisma.privateBooking.create({
       data: {
         clubId:         session.user.clubId,
@@ -105,7 +131,7 @@ export async function POST(req: Request) {
         requestedSlots: data.requestedSlots,
         creditLedgerId,
         paymentType:    data.paymentType,
-        pricePaid:      data.paymentType === "CREDIT" ? 0 : Number(lessonType.basePrice),
+        pricePaid:      data.paymentType === "CREDIT" ? 0 : optionPrice,
         allowUnpaid:    data.allowUnpaid,
         notes:          data.notes || null,
         status:         data.coachId ? "PENDING_COACH" : "REQUESTED",

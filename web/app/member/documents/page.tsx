@@ -43,7 +43,7 @@ const typeColors: Record<string, { bg: string; fg: string }> = {
   Waiver: { bg: "#FCE4E0", fg: "#7B2415" },
   Policy: { bg: "var(--color-primary)", fg: "#fff" },
   Agreement: { bg: "var(--color-primary)", fg: "#fff" },
-  Handbook: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  Handbook: { bg: "var(--color-success)", fg: "#1F1F23" },
   Other: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 

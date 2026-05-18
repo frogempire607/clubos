@@ -58,7 +58,7 @@ type Member = {
 };
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; fg: string }> = {
-  PRESENT: { label: "Present", bg: "var(--color-success)", fg: "var(--color-text)" },
+  PRESENT: { label: "Present", bg: "var(--color-success)", fg: "#1F1F23" },
   ABSENT: { label: "Absent", fg: "var(--color-muted)", bg: "var(--color-bg)" },
   LATE: { label: "Late", bg: "var(--color-warning)", fg: "#fff" },
   TRIAL: { label: "Trial", bg: "var(--color-primary)", fg: "#fff" },

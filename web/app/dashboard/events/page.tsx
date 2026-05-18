@@ -73,7 +73,7 @@ type Staff = { id: string; firstName: string; lastName: string };
 const BUILT_IN_COLORS: Record<BuiltInType, { bg: string; fg: string }> = {
   CLASS: { bg: "var(--color-primary)", fg: "#fff" },
   PRIVATE: { bg: "var(--color-primary)", fg: "#fff" },
-  CLINIC: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  CLINIC: { bg: "var(--color-success)", fg: "#1F1F23" },
   CAMP: { bg: "var(--color-warning)", fg: "#fff" },
   TOURNAMENT: { bg: "var(--color-warning)", fg: "#fff" },
   OTHER: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
@@ -168,6 +168,12 @@ export default function EventsPage() {
     if (!confirm("Delete this event? Bookings will be canceled.")) return;
     const res = await fetch(`/api/events/${id}`, { method: "DELETE" });
     if (res.ok) load();
+  }
+
+  async function handleDuplicate(id: string) {
+    const res = await fetch(`/api/events/${id}/duplicate`, { method: "POST" });
+    if (res.ok) load();
+    else alert("Could not duplicate this event.");
   }
 
   function getPublishStatus(e: Event): { label: string; bg: string; fg: string } | null {
@@ -286,6 +292,7 @@ export default function EventsPage() {
                     )}
                     <button onClick={() => setViewingBookings(e.id)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Bookings</button>
                     <button onClick={() => setEditing(e)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Edit</button>
+                    <button onClick={() => handleDuplicate(e.id)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Duplicate</button>
                     <button onClick={() => handleDelete(e.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
                   </div>
                 </div>
@@ -324,7 +331,7 @@ export default function EventsPage() {
 // ── Event Modal ──────────────────────────────────────────────────────────────
 const COLOR_PRESETS = [
   { bg: "var(--color-primary)", fg: "#fff", name: "Violet" },
-  { bg: "var(--color-success)", fg: "var(--color-text)", name: "Lime" },
+  { bg: "var(--color-success)", fg: "#1F1F23", name: "Lime" },
   { bg: "var(--color-warning)", fg: "#fff", name: "Orange" },
   { bg: "var(--color-bg)", fg: "var(--color-muted)", name: "Neutral" },
 ];

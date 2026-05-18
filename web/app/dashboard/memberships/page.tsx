@@ -78,6 +78,12 @@ export default function MembershipsPage() {
     if (res.ok) load();
   }
 
+  async function handleDuplicate(id: string) {
+    const res = await fetch(`/api/memberships/${id}/duplicate`, { method: "POST" });
+    if (res.ok) load();
+    else alert("Could not duplicate this membership.");
+  }
+
   async function handleDeleteDiscount(id: string) {
     if (!confirm("Delete this discount code?")) return;
     const res = await fetch(`/api/discounts/${id}`, { method: "DELETE" });
@@ -164,6 +170,7 @@ export default function MembershipsPage() {
                       {m.active ? "Deactivate" : "Activate"}
                     </button>
                     <button onClick={() => setEditing(m)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Edit</button>
+                    <button onClick={() => handleDuplicate(m.id)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Duplicate</button>
                     <button onClick={() => handleDelete(m.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
                   </div>
                 </div>

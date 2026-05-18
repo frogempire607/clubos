@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type PriceOption = { id: string; label: string; price: number; coachIds: string[] };
+
 type LessonType = {
   id: string;
   title: string;
@@ -14,6 +16,7 @@ type LessonType = {
   basePrice: number;
   coachTierLabel: string | null;
   eligibleCoachIds: string[];
+  priceOptions: PriceOption[];
   active: boolean;
   sortOrder: number;
 };
@@ -100,6 +103,9 @@ function LessonTypeModal({
     active:          lt?.active ?? true,
     sortOrder:       String(lt?.sortOrder ?? 0),
   });
+  const [priceOptions, setPriceOptions] = useState<PriceOption[]>(
+    lt?.priceOptions?.length ? lt.priceOptions : [],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
 
@@ -110,6 +116,33 @@ function LessonTypeModal({
         ? f.eligibleCoachIds.filter((c) => c !== id)
         : [...f.eligibleCoachIds, id],
     }));
+  }
+
+  function addOption() {
+    setPriceOptions((opts) => [
+      ...opts,
+      { id: `opt_${Date.now()}_${opts.length}`, label: "", price: 0, coachIds: [] },
+    ]);
+  }
+  function updateOption(id: string, patch: Partial<PriceOption>) {
+    setPriceOptions((opts) => opts.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+  }
+  function removeOption(id: string) {
+    setPriceOptions((opts) => opts.filter((o) => o.id !== id));
+  }
+  function toggleOptionCoach(optId: string, coachId: string) {
+    setPriceOptions((opts) =>
+      opts.map((o) =>
+        o.id === optId
+          ? {
+              ...o,
+              coachIds: o.coachIds.includes(coachId)
+                ? o.coachIds.filter((c) => c !== coachId)
+                : [...o.coachIds, coachId],
+            }
+          : o,
+      ),
+    );
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -125,6 +158,14 @@ function LessonTypeModal({
         basePrice:       parseFloat(form.basePrice),
         coachTierLabel:  form.coachTierLabel || null,
         eligibleCoachIds: form.eligibleCoachIds,
+        priceOptions:    priceOptions
+          .filter((o) => o.label.trim())
+          .map((o) => ({
+            id: o.id,
+            label: o.label.trim(),
+            price: Number(o.price) || 0,
+            coachIds: o.coachIds,
+          })),
         active:          form.active,
         sortOrder:       parseInt(form.sortOrder),
       };
@@ -204,6 +245,77 @@ function LessonTypeModal({
               </div>
             </div>
           )}
+
+          <div className="border-t border-app-border pt-4">
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-text-muted">
+                Purchase options
+              </label>
+              <button type="button" onClick={addOption}
+                className="text-xs px-2 py-1 rounded-md border border-app-border text-text-primary hover:bg-app-bg">
+                + Add option
+              </button>
+            </div>
+            <p className="text-xs text-text-muted mb-3">
+              Offer this lesson type at different prices (e.g. tiers of coach). Each
+              option can be limited to specific coaches. Leave empty to just use the
+              base price &amp; eligible coaches above.
+            </p>
+            <div className="space-y-3">
+              {priceOptions.map((o) => (
+                <div key={o.id} className="border border-app-border rounded-lg p-3 space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 border border-app-border rounded-md px-3 py-2 text-sm"
+                      placeholder="Option name (e.g. With a Head Coach)"
+                      value={o.label}
+                      onChange={(e) => updateOption(o.id, { label: e.target.value })}
+                    />
+                    <input
+                      type="number" min={0} step="0.01"
+                      className="w-28 border border-app-border rounded-md px-3 py-2 text-sm"
+                      placeholder="Price"
+                      value={o.price || ""}
+                      onChange={(e) => updateOption(o.id, { price: parseFloat(e.target.value) || 0 })}
+                    />
+                    <button type="button" onClick={() => removeOption(o.id)}
+                      className="px-2 text-text-muted hover:text-red-600" aria-label="Remove option">
+                      ×
+                    </button>
+                  </div>
+                  {staffList.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-text-muted mb-1">
+                        Coaches for this option {o.coachIds.length === 0 ? "(any eligible coach)" : ""}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {staffList.map((s) => {
+                          const on = o.coachIds.includes(s.id);
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => toggleOptionCoach(o.id, s.id)}
+                              className={`text-xs px-2 py-1 rounded-full border transition ${
+                                on
+                                  ? "border-brand bg-brand text-white"
+                                  : "border-app-border text-text-muted hover:bg-app-bg"
+                              }`}
+                            >
+                              {s.firstName} {s.lastName}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {priceOptions.length === 0 && (
+                <p className="text-xs text-text-muted italic">No extra options — base price applies.</p>
+              )}
+            </div>
+          </div>
 
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
@@ -588,6 +700,7 @@ function NewBookingModal({
   const [form, setForm] = useState({
     memberId:    "",
     lessonTypeId:"",
+    priceOptionId: "",
     coachId:     "",
     date:        "",
     startTime:   "",
@@ -599,6 +712,17 @@ function NewBookingModal({
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
 
+  const selectedType = lessonTypes.find((lt) => lt.id === form.lessonTypeId);
+  const typeOptions: PriceOption[] = selectedType?.priceOptions ?? [];
+  const selectedOption = typeOptions.find((o) => o.id === form.priceOptionId) || null;
+  // If an option is chosen and it restricts coaches, only show those.
+  const coachChoices =
+    selectedOption && selectedOption.coachIds.length > 0
+      ? staffList.filter((s) => selectedOption.coachIds.includes(s.id))
+      : selectedType && selectedType.eligibleCoachIds.length > 0
+        ? staffList.filter((s) => selectedType.eligibleCoachIds.includes(s.id))
+        : staffList;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -607,6 +731,7 @@ function NewBookingModal({
       const body = {
         memberId:       form.memberId,
         lessonTypeId:   form.lessonTypeId,
+        priceOptionId:  form.priceOptionId || null,
         coachId:        form.coachId || null,
         requestedSlots: [{ date: form.date, startTime: form.startTime, endTime: form.endTime }],
         paymentType:    form.paymentType,
@@ -647,18 +772,37 @@ function NewBookingModal({
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1">Lesson type *</label>
             <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm" required
-              value={form.lessonTypeId} onChange={(e) => setForm({ ...form, lessonTypeId: e.target.value })}>
+              value={form.lessonTypeId}
+              onChange={(e) =>
+                setForm({ ...form, lessonTypeId: e.target.value, priceOptionId: "", coachId: "" })
+              }>
               <option value="">Select…</option>
               {lessonTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.title} — {lt.durationMin}min</option>)}
             </select>
           </div>
+
+          {typeOptions.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">Purchase option *</label>
+              <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm" required
+                value={form.priceOptionId}
+                onChange={(e) => setForm({ ...form, priceOptionId: e.target.value, coachId: "" })}>
+                <option value="">Select option…</option>
+                {typeOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label} — ${Number(o.price).toFixed(2)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1">Coach (optional)</label>
             <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
               value={form.coachId} onChange={(e) => setForm({ ...form, coachId: e.target.value })}>
               <option value="">Unassigned</option>
-              {staffList.map((s) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
+              {coachChoices.map((s) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
             </select>
           </div>
 
@@ -859,6 +1003,12 @@ export default function PrivatesPage() {
     load();
   }
 
+  async function duplicateLessonType(id: string) {
+    const res = await fetch(`/api/private-lessons/types/${id}/duplicate`, { method: "POST" });
+    if (res.ok) load();
+    else alert("Could not duplicate this lesson type.");
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -969,6 +1119,7 @@ export default function PrivatesPage() {
                           {isOwner && (
                             <td className="px-4 py-3 text-right">
                               <button onClick={() => setEditLT(lt)} className="text-xs text-text-muted hover:text-text-primary mr-3">Edit</button>
+                              <button onClick={() => duplicateLessonType(lt.id)} className="text-xs text-text-muted hover:text-text-primary mr-3">Duplicate</button>
                               <button onClick={() => deleteLessonType(lt.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
                             </td>
                           )}

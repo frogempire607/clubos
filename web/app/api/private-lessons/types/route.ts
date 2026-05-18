@@ -16,6 +16,13 @@ export async function GET() {
   return NextResponse.json(types);
 }
 
+const priceOption = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1).max(60),
+  price: z.number().nonnegative(),
+  coachIds: z.array(z.string()).default([]),
+});
+
 const schema = z.object({
   title:            z.string().min(1).max(100),
   description:      z.string().max(500).optional().nullable(),
@@ -25,6 +32,7 @@ const schema = z.object({
   locationId:       z.string().optional().nullable(),
   coachTierLabel:   z.string().optional().nullable(),
   eligibleCoachIds: z.array(z.string()).default([]),
+  priceOptions:     z.array(priceOption).default([]),
   active:           z.boolean().default(true),
   sortOrder:        z.number().int().default(0),
 });

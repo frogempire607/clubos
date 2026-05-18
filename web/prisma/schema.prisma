@@ -1175,6 +1175,11 @@ model PrivateLessonType {
   basePrice        Decimal   @db.Decimal(10, 2)
   coachTierLabel   String? // display label e.g. "All-American"
   eligibleCoachIds Json      @default("[]") // [userId, …]; empty = any staff
+  // Multiple purchase options for ONE lesson type. Each option has its own
+  // price and the set of coaches it applies to. Shape:
+  // [{ id, label, price, coachIds: string[] }]. Empty = use basePrice +
+  // eligibleCoachIds (back-compat).
+  priceOptions     Json      @default("[]")
   active           Boolean   @default(true)
   sortOrder        Int       @default(0)
   deletedAt        DateTime?

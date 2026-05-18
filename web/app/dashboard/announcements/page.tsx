@@ -22,7 +22,7 @@ function getStatus(a: Announcement): Status {
 }
 
 const statusStyle: Record<Status, { bg: string; fg: string; label: string }> = {
-  LIVE:      { bg: "var(--color-success)", fg: "var(--color-text)", label: "Live" },
+  LIVE:      { bg: "var(--color-success)", fg: "#1F1F23", label: "Live" },
   SCHEDULED: { bg: "var(--color-warning)", fg: "#fff", label: "Scheduled" },
   EXPIRED:   { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Expired" },
 };

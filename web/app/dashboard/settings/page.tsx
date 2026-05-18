@@ -20,8 +20,8 @@ type Club = {
 };
 
 const SUB_STATUS_LABEL: Record<string, { label: string; bg: string; fg: string }> = {
-  active:   { label: "Active",   bg: "var(--color-success)", fg: "var(--color-text)" },
-  trialing: { label: "Trialing", bg: "var(--color-success)", fg: "var(--color-text)" },
+  active:   { label: "Active",   bg: "var(--color-success)", fg: "#1F1F23" },
+  trialing: { label: "Trialing", bg: "var(--color-success)", fg: "#1F1F23" },
   past_due: { label: "Past due", bg: "var(--color-warning)", fg: "#fff" },
   canceled: { label: "Canceled", bg: "var(--color-bg)",      fg: "var(--color-muted)" },
 };
@@ -1090,7 +1090,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
 };
 
 const ENTITY_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
-  NONPROFIT: { bg: "var(--color-success)", fg: "var(--color-text)" },
+  NONPROFIT: { bg: "var(--color-success)", fg: "#1F1F23" },
   LLC: { bg: "var(--color-primary)", fg: "#fff" },
   CORP: { bg: "var(--color-primary)", fg: "#fff" },
   SOLE_PROP: { bg: "var(--color-warning)", fg: "#fff" },

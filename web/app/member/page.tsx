@@ -186,7 +186,7 @@ function getEventColor(b: Booking): { bg: string; fg: string } {
   const map: Record<string, { bg: string; fg: string }> = {
     CLASS: { bg: "var(--color-primary)", fg: "#fff" },
     PRIVATE: { bg: "var(--color-primary)", fg: "#fff" },
-    CLINIC: { bg: "var(--color-success)", fg: "var(--color-text)" },
+    CLINIC: { bg: "var(--color-success)", fg: "#1F1F23" },
     CAMP: { bg: "var(--color-warning)", fg: "#fff" },
     TOURNAMENT: { bg: "#FCE4E0", fg: "#7B2415" },
     OTHER: { bg: "var(--color-bg)", fg: "var(--color-muted)" },

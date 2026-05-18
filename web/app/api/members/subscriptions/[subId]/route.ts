@@ -11,6 +11,9 @@ const patchSchema = z.object({
   endDate: z.string().optional().nullable(),
   status: z.enum(["pending", "active", "past_due", "canceled", "expired"]).optional(),
   notes: z.string().max(500).optional().nullable(),
+  // Manual price override (owner/staff can change anyone's membership price
+  // directly, not only via a discount code).
+  price: z.number().nonnegative().optional(),
 });
 
 // PATCH /api/members/subscriptions/[subId]
@@ -54,11 +57,19 @@ export async function PATCH(req: Request, context: { params: Promise<{ subId: st
           }
         : {}),
       ...(data.notes !== undefined ? { notes: data.notes || null } : {}),
+      ...(data.price !== undefined ? { price: data.price } : {}),
     },
   });
   await recomputeMemberStatus(sub.member.id);
 
-  return NextResponse.json({ ok: true });
+  // Local price is updated immediately. A live Stripe subscription keeps
+  // billing its own amount until changed in Stripe — flag that to the caller.
+  const stripeNote =
+    data.price !== undefined && sub.stripeSubscriptionId
+      ? "Price updated in AthletixOS. This subscription bills through Stripe — update the amount in the Stripe portal so future charges match."
+      : null;
+
+  return NextResponse.json({ ok: true, stripeNote });
 }
 
 // DELETE /api/members/subscriptions/[subId]

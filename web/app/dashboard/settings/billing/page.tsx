@@ -157,7 +157,7 @@ export default function BillingSettingsPage() {
               <div className="text-base font-semibold text-text-primary">Stripe</div>
               <div className="text-xs text-text-muted">Ready to accept payments</div>
             </div>
-            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "var(--color-success)", color: "var(--color-text)" }}>✓ Connected</span>
+            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "var(--color-success)", color: "#1F1F23" }}>✓ Connected</span>
           </div>
 
           <div className="flex gap-2">
@@ -214,7 +214,7 @@ export default function BillingSettingsPage() {
             </div>
             <span
               className="text-xs px-3 py-1 rounded-full font-medium"
-              style={{ background: "var(--color-success)", color: "var(--color-text)" }}
+              style={{ background: "var(--color-success)", color: "#1F1F23" }}
             >
               Active
             </span>
