@@ -88,6 +88,11 @@ model Club {
   contactEmail             String?
   contactPhone             String?
   websiteUrl               String?
+  // Outgoing email identity. emailFromName is the friendly "From" name
+  // members see (defaults to the club name). emailReplyTo is where member
+  // replies go (defaults to contactEmail).
+  emailFromName            String?
+  emailReplyTo             String?
   // JSON array of {label, url} pairs (Instagram, Facebook, YouTube, …)
   socialLinks              Json      @default("[]")
   // JSON map of {monday: "9-5", tuesday: "...", ...} or free-form blob

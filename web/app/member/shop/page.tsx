@@ -46,6 +46,14 @@ export default function MemberShopPage() {
       icon: "◈",
     },
     {
+      href: "/member/privates",
+      title: "Private lessons",
+      desc: "Book 1-on-1 time — pick a coach and request times.",
+      count: 0,
+      countLabel: "",
+      icon: "◎",
+    },
+    {
       href: "/member/products",
       title: "Shop",
       desc: "Gear, apparel, and other items from your club.",

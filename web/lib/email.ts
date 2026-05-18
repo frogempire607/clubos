@@ -19,10 +19,19 @@ export async function sendEmail({
   to,
   subject,
   html,
+  fromName,
+  replyTo,
 }: {
   to: string;
   subject: string;
   html: string;
+  // Friendly "From" name members see (e.g. the club's name). The actual
+  // sending address still comes from EMAIL_FROM (the configured SMTP
+  // mailbox) — only the display name is overridden, which keeps DKIM/SPF
+  // valid for deliverability.
+  fromName?: string | null;
+  // Where member replies go (e.g. the club's contact email).
+  replyTo?: string | null;
 }) {
   if (!process.env.SMTP_HOST) {
     console.log(`[Email – no SMTP configured] To: ${to} | Subject: ${subject}`);
@@ -39,11 +48,19 @@ export async function sendEmail({
     },
   });
 
+  const baseFrom = process.env.EMAIL_FROM || "AthletixOS <no-reply@clubos.app>";
+  let from = baseFrom;
+  if (fromName) {
+    const addr = baseFrom.match(/<([^>]+)>/)?.[1] || baseFrom;
+    from = `${fromName.replace(/["<>]/g, "")} <${addr}>`;
+  }
+
   await transporter.sendMail({
-    from: process.env.EMAIL_FROM || "AthletixOS <no-reply@clubos.app>",
+    from,
     to,
     subject,
     html,
+    ...(replyTo ? { replyTo } : {}),
   });
 }
 
@@ -300,6 +317,8 @@ export async function sendMemberMigrationActivationEmail({
   nextBillingDate,
   activationUrl,
   isReminder = false,
+  fromName,
+  replyTo,
 }: {
   to: string;
   athleteName: string;
@@ -309,6 +328,8 @@ export async function sendMemberMigrationActivationEmail({
   nextBillingDate?: string | null;
   activationUrl: string;
   isReminder?: boolean;
+  fromName?: string | null;
+  replyTo?: string | null;
 }) {
   const subject = isReminder
     ? `Reminder: activate your ${clubName} membership`
@@ -372,5 +393,5 @@ export async function sendMemberMigrationActivationEmail({
     </div>
   </div>`;
 
-  await sendEmail({ to, subject, html });
+  await sendEmail({ to, subject, html, fromName, replyTo });
 }

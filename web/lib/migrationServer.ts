@@ -36,7 +36,14 @@ export async function sendActivation(
 
   const club = await prisma.club.findUnique({
     where: { id: clubId },
-    select: { name: true, slug: true, logoUrl: true },
+    select: {
+      name: true,
+      slug: true,
+      logoUrl: true,
+      emailFromName: true,
+      emailReplyTo: true,
+      contactEmail: true,
+    },
   });
   if (!club) return { ok: false, reason: "club missing" };
 
@@ -62,6 +69,8 @@ export async function sendActivation(
         : null,
       activationUrl,
       isReminder,
+      fromName: club.emailFromName || club.name,
+      replyTo: club.emailReplyTo || club.contactEmail || null,
     });
   } catch (e) {
     return { ok: false, reason: `email failed: ${String(e)}` };

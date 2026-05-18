@@ -927,7 +927,7 @@ function AttendancePageInner() {
                   title="Show attendance QR code"
                   onClick={() =>
                     setQrFor({
-                      url: `${origin}/dashboard/attendance?date=${date}&session=${s.id}`,
+                      url: `${origin}/c/${s.id}`,
                       title: s.recurringClass.name,
                       subtitle: `${fmtDateHeader(date)} · ${fmtTime(s.startsAt)}`,
                     })
@@ -960,7 +960,7 @@ function AttendancePageInner() {
                   title="Show attendance QR code"
                   onClick={() =>
                     setQrFor({
-                      url: `${origin}/dashboard/events?event=${ev.id}`,
+                      url: `${origin}/c/${ev.id}`,
                       title: ev.name,
                       subtitle: `${fmtDateHeader(date)} · ${fmtTimeLocal(ev.startsAt)}`,
                     })

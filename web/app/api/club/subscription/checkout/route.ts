@@ -75,11 +75,18 @@ export async function POST(req: Request) {
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/dashboard/settings/billing?upgraded=${tier}`,
       cancel_url:  `${baseUrl}/dashboard/settings/billing?canceled=true`,
+      // 30-day free trial. A card IS collected up front and is charged
+      // automatically when the trial ends unless the owner cancels first.
+      payment_method_collection: "always",
       metadata: {
         clubOsPlan: tier,
         platformClubId: club.id,
       },
       subscription_data: {
+        trial_period_days: 30,
+        trial_settings: {
+          end_behavior: { missing_payment_method: "cancel" },
+        },
         metadata: {
           clubOsPlan: tier,
           platformClubId: club.id,
