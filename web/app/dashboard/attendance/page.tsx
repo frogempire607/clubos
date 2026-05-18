@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import ExportMenu from "@/components/ExportMenu";
+import QRModal from "@/components/QRModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -783,6 +784,17 @@ function ScheduleItem({
   );
 }
 
+function QrGlyph() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 14h3v3h-3zM21 14v3M17 21h4M14 21h0" />
+    </svg>
+  );
+}
+
 // ─── Main Page (inner, needs useSearchParams) ─────────────────────────────────
 
 function AttendancePageInner() {
@@ -797,6 +809,11 @@ function AttendancePageInner() {
   const [selectedSession, setSelectedSession] = useState<{ id: string; name: string } | null>(
     null
   );
+  const [qrFor, setQrFor] = useState<{ url: string; title: string; subtitle: string } | null>(
+    null
+  );
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const load = useCallback(async (d: string) => {
     setLoading(true);
@@ -887,40 +904,84 @@ function AttendancePageInner() {
         ) : (
           <div className="space-y-2">
             {classSessions.map((s) => (
-              <ScheduleItem
-                key={s.id}
-                label={s.recurringClass.name}
-                timeRange={`${fmtTime(s.startsAt)} – ${fmtTime(s.endsAt)}`}
-                checkedIn={s._count.attendance}
-                capacity={s.recurringClass.capacity}
-                type="class"
-                active={selectedSession?.id === s.id}
-                onClick={() =>
-                  setSelectedSession(
-                    selectedSession?.id === s.id
-                      ? null
-                      : { id: s.id, name: s.recurringClass.name }
-                  )
-                }
-              />
+              <div key={s.id} className="flex items-stretch gap-2">
+                <div className="flex-1 min-w-0">
+                  <ScheduleItem
+                    label={s.recurringClass.name}
+                    timeRange={`${fmtTime(s.startsAt)} – ${fmtTime(s.endsAt)}`}
+                    checkedIn={s._count.attendance}
+                    capacity={s.recurringClass.capacity}
+                    type="class"
+                    active={selectedSession?.id === s.id}
+                    onClick={() =>
+                      setSelectedSession(
+                        selectedSession?.id === s.id
+                          ? null
+                          : { id: s.id, name: s.recurringClass.name }
+                      )
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  title="Show attendance QR code"
+                  onClick={() =>
+                    setQrFor({
+                      url: `${origin}/dashboard/attendance?date=${date}&session=${s.id}`,
+                      title: s.recurringClass.name,
+                      subtitle: `${fmtDateHeader(date)} · ${fmtTime(s.startsAt)}`,
+                    })
+                  }
+                  className="flex-shrink-0 px-3 rounded-xl border border-app-border bg-white hover:bg-app-bg text-text-muted hover:text-text-primary flex items-center justify-center"
+                  aria-label="Show QR code"
+                >
+                  <QrGlyph />
+                </button>
+              </div>
             ))}
             {events.map((ev) => (
-              <ScheduleItem
-                key={ev.id}
-                label={ev.name}
-                sublabel={ev.location?.name}
-                timeRange={`${fmtTimeLocal(ev.startsAt)} – ${fmtTimeLocal(ev.endsAt)}`}
-                checkedIn={ev._count.bookings}
-                capacity={ev.capacity}
-                type="event"
-                active={false}
-                onClick={() => {
-                  window.location.href = `/dashboard/events`;
-                }}
-              />
+              <div key={ev.id} className="flex items-stretch gap-2">
+                <div className="flex-1 min-w-0">
+                  <ScheduleItem
+                    label={ev.name}
+                    sublabel={ev.location?.name}
+                    timeRange={`${fmtTimeLocal(ev.startsAt)} – ${fmtTimeLocal(ev.endsAt)}`}
+                    checkedIn={ev._count.bookings}
+                    capacity={ev.capacity}
+                    type="event"
+                    active={false}
+                    onClick={() => {
+                      window.location.href = `/dashboard/events?event=${ev.id}`;
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  title="Show attendance QR code"
+                  onClick={() =>
+                    setQrFor({
+                      url: `${origin}/dashboard/events?event=${ev.id}`,
+                      title: ev.name,
+                      subtitle: `${fmtDateHeader(date)} · ${fmtTimeLocal(ev.startsAt)}`,
+                    })
+                  }
+                  className="flex-shrink-0 px-3 rounded-xl border border-app-border bg-white hover:bg-app-bg text-text-muted hover:text-text-primary flex items-center justify-center"
+                  aria-label="Show QR code"
+                >
+                  <QrGlyph />
+                </button>
+              </div>
             ))}
           </div>
         )}
+
+        <QRModal
+          open={!!qrFor}
+          onClose={() => setQrFor(null)}
+          url={qrFor?.url ?? ""}
+          title={qrFor?.title ?? ""}
+          subtitle={qrFor?.subtitle}
+        />
 
         {/* Hint */}
         {totalItems > 0 && (

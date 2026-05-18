@@ -144,6 +144,18 @@ export default function EventsPage() {
 
   useEffect(() => { load(); }, []);
 
+  // Deep link from the attendance QR code: /dashboard/events?event=<id>
+  // opens that event's bookings/check-in directly.
+  useEffect(() => {
+    if (loading || events.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const eventId = params.get("event");
+    if (eventId && events.some((e) => e.id === eventId)) {
+      setViewingBookings(eventId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
   const now = new Date();
   const filtered = events.filter((e) => {
     const start = new Date(e.startsAt);

@@ -72,11 +72,24 @@ export default function SignupPage() {
           <img src="/brand/circle.PNG" alt="AthletixOS" className="w-24 h-24 rounded-full" />
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-8">
-          <div className="mb-6">
+          <div className="mb-5">
+            <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-stone-500 bg-stone-100 rounded-full px-2.5 py-1 mb-3">
+              Club owners &amp; staff
+            </span>
             <h1 className="text-2xl font-semibold text-stone-900 mb-1">Get started</h1>
             <p className="text-sm text-stone-500">
-              {mode === "create" ? "Create your club on AthletixOS" : "Join an existing club"}
+              {mode === "create"
+                ? "Create your club on AthletixOS"
+                : "Join an existing club as a coach or staff member"}
             </p>
+          </div>
+
+          {/* Members land here by mistake constantly — send them to the right place. */}
+          <div className="mb-6 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2.5 text-xs text-stone-600">
+            Are you an athlete or parent?{" "}
+            <Link href="/member/signup" className="font-semibold text-stone-900 hover:underline">
+              Create a member account →
+            </Link>
           </div>
 
           <div className="flex gap-1 bg-stone-100 rounded-lg p-1 mb-6">

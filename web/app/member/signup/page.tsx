@@ -29,8 +29,27 @@ export default function MemberSignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  function canContinueStep1() {
+    return !!clubSlug.trim();
+  }
+  function canContinueStep2() {
+    return !!(firstName && lastName && email && password);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // The whole wizard is one <form>, so pressing Enter on step 1/2 would
+    // otherwise fire this submit with incomplete data. Advance instead.
+    if (step === 1) {
+      if (canContinueStep1()) setStep(2);
+      return;
+    }
+    if (step === 2) {
+      if (canContinueStep2()) setStep(3);
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -55,8 +74,15 @@ export default function MemberSignupPage() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      setError(typeof data.error === "string" ? data.error : "Sign up failed. Please try again.");
+      const data = await res.json().catch(() => ({}));
+      let msg = "Sign up failed. Please try again.";
+      if (typeof data.error === "string") {
+        msg = data.error;
+      } else if (Array.isArray(data.error) && data.error[0]?.message) {
+        // Zod validation errors come back as an array.
+        msg = data.error[0].message;
+      }
+      setError(msg);
       setLoading(false);
       return;
     }
@@ -73,7 +99,11 @@ export default function MemberSignupPage() {
     if (loginRes?.ok) {
       window.location.href = "/member";
     } else {
-      setError("Account created! Please log in.");
+      // Account exists now — send them to login rather than a dead end.
+      setError("Account created! Redirecting you to sign in…");
+      setTimeout(() => {
+        window.location.href = `/login?club=${encodeURIComponent(clubSlug.trim().toLowerCase())}`;
+      }, 1200);
     }
   }
 

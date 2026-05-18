@@ -23,6 +23,7 @@
     "next-auth": "^4.24.7",
     "nodemailer": "^7.0.13",
     "plaid": "^42.1.0",
+    "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-plaid-link": "^4.1.1",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.0.0",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.0",

@@ -43,6 +43,19 @@ type ClubMember = {
   membership: { name: string } | null;
 };
 
+type AudienceMember = {
+  id: string;
+  userId?: string | null;
+  firstName: string;
+  lastName: string;
+  email?: string | null;
+  tags: string | null;
+  status: string;
+  isMinor?: boolean;
+  membership: { name: string } | null;
+  membershipNames: string[];
+};
+
 type DMUser = {
   id: string;
   firstName: string;
@@ -473,28 +486,49 @@ function GroupsTab() {
 function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<"GROUP" | "BROADCAST">("GROUP");
-  const [filterMode, setFilterMode] = useState<"manual" | "tag" | "membership" | "status">("manual");
+  const [filterMode, setFilterMode] = useState<"manual" | "tag" | "membership" | "class" | "status">("manual");
   const [filterValue, setFilterValue] = useState("");
-  const [members, setMembers] = useState<ClubMember[]>([]);
+  const [members, setMembers] = useState<AudienceMember[]>([]);
   const [staff, setStaff] = useState<{ id: string; firstName: string; lastName: string; role: string }[]>([]);
+  const [classes, setClasses] = useState<{ id: string; name: string; memberIds: string[] }[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/members").then((r) => (r.ok ? r.json() : [])),
-      fetch("/api/staff").then((r) => (r.ok ? r.json() : [])),
-    ]).then(([m, s]) => {
-      setMembers(m);
-      setStaff(s);
-    });
+    fetch("/api/messages/audience")
+      .then((r) => (r.ok ? r.json() : { members: [], staff: [], classes: [] }))
+      .then((d) => {
+        setMembers(d.members ?? []);
+        setStaff(d.staff ?? []);
+        setClasses(d.classes ?? []);
+      });
   }, []);
 
   const allUsers = [
-    ...staff.map((s) => ({ id: s.id, firstName: s.firstName, lastName: s.lastName, role: s.role, tags: null, status: "ACTIVE", membership: null as null })),
-    ...members.filter((m) => m.status !== "INACTIVE").map((m) => ({ ...m, role: "MEMBER" })),
+    ...staff.map((s) => ({
+      id: s.id,
+      firstName: s.firstName,
+      lastName: s.lastName,
+      role: s.role,
+      tags: null as string | null,
+      status: "ACTIVE",
+      membershipNames: [] as string[],
+    })),
+    ...members
+      .filter((m) => m.status !== "INACTIVE")
+      .map((m) => ({
+        id: m.id,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        role: "MEMBER",
+        tags: m.tags,
+        status: m.status,
+        membershipNames: m.membershipNames ?? [],
+      })),
   ];
+
+  const classRoster = classes.find((c) => c.id === filterValue);
 
   const filteredUsers = allUsers.filter((u) => {
     if (filterMode === "tag" && filterValue) {
@@ -505,7 +539,10 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       return u.status === filterValue;
     }
     if (filterMode === "membership" && filterValue) {
-      return (u as ClubMember).membership?.name === filterValue;
+      return u.membershipNames.includes(filterValue);
+    }
+    if (filterMode === "class" && filterValue) {
+      return !!classRoster && classRoster.memberIds.includes(u.id);
     }
     return true;
   });
@@ -514,8 +551,8 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     members.flatMap((m) => (m.tags || "").split(",").map((t) => t.trim()).filter(Boolean))
   ));
   const allMemberships = Array.from(new Set(
-    members.map((m) => m.membership?.name).filter(Boolean) as string[]
-  ));
+    members.flatMap((m) => m.membershipNames ?? [])
+  )).sort();
 
   function toggleUser(id: string) {
     setSelectedIds((prev) => {
@@ -608,6 +645,7 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
                 { val: "manual", label: "Select manually" },
                 { val: "tag", label: "By tag" },
                 { val: "membership", label: "By membership" },
+                { val: "class", label: "By class" },
                 { val: "status", label: "By status" },
               ] as const).map((opt) => (
                 <button
@@ -638,6 +676,19 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
                 <option value="">All memberships</option>
                 {allMemberships.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
+            )}
+            {filterMode === "membership" && allMemberships.length === 0 && (
+              <p className="text-xs text-text-muted mb-2">No members have a membership assigned yet.</p>
+            )}
+            {filterMode === "class" && (
+              <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white mb-2 focus:outline-none">
+                <option value="">Select a class…</option>
+                {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
+            {filterMode === "class" && classes.length === 0 && (
+              <p className="text-xs text-text-muted mb-2">No class attendance recorded yet — rosters build from check-ins.</p>
             )}
             {filterMode === "status" && (
               <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
