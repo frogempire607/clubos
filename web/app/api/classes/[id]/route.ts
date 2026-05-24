@@ -31,6 +31,8 @@ const updateSchema = z.object({
     .optional(),
   assignedStaffIds: z.array(z.string()).optional(),
   active: z.boolean().optional(),
+  color: z.string().optional().nullable(),
+  textColor: z.string().optional().nullable(),
 });
 
 async function findClass(id: string, clubId: string) {

@@ -33,6 +33,8 @@ const createSchema = z.object({
     ]))
     .default([]),
   assignedStaffIds: z.array(z.string()).default([]),
+  color: z.string().optional().nullable(),
+  textColor: z.string().optional().nullable(),
 });
 
 
@@ -89,6 +91,8 @@ export async function POST(req: Request) {
       recurrenceEndDate: recEnd,
       pricingOptions: d.pricingOptions,
       assignedStaffIds: d.assignedStaffIds,
+      color: d.color || null,
+      textColor: d.textColor || null,
     },
   });
 

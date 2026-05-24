@@ -8,6 +8,11 @@ import { resolvePermissions } from "@/lib/permissions";
 const permissionLevel = z.enum(["none", "view", "edit", "full", "send"]);
 
 const updateSchema = z.object({
+  // Owner can edit any User-level field except the password (passwords are
+  // reset via the forgot-password flow, not directly editable from here).
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  email: z.string().email().optional(),
   title: z.string().optional().nullable(),
   hourlyRate: z.number().nullable().optional(),
   salary: z.number().nullable().optional(),
@@ -61,6 +66,23 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
           permissions: resolvePermissions(data.permissions ?? null),
         },
       });
+    }
+
+    // User-level fields owners can edit (anything except password).
+    const userPatch: Record<string, unknown> = {};
+    if (data.firstName !== undefined) userPatch.firstName = data.firstName;
+    if (data.lastName !== undefined) userPatch.lastName = data.lastName;
+    if (data.email !== undefined) userPatch.email = data.email.toLowerCase();
+    if (Object.keys(userPatch).length > 0) {
+      try {
+        await prisma.user.update({ where: { id: user.id }, data: userPatch });
+      } catch (err) {
+        // Most common cause: the chosen email is already in use in this club.
+        return NextResponse.json(
+          { error: "That email is already in use for another account in this club." },
+          { status: 409 },
+        );
+      }
     }
 
     const updated = await prisma.user.findUnique({ where: { id: user.id }, include: { staffProfile: true } });

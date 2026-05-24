@@ -72,6 +72,8 @@ export async function GET(req: Request) {
           select: {
             name: true,
             capacity: true,
+            color: true,
+            textColor: true,
           },
         },
         _count: { select: { attendance: true } },
@@ -155,8 +157,8 @@ export async function GET(req: Request) {
       endsAt: s.endsAt.toISOString(),
       typeKey: "class",
       typeLabel: "Class",
-      color: null,
-      textColor: null,
+      color: s.recurringClass.color ?? null,
+      textColor: s.recurringClass.textColor ?? null,
       capacity: s.recurringClass.capacity,
       filled: s._count.attendance,
     });

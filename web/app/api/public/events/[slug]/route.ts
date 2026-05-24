@@ -18,9 +18,12 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       endsAt: true,
       imageUrl: true,
       capacity: true,
+      memberPrice: true,
       nonMemberPrice: true,
+      dropInFee: true,
       publicRegistration: true,
       publicFormIntro: true,
+      publicPricingOption: true,
       registrationForm: true,
       isTournament: true,
       tournamentMode: true,
@@ -65,8 +68,24 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
   ) {
     price = +(Number(event.variableCostTotal) / event.variableCostEstimatedSignups).toFixed(2);
     priceLabel = `$${price.toFixed(2)} (estimated split)`;
-  } else if (event.nonMemberPrice && Number(event.nonMemberPrice) > 0) {
-    price = Number(event.nonMemberPrice);
+  } else if (
+    // Owner can pick which price the public registration link charges.
+    // Default (null) = non-member full price.
+    (() => {
+      const opt = event.publicPricingOption;
+      const candidate =
+        opt === "MEMBER" ? event.memberPrice
+        : opt === "DROP_IN" ? event.dropInFee
+        : event.nonMemberPrice;
+      return candidate && Number(candidate) > 0;
+    })()
+  ) {
+    const opt = event.publicPricingOption;
+    const chosen =
+      opt === "MEMBER" ? event.memberPrice
+      : opt === "DROP_IN" ? event.dropInFee
+      : event.nonMemberPrice;
+    price = Number(chosen);
     priceLabel = `$${price.toFixed(2)}`;
   } else if (
     event.variableCostEnabled &&

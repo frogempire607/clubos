@@ -323,6 +323,10 @@ function EditStaffModal({
   onSaved: () => void;
 }) {
   const existing = resolvePermissions(staff.staffProfile?.permissions ?? null);
+  // Account fields — owners can edit anything except the password.
+  const [firstName, setFirstName] = useState(staff.firstName || "");
+  const [lastName, setLastName] = useState(staff.lastName || "");
+  const [email, setEmail] = useState(staff.email || "");
   const [title, setTitle] = useState(staff.staffProfile?.title || "");
   // Preserved (no longer edited here — pricing now lives on lesson types).
   const appointmentPrice = staff.staffProfile?.appointmentPrice || "";
@@ -346,6 +350,9 @@ function EditStaffModal({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim().toLowerCase(),
         title: title || null,
         appointmentPrice: appointmentPrice ? parseFloat(appointmentPrice) : null,
         bio: bio || null,
@@ -376,6 +383,30 @@ function EditStaffModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Account — owner-editable. Password is intentionally NOT here; it
+              is reset by the staff member via Forgot password. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">First name</label>
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Last name</label>
+              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Login email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            <p className="text-[11px] text-text-muted mt-1">
+              The email this staff member uses to sign in. Password changes are
+              handled by the staff member via Forgot password — not editable here.
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">Title</label>
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}

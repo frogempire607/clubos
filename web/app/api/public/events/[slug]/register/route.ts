@@ -93,9 +93,16 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   }
 
   // Immediate (charge-now) amount only applies to non-variable fixed pricing.
+  // The owner picks WHICH price the public link charges via
+  // event.publicPricingOption — null/missing falls back to nonMemberPrice.
   let amountDue = 0;
-  if (!isVariableCost && event.nonMemberPrice && Number(event.nonMemberPrice) > 0) {
-    amountDue = Number(event.nonMemberPrice);
+  if (!isVariableCost) {
+    const opt = (event as { publicPricingOption?: string | null }).publicPricingOption;
+    const chosen =
+      opt === "MEMBER" ? event.memberPrice
+      : opt === "DROP_IN" ? event.dropInFee
+      : event.nonMemberPrice;
+    if (chosen && Number(chosen) > 0) amountDue = Number(chosen);
   }
 
   const registration = await prisma.eventRegistration.create({

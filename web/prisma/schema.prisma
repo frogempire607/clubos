@@ -600,6 +600,9 @@ model Event {
   publicRegistration     Boolean   @default(false)
   publicSlug             String?   @unique
   publicFormIntro        String?
+  // Which price the public registration page charges: MEMBER | NON_MEMBER |
+  // DROP_IN. null = auto (non-member full price).
+  publicPricingOption    String?
 
   // Variable cost (ATTEND tournaments): split a shared cost across attendees.
   //   ESTIMATED = charge total / estimatedSignups at signup time.
@@ -1454,6 +1457,10 @@ model RecurringClass {
   recurrenceEndDate   DateTime? // null = ongoing; generate 1 yr ahead
   pricingOptions      Json      @default("[]") // [{type:"member"|"nonmember"|"dropin",price:number}]
   assignedStaffIds    Json      @default("[]") // [userId, ...]
+  // Owner-chosen calendar color (matches the ClubEventType palette). null =
+  // fall back to the generic class color in the calendar grid.
+  color               String?
+  textColor           String?
   active              Boolean   @default(true)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt

@@ -46,6 +46,7 @@ const updateSchema = z.object({
   registrationForm: z.array(formFieldSchema).optional().nullable(),
   publicRegistration: z.boolean().optional(),
   publicFormIntro: z.string().optional().nullable(),
+  publicPricingOption: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN"]).optional().nullable(),
   variableCostEnabled: z.boolean().optional(),
   variableCostMode: z.enum(["ESTIMATED", "OFFICIAL"]).optional().nullable(),
   variableCostTotal: z.number().min(0).optional().nullable(),

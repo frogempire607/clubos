@@ -329,11 +329,21 @@ export default function EventsPage() {
 }
 
 // ── Event Modal ──────────────────────────────────────────────────────────────
+// Expanded palette so owners have real visual differentiation across
+// event types. Kept in sync with classes page CLASS_COLOR_PRESETS.
 const COLOR_PRESETS = [
-  { bg: "var(--color-primary)", fg: "#fff", name: "Violet" },
-  { bg: "var(--color-success)", fg: "#1F1F23", name: "Lime" },
-  { bg: "var(--color-warning)", fg: "#fff", name: "Orange" },
-  { bg: "var(--color-bg)", fg: "var(--color-muted)", name: "Neutral" },
+  { name: "Violet",   bg: "#6D5DF6", fg: "#ffffff" },
+  { name: "Indigo",   bg: "#4F46E5", fg: "#ffffff" },
+  { name: "Blue",     bg: "#2563EB", fg: "#ffffff" },
+  { name: "Teal",     bg: "#0D9488", fg: "#ffffff" },
+  { name: "Lime",     bg: "#A3E635", fg: "#1F1F23" },
+  { name: "Yellow",   bg: "#F59E0B", fg: "#1F1F23" },
+  { name: "Orange",   bg: "#FF6A00", fg: "#ffffff" },
+  { name: "Red",      bg: "#DC2626", fg: "#ffffff" },
+  { name: "Pink",     bg: "#DB2777", fg: "#ffffff" },
+  { name: "Slate",    bg: "#475569", fg: "#ffffff" },
+  { name: "Charcoal", bg: "#1F1F23", fg: "#ffffff" },
+  { name: "Neutral",  bg: "#F7F7F9", fg: "#6B7280" },
 ];
 
 function toLocalInput(d: Date) {
@@ -397,6 +407,9 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   const [tournamentMode, setTournamentMode] = useState<string>(ev?.tournamentMode || "");
   const [publicRegistration, setPublicRegistration] = useState<boolean>(!!ev?.publicRegistration);
   const [publicFormIntro, setPublicFormIntro] = useState<string>(ev?.publicFormIntro || "");
+  const [publicPricingOption, setPublicPricingOption] = useState<string>(
+    (ev as { publicPricingOption?: string | null } | null)?.publicPricingOption || "",
+  );
   const [formFields, setFormFields] = useState<FormFieldDef[]>(
     Array.isArray(ev?.registrationForm) ? ev.registrationForm : []
   );
@@ -487,6 +500,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
         tournamentMode: type === "TOURNAMENT" ? (tournamentMode || null) : null,
         publicRegistration,
         publicFormIntro: publicFormIntro || null,
+        publicPricingOption: publicPricingOption || null,
         registrationForm: formFields
           .filter((f) => f.label.trim())
           .map((f) => ({ ...f, label: f.label.trim() })),
@@ -708,6 +722,26 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                   />
                 </div>
 
+                <div>
+                  <label className="block text-xs font-medium text-text-primary mb-1">
+                    Which price does the public link charge?
+                  </label>
+                  <select
+                    value={publicPricingOption}
+                    onChange={(e) => setPublicPricingOption(e.target.value)}
+                    className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white"
+                  >
+                    <option value="">Auto — Non-member price (default)</option>
+                    <option value="NON_MEMBER">Non-member price</option>
+                    <option value="MEMBER">Member price</option>
+                    <option value="DROP_IN">Drop-in (single session) price</option>
+                  </select>
+                  <p className="text-[11px] text-text-muted mt-1">
+                    Walk-ins from /e/{publicSlug || "[slug]"} get charged this
+                    rate. Default is the non-member / full event price.
+                  </p>
+                </div>
+
                 {/* Custom registration form builder */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
@@ -749,13 +783,27 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                             </label>
                           </div>
                           {f.type === "select" && (
-                            <input
-                              type="text"
-                              value={(f.options || []).join(", ")}
-                              onChange={(e) => updateFormField(i, { options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                              placeholder="Comma-separated options: Small, Medium, Large"
-                              className="w-full px-2 py-1.5 border border-app-border rounded text-sm"
-                            />
+                            <div>
+                              <textarea
+                                value={(f.options || []).join("\n")}
+                                onChange={(e) =>
+                                  updateFormField(i, {
+                                    // One option per line — keeps commas
+                                    // usable inside an option label.
+                                    options: e.target.value
+                                      .split("\n")
+                                      .map((s) => s.trim())
+                                      .filter(Boolean),
+                                  })
+                                }
+                                rows={3}
+                                placeholder={"One option per line, e.g.\nSmall\nMedium\nLarge"}
+                                className="w-full px-2 py-1.5 border border-app-border rounded text-sm font-mono"
+                              />
+                              <p className="text-[10px] text-text-muted mt-1">
+                                One option per line. Commas inside an option (e.g. &quot;Small, fitted&quot;) are kept exactly.
+                              </p>
+                            </div>
                           )}
                         </div>
                       ))}

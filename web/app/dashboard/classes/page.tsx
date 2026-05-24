@@ -23,6 +23,8 @@ type RecurringClass = {
   recurrenceEndDate: string | null;
   pricingOptions: PricingOption[];
   assignedStaffIds?: string[];
+  color?: string | null;
+  textColor?: string | null;
   active: boolean;
   locationId: string | null;
   location: { name: string } | null;
@@ -63,6 +65,22 @@ function fmtDate(d: string) {
 
 // ─── New/Edit Class Modal ─────────────────────────────────────────────────────
 
+// Expanded badge palette — used both here for per-class color and by the
+// Events page color picker. Kept in sync between the two files by hand.
+const CLASS_COLOR_PRESETS: { name: string; bg: string; fg: string }[] = [
+  { name: "Violet", bg: "#6D5DF6", fg: "#ffffff" },
+  { name: "Indigo", bg: "#4F46E5", fg: "#ffffff" },
+  { name: "Blue",   bg: "#2563EB", fg: "#ffffff" },
+  { name: "Teal",   bg: "#0D9488", fg: "#ffffff" },
+  { name: "Lime",   bg: "#A3E635", fg: "#1F1F23" },
+  { name: "Yellow", bg: "#F59E0B", fg: "#1F1F23" },
+  { name: "Orange", bg: "#FF6A00", fg: "#ffffff" },
+  { name: "Red",    bg: "#DC2626", fg: "#ffffff" },
+  { name: "Pink",   bg: "#DB2777", fg: "#ffffff" },
+  { name: "Slate",  bg: "#475569", fg: "#ffffff" },
+  { name: "Charcoal", bg: "#1F1F23", fg: "#ffffff" },
+];
+
 type FormData = {
   name: string;
   description: string;
@@ -85,6 +103,8 @@ type FormData = {
   dropinPrice: string;
   allowedMembershipIds: string[];
   assignedStaffIds: string[];
+  color: string;
+  textColor: string;
 };
 
 const emptyForm = (): FormData => ({
@@ -106,6 +126,8 @@ const emptyForm = (): FormData => ({
   dropinPrice: "",
   allowedMembershipIds: [],
   assignedStaffIds: [],
+  color: "",
+  textColor: "",
 });
 
 function formFromClass(c: RecurringClass): FormData {
@@ -135,6 +157,8 @@ function formFromClass(c: RecurringClass): FormData {
     dropinPrice: dropin?.price.toString() ?? "",
     allowedMembershipIds: opts.filter((o) => o.type === "membership").map((o) => o.membershipId),
     assignedStaffIds: c.assignedStaffIds ?? [],
+    color: c.color ?? "",
+    textColor: c.textColor ?? "",
   };
 }
 
@@ -205,6 +229,8 @@ function ClassModal({
       recurrenceEndDate: form.recurrenceEndDate || null,
       pricingOptions,
       assignedStaffIds: form.assignedStaffIds,
+      color: form.color || null,
+      textColor: form.textColor || null,
     };
 
     const url = editing ? `/api/classes/${editing.id}` : "/api/classes";
@@ -519,6 +545,40 @@ function ClassModal({
               </div>
             </div>
           )}
+
+          {/* Calendar color — shows on the unified Calendar so owners can
+              eyeball different classes at a glance. Empty = default grey. */}
+          <div>
+            <label className="block text-xs font-medium text-text-primary mb-2">Calendar color</label>
+            <div className="flex flex-wrap gap-2">
+              {CLASS_COLOR_PRESETS.map((p) => {
+                const selected = form.color === p.bg;
+                return (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => { set("color", p.bg); set("textColor", p.fg); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                      selected ? "border-text-primary ring-2 ring-text-primary/20" : "border-app-border hover:border-text-muted"
+                    }`}
+                    style={{ background: p.bg, color: p.fg }}
+                    title={p.name}
+                  >
+                    {p.name}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => { set("color", ""); set("textColor", ""); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                  !form.color ? "border-text-primary ring-2 ring-text-primary/20" : "border-app-border text-text-muted hover:border-text-muted"
+                }`}
+              >
+                Default
+              </button>
+            </div>
+          </div>
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
