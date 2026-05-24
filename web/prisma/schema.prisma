@@ -147,6 +147,7 @@ model Club {
   eventStaffAssignments       EventStaffAssignment[]
   privateLessonPayRates       PrivateLessonPayRate[]
   privateBookings             PrivateBooking[]
+  privateBookingPartners      PrivateBookingPartner[]
   privateCreditLedger         PrivateCreditLedger[]
   recurringClasses            RecurringClass[]
   classSessions               ClassSession[]
@@ -346,6 +347,7 @@ model Member {
   productSales      ProductSale[]
   privateCredits    PrivateCreditLedger[]
   privateBookings   PrivateBooking[]
+  privateBookingPartners PrivateBookingPartner[]
   attendanceRecords AttendanceRecord[]
   documentSignatures DocumentSignature[]
   eventRegistrations EventRegistration[]
@@ -1322,12 +1324,68 @@ model PrivateBooking {
   lessonType   PrivateLessonType    @relation(fields: [lessonTypeId], references: [id])
   coach        User?                @relation("CoachBookings", fields: [coachId], references: [id])
   creditLedger PrivateCreditLedger? @relation(fields: [creditLedgerId], references: [id])
+  partners     PrivateBookingPartner[]
 
   @@index([clubId])
   @@index([memberId])
   @@index([coachId])
   @@index([status])
   @@map("private_bookings")
+}
+
+// Additional athletes on a multi-athlete private lesson booking. One row per
+// extra participant beyond the primary `PrivateBooking.member`. Only created
+// when `PrivateLessonType.maxAthletes > 1` and the booker selects partners.
+// 1-on-1 bookings have no rows here — backward compatible.
+model PrivateBookingPartner {
+  id        String @id @default(cuid())
+  clubId    String
+  bookingId String
+
+  // MEMBER     — existing member of the club; `memberId` is set
+  // OUTSIDE    — non-member; coach approval generates `inviteToken` and the
+  //              booker shares the public link to collect info
+  // NEEDS_HELP — booker has no partner; coach is asked to find/assign one.
+  //              When coach assigns later, kind flips to MEMBER or OUTSIDE.
+  kind String
+
+  // MEMBER kind
+  memberId String?
+
+  // OUTSIDE kind — filled by the outside partner via the shareable link
+  outsideName  String?
+  outsideEmail String?
+  outsidePhone String?
+  // Free-form extras the outside partner submits (e.g. dob, notes).
+  outsideInfo  Json?
+
+  // OUTSIDE kind — token used in the public link sent to the booker after
+  // coach approval. Unique so it can be looked up directly.
+  inviteToken          String?   @unique
+  inviteTokenExpiresAt DateTime?
+
+  // PENDING_COACH — coach has not yet approved the parent booking
+  // INVITED       — coach approved; OUTSIDE has link, MEMBER has been notified
+  // CONFIRMED     — OUTSIDE filled the form, or MEMBER accepted
+  // DECLINED      — partner declined participation
+  status      String    @default("PENDING_COACH")
+  confirmedAt DateTime?
+  respondedAt DateTime?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club    Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  booking PrivateBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  member  Member?        @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@index([clubId])
+  @@index([bookingId])
+  @@index([memberId])
+  @@index([inviteToken])
+  @@map("private_booking_partners")
 }
 
 model PrivateLessonPayRate {

@@ -9,12 +9,29 @@ type LessonType = {
   title: string;
   description: string | null;
   durationMin: number;
+  maxAthletes: number;
   basePrice: number;
   priceOptions: Opt[];
   eligibleCoachIds: string[];
 };
 type Coach = { id: string; firstName: string; lastName: string };
 type Slot = { date: string; startTime: string; endTime: string };
+
+type PartnerKind = "MEMBER" | "OUTSIDE" | "NEEDS_HELP";
+type PartnerDraft = {
+  kind: PartnerKind | null;
+  memberId?: string;
+  memberName?: string;
+};
+
+type BookingPartner = {
+  id: string;
+  kind: string;
+  status: string;
+  inviteToken: string | null;
+  outsideName: string | null;
+  member: { firstName: string; lastName: string } | null;
+};
 type Booking = {
   id: string;
   status: string;
@@ -22,6 +39,22 @@ type Booking = {
   confirmedStartAt: string | null;
   lessonType: { title: string } | null;
   coach: { firstName: string; lastName: string } | null;
+  partners: BookingPartner[];
+};
+
+type MemberHit = { id: string; firstName: string; lastName: string; email: string | null };
+
+type Invite = {
+  id: string;
+  member: { firstName: string; lastName: string } | null;
+  booking: {
+    id: string;
+    status: string;
+    confirmedStartAt: string | null;
+    confirmedEndAt: string | null;
+    member: { firstName: string; lastName: string };
+    lessonType: { title: string };
+  };
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -41,16 +74,32 @@ const STATUS_STYLE: Record<string, string> = {
   DECLINED: "bg-red-50 text-red-700",
 };
 
+const PARTNER_STATUS_LABEL: Record<string, string> = {
+  PENDING_COACH: "Waiting on coach",
+  INVITED: "Invited",
+  CONFIRMED: "Confirmed",
+  DECLINED: "Declined",
+};
+
+function partnerLabel(p: BookingPartner): string {
+  if (p.kind === "NEEDS_HELP") return "Coach finding partner";
+  if (p.kind === "OUTSIDE") return p.outsideName ? `${p.outsideName} (outside)` : "Outside partner";
+  if (p.member) return `${p.member.firstName} ${p.member.lastName}`;
+  return "Partner";
+}
+
 export default function MemberPrivatesPage() {
   const [types, setTypes] = useState<LessonType[]>([]);
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
   const [hasProfile, setHasProfile] = useState(true);
   const [loading, setLoading] = useState(true);
 
   const [typeId, setTypeId] = useState("");
   const [optionId, setOptionId] = useState("");
   const [coachId, setCoachId] = useState("");
+  const [partners, setPartners] = useState<PartnerDraft[]>([]);
   const [slots, setSlots] = useState<Slot[]>([{ date: "", startTime: "", endTime: "" }]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -59,23 +108,33 @@ export default function MemberPrivatesPage() {
 
   function load() {
     setLoading(true);
-    fetch("/api/member/privates")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) {
-          setTypes(d.types || []);
-          setCoaches(d.coaches || []);
-          setBookings(d.bookings || []);
-          setHasProfile(d.hasMemberProfile);
-        }
-        setLoading(false);
-      });
+    Promise.all([
+      fetch("/api/member/privates").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/member/privates/partner-response").then((r) => (r.ok ? r.json() : [])),
+    ]).then(([d, inv]) => {
+      if (d) {
+        setTypes(d.types || []);
+        setCoaches(d.coaches || []);
+        setBookings(d.bookings || []);
+        setHasProfile(d.hasMemberProfile);
+      }
+      setInvites(Array.isArray(inv) ? inv : []);
+      setLoading(false);
+    });
   }
   useEffect(() => { load(); }, []);
 
   const type = types.find((t) => t.id === typeId) || null;
   const options = type?.priceOptions ?? [];
   const option = options.find((o) => o.id === optionId) || null;
+
+  // Reset partners whenever the lesson type changes so the slot count matches
+  // the new lesson's maxAthletes.
+  useEffect(() => {
+    if (!type) { setPartners([]); return; }
+    const partnerSlots = Math.max(0, (type.maxAthletes ?? 1) - 1);
+    setPartners(Array.from({ length: partnerSlots }, () => ({ kind: null })));
+  }, [typeId, type?.maxAthletes]);
 
   // Coaches available for the current selection.
   const availableCoachIds: string[] =
@@ -98,8 +157,16 @@ export default function MemberPrivatesPage() {
     setSlots((s) => s.filter((_, idx) => idx !== i));
   }
 
+  function setPartner(i: number, patch: Partial<PartnerDraft>) {
+    setPartners((p) => p.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+  }
+
   const validSlots = slots.filter((s) => s.date && s.startTime && s.endTime);
-  const canSubmit = !!type && validSlots.length > 0 && (options.length === 0 || !!option);
+  const partnersComplete = partners.every(
+    (p) => p.kind !== null && (p.kind !== "MEMBER" || !!p.memberId),
+  );
+  const canSubmit =
+    !!type && validSlots.length > 0 && (options.length === 0 || !!option) && partnersComplete;
 
   async function submit() {
     if (!canSubmit) return;
@@ -114,6 +181,12 @@ export default function MemberPrivatesPage() {
         coachId: coachId || null,
         requestedSlots: validSlots,
         notes: notes || null,
+        partners: partners
+          .filter((p) => p.kind !== null)
+          .map((p) => ({
+            kind: p.kind,
+            memberId: p.kind === "MEMBER" ? p.memberId : null,
+          })),
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -122,7 +195,22 @@ export default function MemberPrivatesPage() {
     setDone(true);
     setTypeId(""); setOptionId(""); setCoachId("");
     setSlots([{ date: "", startTime: "", endTime: "" }]); setNotes("");
+    setPartners([]);
     load();
+  }
+
+  async function respondToInvite(partnerId: string, action: "confirm" | "decline") {
+    const res = await fetch(`/api/member/privates/partner-response/${partnerId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    if (res.ok) load();
+  }
+
+  function inviteUrl(token: string) {
+    if (typeof window === "undefined") return `/privates/partner/${token}`;
+    return `${window.location.origin}/privates/partner/${token}`;
   }
 
   return (
@@ -156,6 +244,40 @@ export default function MemberPrivatesPage() {
         </div>
       )}
 
+      {/* Incoming partner invitations */}
+      {invites.length > 0 && (
+        <div className="mb-6 space-y-2">
+          <h2 className="text-sm font-semibold text-stone-900">Partner invitations</h2>
+          {invites.map((inv) => (
+            <div key={inv.id} className="bg-white rounded-xl border border-stone-200 p-4 flex items-center justify-between gap-3">
+              <div className="min-w-0 text-sm">
+                <p className="font-medium text-stone-900">
+                  {inv.booking.member.firstName} {inv.booking.member.lastName} invited{" "}
+                  {inv.member ? `${inv.member.firstName} ${inv.member.lastName}` : "you"}{" "}
+                  to a partner lesson
+                </p>
+                <p className="text-xs text-stone-500">
+                  {inv.booking.lessonType.title}
+                  {inv.booking.confirmedStartAt
+                    ? ` · ${new Date(inv.booking.confirmedStartAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                    : ""}
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={() => respondToInvite(inv.id, "decline")}
+                  className="px-3 py-1.5 text-xs border border-stone-200 rounded-md text-stone-600 hover:bg-stone-50">
+                  Decline
+                </button>
+                <button onClick={() => respondToInvite(inv.id, "confirm")}
+                  className="px-3 py-1.5 text-xs bg-stone-900 text-white rounded-md hover:bg-stone-700">
+                  Confirm
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
       ) : types.length === 0 ? (
@@ -182,7 +304,14 @@ export default function MemberPrivatesPage() {
                       : "border-stone-200 hover:border-stone-300"
                   }`}
                 >
-                  <p className="text-sm font-semibold text-stone-900">{t.title}</p>
+                  <p className="text-sm font-semibold text-stone-900">
+                    {t.title}
+                    {t.maxAthletes > 1 && (
+                      <span className="ml-1 text-[11px] font-medium text-stone-500 align-middle">
+                        · up to {t.maxAthletes} athletes
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-stone-500">
                     {t.durationMin} min
                     {t.priceOptions.length === 0 && ` · $${t.basePrice.toFixed(2)}`}
@@ -255,11 +384,39 @@ export default function MemberPrivatesPage() {
             </div>
           )}
 
-          {/* 4. Times */}
+          {/* 4. Partners — only when the lesson type supports more than one athlete */}
+          {type && (options.length === 0 || option) && type.maxAthletes > 1 && (
+            <div>
+              <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
+                {options.length > 0 ? "4" : "3"} · Partners
+              </p>
+              <p className="text-xs text-stone-500 mb-3">
+                This lesson takes up to {type.maxAthletes} athletes. Tell us about each partner.
+                Your coach approves the booking before partners are notified.
+              </p>
+              <div className="space-y-3">
+                {partners.map((p, i) => (
+                  <PartnerPicker
+                    key={i}
+                    index={i}
+                    value={p}
+                    onChange={(patch) => setPartner(i, patch)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 5. Times */}
           {type && (options.length === 0 || option) && (
             <div>
               <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
-                {options.length > 0 ? "4" : "3"} · Request up to 3 times
+                {(() => {
+                  let step = 2;
+                  if (options.length > 0) step++;
+                  if (type.maxAthletes > 1) step++;
+                  return step;
+                })()} · Request up to 3 times
               </p>
               <div className="space-y-2">
                 {slots.map((s, i) => (
@@ -357,33 +514,196 @@ export default function MemberPrivatesPage() {
             {bookings.map((b) => (
               <div
                 key={b.id}
-                className="bg-white rounded-xl border border-stone-200 p-4 flex items-center justify-between gap-3"
+                className="bg-white rounded-xl border border-stone-200 p-4 space-y-2"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-stone-900">
-                    {b.lessonType?.title ?? "Private lesson"}
-                  </p>
-                  <p className="text-xs text-stone-500">
-                    {b.coach ? `with ${b.coach.firstName} ${b.coach.lastName}` : "Coach to be assigned"}
-                    {b.confirmedStartAt
-                      ? ` · ${new Date(b.confirmedStartAt).toLocaleString("en-US", {
-                          month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-                        })}`
-                      : ""}
-                  </p>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-stone-900">
+                      {b.lessonType?.title ?? "Private lesson"}
+                    </p>
+                    <p className="text-xs text-stone-500">
+                      {b.coach ? `with ${b.coach.firstName} ${b.coach.lastName}` : "Coach to be assigned"}
+                      {b.confirmedStartAt
+                        ? ` · ${new Date(b.confirmedStartAt).toLocaleString("en-US", {
+                            month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                          })}`
+                        : ""}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-[11px] px-2 py-1 rounded-full font-medium flex-shrink-0 ${
+                      STATUS_STYLE[b.status] || "bg-stone-100 text-stone-600"
+                    }`}
+                  >
+                    {STATUS_LABEL[b.status] || b.status}
+                  </span>
                 </div>
-                <span
-                  className={`text-[11px] px-2 py-1 rounded-full font-medium flex-shrink-0 ${
-                    STATUS_STYLE[b.status] || "bg-stone-100 text-stone-600"
-                  }`}
-                >
-                  {STATUS_LABEL[b.status] || b.status}
-                </span>
+
+                {/* Partner status + shareable outside-partner links */}
+                {b.partners && b.partners.length > 0 && (
+                  <div className="border-t border-stone-100 pt-2 space-y-1.5">
+                    {b.partners.map((p) => (
+                      <div key={p.id} className="text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-stone-700">{partnerLabel(p)}</span>
+                          <span className="text-stone-500">
+                            {PARTNER_STATUS_LABEL[p.status] || p.status}
+                          </span>
+                        </div>
+                        {p.kind === "OUTSIDE" && p.inviteToken && p.status === "INVITED" && (
+                          <div className="mt-1 flex items-center gap-2">
+                            <input
+                              readOnly
+                              value={inviteUrl(p.inviteToken)}
+                              className="flex-1 px-2 py-1 text-[11px] border border-stone-200 rounded bg-stone-50 text-stone-600"
+                              onFocus={(e) => e.currentTarget.select()}
+                            />
+                            <button
+                              onClick={() => navigator.clipboard?.writeText(inviteUrl(p.inviteToken!))}
+                              className="px-2 py-1 text-[11px] border border-stone-200 rounded hover:bg-stone-50"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </div>
       )}
     </>
+  );
+}
+
+// ─── PartnerPicker ───────────────────────────────────────────────────────────
+
+function PartnerPicker({
+  index,
+  value,
+  onChange,
+}: {
+  index: number;
+  value: PartnerDraft;
+  onChange: (patch: Partial<PartnerDraft>) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<MemberHit[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (value.kind !== "MEMBER") { setResults([]); return; }
+    if (search.trim().length < 2) { setResults([]); return; }
+    const handle = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await fetch(`/api/member/privates/search-partners?q=${encodeURIComponent(search.trim())}`);
+        if (r.ok) setResults(await r.json());
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [search, value.kind]);
+
+  return (
+    <div className="border border-stone-200 rounded-lg p-3">
+      <p className="text-xs font-medium text-stone-700 mb-2">Partner {index + 1}</p>
+      <div className="flex flex-wrap gap-2 mb-2">
+        <KindBtn label="It's another member" active={value.kind === "MEMBER"}
+          onClick={() => onChange({ kind: "MEMBER", memberId: undefined, memberName: undefined })} />
+        <KindBtn label="Non-member partner" active={value.kind === "OUTSIDE"}
+          onClick={() => onChange({ kind: "OUTSIDE", memberId: undefined, memberName: undefined })} />
+        <KindBtn label="I don't have one — help me find one" active={value.kind === "NEEDS_HELP"}
+          onClick={() => onChange({ kind: "NEEDS_HELP", memberId: undefined, memberName: undefined })} />
+      </div>
+
+      {value.kind === "MEMBER" && (
+        <div className="mt-1">
+          {value.memberId ? (
+            <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded">
+              <span className="text-sm text-stone-900">{value.memberName || "Selected member"}</span>
+              <button
+                type="button"
+                onClick={() => onChange({ memberId: undefined, memberName: undefined })}
+                className="text-xs text-stone-500 hover:text-stone-900"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or email"
+                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+              />
+              {searching && <p className="text-[11px] text-stone-400 mt-1">Searching…</p>}
+              {results.length > 0 && (
+                <ul className="mt-1 border border-stone-200 rounded-lg divide-y divide-stone-100 max-h-44 overflow-y-auto">
+                  {results.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onChange({ memberId: r.id, memberName: `${r.firstName} ${r.lastName}` });
+                          setSearch("");
+                          setResults([]);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50"
+                      >
+                        {r.firstName} {r.lastName}
+                        {r.email && <span className="ml-2 text-xs text-stone-400">{r.email}</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {value.kind === "OUTSIDE" && (
+        <p className="text-xs text-stone-500">
+          Once your coach approves, we&apos;ll generate a shareable link you can send to your partner.
+          They&apos;ll fill in their info there.
+        </p>
+      )}
+
+      {value.kind === "NEEDS_HELP" && (
+        <p className="text-xs text-stone-500">
+          Your coach will help match you with a partner.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function KindBtn({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full text-xs border transition ${
+        active
+          ? "border-stone-900 bg-stone-900 text-white"
+          : "border-stone-200 text-stone-600 hover:bg-stone-50"
+      }`}
+    >
+      {label}
+    </button>
   );
 }

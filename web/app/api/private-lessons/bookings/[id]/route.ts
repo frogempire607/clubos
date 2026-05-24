@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
+import { activatePartnersOnAccept } from "@/lib/privatePartners";
 
 const schema = z.object({
   action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "CANCEL", "ASSIGN_COACH", "APPROVE"]),
@@ -71,6 +72,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
           senderId: session.user.id,
           memberId: booking.memberId,
           body: `Your private lesson "${booking.lessonType.title}" has been confirmed. Time: ${new Date(confirmedStartAt).toLocaleString()}.`,
+        });
+
+        // Multi-athlete: generate invite links for OUTSIDE partners and DM
+        // existing-member partners so they can confirm participation.
+        await activatePartnersOnAccept({
+          bookingId: booking.id,
+          clubId: session.user.clubId,
+          senderId: session.user.id,
+          lessonTitle: booking.lessonType.title,
+          bookerName: `${booking.member.firstName} ${booking.member.lastName}`,
         });
         break;
       }

@@ -23,9 +23,24 @@ export async function GET(req: Request) {
     where,
     include: {
       member:     { select: { id: true, firstName: true, lastName: true, email: true } },
-      lessonType: { select: { id: true, title: true, durationMin: true, basePrice: true } },
+      lessonType: { select: { id: true, title: true, durationMin: true, basePrice: true, maxAthletes: true } },
       coach:      { select: { id: true, firstName: true, lastName: true } },
       creditLedger: { select: { creditsGranted: true, creditsUsed: true, expiresAt: true } },
+      partners: {
+        select: {
+          id: true,
+          kind: true,
+          status: true,
+          memberId: true,
+          outsideName: true,
+          outsideEmail: true,
+          outsidePhone: true,
+          inviteToken: true,
+          confirmedAt: true,
+          notes: true,
+          member: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -39,6 +54,16 @@ const slotSchema = z.object({
   endTime:   z.string(),  // "15:00"
 });
 
+const partnerInputSchema = z.object({
+  kind: z.enum(["MEMBER", "OUTSIDE", "NEEDS_HELP"]),
+  memberId: z.string().optional().nullable(),
+  // OUTSIDE: optional pre-fill from the booker (most info comes from the link).
+  outsideName: z.string().max(120).optional().nullable(),
+  outsideEmail: z.string().email().optional().nullable(),
+  outsidePhone: z.string().max(40).optional().nullable(),
+  notes: z.string().max(500).optional().nullable(),
+});
+
 const schema = z.object({
   memberId:        z.string(),
   lessonTypeId:    z.string(),
@@ -49,6 +74,8 @@ const schema = z.object({
   paymentType:     z.enum(["CREDIT", "STRIPE", "MANUAL", "UNPAID"]).default("CREDIT"),
   notes:           z.string().optional().nullable(),
   allowUnpaid:     z.boolean().default(false),
+  // Extra athletes beyond the primary member, used when lessonType.maxAthletes > 1.
+  partners:        z.array(partnerInputSchema).max(10).optional().default([]),
 });
 
 export async function POST(req: Request) {
@@ -122,6 +149,41 @@ export async function POST(req: Request) {
     }
     const optionPrice = chosenOption ? Number(chosenOption.price) : Number(lessonType.basePrice);
 
+    // Validate partner count against the lesson type capacity. The primary
+    // member counts as 1; additional partners can fill up to maxAthletes - 1.
+    const partners = data.partners ?? [];
+    const maxAthletes = lessonType.maxAthletes ?? 1;
+    if (partners.length > 0 && maxAthletes <= 1) {
+      return NextResponse.json(
+        { error: "This lesson type is 1-on-1 and doesn't support partners." },
+        { status: 400 },
+      );
+    }
+    if (partners.length > maxAthletes - 1) {
+      return NextResponse.json(
+        { error: `This lesson type allows at most ${maxAthletes - 1} partner(s).` },
+        { status: 400 },
+      );
+    }
+    // Verify any MEMBER partners belong to this club and aren't the primary.
+    for (const p of partners) {
+      if (p.kind === "MEMBER") {
+        if (!p.memberId) {
+          return NextResponse.json({ error: "Member partner is missing a memberId." }, { status: 400 });
+        }
+        if (p.memberId === data.memberId) {
+          return NextResponse.json({ error: "Primary member cannot also be a partner." }, { status: 400 });
+        }
+        const partnerMember = await prisma.member.findFirst({
+          where: { id: p.memberId, clubId: session.user.clubId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!partnerMember) {
+          return NextResponse.json({ error: "Partner member not found in this club." }, { status: 400 });
+        }
+      }
+    }
+
     const booking = await prisma.privateBooking.create({
       data: {
         clubId:         session.user.clubId,
@@ -135,6 +197,19 @@ export async function POST(req: Request) {
         allowUnpaid:    data.allowUnpaid,
         notes:          data.notes || null,
         status:         data.coachId ? "PENDING_COACH" : "REQUESTED",
+        partners: partners.length
+          ? {
+              create: partners.map((p) => ({
+                clubId: session.user.clubId,
+                kind: p.kind,
+                memberId: p.kind === "MEMBER" ? p.memberId || null : null,
+                outsideName: p.kind === "OUTSIDE" ? p.outsideName || null : null,
+                outsideEmail: p.kind === "OUTSIDE" ? p.outsideEmail || null : null,
+                outsidePhone: p.kind === "OUTSIDE" ? p.outsidePhone || null : null,
+                notes: p.notes || null,
+              })),
+            }
+          : undefined,
       },
       include: {
         member:     { select: { firstName: true, lastName: true } },

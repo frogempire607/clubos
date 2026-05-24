@@ -34,6 +34,20 @@ type Package = {
   active: boolean;
 };
 
+type Partner = {
+  id: string;
+  kind: "MEMBER" | "OUTSIDE" | "NEEDS_HELP" | string;
+  status: "PENDING_COACH" | "INVITED" | "CONFIRMED" | "DECLINED" | string;
+  memberId: string | null;
+  outsideName: string | null;
+  outsideEmail: string | null;
+  outsidePhone: string | null;
+  inviteToken: string | null;
+  confirmedAt: string | null;
+  notes: string | null;
+  member: { id: string; firstName: string; lastName: string; email: string | null } | null;
+};
+
 type Booking = {
   id: string;
   status: string;
@@ -47,9 +61,10 @@ type Booking = {
   notes: string | null;
   createdAt: string;
   member: { id: string; firstName: string; lastName: string; email: string };
-  lessonType: { id: string; title: string; durationMin: number; basePrice: number };
+  lessonType: { id: string; title: string; durationMin: number; basePrice: number; maxAthletes: number };
   coach: { id: string; firstName: string; lastName: string } | null;
   creditLedger: { creditsGranted: number; creditsUsed: number; expiresAt: string | null } | null;
+  partners: Partner[];
 };
 
 type Member = { id: string; firstName: string; lastName: string; email: string };
@@ -74,6 +89,33 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELED:      "Canceled",
   COMPLETED:     "Completed",
 };
+
+const PARTNER_KIND_LABEL: Record<string, string> = {
+  MEMBER:     "Member",
+  OUTSIDE:    "Outside",
+  NEEDS_HELP: "Needs partner",
+};
+
+const PARTNER_STATUS_LABEL: Record<string, string> = {
+  PENDING_COACH: "Pending coach",
+  INVITED:       "Invited",
+  CONFIRMED:     "Confirmed",
+  DECLINED:      "Declined",
+};
+
+const PARTNER_STATUS_STYLE: Record<string, string> = {
+  PENDING_COACH: "bg-amber-50 text-amber-700 border-amber-200",
+  INVITED:       "bg-app-bg text-text-muted border-app-border",
+  CONFIRMED:     "bg-lime-accent text-text-primary border-lime-accent",
+  DECLINED:      "bg-red-50 text-red-700 border-red-200",
+};
+
+function partnerHeadline(p: Partner): string {
+  if (p.kind === "NEEDS_HELP") return "Needs help finding partner";
+  if (p.kind === "OUTSIDE") return p.outsideName ? `${p.outsideName} (outside)` : "Outside partner";
+  if (p.member) return `${p.member.firstName} ${p.member.lastName}`;
+  return "Partner";
+}
 
 function fmt(dateStr: string) {
   return new Date(dateStr).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -560,6 +602,11 @@ function BookingModal({
             </div>
           )}
 
+          {/* Partners — multi-athlete lessons */}
+          {(booking.lessonType.maxAthletes > 1 || booking.partners.length > 0) && (
+            <PartnersPanel booking={booking} onChanged={onSave} />
+          )}
+
           {/* Actions */}
           {!action && (
             <div className="flex flex-wrap gap-2 pt-2">
@@ -655,14 +702,162 @@ function BookingModal({
   );
 }
 
+// ─── PartnersPanel (inside BookingModal) ─────────────────────────────────────
+
+function PartnersPanel({ booking, onChanged }: { booking: Booking; onChanged: () => void }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const maxPartners = (booking.lessonType.maxAthletes || 1) - 1;
+  const canAdd = booking.partners.length < maxPartners;
+
+  async function call(path: string, init?: RequestInit) {
+    setError("");
+    const res = await fetch(path, init);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Could not update partner");
+      return false;
+    }
+    return true;
+  }
+
+  async function copy(token: string) {
+    const url = `${window.location.origin}/privates/partner/${token}`;
+    try { await navigator.clipboard.writeText(url); } catch {}
+  }
+
+  async function regenerate(id: string) {
+    setBusyId(id);
+    const ok = await call(`/api/private-lessons/bookings/${booking.id}/partners/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "OUTSIDE", regenerateToken: true }),
+    });
+    setBusyId(null);
+    if (ok) onChanged();
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Remove this partner from the booking?")) return;
+    setBusyId(id);
+    const ok = await call(`/api/private-lessons/bookings/${booking.id}/partners/${id}`, {
+      method: "DELETE",
+    });
+    setBusyId(null);
+    if (ok) onChanged();
+  }
+
+  async function add(kind: "OUTSIDE" | "NEEDS_HELP") {
+    const ok = await call(`/api/private-lessons/bookings/${booking.id}/partners`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    });
+    if (ok) onChanged();
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-text-muted mb-2">
+        Partners {booking.partners.length > 0 && `(${booking.partners.length}/${maxPartners})`}
+      </p>
+      {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+      <div className="space-y-2">
+        {booking.partners.length === 0 && (
+          <p className="text-xs text-text-muted">No partners on this booking yet.</p>
+        )}
+        {booking.partners.map((p) => (
+          <div key={p.id} className="border border-app-border rounded-lg p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm">
+                <p className="font-medium text-text-primary">{partnerHeadline(p)}</p>
+                <p className="text-xs text-text-muted">
+                  {PARTNER_KIND_LABEL[p.kind] || p.kind}
+                  {p.kind === "OUTSIDE" && p.outsideEmail ? ` · ${p.outsideEmail}` : ""}
+                  {p.kind === "OUTSIDE" && p.outsidePhone ? ` · ${p.outsidePhone}` : ""}
+                </p>
+              </div>
+              <span className={`text-[11px] px-2 py-0.5 rounded border ${PARTNER_STATUS_STYLE[p.status] || "bg-app-bg text-text-muted border-app-border"}`}>
+                {PARTNER_STATUS_LABEL[p.status] || p.status}
+              </span>
+            </div>
+
+            {p.kind === "OUTSIDE" && p.inviteToken && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  readOnly
+                  value={`${typeof window !== "undefined" ? window.location.origin : ""}/privates/partner/${p.inviteToken}`}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="flex-1 text-[11px] px-2 py-1 border border-app-border rounded bg-app-bg text-text-muted"
+                />
+                <button
+                  onClick={() => copy(p.inviteToken!)}
+                  className="text-[11px] px-2 py-1 border border-app-border rounded hover:bg-app-bg"
+                >
+                  Copy
+                </button>
+              </div>
+            )}
+
+            <div className="mt-2 flex flex-wrap gap-2">
+              {p.kind === "OUTSIDE" && ["INVITED", "PENDING_COACH"].includes(p.status) && (
+                <button
+                  disabled={busyId === p.id}
+                  onClick={() => regenerate(p.id)}
+                  className="text-[11px] px-2 py-1 border border-app-border rounded text-text-primary hover:bg-app-bg disabled:opacity-50"
+                >
+                  {p.inviteToken ? "Regenerate link" : "Generate link"}
+                </button>
+              )}
+              <button
+                disabled={busyId === p.id}
+                onClick={() => remove(p.id)}
+                className="text-[11px] px-2 py-1 border border-red-200 rounded text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {canAdd && (
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={() => add("OUTSIDE")}
+            className="text-xs px-2.5 py-1 border border-app-border rounded-md text-text-primary hover:bg-app-bg"
+          >
+            + Add outside partner
+          </button>
+          <button
+            onClick={() => add("NEEDS_HELP")}
+            className="text-xs px-2.5 py-1 border border-app-border rounded-md text-text-primary hover:bg-app-bg"
+          >
+            + Needs partner
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── BookingRow ───────────────────────────────────────────────────────────────
 
 function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => void }) {
   const slot = booking.requestedSlots[0];
+  // Surface partner status at-a-glance so coaches can spot pending work.
+  const parts = booking.partners || [];
+  const confirmed = parts.filter((p) => p.status === "CONFIRMED").length;
+  const needsHelp = parts.some((p) => p.kind === "NEEDS_HELP");
   return (
     <tr className="hover:bg-app-bg cursor-pointer" onClick={onClick}>
       <td className="px-4 py-3 text-sm font-medium text-text-primary">
         {booking.member.firstName} {booking.member.lastName}
+        {parts.length > 0 && (
+          <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-app-bg text-text-muted">
+            +{parts.length} partner{parts.length === 1 ? "" : "s"}
+          </span>
+        )}
       </td>
       <td className="px-4 py-3 text-sm text-text-muted">{booking.lessonType.title}</td>
       <td className="px-4 py-3 text-sm text-text-muted">
@@ -673,9 +868,22 @@ function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => voi
         {booking.requestedSlots.length > 1 && <span className="ml-1 text-xs text-text-muted">+{booking.requestedSlots.length - 1}</span>}
       </td>
       <td className="px-4 py-3">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[booking.status] ?? "bg-app-bg text-text-muted"}`}>
-          {STATUS_LABEL[booking.status] ?? booking.status}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium w-fit ${STATUS_COLORS[booking.status] ?? "bg-app-bg text-text-muted"}`}>
+            {STATUS_LABEL[booking.status] ?? booking.status}
+          </span>
+          {parts.length > 0 && (
+            <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded border w-fit ${
+              needsHelp
+                ? "bg-amber-50 text-amber-700 border-amber-200"
+                : confirmed === parts.length
+                  ? "bg-lime-accent text-text-primary border-lime-accent"
+                  : "bg-app-bg text-text-muted border-app-border"
+            }`}>
+              {needsHelp ? "Needs partner" : `${confirmed}/${parts.length} confirmed`}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3 text-sm text-text-muted">{new Date(booking.createdAt).toLocaleDateString()}</td>
     </tr>
