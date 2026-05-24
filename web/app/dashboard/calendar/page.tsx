@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { fmtTime, kindIsWallClockUTC, dayNumber, sameMonth } from "@/lib/datetime";
+import { fmtTime, kindIsWallClockUTC, sameMonth } from "@/lib/datetime";
 
 type Kind = "event" | "class" | "private";
 
@@ -139,14 +139,49 @@ export default function CalendarPage() {
   ];
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const itemsThisMonth = filteredItems.filter((e) =>
-    sameMonth(e.startsAt, year, month, kindIsWallClockUTC(e.kind)),
-  );
+  // Span-aware filters: an Event whose start..end crosses multiple days
+  // shows on each of those days. Class sessions and per-session event items
+  // already represent one calendar slot each, so the span check naturally
+  // collapses to the single-day case for them.
+  function itemSpansDay(e: { kind: string; startsAt: string; endsAt: string }, y: number, mo: number, d: number) {
+    const useUTC = kindIsWallClockUTC(e.kind);
+    const target = new Date(Date.UTC(y, mo, d));
+    const start = new Date(e.startsAt);
+    const end = new Date(e.endsAt);
+    const startDay = useUTC
+      ? Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())
+      : Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+    const endDay = useUTC
+      ? Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate())
+      : Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+    const tgt = target.getTime();
+    return tgt >= startDay && tgt <= endDay;
+  }
+
+  // An item touches the visible month if its [start..end] day range overlaps
+  // any day in the month.
+  const monthStart = new Date(Date.UTC(year, month, 1));
+  const monthEnd = new Date(Date.UTC(year, month, daysInMonth));
+  const itemsThisMonth = filteredItems.filter((e) => {
+    const useUTC = kindIsWallClockUTC(e.kind);
+    if (!useUTC) {
+      // For local-time items, a quick same-month check still catches the
+      // common case AND multi-day spans get caught by the range overlap.
+      if (sameMonth(e.startsAt, year, month, false)) return true;
+    }
+    const start = new Date(e.startsAt);
+    const end = new Date(e.endsAt);
+    const startDay = useUTC
+      ? new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
+      : new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
+    const endDay = useUTC
+      ? new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+      : new Date(Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()));
+    return endDay.getTime() >= monthStart.getTime() && startDay.getTime() <= monthEnd.getTime();
+  });
 
   function itemsOnDay(day: number) {
-    return itemsThisMonth.filter(
-      (e) => dayNumber(e.startsAt, kindIsWallClockUTC(e.kind)) === day,
-    );
+    return itemsThisMonth.filter((e) => itemSpansDay(e, year, month, day));
   }
 
   const isToday = (day: number) =>

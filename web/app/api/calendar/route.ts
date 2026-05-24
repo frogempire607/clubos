@@ -35,7 +35,11 @@ export async function GET(req: Request) {
       where: {
         clubId,
         deletedAt: null,
-        startsAt: { gte: from, lte: to },
+        // Overlap, not just "starts inside the window". A 3-day camp whose
+        // startsAt was before the visible range still needs to render on
+        // the days that fall inside it.
+        startsAt: { lte: to },
+        endsAt: { gte: from },
       },
       select: {
         id: true,
@@ -46,6 +50,10 @@ export async function GET(req: Request) {
         capacity: true,
         customEventTypeId: true,
         customEventType: { select: { name: true, color: true, textColor: true } },
+        sessions: {
+          select: { id: true, startsAt: true, endsAt: true, name: true },
+          orderBy: { startsAt: "asc" },
+        },
         _count: { select: { bookings: true } },
       },
     }),
@@ -105,20 +113,37 @@ export async function GET(req: Request) {
   const items: CalItem[] = [];
 
   for (const e of events) {
-    items.push({
-      kind: "event",
-      id: e.id,
+    const base = {
+      kind: "event" as const,
       refId: e.id,
       name: e.name,
-      startsAt: e.startsAt.toISOString(),
-      endsAt: e.endsAt.toISOString(),
       typeKey: e.customEventTypeId ?? e.type,
       typeLabel: e.customEventType?.name ?? (e.type.charAt(0) + e.type.slice(1).toLowerCase()),
       color: e.customEventType?.color ?? null,
       textColor: e.customEventType?.textColor ?? null,
       capacity: e.capacity,
       filled: e._count.bookings,
-    });
+    };
+    if (e.sessions.length > 0) {
+      // Multi-session events (e.g. a 3-day camp with one session per day) get
+      // one calendar item per session so each day appears on the grid.
+      for (const s of e.sessions) {
+        items.push({
+          ...base,
+          id: `${e.id}:${s.id}`,
+          startsAt: s.startsAt.toISOString(),
+          endsAt: s.endsAt.toISOString(),
+          detail: s.name ?? undefined,
+        });
+      }
+    } else {
+      items.push({
+        ...base,
+        id: e.id,
+        startsAt: e.startsAt.toISOString(),
+        endsAt: e.endsAt.toISOString(),
+      });
+    }
   }
   for (const s of classSessions) {
     items.push({

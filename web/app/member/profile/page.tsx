@@ -276,20 +276,16 @@ export default function MemberProfilePage() {
         )}
       </div>
 
-      {/* Billing — payment methods + invoices via Stripe Customer Portal */}
+      {/* Billing — owner/staff-controlled. Members can't change their own
+          plan / card / cancellation; they contact their club. */}
       {!isMinor && (
         <div className="bg-white rounded-xl border border-stone-200 p-6 mb-4">
-          <h2 className="text-sm font-semibold text-stone-900 mb-3">Payment & billing</h2>
-          <p className="text-xs text-stone-500 mb-3">
-            Manage your saved card, view invoices, or cancel a recurring membership.
+          <h2 className="text-sm font-semibold text-stone-900 mb-1">Payment &amp; billing</h2>
+          <p className="text-xs text-stone-500">
+            Your club manages billing. To update your card, change plans,
+            pause, or cancel, message your club and they&apos;ll take care of
+            it from your account.
           </p>
-          <button
-            onClick={openBillingPortal}
-            disabled={openingPortal}
-            className="text-sm px-4 py-2 border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50 disabled:opacity-50"
-          >
-            {openingPortal ? "Opening…" : "Open billing portal"}
-          </button>
         </div>
       )}
 

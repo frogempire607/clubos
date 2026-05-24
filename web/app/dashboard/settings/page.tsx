@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import ImageUpload from "@/components/ImageUpload";
 
 type Club = {
   id: string;
@@ -295,11 +296,17 @@ function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) 
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-text-primary mb-1">Logo URL (optional)</label>
-          <input type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)}
-            placeholder="https://..."
-            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-          <p className="text-xs text-text-muted mt-1">Paste the URL of your logo image. Upload to Imgur or similar for a free host.</p>
+          <ImageUpload
+            label="Club logo"
+            value={logoUrl || null}
+            onChange={(v) => setLogoUrl(v || "")}
+            shape="square"
+            placeholder="◉"
+          />
+          <p className="text-xs text-text-muted mt-1">
+            Used as your club&apos;s logo everywhere — dashboard, member portal,
+            emails, kiosk QR screen, and the branded app icon.
+          </p>
         </div>
 
         {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
@@ -848,37 +855,22 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
       <div className="bg-white rounded-xl border border-app-border p-6">
         <h2 className="text-base font-semibold text-text-primary mb-1">App Icon</h2>
         <p className="text-xs text-text-muted mb-4">
-          Your logo appears as the app icon when members install the portal. Paste a public image URL.
+          Your club logo doubles as the app icon when members install the portal.
           Recommended: square, 512×512px minimum, PNG or SVG.
         </p>
         <form onSubmit={handleSave} className="space-y-3">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-app-bg flex items-center justify-center flex-shrink-0 border border-app-border">
-              {logoUrl ? (
-                <img src={logoUrl} alt="App icon" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-white rounded-2xl"
-                  style={{ background: club.primaryColor || "#6D5DF6" }}>
-                  {club.name[0]}
-                </div>
-              )}
-            </div>
-            <div className="flex-1">
-              <input
-                type="url"
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://your-domain.com/logo.png"
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-              />
-              <p className="text-[11px] text-text-muted mt-1">
-                Free hosting: upload to{" "}
-                <a href="https://imgur.com/upload" target="_blank" rel="noreferrer" className="underline">Imgur</a>
-                {" "}or{" "}
-                <a href="https://cloudinary.com" target="_blank" rel="noreferrer" className="underline">Cloudinary</a>
-                , paste the direct image URL here.
-              </p>
-            </div>
+          <ImageUpload
+            label="App icon"
+            value={logoUrl || null}
+            onChange={(v) => setLogoUrl(v || "")}
+            shape="square"
+            placeholder="◉"
+          />
+          <div>
+            <p className="text-[11px] text-text-muted mt-1">
+              Same image as your club logo on the Club Profile page — change in
+              either place and it updates everywhere.
+            </p>
           </div>
           {success && <p className="text-sm text-text-primary">Saved!</p>}
           <div className="flex justify-end">
