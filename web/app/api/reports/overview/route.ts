@@ -174,10 +174,35 @@ export async function GET(req: Request) {
     if (m.isMinor) minorCount++;
   }
 
-  const expensesTotal = expenses.reduce((acc, e) => acc + Number(e.amount), 0);
+  let expensesTotal = expenses.reduce((acc, e) => acc + Number(e.amount), 0);
   const expensesByCategory: Record<string, number> = {};
   for (const e of expenses) {
     expensesByCategory[e.category] = (expensesByCategory[e.category] || 0) + Number(e.amount);
+  }
+
+  // Payroll auto-counts as an expense — owners don't have to record it
+  // manually. We sum recorded ContractorPayment in the range (the closest
+  // realized payroll data we already track) and fold it into the PAYROLL
+  // category total. Manual PAYROLL Expense rows are still respected and
+  // simply add on top (use case: paying someone off-books).
+  try {
+    const contractorPayments = await prisma.contractorPayment.findMany({
+      where: {
+        contractor: { clubId },
+        ...(range.start ? { date: { gte: range.start, lt: range.end } } : {}),
+      },
+      select: { amount: true },
+    });
+    const payrollAuto = contractorPayments.reduce(
+      (acc, p) => acc + Number(p.amount),
+      0,
+    );
+    if (payrollAuto > 0) {
+      expensesByCategory["PAYROLL"] = (expensesByCategory["PAYROLL"] || 0) + payrollAuto;
+      expensesTotal += payrollAuto;
+    }
+  } catch {
+    /* ContractorPayment is best-effort — never break reports if it errors */
   }
 
   const attendanceCounts = {

@@ -532,6 +532,7 @@ function ExpenseModal({ expense, entities, onClose, onSaved }: { expense: Expens
   const [legalEntityId, setLegalEntityId] = useState(expense?.legalEntityId || "");
   const [date, setDate] = useState(expense ? expense.date.split("T")[0] : new Date().toISOString().split("T")[0]);
   const [isRecurring, setIsRecurring] = useState(expense?.isRecurring || false);
+  const [kind, setKind] = useState<string>((expense as { kind?: string | null } | null)?.kind || "");
   const [reimbursable, setReimbursable] = useState(expense?.reimbursable || false);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(expense?.receiptUrl || null);
   const [notes, setNotes] = useState(expense?.notes || "");
@@ -548,6 +549,7 @@ function ExpenseModal({ expense, entities, onClose, onSaved }: { expense: Expens
         description, amount: parseFloat(amount), category, date, isRecurring,
         notes: notes || null, vendor: vendor || null, paymentMethod: method,
         legalEntityId: legalEntityId || null, reimbursable, receiptUrl,
+        kind: kind || null,
       }),
     });
     setSaving(false);
@@ -575,6 +577,28 @@ function ExpenseModal({ expense, entities, onClose, onSaved }: { expense: Expens
             </select>
           </Field>
         </div>
+        <Field label="Cost type">
+          <div className="flex gap-2">
+            {([
+              { v: "", label: "Unset" },
+              { v: "FIXED", label: "Fixed — same every period" },
+              { v: "VARIABLE", label: "Variable — fluctuates" },
+            ] as const).map((opt) => (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => setKind(opt.v)}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
+                  kind === opt.v
+                    ? "border-brand bg-brand text-white"
+                    : "border-app-border text-text-muted hover:bg-app-bg"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Vendor"><input value={vendor} onChange={(e) => setVendor(e.target.value)} className="inp" placeholder="Who you paid" /></Field>
           <Field label="Legal entity">

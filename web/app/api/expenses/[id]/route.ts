@@ -16,6 +16,7 @@ const updateSchema = z.object({
   legalEntityId: z.string().optional().nullable(),
   reimbursable: z.boolean().optional(),
   receiptUrl: z.string().optional().nullable(),
+  kind: z.enum(["FIXED", "VARIABLE"]).optional().nullable(),
 });
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {

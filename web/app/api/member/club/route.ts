@@ -25,6 +25,9 @@ export async function GET() {
       websiteUrl: true,
       socialLinks: true,
       hoursOfOperation: true,
+      appFontFamily: true,
+      appTextAlign: true,
+      appHomeContent: true,
     },
   });
 

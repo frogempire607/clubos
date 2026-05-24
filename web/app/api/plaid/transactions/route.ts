@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { plaidClient } from "@/lib/plaid";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures } from "@/lib/tier";
+import { suggestExpenseCategory } from "@/lib/categoryMatcher";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -46,10 +47,17 @@ export async function GET() {
       }),
     ]);
 
+    // Suggest an expense category for each transaction based on merchant
+    // keywords. Owners always see the suggestion as a hint and can override.
+    const transactions = txRes.data.transactions.map((t) => ({
+      ...t,
+      suggestedCategory: suggestExpenseCategory(t.merchant_name, t.name),
+    }));
+
     return NextResponse.json({
       connected: true,
       accounts: accountsRes.data.accounts,
-      transactions: txRes.data.transactions,
+      transactions,
     });
   } catch (err) {
     console.error("Plaid transactions error:", err);

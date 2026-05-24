@@ -18,6 +18,8 @@ type ClubInfo = {
   name: string;
   primaryColor: string | null;
   logoUrl: string | null;
+  appFontFamily?: string | null;
+  appTextAlign?: string | null;
 };
 
 type BeforeInstallPromptEvent = Event & {
@@ -53,7 +55,13 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (!d) return;
-        setClub({ name: d.name, primaryColor: d.primaryColor, logoUrl: d.logoUrl });
+        setClub({
+          name: d.name,
+          primaryColor: d.primaryColor,
+          logoUrl: d.logoUrl,
+          appFontFamily: d.appFontFamily ?? null,
+          appTextAlign: d.appTextAlign ?? null,
+        });
         if (d.primaryColor) {
           const meta = document.querySelector('meta[name="theme-color"]');
           if (meta) meta.setAttribute("content", d.primaryColor);
@@ -75,9 +83,16 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
   const accent = club?.primaryColor || "#1C1917";
   const clubName = club?.name || "";
+  // Branded-app personalization: font + alignment flow from owner settings.
+  const brandedStyle: React.CSSProperties = {
+    ...(club?.appFontFamily ? { fontFamily: club.appFontFamily } : {}),
+    ...(club?.appTextAlign
+      ? { textAlign: club.appTextAlign as "left" | "center" | "right" }
+      : {}),
+  };
 
   return (
-    <div className="min-h-screen bg-stone-50">
+    <div className="min-h-screen bg-stone-50" style={brandedStyle}>
       {/* ── Desktop top bar ── */}
       <header className="bg-white border-b border-stone-200 sticky top-0 z-40 hidden md:block">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">

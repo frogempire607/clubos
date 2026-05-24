@@ -49,6 +49,7 @@ const createSchema = z.object({
   legalEntityId: z.string().optional().nullable(),
   reimbursable: z.boolean().optional().default(false),
   receiptUrl: z.string().optional().nullable(),
+  kind: z.enum(["FIXED", "VARIABLE"]).optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
         legalEntityId: data.legalEntityId || null,
         reimbursable: data.reimbursable ?? false,
         receiptUrl: data.receiptUrl || null,
+        kind: data.kind || null,
       },
     });
     return NextResponse.json(expense, { status: 201 });

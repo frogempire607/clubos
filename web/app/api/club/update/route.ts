@@ -18,6 +18,11 @@ const schema = z.object({
   websiteUrl: z.string().optional().nullable(),
   socialLinks: z.array(z.object({ label: z.string(), url: z.string() })).optional(),
   hoursOfOperation: z.record(z.string()).optional().nullable(),
+  // Branded app personalization
+  appFontFamily: z.string().max(200).optional().nullable(),
+  appTextAlign: z.enum(["left", "center", "right"]).optional().nullable(),
+  appHomeContent: z.string().max(5000).optional().nullable(),
+  appCopy: z.record(z.string()).optional().nullable(),
 });
 
 export async function PATCH(req: Request) {
@@ -52,6 +57,10 @@ export async function PATCH(req: Request) {
         ...(data.websiteUrl !== undefined ? { websiteUrl: data.websiteUrl || null } : {}),
         ...(data.socialLinks !== undefined ? { socialLinks: data.socialLinks } : {}),
         ...(data.hoursOfOperation !== undefined ? { hoursOfOperation: data.hoursOfOperation ?? undefined } : {}),
+        ...(data.appFontFamily !== undefined ? { appFontFamily: data.appFontFamily || null } : {}),
+        ...(data.appTextAlign !== undefined ? { appTextAlign: data.appTextAlign || null } : {}),
+        ...(data.appHomeContent !== undefined ? { appHomeContent: data.appHomeContent || null } : {}),
+        ...(data.appCopy !== undefined ? { appCopy: data.appCopy ?? undefined } : {}),
       },
     });
 

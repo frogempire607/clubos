@@ -18,6 +18,9 @@ type Club = {
   stripeOnboardingComplete: boolean;
   stripeChargesEnabled: boolean;
   notificationPrefs: Record<string, boolean>;
+  appFontFamily?: string | null;
+  appTextAlign?: string | null;
+  appHomeContent?: string | null;
 };
 
 const SUB_STATUS_LABEL: Record<string, { label: string; bg: string; fg: string }> = {
@@ -775,6 +778,9 @@ function NotificationsSection({ prefs }: { prefs: Record<string, boolean> }) {
 
 function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
   const [logoUrl, setLogoUrl] = useState(club.logoUrl || "");
+  const [appFontFamily, setAppFontFamily] = useState(club.appFontFamily || "");
+  const [appTextAlign, setAppTextAlign] = useState<string>(club.appTextAlign || "left");
+  const [appHomeContent, setAppHomeContent] = useState(club.appHomeContent || "");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -786,11 +792,29 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
     const res = await fetch("/api/club/update", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ logoUrl: logoUrl || null }),
+      // name+slug are required by the schema. Pass them through unchanged
+      // so this section can save its own subset of fields independently.
+      body: JSON.stringify({
+        name: club.name,
+        slug: club.slug,
+        logoUrl: logoUrl || null,
+        appFontFamily: appFontFamily || null,
+        appTextAlign: appTextAlign || null,
+        appHomeContent: appHomeContent || null,
+      }),
     });
     setSaving(false);
     if (res.ok) { setSuccess(true); onSaved(); setTimeout(() => setSuccess(false), 2000); }
   }
+
+  const FONT_PRESETS = [
+    { value: "", label: "Default (Inter)" },
+    { value: "'Inter', system-ui, sans-serif", label: "Inter (clean modern)" },
+    { value: "'Poppins', system-ui, sans-serif", label: "Poppins (rounded)" },
+    { value: "Georgia, 'Times New Roman', serif", label: "Georgia (classic serif)" },
+    { value: "'Courier New', monospace", label: "Courier (mono)" },
+    { value: "system-ui, -apple-system, sans-serif", label: "System default" },
+  ];
 
   return (
     <div className="space-y-4">
@@ -877,6 +901,84 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             <button type="submit" disabled={saving}
               className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
               {saving ? "Saving…" : "Save icon"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Personalization — font, text alignment, home content */}
+      <div className="bg-white rounded-xl border border-app-border p-6">
+        <h2 className="text-base font-semibold text-text-primary mb-1">Personalization</h2>
+        <p className="text-xs text-text-muted mb-4">
+          Style the branded member portal. Anything you set on Club Profile
+          (name, tagline, About, contact info, logo, primary color) is already
+          pulled in automatically — these settings layer on top.
+        </p>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Font</label>
+              <select
+                value={appFontFamily}
+                onChange={(e) => setAppFontFamily(e.target.value)}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white"
+              >
+                {FONT_PRESETS.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+              <div
+                className="mt-2 px-3 py-2 border border-app-border rounded-lg text-sm bg-app-bg"
+                style={{ fontFamily: appFontFamily || undefined }}
+              >
+                Aa — preview your members will see.
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Text alignment</label>
+              <div className="flex gap-2">
+                {(["left", "center", "right"] as const).map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setAppTextAlign(a)}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
+                      appTextAlign === a
+                        ? "border-brand bg-brand text-white"
+                        : "border-app-border text-text-muted hover:bg-app-bg"
+                    }`}
+                  >
+                    {a.charAt(0).toUpperCase() + a.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Home welcome content</label>
+            <textarea
+              value={appHomeContent}
+              onChange={(e) => setAppHomeContent(e.target.value)}
+              rows={4}
+              maxLength={5000}
+              placeholder="A short welcome paragraph members see on the portal home — practice tips, weekly focus, current news…"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+              style={{ fontFamily: appFontFamily || undefined, textAlign: appTextAlign as "left" | "center" | "right" }}
+            />
+            <p className="text-[11px] text-text-muted mt-1">
+              Plain text. Renders on the member portal Home above the schedule.
+            </p>
+          </div>
+
+          {success && <p className="text-sm text-text-primary">Saved!</p>}
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save personalization"}
             </button>
           </div>
         </form>

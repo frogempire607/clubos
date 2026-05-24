@@ -93,6 +93,18 @@ model Club {
   // replies go (defaults to contactEmail).
   emailFromName            String?
   emailReplyTo             String?
+  // Branded App personalization (member portal look + copy). All optional —
+  // null means use the AthletixOS defaults.
+  //   appFontFamily : CSS font-family stack, e.g. "Inter, sans-serif".
+  //   appTextAlign  : "left" | "center" | "right" (applied to portal copy).
+  //   appHomeContent: free text/markdown shown as a welcome block on the
+  //                   member portal home.
+  //   appCopy       : map of override strings { key: value } the portal can
+  //                   read to swap built-in copy (e.g. {"welcome":"Hey ..."}).
+  appFontFamily            String?
+  appTextAlign             String?
+  appHomeContent           String?
+  appCopy                  Json?
   // JSON array of {label, url} pairs (Instagram, Facebook, YouTube, …)
   socialLinks              Json      @default("[]")
   // JSON map of {monday: "9-5", tuesday: "...", ...} or free-form blob
@@ -884,6 +896,9 @@ model Expense {
   description   String
   amount        Decimal  @db.Decimal(10, 2)
   category      String   @default("OTHER")
+  // FIXED = same amount every period (rent, insurance, software). VARIABLE =
+  // fluctuates (gear, travel, meals). null = unclassified.
+  kind          String?
   date          DateTime @default(now())
   isRecurring   Boolean  @default(false)
   notes         String?
