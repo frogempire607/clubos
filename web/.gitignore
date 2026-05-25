@@ -49,3 +49,5 @@ next-env.d.ts
 /storage
 /public/uploads
 .claude/
+.DS_Store
+.DS_Store
