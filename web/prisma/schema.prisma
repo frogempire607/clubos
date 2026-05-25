@@ -154,6 +154,7 @@ model Club {
   privateLessonPayRates       PrivateLessonPayRate[]
   privateBookings             PrivateBooking[]
   privateBookingPartners      PrivateBookingPartner[]
+  staffDocuments              StaffDocument[]
   privateCreditLedger         PrivateCreditLedger[]
   recurringClasses            RecurringClass[]
   classSessions               ClassSession[]
@@ -224,11 +225,49 @@ model User {
   documentSignatures      DocumentSignature[]
   uploadedFiles           UploadedFile[]
   compensation            StaffCompensation?
+  staffDocuments          StaffDocument[]              @relation("StaffDocsTarget")
+  uploadedStaffDocs       StaffDocument[]              @relation("StaffDocsUploader")
 
   @@unique([clubId, email])
   @@index([clubId])
   @@index([email])
   @@map("users")
+}
+
+// Documents the owner uploads to a staff member's profile — tax docs
+// (W-9, 1099), contracts, agreements, certifications. Owner controls
+// whether the staff member can see/download each one via sharedWithStaff.
+// Files live in the existing private /api/upload + /api/files/[id] store.
+model StaffDocument {
+  id               String   @id @default(cuid())
+  clubId           String
+  // The staff USER this document belongs to (target).
+  userId           String
+  // Optional link to the underlying UploadedFile; URL is stored independently
+  // so back-compat /public/uploads paths still work.
+  fileId           String?
+  fileUrl          String
+  fileName         String?
+  mimeType         String?
+  sizeBytes        Int?
+  title            String
+  // W9 | 1099 | CONTRACT | AGREEMENT | CERTIFICATION | OTHER
+  kind             String   @default("OTHER")
+  notes            String?
+  // Owner choice: false = owner-only; true = visible to the staff member.
+  sharedWithStaff  Boolean  @default(false)
+  uploadedById     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  club       Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user       User  @relation("StaffDocsTarget",   fields: [userId],       references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("StaffDocsUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([clubId])
+  @@index([userId])
+  @@map("staff_documents")
 }
 
 model StaffProfile {

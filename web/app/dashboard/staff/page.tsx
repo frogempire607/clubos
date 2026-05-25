@@ -504,6 +504,13 @@ function EditStaffModal({
             </button>
           </div>
         </form>
+
+        {/* Staff documents (tax docs, contracts, agreements, etc.). Lives
+            outside the main form so uploads/visibility toggles save
+            independently of the rest of the staff profile. */}
+        <div className="px-6 pb-6">
+          <StaffDocsPanel staffUserId={staff.id} />
+        </div>
       </div>
     </div>
   );
@@ -847,6 +854,203 @@ function CoachLessonTypes({ coachId }: { coachId: string }) {
           </label>
         );
       })}
+    </div>
+  );
+}
+
+// ── Staff Documents Panel (owner-side) ──────────────────────────────────────
+// Lists docs the owner has uploaded to this staff member, with kind + share
+// toggle + delete. Upload uses the existing /api/upload private-file flow.
+
+type StaffDoc = {
+  id: string;
+  title: string;
+  kind: string;
+  fileUrl: string;
+  fileName: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  notes: string | null;
+  sharedWithStaff: boolean;
+  createdAt: string;
+};
+
+const STAFF_DOC_KINDS = [
+  { v: "W9",            label: "W-9" },
+  { v: "1099",          label: "1099" },
+  { v: "CONTRACT",      label: "Contract" },
+  { v: "AGREEMENT",     label: "Agreement" },
+  { v: "CERTIFICATION", label: "Certification" },
+  { v: "OTHER",         label: "Other" },
+];
+
+function StaffDocsPanel({ staffUserId }: { staffUserId: string }) {
+  const [docs, setDocs] = useState<StaffDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState("");
+  const [kind, setKind] = useState("OTHER");
+  const [shared, setShared] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+
+  function load() {
+    setLoading(true);
+    fetch(`/api/staff/${staffUserId}/documents`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { setDocs(Array.isArray(d) ? d : []); setLoading(false); });
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [staffUserId]);
+
+  async function upload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!title.trim()) { setError("Give the document a title first."); return; }
+    setUploading(true); setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", "document");
+      const upRes = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!upRes.ok) throw new Error("Upload failed");
+      const up = await upRes.json();
+      const r = await fetch(`/api/staff/${staffUserId}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          kind,
+          fileUrl: up.url,
+          fileId: up.id ?? null,
+          fileName: file.name,
+          mimeType: file.type || null,
+          sizeBytes: file.size,
+          sharedWithStaff: shared,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(typeof j.error === "string" ? j.error : "Save failed");
+      }
+      setTitle(""); setKind("OTHER"); setShared(false);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+      // Reset the file input so the same file can be re-selected.
+      e.target.value = "";
+    }
+  }
+
+  async function toggleShared(d: StaffDoc) {
+    setDocs((prev) => prev.map((x) => x.id === d.id ? { ...x, sharedWithStaff: !x.sharedWithStaff } : x));
+    await fetch(`/api/staff/${staffUserId}/documents/${d.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sharedWithStaff: !d.sharedWithStaff }),
+    });
+  }
+
+  async function remove(d: StaffDoc) {
+    if (!confirm(`Delete "${d.title}"?`)) return;
+    await fetch(`/api/staff/${staffUserId}/documents/${d.id}`, { method: "DELETE" });
+    load();
+  }
+
+  return (
+    <div className="border-t border-app-border pt-5">
+      <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">
+        Documents (tax docs, contracts, agreements)
+      </p>
+
+      {/* Upload */}
+      <div className="bg-app-bg rounded-lg p-3 mb-3 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Document title (e.g. 2026 W-9)"
+            className="px-3 py-2 border border-app-border rounded-lg text-sm"
+          />
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            className="px-3 py-2 border border-app-border rounded-lg text-sm bg-white"
+          >
+            {STAFF_DOC_KINDS.map((k) => <option key={k.v} value={k.v}>{k.label}</option>)}
+          </select>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-text-muted">
+          <input
+            type="checkbox"
+            checked={shared}
+            onChange={(e) => setShared(e.target.checked)}
+            className="rounded"
+          />
+          Let this staff member see &amp; download it
+        </label>
+        <label className="block">
+          <span className="sr-only">Choose file</span>
+          <input
+            type="file"
+            onChange={upload}
+            disabled={uploading}
+            className="block w-full text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-brand file:text-white file:font-medium hover:file:bg-brand-hover disabled:opacity-50"
+          />
+        </label>
+        {error && <p className="text-xs text-red-600">{error}</p>}
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <p className="text-xs text-text-muted">Loading…</p>
+      ) : docs.length === 0 ? (
+        <p className="text-xs text-text-muted">No documents yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {docs.map((d) => (
+            <div key={d.id} className="flex items-start gap-3 p-3 border border-app-border rounded-lg">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted font-medium">
+                    {STAFF_DOC_KINDS.find((k) => k.v === d.kind)?.label ?? d.kind}
+                  </span>
+                  <a
+                    href={d.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium text-text-primary hover:underline truncate"
+                  >
+                    {d.title}
+                  </a>
+                </div>
+                <p className="text-[11px] text-text-muted">
+                  {d.fileName ? `${d.fileName} · ` : ""}
+                  {new Date(d.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                <label className="flex items-center gap-1.5 text-[11px] text-text-muted cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={d.sharedWithStaff}
+                    onChange={() => toggleShared(d)}
+                    className="rounded"
+                  />
+                  Visible to staff
+                </label>
+                <button
+                  onClick={() => remove(d)}
+                  className="text-[11px] text-red-600 hover:bg-red-50 px-2 py-0.5 rounded"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
