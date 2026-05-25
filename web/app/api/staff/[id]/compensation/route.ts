@@ -21,6 +21,8 @@ const planSchema = z.object({
         bonusType: z.enum(["ATTENDANCE", "SIGNUP", "REVENUE_SHARE"]),
         amount: z.number().min(0),
         scopes: z.array(scopeSchema).default([]),
+        minThreshold: z.number().int().min(0).nullable().optional(),
+        maxThreshold: z.number().int().min(0).nullable().optional(),
       })
     )
     .default([]),
@@ -85,6 +87,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
           id: bo.id,
           bonusType: bo.bonusType,
           amount: Number(bo.amount),
+          minThreshold: bo.minThreshold,
+          maxThreshold: bo.maxThreshold,
           scopes: plan.assignments
             .filter((a) => a.bonusId === bo.id)
             .map((a) => ({ scopeType: a.scopeType, scopeId: a.scopeId })),
@@ -121,47 +125,64 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
-  await prisma.$transaction(async (tx) => {
-    // Cascade deletes wipe old bonuses + assignments; recreate from scratch.
-    await tx.staffCompensation.deleteMany({ where: { userId: id } });
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Cascade deletes wipe old bonuses + assignments; recreate from scratch.
+      await tx.staffCompensation.deleteMany({ where: { userId: id } });
 
-    const comp = await tx.staffCompensation.create({
-      data: {
-        clubId: session.user.clubId,
-        userId: id,
-        baseType: data.baseType,
-        baseAmount: data.baseAmount,
-      },
-    });
-
-    // Base-level assignments (bonusId stays null).
-    if (data.baseScopes.length) {
-      await tx.compensationAssignment.createMany({
-        data: data.baseScopes.map((s) => ({
-          compensationId: comp.id,
-          bonusId: null,
-          scopeType: s.scopeType,
-          scopeId: s.scopeId,
-        })),
+      const comp = await tx.staffCompensation.create({
+        data: {
+          clubId: session.user.clubId,
+          userId: id,
+          baseType: data.baseType,
+          baseAmount: data.baseAmount,
+        },
       });
-    }
 
-    for (const b of data.bonuses) {
-      const bonus = await tx.compensationBonus.create({
-        data: { compensationId: comp.id, bonusType: b.bonusType, amount: b.amount },
-      });
-      if (b.scopes.length) {
+      // Base-level assignments (bonusId stays null).
+      if (data.baseScopes.length) {
         await tx.compensationAssignment.createMany({
-          data: b.scopes.map((s) => ({
+          data: data.baseScopes.map((s) => ({
             compensationId: comp.id,
-            bonusId: bonus.id,
+            bonusId: null,
             scopeType: s.scopeType,
             scopeId: s.scopeId,
           })),
         });
       }
-    }
-  });
+
+      for (const b of data.bonuses) {
+        // Normalize thresholds: 0 (or undefined) means "no bound".
+        const minT = b.minThreshold && b.minThreshold > 0 ? b.minThreshold : null;
+        const maxT = b.maxThreshold && b.maxThreshold > 0 ? b.maxThreshold : null;
+        if (minT != null && maxT != null && minT >= maxT) {
+          throw new Error("Bonus min threshold must be less than max threshold.");
+        }
+        const bonus = await tx.compensationBonus.create({
+          data: {
+            compensationId: comp.id,
+            bonusType: b.bonusType,
+            amount: b.amount,
+            minThreshold: minT,
+            maxThreshold: maxT,
+          },
+        });
+        if (b.scopes.length) {
+          await tx.compensationAssignment.createMany({
+            data: b.scopes.map((s) => ({
+              compensationId: comp.id,
+              bonusId: bonus.id,
+              scopeType: s.scopeType,
+              scopeId: s.scopeId,
+            })),
+          });
+        }
+      }
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Could not save compensation plan";
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -17,17 +17,28 @@ export async function GET() {
   return NextResponse.json(packages);
 }
 
-const schema = z.object({
-  title:            z.string().min(1).max(100),
-  description:      z.string().max(500).optional().nullable(),
-  lessonTypeId:     z.string().optional().nullable(),
-  lessonTypeIds:    z.array(z.string()).default([]),
-  credits:          z.number().int().positive(),
-  bonusCredits:     z.number().int().min(0).default(0),
-  price:            z.number().nonnegative(),
-  expiresAfterDays: z.number().int().positive().optional().nullable(),
-  active:           z.boolean().default(true),
-});
+const schema = z
+  .object({
+    title:            z.string().min(1).max(100),
+    description:      z.string().max(500).optional().nullable(),
+    lessonTypeId:     z.string().optional().nullable(),
+    lessonTypeIds:    z.array(z.string()).default([]),
+    credits:          z.number().int().positive(),
+    bonusCredits:     z.number().int().min(0).default(0),
+    pricingMode:      z.enum(["FLAT", "PERCENT", "FIXED"]).default("FLAT"),
+    discountValue:    z.number().nonnegative().nullable().optional(),
+    price:            z.number().nonnegative(),
+    expiresAfterDays: z.number().int().positive().optional().nullable(),
+    active:           z.boolean().default(true),
+  })
+  .refine(
+    (d) => d.pricingMode === "FLAT" || (d.discountValue != null && d.discountValue > 0),
+    { message: "Enter a discount value for this pricing model.", path: ["discountValue"] },
+  )
+  .refine(
+    (d) => d.pricingMode !== "PERCENT" || (d.discountValue ?? 0) <= 100,
+    { message: "Percentage discount must be between 0 and 100.", path: ["discountValue"] },
+  );
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -50,6 +61,7 @@ export async function POST(req: Request) {
       data: {
         clubId: session.user.clubId,
         ...data,
+        discountValue: data.pricingMode === "FLAT" ? null : data.discountValue ?? null,
         lessonTypeId: lessonTypeIds.length === 1 ? lessonTypeIds[0] : null,
         lessonTypeIds,
       },

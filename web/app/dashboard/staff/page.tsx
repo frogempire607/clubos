@@ -520,7 +520,13 @@ function EditStaffModal({
 
 type ScopeType = "CLASS" | "EVENT" | "MEMBERSHIP" | "PRIVATE_LESSON_TYPE";
 type Scope = { scopeType: ScopeType; scopeId: string };
-type BonusDraft = { bonusType: "ATTENDANCE" | "SIGNUP" | "REVENUE_SHARE"; amount: string; scopes: Scope[] };
+type BonusDraft = {
+  bonusType: "ATTENDANCE" | "SIGNUP" | "REVENUE_SHARE";
+  amount: string;
+  scopes: Scope[];
+  minThreshold: string;
+  maxThreshold: string;
+};
 type Opt = { id: string; name: string };
 type CompOptions = { classes: Opt[]; events: Opt[]; memberships: Opt[]; lessonTypes: Opt[] };
 
@@ -617,10 +623,12 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
           setBaseAmount(String(d.plan.baseAmount ?? ""));
           setBaseScopes(d.plan.baseScopes ?? []);
           setBonuses(
-            (d.plan.bonuses ?? []).map((b: { bonusType: BonusDraft["bonusType"]; amount: number; scopes: Scope[] }) => ({
+            (d.plan.bonuses ?? []).map((b: { bonusType: BonusDraft["bonusType"]; amount: number; scopes: Scope[]; minThreshold?: number | null; maxThreshold?: number | null }) => ({
               bonusType: b.bonusType,
               amount: String(b.amount),
               scopes: b.scopes ?? [],
+              minThreshold: b.minThreshold != null ? String(b.minThreshold) : "",
+              maxThreshold: b.maxThreshold != null ? String(b.maxThreshold) : "",
             }))
           );
         }
@@ -629,7 +637,7 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
   }, [staffId]);
 
   function addBonus() {
-    setBonuses((b) => [...b, { bonusType: "ATTENDANCE", amount: "", scopes: [] }]);
+    setBonuses((b) => [...b, { bonusType: "ATTENDANCE", amount: "", scopes: [], minThreshold: "", maxThreshold: "" }]);
   }
   function updateBonus(i: number, patch: Partial<BonusDraft>) {
     setBonuses((b) => b.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
@@ -651,7 +659,13 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
         baseScopes: baseType === "PER_CLASS" || baseType === "HOURLY" ? baseScopes : [],
         bonuses: bonuses
           .filter((b) => b.amount.trim() !== "")
-          .map((b) => ({ bonusType: b.bonusType, amount: parseFloat(b.amount) || 0, scopes: b.scopes })),
+          .map((b) => ({
+            bonusType: b.bonusType,
+            amount: parseFloat(b.amount) || 0,
+            scopes: b.scopes,
+            minThreshold: b.minThreshold.trim() === "" ? null : Math.max(0, parseInt(b.minThreshold) || 0),
+            maxThreshold: b.maxThreshold.trim() === "" ? null : Math.max(0, parseInt(b.maxThreshold) || 0),
+          })),
       }),
     });
     setSaving(false);
@@ -738,6 +752,37 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
                   className="w-32 px-2 py-1.5 border border-app-border rounded-lg text-sm"
                 />
               </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] text-text-muted mb-1">Starts after</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={b.minThreshold}
+                    onChange={(e) => updateBonus(i, { minThreshold: e.target.value })}
+                    placeholder="e.g. 10"
+                    className="w-full px-2 py-1.5 border border-app-border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-text-muted mb-1">Caps at</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={b.maxThreshold}
+                    onChange={(e) => updateBonus(i, { maxThreshold: e.target.value })}
+                    placeholder="e.g. 25"
+                    className="w-full px-2 py-1.5 border border-app-border rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-text-muted">
+                Bonus only pays for items above the “starts after” count, up to the “caps at” count. Leave blank for no bound.
+              </p>
+
               <ScopePicker
                 allowed={BONUS_SCOPES[b.bonusType]}
                 opts={opts}
