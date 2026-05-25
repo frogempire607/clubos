@@ -432,12 +432,22 @@ export default function CalendarPage() {
                     const useUTC = kindIsWallClockUTC(it.kind);
                     const tStart = fmtTime(it.startsAt, { utc: useUTC });
                     const tEnd = fmtTime(it.endsAt, { utc: useUTC });
-                    // Edit deep-link target per kind.
+                    // Default = per-occurrence editing:
+                    //   class   → ?session=<classSessionId> opens the session
+                    //             editor (just this day). "Edit entire series"
+                    //             inside that modal jumps to ?edit=<classId>.
+                    //   event   → multi-day events emit one item per
+                    //             EventSession (id is "<eventId>:<sessionId>"),
+                    //             so ?session= passes that compound; single-day
+                    //             events fall back to ?edit=<eventId>.
+                    //   private → opens that booking directly.
                     const editHref =
                       it.kind === "event"
-                        ? `/dashboard/events?edit=${it.refId}`
+                        ? it.id.includes(":")
+                          ? `/dashboard/events?session=${it.id}`
+                          : `/dashboard/events?edit=${it.refId}`
                         : it.kind === "class"
-                          ? `/dashboard/classes?edit=${it.refId}`
+                          ? `/dashboard/classes?session=${it.id}`
                           : `/dashboard/privates?booking=${it.refId}`;
                     // Multi-day events emit one item per session — note that
                     // edits to this item apply to this occurrence.

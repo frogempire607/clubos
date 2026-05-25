@@ -30,7 +30,18 @@ export default function ImageUpload({ value, onChange, label, shape = "square", 
 
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setErr(d.error || "Upload failed");
+      // Defensive stringify — some upstream routes return Zod error arrays or
+      // nested objects which would otherwise render as "[object Object]".
+      const raw = d?.error;
+      const msg =
+        typeof raw === "string"
+          ? raw
+          : Array.isArray(raw)
+            ? ((raw[0]?.message as string | undefined) ?? (raw.map((x) => (typeof x === "string" ? x : x?.message)).filter(Boolean).join(", ") || "Upload failed"))
+            : raw && typeof raw === "object"
+              ? (raw.message ?? JSON.stringify(raw))
+              : "Upload failed";
+      setErr(msg);
       return;
     }
 

@@ -916,34 +916,40 @@ function StaffDocsPanel({ staffUserId }: { staffUserId: string }) {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [staffUserId]);
 
   async function upload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     if (!title.trim()) { setError("Give the document a title first."); return; }
     setUploading(true); setError("");
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("kind", "document");
-      const upRes = await fetch("/api/upload", { method: "POST", body: fd });
-      if (!upRes.ok) throw new Error("Upload failed");
-      const up = await upRes.json();
-      const r = await fetch(`/api/staff/${staffUserId}/documents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim(),
-          kind,
-          fileUrl: up.url,
-          fileId: up.id ?? null,
-          fileName: file.name,
-          mimeType: file.type || null,
-          sizeBytes: file.size,
-          sharedWithStaff: shared,
-        }),
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        throw new Error(typeof j.error === "string" ? j.error : "Save failed");
+      // Allow batch selection. The title applies to all of them with an
+      // index suffix when more than one is picked at once.
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("kind", "document");
+        const upRes = await fetch("/api/upload", { method: "POST", body: fd });
+        if (!upRes.ok) throw new Error(`Upload failed for ${file.name}`);
+        const up = await upRes.json();
+        const t = files.length === 1 ? title.trim() : `${title.trim()} (${i + 1}/${files.length})`;
+        const r = await fetch(`/api/staff/${staffUserId}/documents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: t,
+            kind,
+            fileUrl: up.url,
+            fileId: up.id ?? null,
+            fileName: file.name,
+            mimeType: file.type || null,
+            sizeBytes: file.size,
+            sharedWithStaff: shared,
+          }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(typeof j.error === "string" ? j.error : `Save failed for ${file.name}`);
+        }
       }
       setTitle(""); setKind("OTHER"); setShared(false);
       load();
@@ -951,7 +957,7 @@ function StaffDocsPanel({ staffUserId }: { staffUserId: string }) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
-      // Reset the file input so the same file can be re-selected.
+      // Reset the file input so the same files can be re-selected.
       e.target.value = "";
     }
   }
@@ -1008,6 +1014,7 @@ function StaffDocsPanel({ staffUserId }: { staffUserId: string }) {
           <span className="sr-only">Choose file</span>
           <input
             type="file"
+            multiple
             onChange={upload}
             disabled={uploading}
             className="block w-full text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-brand file:text-white file:font-medium hover:file:bg-brand-hover disabled:opacity-50"

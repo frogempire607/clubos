@@ -103,8 +103,21 @@ export default function ClubSettingsPage() {
 
     setSaving(false);
     if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Failed to save");
+      const data = await res.json().catch(() => ({}));
+      // Same defensive parsing as ImageUpload: never render "[object Object]"
+      // to the owner when upstream returns Zod arrays / nested objects.
+      const raw = data?.error;
+      const msg =
+        typeof raw === "string"
+          ? raw
+          : Array.isArray(raw)
+            ? ((raw[0]?.message as string | undefined) ?? (raw.map((x: { message?: string } | string) =>
+                typeof x === "string" ? x : x?.message,
+              ).filter(Boolean).join(", ") || "Failed to save"))
+            : raw && typeof raw === "object"
+              ? ((raw as { message?: string }).message ?? JSON.stringify(raw))
+              : "Failed to save";
+      setError(msg);
       return;
     }
     setSaved(true);

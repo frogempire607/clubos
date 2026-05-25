@@ -39,6 +39,8 @@ const updateSchema = z.object({
   purchaseAccess: z.enum(["ANYONE", "STAFF_ONLY"]).optional(),
   allowMembershipPayment: z.boolean().optional(),
   imageUrl: z.string().optional().nullable(),
+  imagePositionX: z.number().min(0).max(100).optional(),
+  imagePositionY: z.number().min(0).max(100).optional(),
   pricingOptions: z.array(z.object({ type: z.literal("membership"), membershipId: z.string() })).optional(),
   staffUserIds: z.array(z.string()).optional(),
   sessions: z.array(sessionSchema).optional(),
