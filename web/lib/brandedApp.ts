@@ -20,6 +20,7 @@ export type BrandedAppConfig = {
     backgroundImageUrl: string | null;
     backgroundColor: string;
     backgroundGradient: string;
+    textColor: string;
   };
   signIn: {
     backgroundImageUrl: string | null;
@@ -108,6 +109,7 @@ export function defaultBrandedAppConfig(club: {
       backgroundImageUrl: null,
       backgroundColor: "#FFFFFF",
       backgroundGradient: "",
+      textColor: contrastColor("#FFFFFF"),
     },
     signIn: {
       backgroundImageUrl: null,

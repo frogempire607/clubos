@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  contrastColor,
   type BrandedAppConfig,
   type BrandedNavKey,
 } from "@/lib/brandedApp";
@@ -331,6 +330,9 @@ function SplashSection({ cfg, patchNested, uploadImage, uploading }: SectionProp
       <div className="grid sm:grid-cols-2 gap-4">
         <Field label="Background color">
           <ColorInput value={cfg.splash.backgroundColor} onChange={(v) => patchNested("splash", { backgroundColor: v })} />
+        </Field>
+        <Field label="Club name text color">
+          <ColorInput value={cfg.splash.textColor} onChange={(v) => patchNested("splash", { textColor: v })} />
         </Field>
         <Field label="Background gradient" hint="Optional CSS gradient.">
           <input
@@ -720,7 +722,7 @@ function SplashPreview({ cfg }: { cfg: BrandedAppConfig }) {
         className="w-24 h-24 rounded-3xl shadow-lg"
         bg={cfg.themeColor}
       />
-      <p className="mt-4 text-base font-semibold" style={{ color: contrastColor(cfg.splash.backgroundColor) }}>
+      <p className="mt-4 text-base font-semibold" style={{ color: cfg.splash.textColor }}>
         {cfg.appName}
       </p>
     </div>

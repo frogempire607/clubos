@@ -83,6 +83,27 @@ type Staff  = { id: string; firstName: string; lastName: string };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+async function readListResponse<T>(res: Response, label: string): Promise<{ items: T[]; error: string | null }> {
+  const text = await res.text();
+  if (!text) {
+    return { items: [], error: res.ok ? null : `${label} could not be loaded.` };
+  }
+
+  try {
+    const data: unknown = JSON.parse(text);
+    if (!res.ok) {
+      const message =
+        data && typeof data === "object" && "error" in data
+          ? String((data as { error: unknown }).error)
+          : `${label} could not be loaded.`;
+      return { items: [], error: message };
+    }
+    return { items: Array.isArray(data) ? (data as T[]) : [], error: null };
+  } catch {
+    return { items: [], error: `${label} returned an invalid response.` };
+  }
+}
+
 const STATUS_COLORS: Record<string, string> = {
   REQUESTED:     "bg-orange-accent text-white",
   PENDING_COACH: "bg-brand text-white",
@@ -1421,6 +1442,7 @@ export default function PrivatesPage() {
   const [staffList, setStaffList]   = useState<Staff[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState("");
 
   const [editLT, setEditLT]         = useState<LessonType | null | undefined>(undefined);
   const [editPkg, setEditPkg]       = useState<Package | null | undefined>(undefined);
@@ -1439,12 +1461,26 @@ export default function PrivatesPage() {
         fetch("/api/members"),
         fetch("/api/staff?includeOwners=true"),
       ]);
-      const [b, lt, pkg, m, s] = await Promise.all([bRes.json(), ltRes.json(), pkgRes.json(), mRes.json(), sRes.json()]);
-      setBookings(Array.isArray(b) ? b : []);
-      setLessonTypes(Array.isArray(lt) ? lt : []);
-      setPackages(Array.isArray(pkg) ? pkg : []);
-      setMembers(Array.isArray(m) ? m : []);
-      setStaffList(Array.isArray(s) ? s : []);
+      const [b, lt, pkg, m, s] = await Promise.all([
+        readListResponse<Booking>(bRes, "Bookings"),
+        readListResponse<LessonType>(ltRes, "Lesson types"),
+        readListResponse<Package>(pkgRes, "Packages"),
+        readListResponse<Member>(mRes, "Members"),
+        readListResponse<Staff>(sRes, "Staff"),
+      ]);
+      setBookings(b.items);
+      setLessonTypes(lt.items);
+      setPackages(pkg.items);
+      setMembers(m.items);
+      setStaffList(s.items);
+      setLoadError([b.error, lt.error, pkg.error, m.error, s.error].filter(Boolean).join(" "));
+    } catch {
+      setLoadError("Private lessons could not be loaded. Please refresh and try again.");
+      setBookings([]);
+      setLessonTypes([]);
+      setPackages([]);
+      setMembers([]);
+      setStaffList([]);
     } finally {
       setLoading(false);
     }
@@ -1528,6 +1564,12 @@ export default function PrivatesPage() {
           </button>
         ))}
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
 
       {loading ? (
         <div className="text-sm text-text-muted py-12 text-center">Loading…</div>

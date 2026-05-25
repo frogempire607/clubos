@@ -180,9 +180,9 @@ export default function EventsPage() {
 
   const now = new Date();
   const filtered = events.filter((e) => {
-    const start = new Date(e.startsAt);
-    if (filter === "upcoming") return start >= now;
-    if (filter === "past") return start < now;
+    const end = new Date(e.endsAt);
+    if (filter === "upcoming") return end >= now;
+    if (filter === "past") return end < now;
     return true;
   });
 

@@ -44,6 +44,14 @@ type ClassSession = {
   _count: { attendance: number };
 };
 
+function clearClassDeepLinkParams() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("session");
+  url.searchParams.delete("edit");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -694,6 +702,7 @@ export default function ClassesPage() {
   const [viewingSessions, setViewingSessions] = useState<RecurringClass | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [occurrenceSuccess, setOccurrenceSuccess] = useState("");
 
   async function load() {
     setLoading(true);
@@ -770,6 +779,12 @@ export default function ClassesPage() {
           </a>
         )}
       </div>
+
+      {occurrenceSuccess && (
+        <div className="mb-4 rounded-lg border border-lime-accent/40 bg-lime-accent/15 px-4 py-3 text-sm text-text-primary">
+          {occurrenceSuccess}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-app-border">
@@ -955,9 +970,19 @@ export default function ClassesPage() {
           sessionId={editingSessionId}
           classes={classes}
           staffList={staffList}
-          onClose={() => setEditingSessionId(null)}
-          onSaved={() => { setEditingSessionId(null); load(); }}
+          onClose={() => {
+            clearClassDeepLinkParams();
+            setEditingSessionId(null);
+          }}
+          onSaved={async () => {
+            clearClassDeepLinkParams();
+            setEditingSessionId(null);
+            setOccurrenceSuccess("Class occurrence saved.");
+            await load();
+            window.setTimeout(() => setOccurrenceSuccess(""), 4000);
+          }}
           onEditSeries={(cls) => {
+            clearClassDeepLinkParams();
             setEditingSessionId(null);
             setEditing(cls);
             setShowModal(true);
@@ -984,7 +1009,7 @@ function SessionEditModal({
   classes: RecurringClass[];
   staffList: Staff[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
   onEditSeries: (cls: RecurringClass) => void;
 }) {
   type Sess = {
@@ -1065,7 +1090,7 @@ function SessionEditModal({
       setError(typeof d.error === "string" ? d.error : "Save failed");
       return;
     }
-    onSaved();
+    await onSaved();
   }
 
   return (
