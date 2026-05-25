@@ -709,6 +709,19 @@ export default function ClassesPage() {
 
   useEffect(() => { load(); }, []);
 
+  // Deep link from the calendar day-detail "Edit" button: ?edit=<classId>
+  // opens that class's editor directly.
+  useEffect(() => {
+    if (loading || classes.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get("edit");
+    if (editId) {
+      const c = classes.find((x) => x.id === editId);
+      if (c) { setEditing(c); setShowModal(true); }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
   async function deleteClass(id: string) {
     if (!confirm("Archive this class? Sessions already generated will remain.")) return;
     await fetch(`/api/classes/${id}`, { method: "DELETE" });

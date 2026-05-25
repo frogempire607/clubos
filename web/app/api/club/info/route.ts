@@ -31,6 +31,7 @@ export async function GET() {
       stripeChargesEnabled: true,
       notificationPrefs: true,
       clubProfile: true,
+      builtInEventColors: true,
     },
   });
 

@@ -82,11 +82,19 @@ const BUILT_IN_LABELS: Record<BuiltInType, string> = {
   CLASS: "Class", PRIVATE: "Private", CLINIC: "Clinic", CAMP: "Camp", TOURNAMENT: "Tournament", OTHER: "Other",
 };
 
-function getTypeDisplay(e: Event): { name: string; bg: string; fg: string } {
+type BuiltInOverrides = Partial<Record<BuiltInType, { bg: string; fg: string }>> | null;
+
+function getTypeDisplay(
+  e: Event,
+  overrides?: BuiltInOverrides,
+): { name: string; bg: string; fg: string } {
   if (e.customEventType) {
     return { name: e.customEventType.name, bg: e.customEventType.color, fg: e.customEventType.textColor };
   }
-  const c = BUILT_IN_COLORS[e.type] || BUILT_IN_COLORS.OTHER;
+  // Owner-set override (Manage Event Types → Built-in colors) wins over
+  // the hardcoded defaults.
+  const o = overrides?.[e.type];
+  const c = o ?? BUILT_IN_COLORS[e.type] ?? BUILT_IN_COLORS.OTHER;
   return { name: BUILT_IN_LABELS[e.type] || e.type, bg: c.bg, fg: c.fg };
 }
 
@@ -126,32 +134,46 @@ export default function EventsPage() {
   const [viewingRegistrations, setViewingRegistrations] = useState<string | null>(null);
   const [showManageTypes, setShowManageTypes] = useState(false);
   const [filter, setFilter] = useState<"upcoming" | "past" | "all">("upcoming");
+  const [builtInOverrides, setBuiltInOverrides] = useState<BuiltInOverrides>(null);
+  const [clubMeta, setClubMeta] = useState<{ name: string; slug: string } | null>(null);
 
   async function load() {
     setLoading(true);
-    const [eRes, tRes, mRes, sRes] = await Promise.all([
+    const [eRes, tRes, mRes, sRes, cRes] = await Promise.all([
       fetch("/api/events"),
       fetch("/api/events/types"),
       fetch("/api/memberships"),
       fetch("/api/staff?includeOwners=true"),
+      fetch("/api/club/info"),
     ]);
     if (eRes.ok) setEvents(await eRes.json());
     if (tRes.ok) setClubEventTypes(await tRes.json());
     if (mRes.ok) setMemberships((await mRes.json()).filter((m: Membership) => m.active));
     if (sRes.ok) setStaffList(await sRes.json());
+    if (cRes.ok) {
+      const c = await cRes.json();
+      setBuiltInOverrides((c.builtInEventColors as BuiltInOverrides) ?? null);
+      setClubMeta({ name: c.name, slug: c.slug });
+    }
     setLoading(false);
   }
 
   useEffect(() => { load(); }, []);
 
-  // Deep link from the attendance QR code: /dashboard/events?event=<id>
-  // opens that event's bookings/check-in directly.
+  // Deep links from other surfaces:
+  //   ?event=<id> — opens that event's bookings/check-in (attendance QR).
+  //   ?edit=<id>  — opens that event's edit modal (calendar day detail).
   useEffect(() => {
     if (loading || events.length === 0) return;
     const params = new URLSearchParams(window.location.search);
     const eventId = params.get("event");
     if (eventId && events.some((e) => e.id === eventId)) {
       setViewingBookings(eventId);
+    }
+    const editId = params.get("edit");
+    if (editId) {
+      const ev = events.find((e) => e.id === editId);
+      if (ev) setEditing(ev);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
@@ -224,7 +246,7 @@ export default function EventsPage() {
       ) : (
         <div className="space-y-2">
           {filtered.map((e) => {
-            const td = getTypeDisplay(e);
+            const td = getTypeDisplay(e, builtInOverrides);
             const start = new Date(e.startsAt);
             const end = new Date(e.endsAt);
             const isFull = e.capacity && e._count.bookings >= e.capacity;
@@ -317,9 +339,12 @@ export default function EventsPage() {
 
       {viewingRegistrations && <RegistrationsModal eventId={viewingRegistrations} onClose={() => { setViewingRegistrations(null); load(); }} />}
 
-      {showManageTypes && (
+      {showManageTypes && clubMeta && (
         <ManageTypesModal
           types={clubEventTypes}
+          builtInOverrides={builtInOverrides}
+          clubName={clubMeta.name}
+          clubSlug={clubMeta.slug}
           onClose={() => setShowManageTypes(false)}
           onSaved={() => { setShowManageTypes(false); load(); }}
         />
@@ -1006,13 +1031,64 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
 }
 
 // ── Manage Event Types Modal ─────────────────────────────────────────────────
-function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[]; onClose: () => void; onSaved: () => void }) {
+function ManageTypesModal({
+  types,
+  builtInOverrides,
+  clubName,
+  clubSlug,
+  onClose,
+  onSaved,
+}: {
+  types: ClubEventType[];
+  builtInOverrides: BuiltInOverrides;
+  clubName: string;
+  clubSlug: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [localTypes, setLocalTypes] = useState<ClubEventType[]>(types);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(COLOR_PRESETS[0].bg);
   const [newTextColor, setNewTextColor] = useState(COLOR_PRESETS[0].fg);
+  // Local-edited built-in color overrides (saved together to /api/club/update).
+  const [overrides, setOverrides] = useState<BuiltInOverrides>(builtInOverrides ?? {});
+  const [savingBuiltIns, setSavingBuiltIns] = useState(false);
+  const [savedBuiltIns, setSavedBuiltIns] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  function setOverrideColor(type: BuiltInType, c: { bg: string; fg: string } | null) {
+    setOverrides((prev) => {
+      const next: BuiltInOverrides = { ...(prev ?? {}) };
+      if (c) next[type] = c;
+      else delete next[type];
+      return next;
+    });
+  }
+
+  async function saveBuiltInColors() {
+    setSavingBuiltIns(true);
+    setError("");
+    const res = await fetch("/api/club/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      // name+slug are required by the schema — pass them through so this
+      // section can save its own subset independently.
+      body: JSON.stringify({
+        name: clubName,
+        slug: clubSlug,
+        builtInEventColors: overrides ?? null,
+      }),
+    });
+    setSavingBuiltIns(false);
+    if (res.ok) {
+      setSavedBuiltIns(true);
+      setTimeout(() => setSavedBuiltIns(false), 2000);
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not save built-in colors");
+    }
+  }
 
   async function addType() {
     if (!newName.trim()) return;
@@ -1050,14 +1126,58 @@ function ManageTypesModal({ types, onClose, onSaved }: { types: ClubEventType[];
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Built-in types */}
+          {/* Built-in types — colors are now editable */}
           <div>
-            <p className="text-xs uppercase tracking-wider text-text-muted mb-2 font-medium">Built-in types</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs uppercase tracking-wider text-text-muted font-medium">Built-in type colors</p>
+              <button
+                onClick={saveBuiltInColors}
+                disabled={savingBuiltIns}
+                className="text-xs px-2.5 py-1 rounded-md bg-brand text-white font-medium hover:bg-brand-hover disabled:opacity-50"
+              >
+                {savingBuiltIns ? "Saving…" : savedBuiltIns ? "Saved ✓" : "Save colors"}
+              </button>
+            </div>
+            <p className="text-[11px] text-text-muted mb-3">
+              Click a swatch to assign that color to the built-in type. Custom
+              event types you create below override these.
+            </p>
+            <div className="space-y-2">
               {(Object.entries(BUILT_IN_LABELS) as [BuiltInType, string][]).map(([key, label]) => {
-                const c = BUILT_IN_COLORS[key];
+                const active = overrides?.[key] ?? BUILT_IN_COLORS[key];
                 return (
-                  <span key={key} className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>{label}</span>
+                  <div key={key} className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="text-xs px-2.5 py-1 rounded-full font-medium min-w-[88px] text-center"
+                      style={{ background: active.bg, color: active.fg }}
+                    >
+                      {label}
+                    </span>
+                    <div className="flex-1 flex flex-wrap gap-1">
+                      {COLOR_PRESETS.map((p) => {
+                        const selected = active.bg === p.bg && active.fg === p.fg;
+                        return (
+                          <button
+                            key={p.name}
+                            type="button"
+                            onClick={() => setOverrideColor(key, { bg: p.bg, fg: p.fg })}
+                            title={p.name}
+                            className={`w-6 h-6 rounded-md border ${selected ? "ring-2 ring-text-primary border-text-primary" : "border-app-border"}`}
+                            style={{ background: p.bg }}
+                          />
+                        );
+                      })}
+                      {overrides?.[key] && (
+                        <button
+                          type="button"
+                          onClick={() => setOverrideColor(key, null)}
+                          className="text-[10px] px-2 py-1 rounded-md border border-app-border text-text-muted hover:bg-app-bg"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>

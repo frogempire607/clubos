@@ -23,6 +23,9 @@ const schema = z.object({
   appTextAlign: z.enum(["left", "center", "right"]).optional().nullable(),
   appHomeContent: z.string().max(5000).optional().nullable(),
   appCopy: z.record(z.string()).optional().nullable(),
+  builtInEventColors: z.record(
+    z.object({ bg: z.string(), fg: z.string() }),
+  ).optional().nullable(),
 });
 
 export async function PATCH(req: Request) {
@@ -61,6 +64,7 @@ export async function PATCH(req: Request) {
         ...(data.appTextAlign !== undefined ? { appTextAlign: data.appTextAlign || null } : {}),
         ...(data.appHomeContent !== undefined ? { appHomeContent: data.appHomeContent || null } : {}),
         ...(data.appCopy !== undefined ? { appCopy: data.appCopy ?? undefined } : {}),
+        ...(data.builtInEventColors !== undefined ? { builtInEventColors: data.builtInEventColors ?? undefined } : {}),
       },
     });
 

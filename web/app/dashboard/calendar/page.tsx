@@ -20,6 +20,10 @@ type CalItem = {
   capacity: number | null;
   filled: number;
   detail?: string;
+  description?: string | null;
+  location?: string | null;
+  coach?: string | null;
+  price?: string | null;
 };
 
 type CalFeed = {
@@ -64,6 +68,9 @@ export default function CalendarPage() {
   const [feed, setFeed] = useState<CalFeed | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<CalItem | null>(null);
+  // Day-level click: when set, shows a full list of every item on that day
+  // with richer info + per-item Edit deep-links (Phase 2).
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   // Filter state
   const [kindFilter, setKindFilter] = useState<Set<Kind>>(new Set(["event", "class", "private"]));
@@ -285,13 +292,23 @@ export default function CalendarPage() {
                 >
                   {day && (
                     <>
-                      <div
-                        className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
-                          isToday(day) ? "bg-brand text-white" : "text-text-primary"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedDay(day);
+                          setSelected(null);
+                        }}
+                        title="Show every item on this day"
+                        className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full transition ${
+                          isToday(day)
+                            ? "bg-brand text-white"
+                            : selectedDay === day
+                              ? "bg-text-primary text-white"
+                              : "text-text-primary hover:bg-app-bg"
                         }`}
                       >
                         {day}
-                      </div>
+                      </button>
                       <div className="space-y-0.5">
                         {dayItems.slice(0, 3).map((it) => {
                           const c = colorFor(it);
@@ -377,6 +394,116 @@ export default function CalendarPage() {
           </div>
         </div>
       )}
+
+      {/* Day detail (Phase 2) — click a day number to see every item that
+          day with full info + Edit deep-links. */}
+      {selectedDay != null && (() => {
+        const dayItems = itemsOnDay(selectedDay);
+        const dayDate = new Date(year, month, selectedDay);
+        const dayLabel = dayDate.toLocaleDateString("en-US", {
+          weekday: "long", month: "long", day: "numeric", year: "numeric",
+        });
+        return (
+          <div className="mt-4 bg-white rounded-xl border border-app-border p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="text-base font-semibold text-text-primary">{dayLabel}</h3>
+                <p className="text-xs text-text-muted">
+                  {dayItems.length === 0
+                    ? "Nothing scheduled."
+                    : `${dayItems.length} item${dayItems.length === 1 ? "" : "s"} on this day`}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedDay(null)}
+                className="text-text-muted hover:text-text-primary text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {dayItems.length > 0 && (
+              <div className="space-y-2">
+                {dayItems
+                  .slice()
+                  .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+                  .map((it) => {
+                    const c = colorFor(it);
+                    const useUTC = kindIsWallClockUTC(it.kind);
+                    const tStart = fmtTime(it.startsAt, { utc: useUTC });
+                    const tEnd = fmtTime(it.endsAt, { utc: useUTC });
+                    // Edit deep-link target per kind.
+                    const editHref =
+                      it.kind === "event"
+                        ? `/dashboard/events?edit=${it.refId}`
+                        : it.kind === "class"
+                          ? `/dashboard/classes?edit=${it.refId}`
+                          : `/dashboard/privates?booking=${it.refId}`;
+                    // Multi-day events emit one item per session — note that
+                    // edits to this item apply to this occurrence.
+                    const isSessionOfEvent =
+                      it.kind === "event" && it.id.includes(":");
+                    return (
+                      <div
+                        key={`${it.kind}-${it.id}`}
+                        className="rounded-lg border border-app-border p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span
+                                className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                                style={{ background: c.bg, color: c.fg }}
+                              >
+                                {it.typeLabel}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
+                                {KIND_COLORS[it.kind].label.replace(/s$/, "")}
+                              </span>
+                              <span className="text-sm font-semibold text-text-primary">{it.name}</span>
+                            </div>
+                            <p className="text-xs text-text-muted">
+                              {tStart} – {tEnd}
+                              {it.location ? ` · ${it.location}` : ""}
+                              {it.coach ? ` · ${it.coach}` : ""}
+                              {it.capacity != null && it.kind !== "private"
+                                ? ` · ${it.filled}/${it.capacity} booked`
+                                : ""}
+                            </p>
+                            {it.price && (
+                              <p className="text-xs text-text-muted mt-0.5">{it.price}</p>
+                            )}
+                            {it.description && (
+                              <p className="text-xs text-text-muted mt-1 line-clamp-2 whitespace-pre-wrap">
+                                {it.description}
+                              </p>
+                            )}
+                            {it.detail && (
+                              <p className="text-xs text-text-muted mt-1">{it.detail}</p>
+                            )}
+                            {isSessionOfEvent && (
+                              <p className="text-[11px] text-text-muted mt-1 italic">
+                                Multi-day event — edits to this occurrence apply
+                                to this day&apos;s session. Use the event editor
+                                for changes that should apply to the whole event.
+                              </p>
+                            )}
+                          </div>
+                          <Link
+                            href={editHref}
+                            className="flex-shrink-0 text-xs px-3 py-1.5 rounded-md bg-brand text-white font-medium hover:bg-brand-hover"
+                          >
+                            Edit
+                          </Link>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

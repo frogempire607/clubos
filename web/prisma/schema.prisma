@@ -105,6 +105,12 @@ model Club {
   appTextAlign             String?
   appHomeContent           String?
   appCopy                  Json?
+  // Owner overrides for the built-in EventType badge colors. Shape:
+  //   { CLASS:{bg,fg}, PRIVATE:{bg,fg}, CLINIC:{bg,fg}, CAMP:{bg,fg},
+  //     TOURNAMENT:{bg,fg}, OTHER:{bg,fg} }
+  // Any missing key falls back to the hardcoded defaults. Custom
+  // ClubEventType colors take precedence over both.
+  builtInEventColors       Json?
   // JSON array of {label, url} pairs (Instagram, Facebook, YouTube, …)
   socialLinks              Json      @default("[]")
   // JSON map of {monday: "9-5", tuesday: "...", ...} or free-form blob

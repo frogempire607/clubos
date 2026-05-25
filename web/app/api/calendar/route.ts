@@ -30,6 +30,23 @@ export async function GET(req: Request) {
 
   const clubId = session.user.clubId;
 
+  // Owner overrides for built-in EventType badge colors (Phase 1).
+  const clubMeta = await prisma.club.findUnique({
+    where: { id: clubId },
+    select: { builtInEventColors: true },
+  });
+  // Only emit an override colour when the owner actually set one. Letting
+  // null fall through preserves the calendar grid's existing default colors.
+  function builtInOverride(type: string): { bg: string; fg: string } | null {
+    const map = clubMeta?.builtInEventColors;
+    if (!map || typeof map !== "object") return null;
+    const o = (map as Record<string, { bg?: string; fg?: string } | undefined>)[type];
+    if (o && typeof o.bg === "string" && typeof o.fg === "string") {
+      return { bg: o.bg, fg: o.fg };
+    }
+    return null;
+  }
+
   const [events, classSessions, privateBookings] = await Promise.all([
     prisma.event.findMany({
       where: {
@@ -48,8 +65,16 @@ export async function GET(req: Request) {
         startsAt: true,
         endsAt: true,
         capacity: true,
+        description: true,
+        memberPrice: true,
+        nonMemberPrice: true,
+        location: { select: { name: true } },
         customEventTypeId: true,
         customEventType: { select: { name: true, color: true, textColor: true } },
+        staffAssignments: {
+          select: { user: { select: { firstName: true, lastName: true } } },
+          take: 3,
+        },
         sessions: {
           select: { id: true, startsAt: true, endsAt: true, name: true },
           orderBy: { startsAt: "asc" },
@@ -71,9 +96,11 @@ export async function GET(req: Request) {
         recurringClass: {
           select: {
             name: true,
+            description: true,
             capacity: true,
             color: true,
             textColor: true,
+            location: { select: { name: true } },
           },
         },
         _count: { select: { attendance: true } },
@@ -110,21 +137,37 @@ export async function GET(req: Request) {
     capacity: number | null;
     filled: number;
     detail?: string;       // secondary line (coach, athlete, etc.)
+    description?: string | null;
+    location?: string | null;
+    coach?: string | null;
+    price?: string | null;
   };
 
   const items: CalItem[] = [];
 
   for (const e of events) {
+    const coachNames = e.staffAssignments
+      .map((sa) => `${sa.user.firstName} ${sa.user.lastName}`)
+      .join(", ");
+    const priceParts: string[] = [];
+    if (e.memberPrice != null) priceParts.push(`Member $${Number(e.memberPrice).toFixed(2)}`);
+    if (e.nonMemberPrice != null) priceParts.push(`Non-member $${Number(e.nonMemberPrice).toFixed(2)}`);
     const base = {
       kind: "event" as const,
       refId: e.id,
       name: e.name,
       typeKey: e.customEventTypeId ?? e.type,
       typeLabel: e.customEventType?.name ?? (e.type.charAt(0) + e.type.slice(1).toLowerCase()),
-      color: e.customEventType?.color ?? null,
-      textColor: e.customEventType?.textColor ?? null,
+      // Custom event-type color wins; otherwise built-in override from Club;
+      // otherwise the calendar grid falls back to its own default.
+      color: e.customEventType?.color ?? builtInOverride(e.type)?.bg ?? null,
+      textColor: e.customEventType?.textColor ?? builtInOverride(e.type)?.fg ?? null,
       capacity: e.capacity,
       filled: e._count.bookings,
+      description: e.description ?? null,
+      location: e.location?.name ?? null,
+      coach: coachNames || null,
+      price: priceParts.join(" · ") || null,
     };
     if (e.sessions.length > 0) {
       // Multi-session events (e.g. a 3-day camp with one session per day) get
@@ -161,6 +204,8 @@ export async function GET(req: Request) {
       textColor: s.recurringClass.textColor ?? null,
       capacity: s.recurringClass.capacity,
       filled: s._count.attendance,
+      description: s.recurringClass.description ?? null,
+      location: s.recurringClass.location?.name ?? null,
     });
   }
   for (const b of privateBookings) {
@@ -178,6 +223,7 @@ export async function GET(req: Request) {
       textColor: null,
       capacity: 1,
       filled: 1,
+      coach: b.coach ? `${b.coach.firstName} ${b.coach.lastName}` : null,
       detail: [
         b.coach ? `Coach ${b.coach.firstName} ${b.coach.lastName}` : null,
         `${b.member.firstName} ${b.member.lastName}`,

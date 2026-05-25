@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-05-17
+Last updated: 2026-05-30 (Phase 1+2: built-in event colors, calendar day detail)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -335,12 +335,20 @@ Migration folders currently present:
 - `20260520000000_new_tier_system_processing_fees` — `clubs.tier` default `growth` (+ Starter→growth backfill), `clubs.passProcessingFees/processingFeeNote`
 - `20260521000000_financial_os` — Transaction/Expense entity+category+method+receipt, `clubs.defaultLegalEntityId`, `Donation` model (idempotent SQL)
 - `20260522000000_attendance_payment_method` — `attendance_records.paymentMethod/amountCharged`
+- `20260523000000_migration_approval_flow` — Member migration approval (PENDING_APPROVAL, Stripe setup, editableFields, requestedBillingDate)
+- `20260524000000_branded_app_config` — `Club.brandedAppConfig` (JSONB)
+- `20260526000000_club_email_identity` — `Club.emailFromName/emailReplyTo`
+- `20260527000000_migration_price_override` — `Member.migrationPriceOverride/migrationDiscountNote`
+- `20260528000000_class_color_event_public_pricing` — `RecurringClass.color/textColor`, `Event.publicPricingOption`
+- `20260529000000_branded_app_expense_kind` — `Club.appFontFamily/appTextAlign/appHomeContent/appCopy`, `Expense.kind`
+- `20260518000001_private_lesson_partners` — `PrivateBookingPartner` table + `PrivateLessonType.maxAthletes`
+- `20260530000000_builtin_event_colors` — `Club.builtInEventColors` (JSONB) — owner overrides for built-in EventType badge colors
 
 Current migration status:
 
 - `npx prisma migrate status` reports the database schema is up to date.
 - `npx prisma validate` passes.
-- New libs: `lib/permissions.ts`, `lib/apiGuard.ts`, `lib/fees.ts`, `lib/financials.ts`, `lib/financialReports.ts`, `lib/migration.ts`, `lib/migrationServer.ts`, `lib/memberLink.ts`, `lib/dashboardWidgets.ts`.
+- New libs: `lib/permissions.ts`, `lib/apiGuard.ts`, `lib/fees.ts`, `lib/financials.ts`, `lib/financialReports.ts`, `lib/migration.ts`, `lib/migrationServer.ts`, `lib/memberLink.ts`, `lib/dashboardWidgets.ts`, `lib/datetime.ts`, `lib/activeProfile.ts`, `lib/categoryMatcher.ts`, `lib/privatePartners.ts`, `lib/memberMessaging.ts`, `lib/eventTypeColors.ts`.
 - Major additions this cycle: member-portal club branding + auto-link, event mass-invoicing + tournament pricing fix, customizable dashboard, Guest/Contractor management, staff roles/permissions + restricted staff view, per-occurrence class schedule edits, Member Migration wizard, new 3-tier pricing + pass-through fees, Financial OS, attendance cash/comp/invoice for non-members.
 
 ## Migration Warning Notes
@@ -378,6 +386,11 @@ Current migration status:
 - Attendance panel "Add Member" has a pricing chooser (Use accepted membership / Member / Non-member / Drop-in). Header surfaces "Accepted memberships: …".
 - Stripe webhook handles `classId + classSessionId` branch: records `Transaction` (`type="CLASS"`) and upserts `AttendanceRecord` to `DROP_IN`.
 - **Calendar page** rebuilt as a unified feed: events + class sessions + confirmed private lessons in one grid, with kind chips (Events / Classes / Private lessons) and a secondary subtype chip strip auto-built from items in the visible range. Items color-coded per kind/type with start times. Detail panel with deep-link to source section. Backed by `/api/calendar`. **Classes are NOT an event type** — `CLASS` was removed from the events editor dropdown; recurring classes live only on `/dashboard/classes` (`RecurringClass`).
+- **Calendar day detail (Phase 2)**: clicking a day NUMBER opens a Day Detail panel listing every item on that day with full info (time, type, location, coach, capacity, pricing, description) and a per-item **Edit** deep-link: events → `/dashboard/events?edit=<id>`, classes → `/dashboard/classes?edit=<id>`, privates → `/dashboard/privates?booking=<id>`. Multi-day events emit one item per `EventSession` so each day is its own row — editing a session row applies to that occurrence; the helper text in the panel says so explicitly.
+- **Built-in EventType colors (Phase 1)**: owners can override the colors for `CLASS`/`PRIVATE`/`CLINIC`/`CAMP`/`TOURNAMENT`/`OTHER` via **Manage Event Types** modal (a swatch picker per built-in type, Reset to revert to defaults). Persisted in `Club.builtInEventColors` (JSONB), returned by `/api/club/info`, accepted by `/api/club/update`, and resolved server-side in `/api/calendar` so the unified calendar grid honors the overrides everywhere. Custom `ClubEventType` colors still take precedence over built-in overrides. Source of truth helper: `lib/eventTypeColors.ts`.
+- **Calendar feed enrichment**: `/api/calendar` items now include `description`, `location`, `coach`, and `price` so the day-detail panel can render full context without follow-up fetches.
+- **Per-class color**: `RecurringClass.color/textColor` set in the class editor (palette of 11 named swatches + Default). Surfaced on the unified calendar.
+- **Per-event public-pricing selector**: `Event.publicPricingOption` (MEMBER | NON_MEMBER | DROP_IN, null = auto/non-member) chooses which price the `/e/<slug>` public registration charges. Honored by `/api/public/events/[slug]` and `…/register`.
 - **Public / non-member event registration**: any event can enable a public link at `/e/[publicSlug]` (auto-generated slug, never changes once set). The page shows the event image, info, price, and an owner-defined custom form. `EventRegistration` model captures signups (matches an existing member by email when possible). Free signups confirm immediately; priced signups go through Stripe Checkout on the club's connected account → webhook marks `PAID`, writes a `Transaction` (type `EVENT`), and creates a `Booking` if a member matched.
 - **Tournament modes**: when event type = Tournament the editor offers **Host** (we run it — attach a registration form, public link auto-enabled) vs **Attend** (taking a team — gather signups + optional shared-cost split).
   - **Variable cost** (Attend only): split a shared total across attendees. **Estimated (prior)** charges each signup `total ÷ expectedSignups` at registration. **Official (post)** collects free signups, then the owner clicks **Bill registrants** (`POST /api/events/[id]/bill-registrants`) which splits the official total across active registrants, creates a Stripe Checkout link per person, emails it, and stamps `variableCostBilledAt` (idempotent; supports re-bill-unpaid). This is the "on unpublish" billing action.
