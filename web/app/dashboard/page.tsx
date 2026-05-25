@@ -74,12 +74,13 @@ export default function DashboardPage() {
   });
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
+  // Initial load of everything EXCEPT the calendar feed (that has its own
+  // month-aware effect below).
   useEffect(() => {
     async function load() {
-      const [mRes, eRes, cRes, sRes, wRes] = await Promise.all([
+      const [mRes, eRes, sRes, wRes] = await Promise.all([
         fetch("/api/members"),
         fetch("/api/events"),
-        fetch("/api/calendar"),
         fetch("/api/dashboard/summary"),
         fetch("/api/dashboard/widgets"),
       ]);
@@ -91,10 +92,6 @@ export default function DashboardPage() {
       setRecentMembers(members.slice(0, 5));
       setUpcomingEvents(upcoming.slice(0, 5));
       setAllEvents(events);
-      if (cRes.ok) {
-        const cd = await cRes.json();
-        setCalItems(Array.isArray(cd?.items) ? cd.items : []);
-      }
       if (sRes.ok) setSummary(await sRes.json());
       if (wRes.ok) {
         const w = await wRes.json();
@@ -105,6 +102,21 @@ export default function DashboardPage() {
     }
     load();
   }, []);
+
+  // Refetch the calendar feed whenever the mini-calendar's visible month
+  // changes — without this, navigating prev/next on the dashboard mini
+  // calendar showed nothing for months outside the initial ±1-month window.
+  useEffect(() => {
+    const { year, month } = calMonth;
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month + 2, 0, 23, 59, 59, 999);
+    fetch(`/api/calendar?from=${start.toISOString()}&to=${end.toISOString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cd) => {
+        if (cd && Array.isArray(cd.items)) setCalItems(cd.items);
+      })
+      .catch(() => {});
+  }, [calMonth]);
 
   const savePrefs = useCallback(async (next: WidgetPrefs) => {
     setPrefs(next);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { defaultBrandedAppConfig, mergeBrandedAppConfig } from "@/lib/brandedApp";
 
 // GET /api/member/club — public-facing club info for the member portal.
 export async function GET() {
@@ -28,9 +29,13 @@ export async function GET() {
       appFontFamily: true,
       appTextAlign: true,
       appHomeContent: true,
+      brandedAppConfig: true,
     },
   });
 
   if (!club) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(club);
+  return NextResponse.json({
+    ...club,
+    brandedAppConfig: mergeBrandedAppConfig(defaultBrandedAppConfig(club), club.brandedAppConfig),
+  });
 }

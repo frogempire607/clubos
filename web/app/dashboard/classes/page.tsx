@@ -692,6 +692,7 @@ export default function ClassesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<RecurringClass | null>(null);
   const [viewingSessions, setViewingSessions] = useState<RecurringClass | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   async function load() {
@@ -709,11 +710,20 @@ export default function ClassesPage() {
 
   useEffect(() => { load(); }, []);
 
-  // Deep link from the calendar day-detail "Edit" button: ?edit=<classId>
-  // opens that class's editor directly.
+  // Calendar day-detail deep links:
+  //   ?session=<classSessionId> → opens the per-occurrence session editor
+  //                               (DEFAULT — edits just this day).
+  //   ?edit=<classId>           → opens the full recurring-class editor
+  //                               ("Edit entire series").
   useEffect(() => {
-    if (loading || classes.length === 0) return;
+    if (loading) return;
     const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session");
+    if (sessionId) {
+      setEditingSessionId(sessionId);
+      return;
+    }
+    if (classes.length === 0) return;
     const editId = params.get("edit");
     if (editId) {
       const c = classes.find((x) => x.id === editId);
@@ -940,6 +950,226 @@ export default function ClassesPage() {
       {viewingSessions && (
         <SessionsModal cls={viewingSessions} onClose={() => setViewingSessions(null)} />
       )}
+      {editingSessionId && (
+        <SessionEditModal
+          sessionId={editingSessionId}
+          classes={classes}
+          staffList={staffList}
+          onClose={() => setEditingSessionId(null)}
+          onSaved={() => { setEditingSessionId(null); load(); }}
+          onEditSeries={(cls) => {
+            setEditingSessionId(null);
+            setEditing(cls);
+            setShowModal(true);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Per-occurrence class session editor ─────────────────────────────────────
+// Default click-from-calendar behavior — edits a single ClassSession (start/
+// end time, canceled flag, one-off note, substitute staff). Marks the row
+// `overridden=true` server-side so series regeneration preserves it.
+function SessionEditModal({
+  sessionId,
+  classes,
+  staffList,
+  onClose,
+  onSaved,
+  onEditSeries,
+}: {
+  sessionId: string;
+  classes: RecurringClass[];
+  staffList: Staff[];
+  onClose: () => void;
+  onSaved: () => void;
+  onEditSeries: (cls: RecurringClass) => void;
+}) {
+  type Sess = {
+    id: string;
+    classId: string;
+    date: string;
+    startsAt: string;
+    endsAt: string;
+    canceled: boolean;
+    staffOverride: string[] | null;
+    note: string | null;
+  };
+  const [s, setS] = useState<Sess | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [canceled, setCanceled] = useState(false);
+  const [note, setNote] = useState("");
+  const [override, setOverride] = useState<string[]>([]);
+  const [useOverride, setUseOverride] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setLoading(true);
+      // No GET-by-id endpoint; pull each class's session list and locate ours.
+      for (const cls of classes) {
+        const res = await fetch(`/api/classes/${cls.id}/sessions?upcoming=false&limit=60`);
+        if (!res.ok) continue;
+        const list: Sess[] = await res.json();
+        const found = list.find((x) => x.id === sessionId);
+        if (found && active) {
+          setS(found);
+          const dt = (iso: string) => {
+            const d = new Date(iso);
+            const hh = String(d.getUTCHours()).padStart(2, "0");
+            const mm = String(d.getUTCMinutes()).padStart(2, "0");
+            return `${hh}:${mm}`;
+          };
+          setStartTime(dt(found.startsAt));
+          setEndTime(dt(found.endsAt));
+          setCanceled(found.canceled);
+          setNote(found.note ?? "");
+          if (Array.isArray(found.staffOverride)) {
+            setOverride(found.staffOverride);
+            setUseOverride(true);
+          }
+          break;
+        }
+      }
+      if (active) setLoading(false);
+    })();
+    return () => { active = false; };
+  }, [sessionId, classes]);
+
+  const parentClass = s ? classes.find((c) => c.id === s.classId) : null;
+
+  async function save() {
+    if (!s) return;
+    setSaving(true); setError("");
+    const res = await fetch(`/api/classes/${s.classId}/sessions/${s.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startTime,
+        endTime,
+        canceled,
+        note: note || null,
+        staffOverride: useOverride ? override : null,
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Save failed");
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">
+              Edit this class occurrence
+            </h2>
+            <p className="text-xs text-text-muted">
+              Changes apply to this day only. The recurring schedule is untouched.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+        </div>
+
+        {loading ? (
+          <div className="p-6 text-sm text-text-muted">Loading…</div>
+        ) : !s ? (
+          <div className="p-6 text-sm text-red-600">Session not found.</div>
+        ) : (
+          <div className="p-6 space-y-4">
+            <div className="text-sm text-text-primary">
+              <strong>{parentClass?.name ?? "Class"}</strong>
+              <span className="text-text-muted">
+                {" "} · {new Date(s.startsAt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-text-primary mb-1">Start</label>
+                <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-primary mb-1">End</label>
+                <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)}
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-text-primary">
+              <input type="checkbox" checked={canceled} onChange={(e) => setCanceled(e.target.checked)} />
+              Cancel this occurrence
+            </label>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm text-text-primary mb-2">
+                <input type="checkbox" checked={useOverride} onChange={(e) => setUseOverride(e.target.checked)} />
+                Substitute staff for this day
+              </label>
+              {useOverride && (
+                <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                  {staffList.map((sf) => (
+                    <label key={sf.id} className="flex items-center gap-2 text-sm border border-app-border rounded-lg px-2 py-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={override.includes(sf.id)}
+                        onChange={() =>
+                          setOverride((cur) =>
+                            cur.includes(sf.id) ? cur.filter((x) => x !== sf.id) : [...cur, sf.id],
+                          )
+                        }
+                      />
+                      {sf.firstName} {sf.lastName}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-text-primary mb-1">One-off note (visible to coaches)</label>
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+            </div>
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              {parentClass && (
+                <button
+                  type="button"
+                  onClick={() => onEditSeries(parentClass)}
+                  className="text-xs text-text-muted hover:text-text-primary px-3 py-2 rounded-lg border border-app-border"
+                >
+                  Edit entire series →
+                </button>
+              )}
+              <div className="flex-1" />
+              <button onClick={onClose}
+                className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
+                Cancel
+              </button>
+              <button onClick={save} disabled={saving}
+                className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
+                {saving ? "Saving…" : "Save this occurrence"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

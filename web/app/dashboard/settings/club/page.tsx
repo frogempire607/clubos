@@ -103,8 +103,30 @@ export default function ClubSettingsPage() {
 
     setSaving(false);
     if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Failed to save");
+      const data = await res.json().catch(() => ({}));
+      // The previous `data.error?.toString()` rendered Zod error ARRAYS as
+      // "[object Object],[object Object]" because Array.toString() joins the
+      // items via comma. Defensively normalize whatever shape the server
+      // returns (string, array of strings, array of Zod issues, or object).
+      const raw = data?.error;
+      let msg: string = "Failed to save";
+      if (typeof raw === "string") {
+        msg = raw;
+      } else if (Array.isArray(raw)) {
+        msg = raw
+          .map((x) => {
+            if (typeof x === "string") return x;
+            if (x && typeof x === "object") {
+              return x.message || (x.path ? `${x.path}: ${x.message ?? "invalid"}` : null);
+            }
+            return null;
+          })
+          .filter(Boolean)
+          .join(" · ") || msg;
+      } else if (raw && typeof raw === "object") {
+        msg = (raw as { message?: string }).message ?? JSON.stringify(raw);
+      }
+      setError(msg);
       return;
     }
     setSaved(true);

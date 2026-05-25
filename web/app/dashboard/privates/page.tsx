@@ -461,8 +461,11 @@ function PackageModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+      {/* max-h + overflow on the OUTER card so the modal stays inside the
+          viewport and the Save button at the bottom is always reachable
+          on laptop screens. */}
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-text-primary">{pkg ? "Edit package" : "New package"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
@@ -1306,8 +1309,8 @@ function AssignPackageModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-text-primary">Assign lesson package</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
