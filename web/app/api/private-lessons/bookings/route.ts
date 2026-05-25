@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -100,10 +101,20 @@ export async function POST(req: Request) {
     if (data.paymentType === "CREDIT" && data.creditLedgerId) {
       const ledger = await prisma.privateCreditLedger.findFirst({
         where: { id: data.creditLedgerId, memberId: data.memberId, clubId: session.user.clubId, status: "active" },
+        include: { package: { select: { lessonTypeId: true, lessonTypeIds: true } } },
       });
       if (!ledger) return NextResponse.json({ error: "No valid credits found" }, { status: 400 });
       if (ledger.creditsGranted - ledger.creditsUsed < 1) {
         return NextResponse.json({ error: "No remaining lessons on this package" }, { status: 400 });
+      }
+      if (
+        ledger.package &&
+        !packageAllowsLessonType(ledger.package.lessonTypeIds, ledger.package.lessonTypeId, data.lessonTypeId)
+      ) {
+        return NextResponse.json({ error: "This package does not include that lesson type." }, { status: 400 });
+      }
+      if (!ledger.package && ledger.lessonTypeId && ledger.lessonTypeId !== data.lessonTypeId) {
+        return NextResponse.json({ error: "These credits are for a different lesson type." }, { status: 400 });
       }
     }
 
@@ -113,11 +124,15 @@ export async function POST(req: Request) {
           memberId: data.memberId,
           clubId: session.user.clubId,
           status: "active",
-          OR: [{ lessonTypeId: null }, { lessonTypeId: data.lessonTypeId }],
         },
+        include: { package: { select: { lessonTypeId: true, lessonTypeIds: true } } },
         orderBy: { createdAt: "asc" },
       });
-      const ledger = ledgers.find((l) => l.creditsGranted - l.creditsUsed > 0);
+      const ledger = ledgers.find((l) => {
+        if (l.creditsGranted - l.creditsUsed <= 0) return false;
+        if (l.package) return packageAllowsLessonType(l.package.lessonTypeIds, l.package.lessonTypeId, data.lessonTypeId);
+        return !l.lessonTypeId || l.lessonTypeId === data.lessonTypeId;
+      });
       if (!ledger) {
         return NextResponse.json({ error: "No remaining private lesson package balance was found for this member." }, { status: 400 });
       }

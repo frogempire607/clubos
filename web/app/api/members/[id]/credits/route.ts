@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { packageLessonTypeIds } from "@/lib/privateLessonRules";
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
@@ -76,7 +77,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         clubId: session.user.clubId,
         memberId: params.id,
         packageId: pkg?.id ?? null,
-        lessonTypeId: pkg?.lessonTypeId ?? data.lessonTypeId ?? null,
+        lessonTypeId: pkg
+          ? (packageLessonTypeIds(pkg.lessonTypeIds, pkg.lessonTypeId).length === 1
+              ? packageLessonTypeIds(pkg.lessonTypeIds, pkg.lessonTypeId)[0]
+              : null)
+          : data.lessonTypeId ?? null,
         creditsGranted: lessonsGranted,
         purchaseType: pkg ? "PACKAGE" : "MANUAL",
         expiresAt,

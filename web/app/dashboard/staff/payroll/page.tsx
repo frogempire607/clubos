@@ -80,8 +80,8 @@ function presetRange(key: string): { from: string; to: string } {
 }
 
 const BONUS_SHORT: Record<BonusLine["type"], string> = {
-  ATTENDANCE: "Attendance",
-  SIGNUP: "Signup",
+  ATTENDANCE: "Growth / retention",
+  SIGNUP: "Signup next paycheck",
   REVENUE_SHARE: "Revenue share",
 };
 

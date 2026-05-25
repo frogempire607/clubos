@@ -8,6 +8,7 @@ import {
   isCashMethod,
   isCompMethod,
 } from "@/lib/financials";
+import { computePayrollTotalForRange } from "@/lib/payroll";
 
 export const REPORT_TYPES = [
   "pnl",
@@ -66,7 +67,7 @@ export async function buildReport(
   const entityWhere = r.entity && r.entity !== "all" ? { legalEntityId: r.entity } : {};
 
   if (type === "pnl") {
-    const [txs, expenses, donations] = await Promise.all([
+    const [txs, expenses, donations, payrollTotal] = await Promise.all([
       prisma.transaction.findMany({
         where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateWhere(r) },
         select: { amount: true },
@@ -79,10 +80,11 @@ export async function buildReport(
         where: { clubId, ...entityWhere, ...dateFilter(r) },
         select: { amount: true },
       }),
+      computePayrollTotalForRange(clubId, r.from ?? null, r.to ?? new Date()),
     ]);
     const revenue = txs.reduce((s, t) => s + Number(t.amount), 0);
     const dono = donations.reduce((s, d) => s + Number(d.amount), 0);
-    const exp = expenses.reduce((s, e) => s + Number(e.amount), 0);
+    const exp = expenses.reduce((s, e) => s + Number(e.amount), 0) + payrollTotal;
     return {
       title: "Profit & Loss",
       columns: ["Line", "Amount"],
@@ -116,12 +118,16 @@ export async function buildReport(
   }
 
   if (type === "expenses_by_category") {
-    const expenses = await prisma.expense.findMany({
+    const [expenses, payrollTotal] = await Promise.all([
+      prisma.expense.findMany({
       where: { clubId, ...entityWhere, ...dateFilter(r) },
       select: { amount: true, category: true },
-    });
+      }),
+      computePayrollTotalForRange(clubId, r.from ?? null, r.to ?? new Date()),
+    ]);
     const map: Record<string, number> = {};
     for (const e of expenses) map[e.category || "OTHER"] = (map[e.category || "OTHER"] || 0) + Number(e.amount);
+    if (payrollTotal > 0) map.PAYROLL = (map.PAYROLL || 0) + payrollTotal;
     return {
       title: "Expenses by category",
       columns: ["Category", "Amount"],

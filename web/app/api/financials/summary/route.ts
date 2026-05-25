@@ -11,6 +11,7 @@ import {
   isCompMethod,
 } from "@/lib/financials";
 import type { Prisma } from "@prisma/client";
+import { computePayrollTotalForRange } from "@/lib/payroll";
 
 // GET /api/financials/summary?entity=&from=&to=
 // Entity-aware "Money In / Money Out" dashboard. Permission-gated on
@@ -44,7 +45,8 @@ export async function GET(req: Request) {
         }
       : {};
 
-  const [transactions, expenses, donations, contractorPayments, entities] = await Promise.all([
+  const payrollEnd = to ?? new Date();
+  const [transactions, expenses, donations, contractorPayments, staffPayrollTotal, entities] = await Promise.all([
     prisma.transaction.findMany({
       where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateFilter },
       select: {
@@ -75,6 +77,7 @@ export async function GET(req: Request) {
       },
       select: { amount: true },
     }),
+    computePayrollTotalForRange(clubId, from, payrollEnd),
     prisma.legalEntity.findMany({
       where: { clubId },
       select: { id: true, name: true, entityType: true },
@@ -139,6 +142,11 @@ export async function GET(req: Request) {
   const sponsorshipTotal = donations.filter((d) => d.sponsorship).reduce((s, d) => s + Number(d.amount), 0);
   const donationsCash = donations.filter((d) => isCashMethod(d.paymentMethod)).reduce((s, d) => s + Number(d.amount), 0);
   const contractorTotal = contractorPayments.reduce((s, c) => s + Number(c.amount), 0);
+  const payrollTotal = contractorTotal + staffPayrollTotal;
+  if (payrollTotal > 0) {
+    moneyOut += payrollTotal;
+    expensesByCategory.PAYROLL = (expensesByCategory.PAYROLL || 0) + payrollTotal;
+  }
 
   // Donations are money in too (separate from Stripe transactions).
   moneyIn += donationsTotal;
@@ -162,6 +170,7 @@ export async function GET(req: Request) {
       stripeFees,
       donationsTotal,
       contractorTotal,
+      payrollTotal,
     },
     nonprofit: { donationsTotal, restrictedTotal, unrestrictedTotal: donationsTotal - restrictedTotal, sponsorshipTotal },
     needsReview: { uncategorized, receiptsMissing, unpaidInvoices: { count: unpaidCount, total: unpaidTotal } },

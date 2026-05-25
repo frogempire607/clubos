@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isValidPrivateDuration } from "@/lib/privateLessonRules";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -26,7 +27,7 @@ const priceOption = z.object({
 const schema = z.object({
   title:            z.string().min(1).max(100),
   description:      z.string().max(500).optional().nullable(),
-  durationMin:      z.number().int().positive().default(60),
+  durationMin:      z.number().int().refine(isValidPrivateDuration, "Duration must be a 15-minute interval from 15 minutes to 4 hours.").default(60),
   maxAthletes:      z.number().int().positive().default(1),
   basePrice:        z.number().nonnegative(),
   locationId:       z.string().optional().nullable(),

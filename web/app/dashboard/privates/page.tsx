@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import { PRIVATE_DURATION_OPTIONS, privateDurationLabel, packageLessonTypeIds } from "@/lib/privateLessonRules";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ type Package = {
   title: string;
   description: string | null;
   lessonTypeId: string | null;
+  lessonTypeIds: string[];
   lessonType: { title: string } | null;
   credits: number;
   bonusCredits: number;
@@ -245,9 +247,13 @@ function LessonTypeModal({
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-text-muted mb-1">Duration (min)</label>
-              <input type="number" min={1} className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
-                value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} />
+              <label className="block text-xs font-medium text-text-muted mb-1">Duration</label>
+              <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
+                value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })}>
+                {PRIVATE_DURATION_OPTIONS.map((min) => (
+                  <option key={min} value={min}>{privateDurationLabel(min)}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Max athletes</label>
@@ -392,7 +398,7 @@ function PackageModal({
   const [form, setForm] = useState({
     title:            pkg?.title ?? "",
     description:      pkg?.description ?? "",
-    lessonTypeId:     pkg?.lessonTypeId ?? "",
+    lessonTypeIds:    packageLessonTypeIds(pkg?.lessonTypeIds, pkg?.lessonTypeId),
     credits:          String(pkg?.credits ?? ""),
     bonusCredits:     String(pkg?.bonusCredits ?? 0),
     price:            String(pkg?.price ?? ""),
@@ -410,7 +416,8 @@ function PackageModal({
       const body = {
         title:            form.title,
         description:      form.description || null,
-        lessonTypeId:     form.lessonTypeId || null,
+        lessonTypeId:     form.lessonTypeIds.length === 1 ? form.lessonTypeIds[0] : null,
+        lessonTypeIds:    form.lessonTypeIds,
         credits:          parseInt(form.credits),
         bonusCredits:     parseInt(form.bonusCredits) || 0,
         price:            parseFloat(form.price),
@@ -444,12 +451,38 @@ function PackageModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Lesson type (optional)</label>
-            <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
-              value={form.lessonTypeId} onChange={(e) => setForm({ ...form, lessonTypeId: e.target.value })}>
-              <option value="">Any lesson type</option>
-              {lessonTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.title}</option>)}
-            </select>
+            <label className="block text-xs font-medium text-text-muted mb-1">Lesson types</label>
+            <div className="border border-app-border rounded-md p-2 max-h-40 overflow-y-auto space-y-1.5">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.lessonTypeIds.length === 0}
+                  onChange={() => setForm({ ...form, lessonTypeIds: [] })}
+                />
+                Any lesson type
+              </label>
+              {lessonTypes.map((lt) => {
+                const checked = form.lessonTypeIds.includes(lt.id);
+                return (
+                  <label key={lt.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => setForm({
+                        ...form,
+                        lessonTypeIds: checked
+                          ? form.lessonTypeIds.filter((id) => id !== lt.id)
+                          : [...form.lessonTypeIds, lt.id],
+                      })}
+                    />
+                    {lt.title}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-text-muted mt-1">
+              Select one or more lesson types this package can be used for.
+            </p>
           </div>
 
           <div>
@@ -1217,6 +1250,17 @@ export default function PrivatesPage() {
     else alert("Could not duplicate this lesson type.");
   }
 
+  function packageTypeLabel(pkg: Package): string {
+    const ids = packageLessonTypeIds(pkg.lessonTypeIds, pkg.lessonTypeId);
+    if (ids.length === 0) return "Any";
+    const names = ids
+      .map((id) => lessonTypes.find((lt) => lt.id === id)?.title)
+      .filter(Boolean) as string[];
+    if (names.length === 0 && pkg.lessonType?.title) return pkg.lessonType.title;
+    if (names.length <= 2) return names.join(", ");
+    return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -1316,7 +1360,7 @@ export default function PrivatesPage() {
                       {lessonTypes.map((lt) => (
                         <tr key={lt.id} className="hover:bg-app-bg">
                           <td className="px-4 py-3 text-sm font-medium text-text-primary">{lt.title}</td>
-                          <td className="px-4 py-3 text-sm text-text-muted">{lt.durationMin} min</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{privateDurationLabel(lt.durationMin)}</td>
                           <td className="px-4 py-3 text-sm text-text-muted">{lt.maxAthletes}</td>
                           <td className="px-4 py-3 text-sm text-text-muted">${Number(lt.basePrice).toFixed(2)}</td>
                           <td className="px-4 py-3">
@@ -1359,7 +1403,7 @@ export default function PrivatesPage() {
                       {packages.map((pkg) => (
                         <tr key={pkg.id} className="hover:bg-app-bg">
                           <td className="px-4 py-3 text-sm font-medium text-text-primary">{pkg.title}</td>
-                          <td className="px-4 py-3 text-sm text-text-muted">{pkg.lessonType?.title ?? "Any"}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{packageTypeLabel(pkg)}</td>
                           <td className="px-4 py-3 text-sm text-text-muted">
                             {pkg.credits}{pkg.bonusCredits > 0 ? ` +${pkg.bonusCredits} bonus` : ""}
                           </td>

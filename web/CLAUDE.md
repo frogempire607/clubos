@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-05-31 (Phase 3: Staff documents)
+Last updated: 2026-06-01 (Owner Dashboard phases 4-6)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -428,6 +428,11 @@ Current migration status:
 - `/dashboard/staff/schedule` — weekly grid (Sun-Sat columns × staff rows) showing availability windows, class assignments (expanded from `RecurringClass.assignedStaffIds`), event assignments (`EventStaffAssignment`), and date exceptions. Prev / This week / Next nav.
 - `/dashboard/staff/payroll` — date range presets + custom; per-staff table of scheduled hours, **class teaching hours** (with per-class breakdown in expandable details), hourly pay, salary, private lesson pay. CSV export.
 - Backed by `/api/staff/schedule` and `/api/staff/payroll`.
+
+### Owner Dashboard follow-up phases 4-6
+- **Private lesson duration/packages (Phase 4)**: private lesson type duration is now limited to owner presets in 15-minute increments from 15 minutes through 4 hours (`lib/privateLessonRules.ts`). API validation enforces the same rule. Private packages now support one or more lesson types via `PrivatePackage.lessonTypeIds` JSONB while preserving legacy `lessonTypeId`. Member private requests derive end time from the lesson duration; athletes no longer choose custom duration. When a member has usable package credits, they can submit multiple requested lesson dates/times up to their remaining package balance, creating one request per requested lesson.
+- **Staff bonus clarity (Phase 5)**: compensation UI now presents signup bonus as “pay on next paycheck” and class growth/retention as a per-kid/per-class incentive. Existing payroll computation uses `SIGNUP` for once-per-period signup/purchase bonuses and `ATTENDANCE` for scoped class/event attendance incentives.
+- **Payroll in Financials/Reports (Phase 6)**: `lib/payroll.ts` computes staff payout totals from the same compensation engine used by Payroll/Payouts. Reports and Financials fold computed staff payroll plus contractor payments into the `PAYROLL` expense category so owners do not have to manually enter payroll for accurate net/expense reporting.
 
 ### Stripe / billing / file storage
 - Stripe Connect (member → club) onboarding, status sync, dashboard redirect, Checkout, webhook flows.

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { packageLessonTypeIds } from "@/lib/privateLessonRules";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -20,6 +21,7 @@ const schema = z.object({
   title:            z.string().min(1).max(100),
   description:      z.string().max(500).optional().nullable(),
   lessonTypeId:     z.string().optional().nullable(),
+  lessonTypeIds:    z.array(z.string()).default([]),
   credits:          z.number().int().positive(),
   bonusCredits:     z.number().int().min(0).default(0),
   price:            z.number().nonnegative(),
@@ -35,8 +37,22 @@ export async function POST(req: Request) {
 
   try {
     const data = schema.parse(await req.json());
+    const lessonTypeIds = packageLessonTypeIds(data.lessonTypeIds, data.lessonTypeId);
+    if (lessonTypeIds.length) {
+      const count = await prisma.privateLessonType.count({
+        where: { clubId: session.user.clubId, deletedAt: null, id: { in: lessonTypeIds } },
+      });
+      if (count !== lessonTypeIds.length) {
+        return NextResponse.json({ error: "One or more lesson types were not found." }, { status: 400 });
+      }
+    }
     const pkg = await prisma.privatePackage.create({
-      data: { clubId: session.user.clubId, ...data, lessonTypeId: data.lessonTypeId || null },
+      data: {
+        clubId: session.user.clubId,
+        ...data,
+        lessonTypeId: lessonTypeIds.length === 1 ? lessonTypeIds[0] : null,
+        lessonTypeIds,
+      },
     });
     return NextResponse.json(pkg, { status: 201 });
   } catch (err) {

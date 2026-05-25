@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { packageAllowsLessonType, privateDurationLabel } from "@/lib/privateLessonRules";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
 type LessonType = {
@@ -15,7 +16,15 @@ type LessonType = {
   eligibleCoachIds: string[];
 };
 type Coach = { id: string; firstName: string; lastName: string };
-type Slot = { date: string; startTime: string; endTime: string };
+type Slot = { date: string; startTime: string };
+type Credit = {
+  id: string;
+  packageTitle: string | null;
+  lessonTypeId: string | null;
+  packageLessonTypeIds: string[];
+  remaining: number;
+  expiresAt: string | null;
+};
 
 type PartnerKind = "MEMBER" | "OUTSIDE" | "NEEDS_HELP";
 type PartnerDraft = {
@@ -93,6 +102,7 @@ export default function MemberPrivatesPage() {
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [credits, setCredits] = useState<Credit[]>([]);
   const [hasProfile, setHasProfile] = useState(true);
   const [loading, setLoading] = useState(true);
 
@@ -100,7 +110,7 @@ export default function MemberPrivatesPage() {
   const [optionId, setOptionId] = useState("");
   const [coachId, setCoachId] = useState("");
   const [partners, setPartners] = useState<PartnerDraft[]>([]);
-  const [slots, setSlots] = useState<Slot[]>([{ date: "", startTime: "", endTime: "" }]);
+  const [slots, setSlots] = useState<Slot[]>([{ date: "", startTime: "" }]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -116,6 +126,7 @@ export default function MemberPrivatesPage() {
         setTypes(d.types || []);
         setCoaches(d.coaches || []);
         setBookings(d.bookings || []);
+        setCredits(d.credits || []);
         setHasProfile(d.hasMemberProfile);
       }
       setInvites(Array.isArray(inv) ? inv : []);
@@ -146,12 +157,22 @@ export default function MemberPrivatesPage() {
   const availableCoaches = coaches.filter((c) => availableCoachIds.includes(c.id));
 
   const price = option ? option.price : type ? type.basePrice : 0;
+  const usableCredit = type
+    ? credits.find((c) => {
+        if (c.remaining <= 0) return false;
+        if (c.packageLessonTypeIds.length) {
+          return packageAllowsLessonType(c.packageLessonTypeIds, c.lessonTypeId, type.id);
+        }
+        return !c.lessonTypeId || c.lessonTypeId === type.id;
+      }) ?? null
+    : null;
+  const maxSlotCount = usableCredit ? Math.min(usableCredit.remaining, 16) : 3;
 
   function setSlot(i: number, patch: Partial<Slot>) {
     setSlots((s) => s.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   }
   function addSlot() {
-    if (slots.length < 3) setSlots((s) => [...s, { date: "", startTime: "", endTime: "" }]);
+    if (slots.length < maxSlotCount) setSlots((s) => [...s, { date: "", startTime: "" }]);
   }
   function removeSlot(i: number) {
     setSlots((s) => s.filter((_, idx) => idx !== i));
@@ -161,7 +182,7 @@ export default function MemberPrivatesPage() {
     setPartners((p) => p.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   }
 
-  const validSlots = slots.filter((s) => s.date && s.startTime && s.endTime);
+  const validSlots = slots.filter((s) => s.date && s.startTime);
   const partnersComplete = partners.every(
     (p) => p.kind !== null && (p.kind !== "MEMBER" || !!p.memberId),
   );
@@ -194,7 +215,7 @@ export default function MemberPrivatesPage() {
     if (!res.ok) { setError(d.error || "Could not submit request"); return; }
     setDone(true);
     setTypeId(""); setOptionId(""); setCoachId("");
-    setSlots([{ date: "", startTime: "", endTime: "" }]); setNotes("");
+    setSlots([{ date: "", startTime: "" }]); setNotes("");
     setPartners([]);
     load();
   }
@@ -313,7 +334,7 @@ export default function MemberPrivatesPage() {
                     )}
                   </p>
                   <p className="text-xs text-stone-500">
-                    {t.durationMin} min
+                    {privateDurationLabel(t.durationMin)}
                     {t.priceOptions.length === 0 && ` · $${t.basePrice.toFixed(2)}`}
                     {t.priceOptions.length > 0 && ` · ${t.priceOptions.length} options`}
                   </p>
@@ -416,9 +437,15 @@ export default function MemberPrivatesPage() {
                   if (options.length > 0) step++;
                   if (type.maxAthletes > 1) step++;
                   return step;
-                })()} · Request up to 3 times
+                })()} · {usableCredit ? "Request package lesson dates" : "Request up to 3 times"}
               </p>
               <div className="space-y-2">
+                {usableCredit && (
+                  <p className="text-xs text-stone-500 mb-2">
+                    Package balance: {usableCredit.remaining} lesson{usableCredit.remaining === 1 ? "" : "s"}
+                    {usableCredit.packageTitle ? ` from ${usableCredit.packageTitle}` : ""}. Add one date/time per lesson you want to request.
+                  </p>
+                )}
                 {slots.map((s, i) => (
                   <div key={i} className="flex flex-wrap items-end gap-2">
                     <div>
@@ -440,13 +467,10 @@ export default function MemberPrivatesPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-stone-500 mb-0.5">To</label>
-                      <input
-                        type="time"
-                        value={s.endTime}
-                        onChange={(e) => setSlot(i, { endTime: e.target.value })}
-                        className="px-3 py-2 border border-stone-300 rounded-lg text-sm"
-                      />
+                      <label className="block text-[11px] text-stone-500 mb-0.5">Duration</label>
+                      <div className="px-3 py-2 border border-stone-200 rounded-lg text-sm text-stone-500 bg-stone-50">
+                        {type ? privateDurationLabel(type.durationMin) : "Select a lesson"}
+                      </div>
                     </div>
                     {slots.length > 1 && (
                       <button
@@ -459,12 +483,12 @@ export default function MemberPrivatesPage() {
                   </div>
                 ))}
               </div>
-              {slots.length < 3 && (
+              {slots.length < maxSlotCount && (
                 <button
                   onClick={addSlot}
                   className="mt-2 text-xs px-2.5 py-1 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50"
                 >
-                  + Add another time
+                  + Add another {usableCredit ? "lesson time" : "time"}
                 </button>
               )}
 
@@ -488,8 +512,17 @@ export default function MemberPrivatesPage() {
             <p className="text-sm text-stone-600">
               {type ? (
                 <>
-                  Estimated: <span className="font-semibold text-stone-900">${price.toFixed(2)}</span>{" "}
-                  <span className="text-xs text-stone-400">· billed by your club after confirmation</span>
+                  {usableCredit ? (
+                    <>
+                      Using package credits: <span className="font-semibold text-stone-900">{validSlots.length || 1}</span>
+                      <span className="text-xs text-stone-400"> · no custom duration</span>
+                    </>
+                  ) : (
+                    <>
+                      Estimated: <span className="font-semibold text-stone-900">${price.toFixed(2)}</span>{" "}
+                      <span className="text-xs text-stone-400">· billed by your club after confirmation</span>
+                    </>
+                  )}
                 </>
               ) : (
                 "Select a lesson to begin"

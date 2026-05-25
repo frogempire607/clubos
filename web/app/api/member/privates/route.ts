@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
 
@@ -22,7 +23,7 @@ export async function GET() {
     ? await findOrAutoLinkMember(session.user.id, clubId, user.email)
     : null;
 
-  const [types, staff, bookings] = await Promise.all([
+  const [types, staff, bookings, credits] = await Promise.all([
     prisma.privateLessonType.findMany({
       where: { clubId, deletedAt: null, active: true },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -67,6 +68,13 @@ export async function GET() {
           },
         })
       : Promise.resolve([]),
+    member
+      ? prisma.privateCreditLedger.findMany({
+          where: { clubId, memberId: member.id, status: "active" },
+          include: { package: { select: { title: true, lessonTypeId: true, lessonTypeIds: true } } },
+          orderBy: { createdAt: "asc" },
+        })
+      : Promise.resolve([]),
   ]);
 
   return NextResponse.json({
@@ -81,13 +89,23 @@ export async function GET() {
     })),
     coaches: staff,
     bookings,
+    credits: credits
+      .filter((c) => c.creditsGranted - c.creditsUsed > 0)
+      .map((c) => ({
+        id: c.id,
+        packageTitle: c.package?.title ?? null,
+        lessonTypeId: c.lessonTypeId,
+        packageLessonTypeIds: c.package ? c.package.lessonTypeIds : [],
+        remaining: c.creditsGranted - c.creditsUsed,
+        expiresAt: c.expiresAt,
+      })),
   });
 }
 
 const slotSchema = z.object({
   date: z.string().min(1),
   startTime: z.string().min(1),
-  endTime: z.string().min(1),
+  endTime: z.string().optional(),
 });
 
 const partnerSchema = z.object({
@@ -99,7 +117,7 @@ const schema = z.object({
   lessonTypeId: z.string(),
   priceOptionId: z.string().optional().nullable(),
   coachId: z.string().optional().nullable(),
-  requestedSlots: z.array(slotSchema).min(1).max(3),
+  requestedSlots: z.array(slotSchema).min(1).max(16),
   notes: z.string().max(500).optional().nullable(),
   partners: z.array(partnerSchema).max(10).optional().default([]),
 });
@@ -142,6 +160,42 @@ export async function POST(req: Request) {
   if (!lessonType) {
     return NextResponse.json({ error: "Lesson type not available" }, { status: 404 });
   }
+
+  const usableCredit = await prisma.privateCreditLedger.findMany({
+    where: { clubId, memberId: member.id, status: "active" },
+    include: { package: { select: { lessonTypeId: true, lessonTypeIds: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const creditLedger = usableCredit.find((c) => {
+    if (c.creditsGranted - c.creditsUsed <= 0) return false;
+    if (c.package) return packageAllowsLessonType(c.package.lessonTypeIds, c.package.lessonTypeId, lessonType.id);
+    return !c.lessonTypeId || c.lessonTypeId === lessonType.id;
+  }) ?? null;
+  const remainingCredits = creditLedger
+    ? creditLedger.creditsGranted - creditLedger.creditsUsed
+    : 0;
+  if (!creditLedger && data.requestedSlots.length > 3) {
+    return NextResponse.json({ error: "Request up to 3 preferred times without a package." }, { status: 400 });
+  }
+  if (creditLedger && data.requestedSlots.length > remainingCredits) {
+    return NextResponse.json(
+      { error: `This package has ${remainingCredits} lesson${remainingCredits === 1 ? "" : "s"} remaining.` },
+      { status: 400 },
+    );
+  }
+
+  function addMinutes(date: string, time: string, minutes: number): string {
+    const [hour, minute] = time.split(":").map(Number);
+    const d = new Date(`${date}T00:00:00`);
+    d.setHours(hour || 0, minute || 0, 0, 0);
+    d.setMinutes(d.getMinutes() + minutes);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  const normalizedSlots = data.requestedSlots.map((slot) => ({
+    date: slot.date,
+    startTime: slot.startTime,
+    endTime: addMinutes(slot.date, slot.startTime, lessonType.durationMin),
+  }));
 
   const options = Array.isArray(lessonType.priceOptions)
     ? (lessonType.priceOptions as unknown as Opt[])
@@ -198,38 +252,42 @@ export async function POST(req: Request) {
     }
   }
 
-  const booking = await prisma.privateBooking.create({
-    data: {
-      clubId,
-      memberId: member.id,
-      lessonTypeId: lessonType.id,
-      coachId: data.coachId || null,
-      requestedSlots: data.requestedSlots,
-      paymentType: "UNPAID",
-      pricePaid: price,
-      allowUnpaid: true,
-      notes: data.notes || null,
-      status: data.coachId ? "PENDING_COACH" : "REQUESTED",
-      partners: partners.length
-        ? {
-            create: partners.map((p) => ({
-              clubId,
-              kind: p.kind,
-              memberId: p.kind === "MEMBER" ? p.memberId || null : null,
-            })),
-          }
-        : undefined,
-    },
-  });
+  const slotsForBookings = creditLedger ? normalizedSlots : [normalizedSlots[0]];
+  const bookings = await Promise.all(slotsForBookings.map((slot) =>
+    prisma.privateBooking.create({
+      data: {
+        clubId,
+        memberId: member.id,
+        lessonTypeId: lessonType.id,
+        coachId: data.coachId || null,
+        requestedSlots: creditLedger ? [slot] : normalizedSlots,
+        creditLedgerId: creditLedger?.id ?? null,
+        paymentType: creditLedger ? "CREDIT" : "UNPAID",
+        pricePaid: creditLedger ? 0 : price,
+        allowUnpaid: true,
+        notes: data.notes || null,
+        status: data.coachId ? "PENDING_COACH" : "REQUESTED",
+        partners: partners.length
+          ? {
+              create: partners.map((p) => ({
+                clubId,
+                kind: p.kind,
+                memberId: p.kind === "MEMBER" ? p.memberId || null : null,
+              })),
+            }
+          : undefined,
+      },
+    }),
+  ));
 
   // Notify the assigned coach (if any) so they can approve/decline.
-  if (booking.coachId) {
+  if (data.coachId) {
     try {
       await prisma.message.create({
         data: {
           clubId,
           senderId: session.user.id,
-          recipientId: booking.coachId,
+          recipientId: data.coachId,
           body: `New private lesson request: ${lessonType.title} from ${member.firstName} ${member.lastName}.`,
         },
       });
@@ -238,5 +296,5 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, bookingId: booking.id }, { status: 201 });
+  return NextResponse.json({ ok: true, bookingIds: bookings.map((b) => b.id) }, { status: 201 });
 }

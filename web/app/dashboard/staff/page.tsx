@@ -525,8 +525,8 @@ type Opt = { id: string; name: string };
 type CompOptions = { classes: Opt[]; events: Opt[]; memberships: Opt[]; lessonTypes: Opt[] };
 
 const BONUS_LABEL: Record<BonusDraft["bonusType"], string> = {
-  ATTENDANCE: "Attendance bonus ($ per athlete attendance)",
-  SIGNUP: "Signup bonus ($ per athlete who joins/buys)",
+  ATTENDANCE: "Class growth incentive ($ per kid / per class)",
+  SIGNUP: "Signup bonus (pay on next paycheck)",
   REVENUE_SHARE: "Revenue share (% of revenue)",
 };
 const BONUS_SCOPES: Record<BonusDraft["bonusType"], ScopeType[]> = {
@@ -707,7 +707,11 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
           <p className="text-sm font-medium text-text-primary">Bonuses (stackable)</p>
           <button type="button" onClick={addBonus} className="text-xs text-brand hover:underline">+ Add bonus</button>
         </div>
-        {bonuses.length === 0 && <p className="text-xs text-text-muted">No bonuses. Add attendance, signup, or revenue-share bonuses.</p>}
+        {bonuses.length === 0 && (
+          <p className="text-xs text-text-muted">
+            No bonuses. Add a signup bonus for the next paycheck, or convert growth into a per-kid/per-class incentive.
+          </p>
+        )}
         <div className="space-y-3">
           {bonuses.map((b, i) => (
             <div key={i} className="border border-app-border rounded-lg p-3 space-y-2">
@@ -740,6 +744,16 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
                 scopes={b.scopes}
                 onChange={(s) => updateBonus(i, { scopes: s })}
               />
+              {b.bonusType === "ATTENDANCE" && (
+                <p className="text-[11px] text-text-muted">
+                  Pays this amount for each attending athlete in the selected classes/events, so growth and retention increase pay automatically.
+                </p>
+              )}
+              {b.bonusType === "SIGNUP" && (
+                <p className="text-[11px] text-text-muted">
+                  Pays once in the selected payroll period for each qualifying signup or purchase.
+                </p>
+              )}
             </div>
           ))}
         </div>

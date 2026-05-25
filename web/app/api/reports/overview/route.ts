@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures, getTierName, tierBlockedBody, upgradeRequired } from "@/lib/tier";
 import { requirePermission } from "@/lib/apiGuard";
+import { computePayrollTotalForRange } from "@/lib/payroll";
 
 type Range = "month" | "last_month" | "last_30" | "last_90" | "ytd" | "year" | "all";
 
@@ -186,17 +187,20 @@ export async function GET(req: Request) {
   // category total. Manual PAYROLL Expense rows are still respected and
   // simply add on top (use case: paying someone off-books).
   try {
-    const contractorPayments = await prisma.contractorPayment.findMany({
+    const [contractorPayments, staffPayroll] = await Promise.all([
+      prisma.contractorPayment.findMany({
       where: {
         contractor: { clubId },
         ...(range.start ? { date: { gte: range.start, lt: range.end } } : {}),
       },
       select: { amount: true },
-    });
+      }),
+      computePayrollTotalForRange(clubId, range.start, range.end),
+    ]);
     const payrollAuto = contractorPayments.reduce(
       (acc, p) => acc + Number(p.amount),
       0,
-    );
+    ) + staffPayroll;
     if (payrollAuto > 0) {
       expensesByCategory["PAYROLL"] = (expensesByCategory["PAYROLL"] || 0) + payrollAuto;
       expensesTotal += payrollAuto;

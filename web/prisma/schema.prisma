@@ -1277,6 +1277,9 @@ model PrivatePackage {
   id               String    @id @default(cuid())
   clubId           String
   lessonTypeId     String? // null = applies to all lesson types
+  // New multi-select package eligibility. Empty/null means all lesson types.
+  // Back-compat: legacy lessonTypeId is still honored when this list is empty.
+  lessonTypeIds    Json      @default("[]")
   title            String
   description      String?
   credits          Int // lessons included
