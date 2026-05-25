@@ -44,6 +44,12 @@ const KIND_COLORS: Record<Kind, { bg: string; fg: string; label: string; href: s
   private: { bg: "#E8E1FD",              fg: "#3B2F8C",              label: "Private lessons", href: "/dashboard/privates" },
 };
 
+const KIND_SINGULAR_LABEL: Record<Kind, string> = {
+  event: "Event",
+  class: "Class",
+  private: "Private lesson",
+};
+
 // Built-in event subtypes (when no customEventType is set)
 const EVENT_SUBTYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   CLASS:      { bg: "var(--color-primary)", fg: "#fff" },
@@ -354,7 +360,7 @@ export default function CalendarPage() {
                   {selected.typeLabel}
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
-                  {KIND_COLORS[selected.kind].label.replace(/s$/, "")}
+                  {KIND_SINGULAR_LABEL[selected.kind]}
                 </span>
               </div>
               <div className="text-sm text-text-muted">
@@ -467,7 +473,7 @@ export default function CalendarPage() {
                                 {it.typeLabel}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
-                                {KIND_COLORS[it.kind].label.replace(/s$/, "")}
+                                {KIND_SINGULAR_LABEL[it.kind]}
                               </span>
                               <span className="text-sm font-semibold text-text-primary">{it.name}</span>
                             </div>
