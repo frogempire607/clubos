@@ -23,6 +23,10 @@ export type CompPlan = {
     bonusType: BonusType;
     amount: number; // $ for ATTENDANCE/SIGNUP, percentage for REVENUE_SHARE
     scopes: Scope[]; // empty = applies to everything this staff is tied to
+    // Threshold counts (apply to attendance count / signup count). For
+    // REVENUE_SHARE these still gate the count of qualifying items.
+    minThreshold?: number | null; // null = no lower bound
+    maxThreshold?: number | null; // null = no upper bound
   }[];
 };
 
@@ -56,6 +60,25 @@ const ATTENDED = new Set(["PRESENT", "LATE", "DROP_IN", "TRIAL"]);
 
 function scopeIds(scopes: Scope[], type: ScopeType): string[] {
   return scopes.filter((s) => s.scopeType === type).map((s) => s.scopeId);
+}
+
+// Apply min/max thresholds to a count. Items at or below `min` are excluded,
+// items above `max` are excluded. Returns the number of qualifying items.
+//   payableCount(15, 10, null)  → 5   (athletes 11-15)
+//   payableCount(30, 10, 25)    → 15  (athletes 11-25)
+//   payableCount(8,  10, null)  → 0   (below threshold)
+//   payableCount(15, null, 10)  → 10  (cap at 10)
+function payableCount(count: number, min?: number | null, max?: number | null): number {
+  const lo = min != null && min > 0 ? min : 0;
+  const hi = max != null && max > 0 ? Math.min(count, max) : count;
+  return Math.max(0, hi - lo);
+}
+
+function thresholdLabel(min?: number | null, max?: number | null): string {
+  if (min == null && max == null) return "";
+  if (min != null && max != null) return ` (after ${min}, up to ${max})`;
+  if (min != null) return ` (after ${min})`;
+  return ` (cap ${max})`;
 }
 
 export type PayoutBreakdown = {
@@ -105,7 +128,7 @@ export function computeStaffPayout(plan: CompPlan, ctx: CompContext): PayoutBrea
       const classScope = scopeIds(b.scopes, "CLASS");
       const eventScope = scopeIds(b.scopes, "EVENT");
       const hasScope = classScope.length > 0 || eventScope.length > 0;
-      const count = ctx.attendance.filter((a) => {
+      const rawCount = ctx.attendance.filter((a) => {
         if (!ATTENDED.has(a.status)) return false;
         if (!hasScope) {
           // Default: attendance on classes this staff taught, or assigned events.
@@ -117,10 +140,12 @@ export function computeStaffPayout(plan: CompPlan, ctx: CompContext): PayoutBrea
         if (a.eventId && eventScope.includes(a.eventId)) return true;
         return false;
       }).length;
+      const count = payableCount(rawCount, b.minThreshold, b.maxThreshold);
       attendanceTotal += count;
+      const thr = thresholdLabel(b.minThreshold, b.maxThreshold);
       return {
         id: b.id, type: b.bonusType, rate: b.amount,
-        basisLabel: `${count} attendance × $${b.amount.toFixed(2)}`,
+        basisLabel: `${count}/${rawCount} attendance${thr} × $${b.amount.toFixed(2)}`,
         basisCount: count, pay: +(count * b.amount).toFixed(2),
       };
     }
@@ -130,24 +155,26 @@ export function computeStaffPayout(plan: CompPlan, ctx: CompContext): PayoutBrea
       const classScope = scopeIds(b.scopes, "CLASS");
       const hasScope = membershipScope.length > 0 || classScope.length > 0;
 
-      let count = 0;
+      let rawCount = 0;
       if (!hasScope) {
-        count += ctx.subscriptions.length;
-        count += ctx.paidDropIns.filter((d) =>
+        rawCount += ctx.subscriptions.length;
+        rawCount += ctx.paidDropIns.filter((d) =>
           ctx.taughtSessions.some((s) => s.classId === d.classId)
         ).length;
       } else {
         if (membershipScope.length) {
-          count += ctx.subscriptions.filter((s) => membershipScope.includes(s.membershipId)).length;
+          rawCount += ctx.subscriptions.filter((s) => membershipScope.includes(s.membershipId)).length;
         }
         if (classScope.length) {
-          count += ctx.paidDropIns.filter((d) => classScope.includes(d.classId)).length;
+          rawCount += ctx.paidDropIns.filter((d) => classScope.includes(d.classId)).length;
         }
       }
+      const count = payableCount(rawCount, b.minThreshold, b.maxThreshold);
       signupTotal += count;
+      const thr = thresholdLabel(b.minThreshold, b.maxThreshold);
       return {
         id: b.id, type: b.bonusType, rate: b.amount,
-        basisLabel: `${count} signup${count === 1 ? "" : "s"} × $${b.amount.toFixed(2)}`,
+        basisLabel: `${count}/${rawCount} signup${rawCount === 1 ? "" : "s"}${thr} × $${b.amount.toFixed(2)}`,
         basisCount: count, pay: +(count * b.amount).toFixed(2),
       };
     }
@@ -159,42 +186,53 @@ export function computeStaffPayout(plan: CompPlan, ctx: CompContext): PayoutBrea
     const privateScope = scopeIds(b.scopes, "PRIVATE_LESSON_TYPE");
     const noScope = b.scopes.length === 0;
 
-    let revenue = 0;
-    // Private lessons (most precise — tied to this coach directly).
+    // Collect qualifying items with their dollar value, then apply thresholds
+    // on item count (sorted by date if available — we just rely on collection
+    // order which is fine for an in-range query).
+    type Item = { value: number };
+    const items: Item[] = [];
+
     if (noScope || privateScope.length) {
-      revenue += ctx.privateBookings
-        .filter((p) => (privateScope.length ? privateScope.includes(p.lessonTypeId) : true))
-        .reduce((a, p) => a + p.pricePaid, 0);
+      for (const p of ctx.privateBookings) {
+        if (!privateScope.length || privateScope.includes(p.lessonTypeId)) {
+          items.push({ value: p.pricePaid });
+        }
+      }
     }
-    // Class drop-in revenue (count × configured drop-in price).
     if (noScope || classScope.length) {
-      revenue += ctx.paidDropIns
-        .filter((d) =>
-          classScope.length
-            ? classScope.includes(d.classId)
-            : ctx.taughtSessions.some((s) => s.classId === d.classId)
-        )
-        .reduce((a, d) => a + d.price, 0);
+      for (const d of ctx.paidDropIns) {
+        const allowed = classScope.length
+          ? classScope.includes(d.classId)
+          : ctx.taughtSessions.some((s) => s.classId === d.classId);
+        if (allowed) items.push({ value: d.price });
+      }
     }
-    // Event registration revenue.
     if (noScope || eventScope.length) {
-      revenue += ctx.eventRegistrations
-        .filter((r) =>
-          r.status !== "CANCELED" &&
-          (eventScope.length ? eventScope.includes(r.eventId) : ctx.assignedEventIds.includes(r.eventId))
-        )
-        .reduce((a, r) => a + r.amountPaid, 0);
+      for (const r of ctx.eventRegistrations) {
+        if (r.status === "CANCELED") continue;
+        const allowed = eventScope.length
+          ? eventScope.includes(r.eventId)
+          : ctx.assignedEventIds.includes(r.eventId);
+        if (allowed) items.push({ value: r.amountPaid });
+      }
     }
-    // Membership revenue.
     if (membershipScope.length) {
-      revenue += ctx.subscriptions
-        .filter((s) => membershipScope.includes(s.membershipId))
-        .reduce((a, s) => a + s.price, 0);
+      for (const s of ctx.subscriptions) {
+        if (membershipScope.includes(s.membershipId)) items.push({ value: s.price });
+      }
     }
+
+    const totalCount = items.length;
+    // Threshold-trim: drop the first `min` items, keep through item `max`.
+    const lo = b.minThreshold != null && b.minThreshold > 0 ? b.minThreshold : 0;
+    const hi = b.maxThreshold != null && b.maxThreshold > 0 ? b.maxThreshold : totalCount;
+    const eligible = items.slice(lo, hi);
+    const revenue = eligible.reduce((a, x) => a + x.value, 0);
     const pay = +((revenue * b.amount) / 100).toFixed(2);
+    const thr = thresholdLabel(b.minThreshold, b.maxThreshold);
     return {
       id: b.id, type: b.bonusType, rate: b.amount,
-      basisLabel: `${b.amount}% of $${revenue.toFixed(2)}`,
+      basisLabel: `${b.amount}% of $${revenue.toFixed(2)}${thr ? ` from ${eligible.length}/${totalCount} items` : ""}`,
       basisCount: +revenue.toFixed(2), pay,
     };
   });

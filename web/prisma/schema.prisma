@@ -638,8 +638,8 @@ model Event {
   purchaseAccess         String    @default("ANYONE") // ANYONE | STAFF_ONLY
   allowMembershipPayment Boolean   @default(false)
   imageUrl               String?
-  imagePositionX         Float     @default(50)
-  imagePositionY         Float     @default(50)
+  imagePositionX Int @default(50)
+  imagePositionY Int @default(50)
   isTournament           Boolean   @default(false)
   registrationLink       String?
   registrationDeadline   DateTime?
@@ -1286,6 +1286,13 @@ model PrivatePackage {
   description      String?
   credits          Int // lessons included
   bonusCredits     Int       @default(0) // e.g. buy 10 get 1 free
+  // Pricing model:
+  //   FLAT    → `price` is the total prepaid cost for `credits` lessons (legacy).
+  //   PERCENT → `discountValue` % off each lesson's tier price; total computed at
+  //             purchase based on the chosen lesson type / coach tier price.
+  //   FIXED   → `discountValue` $ off each lesson's tier price.
+  pricingMode      String    @default("FLAT")
+  discountValue    Decimal?  @db.Decimal(10, 2)
   price            Decimal   @db.Decimal(10, 2)
   expiresAfterDays Int? // days after purchase; null = no expiry
   active           Boolean   @default(true)
@@ -1536,12 +1543,13 @@ model CompensationBonus {
   // REVENUE_SHARE→ `amount` is a percentage (0-100) of revenue from assigned scope
   bonusType      String
   amount         Decimal  @db.Decimal(10, 2)
-  // Conditional thresholds (counted heads / signups / attendances on the
-  // assigned scope). null = no condition.
-  //   minThreshold: start applying the bonus once this count is reached
-  //                 (e.g. "only after 10 kids enrolled in the class").
-  //   maxThreshold: stop applying past this count — cap the bonus
-  //                 (e.g. "up to 25 kids; nothing after that").
+  // Threshold logic (counts attendees/signups for ATTENDANCE/SIGNUP, or counts
+  // of qualifying items for REVENUE_SHARE). Null = no bound.
+  //   minThreshold → bonus only starts paying ABOVE this count (e.g. "from
+  //                  athlete #11 onward"). Items at or below minThreshold are
+  //                  not paid.
+  //   maxThreshold → bonus stops paying ABOVE this count (e.g. "caps at 25
+  //                  athletes"). Items above maxThreshold are not paid.
   minThreshold   Int?
   maxThreshold   Int?
   createdAt      DateTime @default(now())

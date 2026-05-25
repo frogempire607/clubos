@@ -1,8 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { PRIVATE_DURATION_OPTIONS, privateDurationLabel, packageLessonTypeIds } from "@/lib/privateLessonRules";
+import {
+  PRIVATE_DURATION_OPTIONS,
+  privateDurationLabel,
+  packageLessonTypeIds,
+  normalizePricingMode,
+  packageTotalForBasePrice,
+  type PricingMode,
+} from "@/lib/privateLessonRules";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +38,8 @@ type Package = {
   lessonType: { title: string } | null;
   credits: number;
   bonusCredits: number;
+  pricingMode: PricingMode | string;
+  discountValue: number | null;
   price: number;
   expiresAfterDays: number | null;
   active: boolean;
@@ -73,6 +82,27 @@ type Member = { id: string; firstName: string; lastName: string; email: string }
 type Staff  = { id: string; firstName: string; lastName: string };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+async function readListResponse<T>(res: Response, label: string): Promise<{ items: T[]; error: string | null }> {
+  const text = await res.text();
+  if (!text) {
+    return { items: [], error: res.ok ? null : `${label} could not be loaded.` };
+  }
+
+  try {
+    const data: unknown = JSON.parse(text);
+    if (!res.ok) {
+      const message =
+        data && typeof data === "object" && "error" in data
+          ? String((data as { error: unknown }).error)
+          : `${label} could not be loaded.`;
+      return { items: [], error: message };
+    }
+    return { items: Array.isArray(data) ? (data as T[]) : [], error: null };
+  } catch {
+    return { items: [], error: `${label} returned an invalid response.` };
+  }
+}
 
 const STATUS_COLORS: Record<string, string> = {
   REQUESTED:     "bg-orange-accent text-white",
@@ -401,12 +431,26 @@ function PackageModal({
     lessonTypeIds:    packageLessonTypeIds(pkg?.lessonTypeIds, pkg?.lessonTypeId),
     credits:          String(pkg?.credits ?? ""),
     bonusCredits:     String(pkg?.bonusCredits ?? 0),
+    pricingMode:      normalizePricingMode(pkg?.pricingMode),
+    discountValue:    String(pkg?.discountValue ?? ""),
     price:            String(pkg?.price ?? ""),
     expiresAfterDays: String(pkg?.expiresAfterDays ?? ""),
     active:           pkg?.active ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
+
+  // Tier-aware pricing preview: for each lesson type the package covers,
+  // show what the buyer will pay for each priceOption tier.
+  const previewTypes = useMemo(() => {
+    const ids = form.lessonTypeIds.length ? form.lessonTypeIds : lessonTypes.map((lt) => lt.id);
+    return lessonTypes.filter((lt) => ids.includes(lt.id));
+  }, [form.lessonTypeIds, lessonTypes]);
+
+  const previewCredits = parseInt(form.credits) || 0;
+  const previewBonus = parseInt(form.bonusCredits) || 0;
+  const previewDiscount = parseFloat(form.discountValue) || 0;
+  const previewFlatPrice = parseFloat(form.price) || 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -420,7 +464,9 @@ function PackageModal({
         lessonTypeIds:    form.lessonTypeIds,
         credits:          parseInt(form.credits),
         bonusCredits:     parseInt(form.bonusCredits) || 0,
-        price:            parseFloat(form.price),
+        pricingMode:      form.pricingMode,
+        discountValue:    form.pricingMode === "FLAT" ? null : parseFloat(form.discountValue) || 0,
+        price:            parseFloat(form.price) || 0,
         expiresAfterDays: form.expiresAfterDays ? parseInt(form.expiresAfterDays) : null,
         active:           form.active,
       };
@@ -436,8 +482,11 @@ function PackageModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+      {/* max-h + overflow on the OUTER card so the modal stays inside the
+          viewport and the Save button at the bottom is always reachable
+          on laptop screens. */}
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-text-primary">{pkg ? "Edit package" : "New package"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
@@ -491,7 +540,7 @@ function PackageModal({
               value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Lessons included *</label>
               <input type="number" min={1} required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
@@ -502,12 +551,107 @@ function PackageModal({
               <input type="number" min={0} className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
                 value={form.bonusCredits} onChange={(e) => setForm({ ...form, bonusCredits: e.target.value })} />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1">Pricing model</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(["FLAT", "PERCENT", "FIXED"] as PricingMode[]).map((m) => (
+                <button
+                  type="button"
+                  key={m}
+                  onClick={() => setForm({ ...form, pricingMode: m })}
+                  className={`text-xs px-2 py-2 rounded-lg border ${
+                    form.pricingMode === m
+                      ? "border-brand bg-brand/10 text-brand"
+                      : "border-app-border text-text-primary hover:bg-app-bg"
+                  }`}
+                >
+                  {m === "FLAT" ? "Flat total" : m === "PERCENT" ? "% off per lesson" : "$ off per lesson"}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-text-muted mt-1">
+              {form.pricingMode === "FLAT"
+                ? "Prepaid total covers all lessons."
+                : form.pricingMode === "PERCENT"
+                  ? "Discount applies to each lesson type / coach tier price the package covers."
+                  : "Fixed dollar amount comes off each lesson's tier price."}
+            </p>
+          </div>
+
+          {form.pricingMode === "FLAT" ? (
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Price ($) *</label>
-              <input type="number" min={0} step="0.01" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
-                value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
+              <input
+                type="number" min={0} step="0.01" required
+                className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
+                value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })}
+              />
             </div>
-          </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">
+                {form.pricingMode === "PERCENT" ? "Discount % per lesson *" : "Discount $ per lesson *"}
+              </label>
+              <input
+                type="number"
+                min={0}
+                step={form.pricingMode === "PERCENT" ? "1" : "0.01"}
+                max={form.pricingMode === "PERCENT" ? 100 : undefined}
+                required
+                className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
+                value={form.discountValue}
+                onChange={(e) => setForm({ ...form, discountValue: e.target.value })}
+              />
+              <p className="text-xs text-text-muted mt-1">
+                Charged total = (tier price {form.pricingMode === "PERCENT" ? `× ${previewDiscount}%` : `− $${previewDiscount.toFixed(2)}`}) × {previewCredits || "?"} lessons.
+              </p>
+            </div>
+          )}
+
+          {/* Tier-aware pricing preview */}
+          {form.pricingMode !== "FLAT" && previewTypes.length > 0 && previewCredits > 0 && (previewDiscount > 0) && (
+            <div className="border border-app-border rounded-md p-3 bg-app-bg/40">
+              <p className="text-[11px] uppercase tracking-wider text-text-muted font-medium mb-2">Pricing preview</p>
+              <div className="space-y-3 max-h-48 overflow-y-auto">
+                {previewTypes.map((lt) => {
+                  const opts = lt.priceOptions ?? [];
+                  const tiers: { label: string; basePrice: number }[] = opts.length
+                    ? opts.map((o) => ({ label: o.label, basePrice: Number(o.price) }))
+                    : [{ label: "Base price", basePrice: Number(lt.basePrice) }];
+                  return (
+                    <div key={lt.id}>
+                      <p className="text-xs font-medium text-text-primary mb-1">{lt.title}</p>
+                      <ul className="text-xs text-text-muted space-y-0.5">
+                        {tiers.map((t, i) => {
+                          const total = packageTotalForBasePrice(
+                            {
+                              pricingMode: form.pricingMode,
+                              discountValue: previewDiscount,
+                              price: previewFlatPrice,
+                              credits: previewCredits,
+                              bonusCredits: previewBonus,
+                            },
+                            t.basePrice,
+                          );
+                          const perLesson = previewCredits > 0 ? total / previewCredits : 0;
+                          return (
+                            <li key={i} className="flex justify-between">
+                              <span>{t.label} (${t.basePrice.toFixed(2)})</span>
+                              <span className="text-text-primary">
+                                ${total.toFixed(2)} <span className="text-text-muted">(${perLesson.toFixed(2)}/lesson)</span>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1">Expires after (days, optional)</label>
@@ -1101,32 +1245,79 @@ function NewBookingModal({
 
 function AssignPackageModal({
   packages,
+  lessonTypes,
   members,
   onClose,
   onSave,
 }: {
   packages: Package[];
+  lessonTypes: LessonType[];
   members: Member[];
   onClose: () => void;
   onSave: () => void;
 }) {
   const [memberId, setMemberId] = useState("");
   const [packageId, setPackageId] = useState("");
+  const [lessonTypeId, setLessonTypeId] = useState("");
+  const [priceOptionId, setPriceOptionId] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const selectedPackage = packages.find((p) => p.id === packageId);
+  const pkgMode = selectedPackage ? normalizePricingMode(selectedPackage.pricingMode) : "FLAT";
+  const isDiscount = pkgMode !== "FLAT";
+
+  // Lesson types covered by the selected package.
+  const allowedLessonTypeIds = selectedPackage
+    ? packageLessonTypeIds(selectedPackage.lessonTypeIds, selectedPackage.lessonTypeId)
+    : [];
+  const coveredTypes = allowedLessonTypeIds.length
+    ? lessonTypes.filter((lt) => allowedLessonTypeIds.includes(lt.id))
+    : lessonTypes;
+  const selectedLessonType = coveredTypes.find((lt) => lt.id === lessonTypeId) || null;
+  const tierOptions = selectedLessonType?.priceOptions ?? [];
+
+  // Compute the total the buyer will be charged based on chosen tier.
+  const baseTierPrice = (() => {
+    if (!selectedLessonType) return 0;
+    if (priceOptionId) {
+      const p = tierOptions.find((o) => o.id === priceOptionId);
+      if (p) return Number(p.price);
+    }
+    return Number(selectedLessonType.basePrice);
+  })();
+  const computedTotal = selectedPackage
+    ? packageTotalForBasePrice(
+        {
+          pricingMode: selectedPackage.pricingMode,
+          discountValue: selectedPackage.discountValue,
+          price: selectedPackage.price,
+          credits: selectedPackage.credits,
+          bonusCredits: selectedPackage.bonusCredits,
+        },
+        baseTierPrice,
+      )
+    : 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!memberId || !packageId) return;
+    if (isDiscount && !lessonTypeId) {
+      setError("Pick a lesson type for this discount package.");
+      return;
+    }
     setSaving(true);
     setError("");
     const res = await fetch(`/api/members/${memberId}/credits`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ packageId, notes: notes || undefined }),
+      body: JSON.stringify({
+        packageId,
+        notes: notes || undefined,
+        lessonTypeId: lessonTypeId || undefined,
+        priceOptionId: priceOptionId || undefined,
+      }),
     });
     setSaving(false);
     if (!res.ok) {
@@ -1139,8 +1330,8 @@ function AssignPackageModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-app-border sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-text-primary">Assign lesson package</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
         </div>
@@ -1154,13 +1345,26 @@ function AssignPackageModal({
           </div>
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1">Package</label>
-            <select required value={packageId} onChange={(e) => setPackageId(e.target.value)} className="w-full border border-app-border rounded-md px-3 py-2 text-sm">
+            <select required value={packageId} onChange={(e) => {
+              setPackageId(e.target.value);
+              setLessonTypeId("");
+              setPriceOptionId("");
+            }} className="w-full border border-app-border rounded-md px-3 py-2 text-sm">
               <option value="">Select package…</option>
-              {packages.filter((p) => p.active).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title} — {p.credits + p.bonusCredits} lessons · ${Number(p.price).toFixed(2)}
-                </option>
-              ))}
+              {packages.filter((p) => p.active).map((p) => {
+                const mode = normalizePricingMode(p.pricingMode);
+                const label =
+                  mode === "PERCENT"
+                    ? `${Number(p.discountValue ?? 0)}% off`
+                    : mode === "FIXED"
+                      ? `$${Number(p.discountValue ?? 0).toFixed(2)} off / lesson`
+                      : `$${Number(p.price).toFixed(2)}`;
+                return (
+                  <option key={p.id} value={p.id}>
+                    {p.title} — {p.credits + p.bonusCredits} lessons · {label}
+                  </option>
+                );
+              })}
             </select>
             {selectedPackage && (
               <p className="text-xs text-text-muted mt-1">
@@ -1168,6 +1372,43 @@ function AssignPackageModal({
               </p>
             )}
           </div>
+
+          {isDiscount && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Lesson type *</label>
+                <select required value={lessonTypeId} onChange={(e) => {
+                  setLessonTypeId(e.target.value);
+                  setPriceOptionId("");
+                }} className="w-full border border-app-border rounded-md px-3 py-2 text-sm">
+                  <option value="">Select lesson type…</option>
+                  {coveredTypes.map((lt) => (
+                    <option key={lt.id} value={lt.id}>{lt.title}</option>
+                  ))}
+                </select>
+              </div>
+              {selectedLessonType && tierOptions.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-text-muted mb-1">Coach tier</label>
+                  <select value={priceOptionId} onChange={(e) => setPriceOptionId(e.target.value)} className="w-full border border-app-border rounded-md px-3 py-2 text-sm">
+                    <option value="">Default (${Number(selectedLessonType.basePrice).toFixed(2)})</option>
+                    {tierOptions.map((o) => (
+                      <option key={o.id} value={o.id}>{o.label} — ${Number(o.price).toFixed(2)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {selectedPackage && selectedLessonType && (
+                <div className="rounded-md border border-app-border bg-app-bg/40 px-3 py-2 text-xs text-text-muted">
+                  Charged total: <span className="text-text-primary font-medium">${computedTotal.toFixed(2)}</span>
+                  {selectedPackage.credits > 0 && (
+                    <> · ${(computedTotal / selectedPackage.credits).toFixed(2)}/lesson</>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1">Notes</label>
             <input value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full border border-app-border rounded-md px-3 py-2 text-sm" />
@@ -1201,6 +1442,7 @@ export default function PrivatesPage() {
   const [staffList, setStaffList]   = useState<Staff[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState("");
 
   const [editLT, setEditLT]         = useState<LessonType | null | undefined>(undefined);
   const [editPkg, setEditPkg]       = useState<Package | null | undefined>(undefined);
@@ -1219,12 +1461,26 @@ export default function PrivatesPage() {
         fetch("/api/members"),
         fetch("/api/staff?includeOwners=true"),
       ]);
-      const [b, lt, pkg, m, s] = await Promise.all([bRes.json(), ltRes.json(), pkgRes.json(), mRes.json(), sRes.json()]);
-      setBookings(Array.isArray(b) ? b : []);
-      setLessonTypes(Array.isArray(lt) ? lt : []);
-      setPackages(Array.isArray(pkg) ? pkg : []);
-      setMembers(Array.isArray(m) ? m : []);
-      setStaffList(Array.isArray(s) ? s : []);
+      const [b, lt, pkg, m, s] = await Promise.all([
+        readListResponse<Booking>(bRes, "Bookings"),
+        readListResponse<LessonType>(ltRes, "Lesson types"),
+        readListResponse<Package>(pkgRes, "Packages"),
+        readListResponse<Member>(mRes, "Members"),
+        readListResponse<Staff>(sRes, "Staff"),
+      ]);
+      setBookings(b.items);
+      setLessonTypes(lt.items);
+      setPackages(pkg.items);
+      setMembers(m.items);
+      setStaffList(s.items);
+      setLoadError([b.error, lt.error, pkg.error, m.error, s.error].filter(Boolean).join(" "));
+    } catch {
+      setLoadError("Private lessons could not be loaded. Please refresh and try again.");
+      setBookings([]);
+      setLessonTypes([]);
+      setPackages([]);
+      setMembers([]);
+      setStaffList([]);
     } finally {
       setLoading(false);
     }
@@ -1259,6 +1515,13 @@ export default function PrivatesPage() {
     if (names.length === 0 && pkg.lessonType?.title) return pkg.lessonType.title;
     if (names.length <= 2) return names.join(", ");
     return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+  }
+
+  function pricingDisplay(pkg: Package): string {
+    const mode = normalizePricingMode(pkg.pricingMode);
+    if (mode === "PERCENT") return `${Number(pkg.discountValue ?? 0)}% off per lesson`;
+    if (mode === "FIXED") return `$${Number(pkg.discountValue ?? 0).toFixed(2)} off per lesson`;
+    return `$${Number(pkg.price).toFixed(2)} total`;
   }
 
   return (
@@ -1301,6 +1564,12 @@ export default function PrivatesPage() {
           </button>
         ))}
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
 
       {loading ? (
         <div className="text-sm text-text-muted py-12 text-center">Loading…</div>
@@ -1394,7 +1663,7 @@ export default function PrivatesPage() {
                   <table className="w-full">
                     <thead className="bg-app-bg border-b border-app-border">
                       <tr>
-                        {["Title", "Lesson type", "Lessons", "Price", "Expires", "Status", ""].map((h) => (
+                        {["Title", "Lesson type", "Lessons", "Pricing", "Expires", "Status", ""].map((h) => (
                           <th key={h} className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
@@ -1407,7 +1676,7 @@ export default function PrivatesPage() {
                           <td className="px-4 py-3 text-sm text-text-muted">
                             {pkg.credits}{pkg.bonusCredits > 0 ? ` +${pkg.bonusCredits} bonus` : ""}
                           </td>
-                          <td className="px-4 py-3 text-sm text-text-muted">${Number(pkg.price).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{pricingDisplay(pkg)}</td>
                           <td className="px-4 py-3 text-sm text-text-muted">{pkg.expiresAfterDays ? `${pkg.expiresAfterDays}d` : "Never"}</td>
                           <td className="px-4 py-3">
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${pkg.active ? "bg-lime-accent text-text-primary" : "bg-app-bg text-text-muted"}`}>
@@ -1439,7 +1708,13 @@ export default function PrivatesPage() {
         <PackageModal pkg={editPkg} lessonTypes={lessonTypes} onClose={() => setEditPkg(undefined)} onSave={() => { setEditPkg(undefined); load(); }} />
       )}
       {assignPkg && (
-        <AssignPackageModal packages={packages} members={members} onClose={() => setAssignPkg(false)} onSave={() => { setAssignPkg(false); load(); }} />
+        <AssignPackageModal
+          packages={packages}
+          lessonTypes={lessonTypes}
+          members={members}
+          onClose={() => setAssignPkg(false)}
+          onSave={() => { setAssignPkg(false); load(); }}
+        />
       )}
       {viewBooking && (
         <BookingModal booking={viewBooking} staffList={staffList} onClose={() => setViewBooking(null)} onSave={() => { setViewBooking(null); load(); }} />

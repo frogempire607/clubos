@@ -6,11 +6,11 @@ import { prisma } from "@/lib/prisma";
 
 // PATCH /api/classes/[id]/sessions/[sessionId]
 //
-// Per-occurrence edit for a single class session. The owner can change just
-// this day's time, mark it canceled, add a one-off note, or override the
-// assigned staff (substitute coach). Setting `overridden=true` makes the
-// session series regenerator preserve this row, so editing the parent
-// recurring class later won't blow away the per-day customization.
+// Per-occurrence edit for a single class session. Owner can change just this
+// day's time, mark it canceled, add a one-off note, or override the assigned
+// staff (substitute coach). Setting `overridden=true` makes the session
+// regenerator preserve this row, so editing the parent recurring class later
+// won't blow away the per-day customization.
 
 const TIME_RE = /^\d{2}:\d{2}(:\d{2})?$/;
 
@@ -27,7 +27,7 @@ const schema = z.object({
 
 function applyWallClock(date: Date, hhmm: string): Date {
   const [h, m] = hhmm.split(":").map(Number);
-  // Class sessions store wall-clock as UTC (matches lib/classSessions.ts).
+  // Class sessions store wall-clock as UTC (see lib/classSessions.ts).
   const d = new Date(date);
   d.setUTCHours(h, m, 0, 0);
   return d;
@@ -65,7 +65,6 @@ export async function PATCH(
     throw err;
   }
 
-  // Resolve startsAt/endsAt. Accept both explicit ISO and HH:mm wall-clock.
   const startsAt = data.startsAt
     ? new Date(data.startsAt)
     : data.startTime
@@ -93,7 +92,7 @@ export async function PATCH(
         ? { staffOverride: data.staffOverride ?? undefined }
         : {}),
       ...(data.note !== undefined ? { note: data.note ?? null } : {}),
-      // Any per-occurrence edit pins this row so the series regenerator
+      // Any per-occurrence edit pins this row so series regeneration
       // preserves it.
       overridden: true,
     },

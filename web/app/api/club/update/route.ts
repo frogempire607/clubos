@@ -71,7 +71,21 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ id: club.id, slug: club.slug });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.errors }, { status: 400 });
+      // Return a readable message — not the raw Zod issue array, which the
+      // client used to stringify as "[object Object],[object Object]".
+      const first = err.errors[0];
+      const path = first?.path?.join(".") || "field";
+      const message = first?.message || "Invalid input";
+      return NextResponse.json(
+        {
+          error: `${path}: ${message}`,
+          issues: err.errors.map((e) => ({
+            path: e.path.join("."),
+            message: e.message,
+          })),
+        },
+        { status: 400 },
+      );
     }
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }

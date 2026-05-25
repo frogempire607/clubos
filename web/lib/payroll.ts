@@ -132,6 +132,8 @@ export async function computePayrollTotalForRange(
         id: bo.id,
         bonusType: bo.bonusType as BonusType,
         amount: Number(bo.amount),
+        minThreshold: bo.minThreshold,
+        maxThreshold: bo.maxThreshold,
         scopes: comp.assignments
           .filter((a) => a.bonusId === bo.id)
           .map((a) => ({ scopeType: a.scopeType as ScopeType, scopeId: a.scopeId })),

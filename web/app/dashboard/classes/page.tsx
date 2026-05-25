@@ -44,6 +44,14 @@ type ClassSession = {
   _count: { attendance: number };
 };
 
+function clearClassDeepLinkParams() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("session");
+  url.searchParams.delete("edit");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -694,6 +702,7 @@ export default function ClassesPage() {
   const [viewingSessions, setViewingSessions] = useState<RecurringClass | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [occurrenceSuccess, setOccurrenceSuccess] = useState("");
 
   async function load() {
     setLoading(true);
@@ -710,11 +719,11 @@ export default function ClassesPage() {
 
   useEffect(() => { load(); }, []);
 
-  // Deep links from the calendar day-detail:
-  //   ?session=<classSessionId>  → opens the per-occurrence session editor
-  //                                (this is the default click-to-edit behavior)
-  //   ?edit=<classId>            → opens the full recurring-class editor
-  //                                ("Edit entire series").
+  // Calendar day-detail deep links:
+  //   ?session=<classSessionId> → opens the per-occurrence session editor
+  //                               (DEFAULT — edits just this day).
+  //   ?edit=<classId>           → opens the full recurring-class editor
+  //                               ("Edit entire series").
   useEffect(() => {
     if (loading) return;
     const params = new URLSearchParams(window.location.search);
@@ -770,6 +779,12 @@ export default function ClassesPage() {
           </a>
         )}
       </div>
+
+      {occurrenceSuccess && (
+        <div className="mb-4 rounded-lg border border-lime-accent/40 bg-lime-accent/15 px-4 py-3 text-sm text-text-primary">
+          {occurrenceSuccess}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-app-border">
@@ -955,8 +970,19 @@ export default function ClassesPage() {
           sessionId={editingSessionId}
           classes={classes}
           staffList={staffList}
-          onClose={() => setEditingSessionId(null)}
+          onClose={() => {
+            clearClassDeepLinkParams();
+            setEditingSessionId(null);
+          }}
+          onSaved={async () => {
+            clearClassDeepLinkParams();
+            setEditingSessionId(null);
+            setOccurrenceSuccess("Class occurrence saved.");
+            await load();
+            window.setTimeout(() => setOccurrenceSuccess(""), 4000);
+          }}
           onEditSeries={(cls) => {
+            clearClassDeepLinkParams();
             setEditingSessionId(null);
             setEditing(cls);
             setShowModal(true);
@@ -976,12 +1002,14 @@ function SessionEditModal({
   classes,
   staffList,
   onClose,
+  onSaved,
   onEditSeries,
 }: {
   sessionId: string;
   classes: RecurringClass[];
   staffList: Staff[];
   onClose: () => void;
+  onSaved: () => void | Promise<void>;
   onEditSeries: (cls: RecurringClass) => void;
 }) {
   type Sess = {
@@ -1010,7 +1038,7 @@ function SessionEditModal({
     let active = true;
     (async () => {
       setLoading(true);
-      // No GET-by-id; pull the class's sessions list and find ours.
+      // No GET-by-id endpoint; pull each class's session list and locate ours.
       for (const cls of classes) {
         const res = await fetch(`/api/classes/${cls.id}/sessions?upcoming=false&limit=60`);
         if (!res.ok) continue;
@@ -1062,7 +1090,7 @@ function SessionEditModal({
       setError(typeof d.error === "string" ? d.error : "Save failed");
       return;
     }
-    onClose();
+    await onSaved();
   }
 
   return (

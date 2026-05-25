@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
 
@@ -49,9 +49,6 @@ type Event = {
   visibility: string;
   purchaseAccess: string;
   allowMembershipPayment: boolean;
-  imageUrl?: string | null;
-  imagePositionX?: number | null;
-  imagePositionY?: number | null;
   pricingOptions?: { type: "membership"; membershipId: string }[] | null;
   location: { name: string } | null;
   sessions: EventSession[];
@@ -72,11 +69,6 @@ type Event = {
 type Member = { id: string; firstName: string; lastName: string };
 type Membership = { id: string; name: string; active: boolean };
 type Staff = { id: string; firstName: string; lastName: string };
-
-function clampImagePosition(value: number) {
-  if (!Number.isFinite(value)) return 50;
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
 
 const BUILT_IN_COLORS: Record<BuiltInType, { bg: string; fg: string }> = {
   CLASS: { bg: "var(--color-primary)", fg: "#fff" },
@@ -188,11 +180,7 @@ export default function EventsPage() {
 
   const now = new Date();
   const filtered = events.filter((e) => {
-    // Use endsAt for "upcoming"/"past" so multi-day events that have started
-    // but not finished still show under "upcoming," and a freshly created
-    // event whose startsAt is a few seconds in the past isn't immediately
-    // hidden. Events without endsAt fall back to startsAt.
-    const end = new Date(e.endsAt || e.startsAt);
+    const end = new Date(e.endsAt);
     if (filter === "upcoming") return end >= now;
     if (filter === "past") return end < now;
     return true;
@@ -250,13 +238,7 @@ export default function EventsPage() {
         <div className="bg-surface rounded-xl border border-app-border p-12 text-center">
           <div className="text-4xl mb-2">◈</div>
           <h3 className="text-lg font-medium text-text-primary mb-1">No events</h3>
-          <p className="text-sm text-text-muted mb-4">
-            {filter === "upcoming" && events.length > 0
-              ? `No upcoming events. You have ${events.length} past event${events.length === 1 ? "" : "s"} — switch the filter above to "All" or "Past" to see them.`
-              : filter === "upcoming"
-                ? "No upcoming events scheduled."
-                : "Nothing to show here."}
-          </p>
+          <p className="text-sm text-text-muted mb-4">{filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}</p>
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             + Schedule your first event
           </button>
@@ -441,9 +423,6 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
       : []
   );
   const [imageUrl, setImageUrl] = useState<string>((event as any)?.imageUrl || "");
-  const [imagePositionX, setImagePositionX] = useState<number>(clampImagePosition(Number((event as any)?.imagePositionX ?? 50)));
-  const [imagePositionY, setImagePositionY] = useState<number>(clampImagePosition(Number((event as any)?.imagePositionY ?? 50)));
-  const imagePositionPreviewRef = useRef<HTMLDivElement | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -511,23 +490,6 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
     setStaffUserIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
 
-  function setImagePositionFromPointer(clientX: number, clientY: number) {
-    const rect = imagePositionPreviewRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setImagePositionX(clampImagePosition(((clientX - rect.left) / rect.width) * 100));
-    setImagePositionY(clampImagePosition(((clientY - rect.top) / rect.height) * 100));
-  }
-
-  function handleImagePositionPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setImagePositionFromPointer(e.clientX, e.clientY);
-  }
-
-  function handleImagePositionPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.buttons !== 1) return;
-    setImagePositionFromPointer(e.clientX, e.clientY);
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -560,8 +522,6 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
         pricingOptions: allowedMembershipIds.map((membershipId) => ({ type: "membership", membershipId })),
         staffUserIds,
         imageUrl: imageUrl || null,
-        imagePositionX,
-        imagePositionY,
         tournamentMode: type === "TOURNAMENT" ? (tournamentMode || null) : null,
         publicRegistration,
         publicFormIntro: publicFormIntro || null,
@@ -603,80 +563,10 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           <ImageUpload
             label="Event image (optional)"
             value={imageUrl}
-            onChange={(url) => {
-              setImageUrl(url);
-              if (!url) {
-                setImagePositionX(50);
-                setImagePositionY(50);
-              }
-            }}
+            onChange={setImageUrl}
             shape="square"
             placeholder="Upload a cover photo for this event"
           />
-
-          {imageUrl && (
-            <div className="border border-app-border rounded-lg p-4 space-y-3 bg-app-bg/40">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">Adjust image position</p>
-                  <p className="text-[11px] text-text-muted">Drag the preview to choose what shows on the public registration link.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImagePositionX(50);
-                    setImagePositionY(50);
-                  }}
-                  className="text-xs text-brand hover:underline flex-shrink-0"
-                >
-                  Center
-                </button>
-              </div>
-              <div
-                ref={imagePositionPreviewRef}
-                onPointerDown={handleImagePositionPointerDown}
-                onPointerMove={handleImagePositionPointerMove}
-                className="relative aspect-[16/9] overflow-hidden rounded-lg border border-app-border bg-surface cursor-grab active:cursor-grabbing touch-none"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imageUrl}
-                  alt=""
-                  className="h-full w-full object-cover select-none pointer-events-none"
-                  draggable={false}
-                  style={{ objectPosition: `${imagePositionX}% ${imagePositionY}%` }}
-                />
-                <div
-                  className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-brand shadow"
-                  style={{ left: `${imagePositionX}%`, top: `${imagePositionY}%` }}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-xs text-text-muted">
-                  Horizontal
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={imagePositionX}
-                    onChange={(e) => setImagePositionX(clampImagePosition(Number(e.target.value)))}
-                    className="mt-1 w-full accent-brand"
-                  />
-                </label>
-                <label className="text-xs text-text-muted">
-                  Vertical
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={imagePositionY}
-                    onChange={(e) => setImagePositionY(clampImagePosition(Number(e.target.value)))}
-                    className="mt-1 w-full accent-brand"
-                  />
-                </label>
-              </div>
-            </div>
-          )}
 
           {/* Event type */}
           <div>

@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     where: {
       clubId: session.user.clubId,
       deletedAt: null,
-      ...(upcoming ? { startsAt: { gte: new Date() } } : {}),
+      ...(upcoming ? { endsAt: { gte: new Date() } } : {}),
     },
     orderBy: { startsAt: "asc" },
     include: {

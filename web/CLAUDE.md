@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-01 (Owner Dashboard phases 4-6)
+Last updated: 2026-06-02 (Bug fixes: calendar refetch, per-occurrence class edit, multi-file staff docs, error UX, branded app restore)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -344,6 +344,8 @@ Migration folders currently present:
 - `20260518000001_private_lesson_partners` — `PrivateBookingPartner` table + `PrivateLessonType.maxAthletes`
 - `20260530000000_builtin_event_colors` — `Club.builtInEventColors` (JSONB) — owner overrides for built-in EventType badge colors
 - `20260531000000_staff_documents` — `StaffDocument` table (owner-uploaded tax docs / contracts / agreements per staff user, with sharedWithStaff visibility flag)
+- `20260601000000_private_packages_multi_types` — `PrivatePackage.lessonTypeIds` (JSONB) for multi-type packages
+- `20260602000000_package_discounts_bonus_thresholds` — `PrivatePackage.pricingMode` (FLAT | PERCENT | FIXED) + `discountValue` (Decimal?); `CompensationBonus.minThreshold` + `maxThreshold` (Int?)
 
 Current migration status:
 
@@ -387,7 +389,8 @@ Current migration status:
 - Attendance panel "Add Member" has a pricing chooser (Use accepted membership / Member / Non-member / Drop-in). Header surfaces "Accepted memberships: …".
 - Stripe webhook handles `classId + classSessionId` branch: records `Transaction` (`type="CLASS"`) and upserts `AttendanceRecord` to `DROP_IN`.
 - **Calendar page** rebuilt as a unified feed: events + class sessions + confirmed private lessons in one grid, with kind chips (Events / Classes / Private lessons) and a secondary subtype chip strip auto-built from items in the visible range. Items color-coded per kind/type with start times. Detail panel with deep-link to source section. Backed by `/api/calendar`. **Classes are NOT an event type** — `CLASS` was removed from the events editor dropdown; recurring classes live only on `/dashboard/classes` (`RecurringClass`).
-- **Calendar day detail (Phase 2)**: clicking a day NUMBER opens a Day Detail panel listing every item on that day with full info (time, type, location, coach, capacity, pricing, description) and a per-item **Edit** deep-link: events → `/dashboard/events?edit=<id>`, classes → `/dashboard/classes?edit=<id>`, privates → `/dashboard/privates?booking=<id>`. Multi-day events emit one item per `EventSession` so each day is its own row — editing a session row applies to that occurrence; the helper text in the panel says so explicitly.
+- **Calendar day detail (Phase 2)**: clicking a day NUMBER opens a Day Detail panel listing every item on that day with full info (time, type, location, coach, capacity, pricing, description). Per-item **Edit** deep-link is now per-occurrence by default: class items → `/dashboard/classes?session=<classSessionId>` opens a `SessionEditModal` (start/end time, cancel toggle, substitute staff via `staffOverride`, one-off `note`) and sets `overridden=true` so the series regenerator preserves the customization. The modal has an explicit "Edit entire series →" button that jumps to `?edit=<classId>`. Multi-day event session items (id `<eventId>:<sessionId>`) deep-link to `/dashboard/events?session=<id>`; single-day events fall back to `?edit=<id>`. PATCH endpoint `app/api/classes/[id]/sessions/[sessionId]/route.ts`.
+- **Dashboard mini-calendar refetch**: the mini calendar on `/dashboard` now refetches `/api/calendar` with an explicit `from`/`to` window when the visible month changes — fixes the regression where only the initial month (±1) had data while navigating prev/next showed empty.
 
 ### Staff documents (Phase 3)
 - New `StaffDocument` model (table `staff_documents`) — owner uploads tax docs (W-9, 1099), contracts, agreements, certifications, or anything else to a staff member's profile. Each row stores `title`, `kind` (W9 | 1099 | CONTRACT | AGREEMENT | CERTIFICATION | OTHER), the file URL/metadata, and a `sharedWithStaff` boolean that controls staff-side visibility.
@@ -398,7 +401,7 @@ Current migration status:
   - `PATCH /api/staff/[id]/documents/[docId]` — toggle `sharedWithStaff`, rename, change kind, notes
   - `DELETE /api/staff/[id]/documents/[docId]` — soft delete (`deletedAt`)
   - `GET /api/me/staff-documents` — staff-facing list: returns ONLY this staff user's docs where `sharedWithStaff=true`. Owner-only docs are invisible.
-- Owner UI: EditStaffModal now has a "Documents" panel below the main form with title + kind + visibility toggle, a file picker, and a list of existing docs (each with a per-row Visible-to-staff checkbox and a Delete button).
+- Owner UI: EditStaffModal now has a "Documents" panel below the main form with title + kind + visibility toggle, a **multi-select file picker** (one staff doc row per file picked; the title gets a `(n/total)` suffix when multiple are selected at once), and a list of existing docs (each with a per-row Visible-to-staff checkbox and a Delete button).
 - Staff UI surface (the page that consumes `/api/me/staff-documents`) is NOT built yet — endpoint is wired and ready for a small "My documents" card to be added under `/dashboard/settings` for STAFF role next batch.
 - **Built-in EventType colors (Phase 1)**: owners can override the colors for `CLASS`/`PRIVATE`/`CLINIC`/`CAMP`/`TOURNAMENT`/`OTHER` via **Manage Event Types** modal (a swatch picker per built-in type, Reset to revert to defaults). Persisted in `Club.builtInEventColors` (JSONB), returned by `/api/club/info`, accepted by `/api/club/update`, and resolved server-side in `/api/calendar` so the unified calendar grid honors the overrides everywhere. Custom `ClubEventType` colors still take precedence over built-in overrides. Source of truth helper: `lib/eventTypeColors.ts`.
 - **Calendar feed enrichment**: `/api/calendar` items now include `description`, `location`, `coach`, and `price` so the day-detail panel can render full context without follow-up fetches.
@@ -432,6 +435,8 @@ Current migration status:
 ### Owner Dashboard follow-up phases 4-6
 - **Private lesson duration/packages (Phase 4)**: private lesson type duration is now limited to owner presets in 15-minute increments from 15 minutes through 4 hours (`lib/privateLessonRules.ts`). API validation enforces the same rule. Private packages now support one or more lesson types via `PrivatePackage.lessonTypeIds` JSONB while preserving legacy `lessonTypeId`. Member private requests derive end time from the lesson duration; athletes no longer choose custom duration. When a member has usable package credits, they can submit multiple requested lesson dates/times up to their remaining package balance, creating one request per requested lesson.
 - **Staff bonus clarity (Phase 5)**: compensation UI now presents signup bonus as “pay on next paycheck” and class growth/retention as a per-kid/per-class incentive. Existing payroll computation uses `SIGNUP` for once-per-period signup/purchase bonuses and `ATTENDANCE` for scoped class/event attendance incentives.
+- **Bonus thresholds**: every bonus row now supports optional `minThreshold` / `maxThreshold` (Int?). The engine in `lib/compensation.ts` only pays for the slice of items *above* min and *up to* max — e.g. "bonus starts after 10 athletes, caps at 25". REVENUE_SHARE applies the same slice to qualifying items in collection order so dollar revenue reflects the same window. Editor fields are surfaced under each bonus card on `/dashboard/staff`.
+- **Tier-aware private packages**: `PrivatePackage.pricingMode` + `discountValue` let a package describe a per-lesson discount instead of a flat total — PERCENT (% off each tier price) or FIXED ($ off each tier price). The package modal shows a live tier-by-tier pricing preview, and the Assign Package modal picks lesson type + coach tier and shows the computed total. `lib/privateLessonRules.ts` exposes `packageTotalForBasePrice()` and `pricePerLessonAfterDiscount()` so the booking + member-side purchase flows can compute the correct prepaid total for the chosen tier. Legacy `FLAT` mode continues to honor the stored `price` field.
 - **Payroll in Financials/Reports (Phase 6)**: `lib/payroll.ts` computes staff payout totals from the same compensation engine used by Payroll/Payouts. Reports and Financials fold computed staff payroll plus contractor payments into the `PAYROLL` expense category so owners do not have to manually enter payroll for accurate net/expense reporting.
 
 ### Stripe / billing / file storage

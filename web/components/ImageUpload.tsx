@@ -30,17 +30,20 @@ export default function ImageUpload({ value, onChange, label, shape = "square", 
 
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      // Defensive stringify — some upstream routes return Zod error arrays or
-      // nested objects which would otherwise render as "[object Object]".
+      // Stringify whatever shape the server returns — string, Zod issue
+      // array, or nested object — so we never render "[object Object]".
       const raw = d?.error;
-      const msg =
-        typeof raw === "string"
-          ? raw
-          : Array.isArray(raw)
-            ? ((raw[0]?.message as string | undefined) ?? (raw.map((x) => (typeof x === "string" ? x : x?.message)).filter(Boolean).join(", ") || "Upload failed"))
-            : raw && typeof raw === "object"
-              ? (raw.message ?? JSON.stringify(raw))
-              : "Upload failed";
+      let msg: string = "Upload failed";
+      if (typeof raw === "string") {
+        msg = raw;
+      } else if (Array.isArray(raw)) {
+        msg = raw
+          .map((x) => (typeof x === "string" ? x : x?.message))
+          .filter(Boolean)
+          .join(", ") || msg;
+      } else if (raw && typeof raw === "object") {
+        msg = (raw as { message?: string }).message ?? JSON.stringify(raw);
+      }
       setErr(msg);
       return;
     }

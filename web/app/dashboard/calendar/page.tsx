@@ -44,6 +44,12 @@ const KIND_COLORS: Record<Kind, { bg: string; fg: string; label: string; href: s
   private: { bg: "#E8E1FD",              fg: "#3B2F8C",              label: "Private lessons", href: "/dashboard/privates" },
 };
 
+const KIND_SINGULAR_LABEL: Record<Kind, string> = {
+  event: "Event",
+  class: "Class",
+  private: "Private lesson",
+};
+
 // Built-in event subtypes (when no customEventType is set)
 const EVENT_SUBTYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   CLASS:      { bg: "var(--color-primary)", fg: "#fff" },
@@ -354,7 +360,7 @@ export default function CalendarPage() {
                   {selected.typeLabel}
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
-                  {KIND_COLORS[selected.kind].label.replace(/s$/, "")}
+                  {KIND_SINGULAR_LABEL[selected.kind]}
                 </span>
               </div>
               <div className="text-sm text-text-muted">
@@ -432,15 +438,14 @@ export default function CalendarPage() {
                     const useUTC = kindIsWallClockUTC(it.kind);
                     const tStart = fmtTime(it.startsAt, { utc: useUTC });
                     const tEnd = fmtTime(it.endsAt, { utc: useUTC });
-                    // Default = per-occurrence editing:
-                    //   class   → ?session=<classSessionId> opens the session
-                    //             editor (just this day). "Edit entire series"
-                    //             inside that modal jumps to ?edit=<classId>.
-                    //   event   → multi-day events emit one item per
-                    //             EventSession (id is "<eventId>:<sessionId>"),
-                    //             so ?session= passes that compound; single-day
-                    //             events fall back to ?edit=<eventId>.
-                    //   private → opens that booking directly.
+                    // Default = per-occurrence editing for that specific day:
+                    //   class items → ?session=<classSessionId> opens the
+                    //     SessionEditModal (this day only). "Edit entire
+                    //     series →" inside that modal jumps to ?edit=<classId>.
+                    //   event items from multi-day events (id contains ":")
+                    //     → ?session=<eventId>:<sessionId> opens that event
+                    //     occurrence; single-day events fall back to ?edit=.
+                    //   privates → opens that booking directly.
                     const editHref =
                       it.kind === "event"
                         ? it.id.includes(":")
@@ -468,7 +473,7 @@ export default function CalendarPage() {
                                 {it.typeLabel}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
-                                {KIND_COLORS[it.kind].label.replace(/s$/, "")}
+                                {KIND_SINGULAR_LABEL[it.kind]}
                               </span>
                               <span className="text-sm font-semibold text-text-primary">{it.name}</span>
                             </div>
