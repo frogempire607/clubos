@@ -105,6 +105,11 @@ model Club {
   appTextAlign             String?
   appHomeContent           String?
   appCopy                  Json?
+  // Owner-controlled "what billing info do members see on their portal."
+  // Shape: { showPlan, showNextBilling, showPrice, showInvoices } booleans.
+  // null = use defaults (everything visible). Lets a club hide pricing /
+  // next-charge dates from members when the owner handles billing offline.
+  memberBillingVisibility  Json?
   // Owner overrides for the built-in EventType badge colors. Shape:
   //   { CLASS:{bg,fg}, PRIVATE:{bg,fg}, CLINIC:{bg,fg}, CAMP:{bg,fg},
   //     TOURNAMENT:{bg,fg}, OTHER:{bg,fg} }

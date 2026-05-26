@@ -30,6 +30,8 @@ type ScheduleItem = {
   bookingStatus: string | null;
   color: string | null;
   textColor: string | null;
+  bookingTier?: "MEMBERSHIP" | "MEMBER" | "NON_MEMBER" | "DROP_IN" | null;
+  bookingLabel?: string | null;
 };
 
 type PrivateOffering = {
@@ -139,6 +141,30 @@ export default function MemberSchedulePage() {
     }
     return groups;
   }, [items]);
+
+  async function bookClass(item: ScheduleItem) {
+    setBusy(item.id);
+    setError("");
+    setInfo("");
+    const res = await fetch("/api/member/classes/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ classSessionId: item.id, memberId: activeId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) {
+      setError(d.error || "Could not book this class.");
+      return;
+    }
+    if (d.url) {
+      window.location.href = d.url;
+      return;
+    }
+    setSelected(null);
+    setInfo(d.coveredByMembership ? "Booked — covered by your membership." : "Booked.");
+    await load(activeId);
+  }
 
   async function register(item: ScheduleItem) {
     setBusy(item.id);
@@ -338,9 +364,19 @@ export default function MemberSchedulePage() {
 
               <div className="rounded-xl bg-stone-50 border border-stone-200 p-4">
                 <p className="text-sm font-semibold text-stone-900">{selected.statusText}</p>
+                {selected.kind === "class" && selected.bookingLabel && (
+                  <p className="text-xs text-stone-600 mt-1">
+                    {selected.bookingLabel}
+                    {selected.price ? ` — $${selected.price}` : ""}
+                  </p>
+                )}
                 <p className="text-xs text-stone-500 mt-1">
                   {selected.kind === "class"
-                    ? "Class booking is controlled by your club and membership rules."
+                    ? selected.canBook
+                      ? selected.bookingTier === "MEMBERSHIP"
+                        ? "Your membership covers this class."
+                        : "You'll be taken to checkout to confirm payment."
+                      : "Class booking is controlled by your club and membership rules."
                     : selected.canBook
                       ? "You can register for this event from this screen."
                       : "Registration is not available from your account right now."}
@@ -363,6 +399,24 @@ export default function MemberSchedulePage() {
                     className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
                   >
                     {busy === selected.id ? "Registering..." : selected.canBook ? "Register" : selected.statusText}
+                  </button>
+                )}
+                {selected.kind === "class" && (
+                  <button
+                    type="button"
+                    disabled={!selected.canBook || busy === selected.id}
+                    onClick={() => bookClass(selected)}
+                    className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+                  >
+                    {busy === selected.id
+                      ? "Booking..."
+                      : selected.canBook
+                        ? selected.bookingTier === "MEMBERSHIP"
+                          ? "Book (covered)"
+                          : selected.price
+                            ? `Book — $${selected.price}`
+                            : "Book"
+                        : selected.statusText}
                   </button>
                 )}
               </div>

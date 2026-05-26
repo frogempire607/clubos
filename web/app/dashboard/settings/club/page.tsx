@@ -47,6 +47,12 @@ export default function ClubSettingsPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [socialLinks, setSocialLinks] = useState<{ label: string; url: string }[]>([]);
+  const [billingVisibility, setBillingVisibility] = useState<{
+    showPlan: boolean;
+    showNextBilling: boolean;
+    showPrice: boolean;
+    showInvoices: boolean;
+  }>({ showPlan: true, showNextBilling: true, showPrice: true, showInvoices: true });
   const [hours, setHours] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -71,6 +77,13 @@ export default function ClubSettingsPage() {
         setWebsiteUrl(club.websiteUrl || "");
         const links = Array.isArray(club.socialLinks) ? club.socialLinks : [];
         setSocialLinks(links);
+        const mbv = club.memberBillingVisibility && typeof club.memberBillingVisibility === "object" ? club.memberBillingVisibility : null;
+        setBillingVisibility({
+          showPlan: mbv?.showPlan !== false,
+          showNextBilling: mbv?.showNextBilling !== false,
+          showPrice: mbv?.showPrice !== false,
+          showInvoices: mbv?.showInvoices !== false,
+        });
         const h = club.hoursOfOperation && typeof club.hoursOfOperation === "object" ? club.hoursOfOperation : {};
         setHours(h as Record<string, string>);
       }
@@ -98,6 +111,7 @@ export default function ClubSettingsPage() {
         websiteUrl: websiteUrl || null,
         socialLinks: socialLinks.filter((l) => l.label.trim() && l.url.trim()),
         hoursOfOperation: Object.keys(hours).length > 0 ? hours : null,
+        memberBillingVisibility: billingVisibility,
       }),
     });
 
@@ -394,6 +408,38 @@ export default function ClubSettingsPage() {
         {error && (
           <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
         )}
+
+        {/* What billing info members can see on the portal. Useful when the
+            coach handles billing offline and doesn't want members to see
+            their plan / next-charge date / invoice history. */}
+        <div className="bg-white rounded-xl border border-app-border p-6 space-y-3">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+            Member billing visibility
+          </p>
+          <p className="text-xs text-text-muted">
+            Choose which billing details members see on their own profile.
+            Owners and staff always see everything in the dashboard.
+          </p>
+          {([
+            { k: "showPlan",        label: "Plan name",       desc: "Show the active membership name to members." },
+            { k: "showNextBilling", label: "Next billing date", desc: "Show the next-charge date." },
+            { k: "showPrice",       label: "Plan price",      desc: "Show the recurring price." },
+            { k: "showInvoices",    label: "Invoice history", desc: "Show prior charges/receipts." },
+          ] as const).map((row) => (
+            <label key={row.k} className="flex items-start gap-3 py-1.5">
+              <input
+                type="checkbox"
+                checked={billingVisibility[row.k]}
+                onChange={(e) => setBillingVisibility((v) => ({ ...v, [row.k]: e.target.checked }))}
+                className="mt-1"
+              />
+              <span>
+                <span className="text-sm font-medium text-text-primary">{row.label}</span>
+                <span className="block text-xs text-text-muted">{row.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
 
         {saved && (
           <div className="text-sm text-text-primary bg-lime-accent border border-lime-accent/40 rounded-lg px-3 py-2">

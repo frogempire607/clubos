@@ -234,11 +234,33 @@ export async function GET(req: Request) {
         .filter((opt): opt is { type: "membership"; membershipId: string } => opt.type === "membership" && !!opt.membershipId)
         .map((opt) => opt.membershipId);
       const covered = acceptedMembershipIds.some((id) => activeMembershipIds.includes(id));
-      const priceOpt = opts.find((opt): opt is { type: "member" | "nonmember" | "dropin"; price: number } =>
-        opt.type === "member" || opt.type === "dropin" || opt.type === "nonmember",
-      );
+      // Auto-detect which price tier the member qualifies for. Members with
+      // any active sub at this club fall back to the MEMBER price even when
+      // the class doesn't accept their specific plan; everyone else gets the
+      // NON_MEMBER price, then DROP_IN as last resort. This is what powers the
+      // member-side Book button on /member/schedule.
+      const memberPrice    = opts.find((o): o is { type: "member";    price: number } => o.type === "member");
+      const nonMemberPrice = opts.find((o): o is { type: "nonmember"; price: number } => o.type === "nonmember");
+      const dropInPrice    = opts.find((o): o is { type: "dropin";    price: number } => o.type === "dropin");
+      const hasAnyActiveSub = activeMembershipIds.length > 0;
+      let bookingTier: "MEMBERSHIP" | "MEMBER" | "NON_MEMBER" | "DROP_IN" | null = null;
+      let bookingPriceNum: number | null = null;
+      let bookingLabel: string | null = null;
+      if (covered) {
+        bookingTier = "MEMBERSHIP";
+        bookingLabel = "Included in your membership";
+      } else if (hasAnyActiveSub && memberPrice) {
+        bookingTier = "MEMBER"; bookingPriceNum = memberPrice.price; bookingLabel = "Member price";
+      } else if (nonMemberPrice) {
+        bookingTier = "NON_MEMBER"; bookingPriceNum = nonMemberPrice.price; bookingLabel = "Non-member price";
+      } else if (dropInPrice) {
+        bookingTier = "DROP_IN"; bookingPriceNum = dropInPrice.price; bookingLabel = "Drop-in price";
+      } else if (memberPrice) {
+        bookingTier = "MEMBER"; bookingPriceNum = memberPrice.price; bookingLabel = "Member price";
+      }
+      const priceOpt = memberPrice || nonMemberPrice || dropInPrice;
       const attendance = classAttendanceById.get(sessionItem.id) ?? null;
-      const price = covered ? null : priceOpt ? money(priceOpt.price) : null;
+      const price = covered ? null : bookingPriceNum != null ? bookingPriceNum.toFixed(2) : priceOpt ? money(priceOpt.price) : null;
       const coachNames = (Array.isArray(sessionItem.recurringClass.assignedStaffIds)
         ? (sessionItem.recurringClass.assignedStaffIds as string[])
         : [])
@@ -266,10 +288,12 @@ export async function GET(req: Request) {
             : price
               ? "Purchase required"
               : "Ask staff to book",
-        canBook: false,
+        canBook: !!context && !attendance && (covered || bookingPriceNum != null),
         bookingStatus: attendance,
         color: sessionItem.recurringClass.color ?? null,
         textColor: sessionItem.recurringClass.textColor ?? null,
+        bookingTier,
+        bookingLabel,
       };
     }),
   ].sort((a, b) => a.startsAt.localeCompare(b.startsAt));

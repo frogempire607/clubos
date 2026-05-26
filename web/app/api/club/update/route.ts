@@ -26,6 +26,12 @@ const schema = z.object({
   builtInEventColors: z.record(
     z.object({ bg: z.string(), fg: z.string() }),
   ).optional().nullable(),
+  memberBillingVisibility: z.object({
+    showPlan: z.boolean().optional(),
+    showNextBilling: z.boolean().optional(),
+    showPrice: z.boolean().optional(),
+    showInvoices: z.boolean().optional(),
+  }).optional().nullable(),
 });
 
 export async function PATCH(req: Request) {
@@ -65,6 +71,7 @@ export async function PATCH(req: Request) {
         ...(data.appHomeContent !== undefined ? { appHomeContent: data.appHomeContent || null } : {}),
         ...(data.appCopy !== undefined ? { appCopy: data.appCopy ?? undefined } : {}),
         ...(data.builtInEventColors !== undefined ? { builtInEventColors: data.builtInEventColors ?? undefined } : {}),
+        ...(data.memberBillingVisibility !== undefined ? { memberBillingVisibility: data.memberBillingVisibility ?? undefined } : {}),
       },
     });
 

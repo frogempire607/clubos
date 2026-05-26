@@ -64,8 +64,61 @@ export async function GET() {
 
   const club = await prisma.club.findUnique({
     where: { id: session.user.clubId },
-    select: { id: true, name: true, slug: true, sport: true, primaryColor: true, logoUrl: true, tier: true },
+    select: {
+      id: true, name: true, slug: true, sport: true,
+      primaryColor: true, logoUrl: true, tier: true,
+      memberBillingVisibility: true,
+    },
   });
 
-  return NextResponse.json({ user, club });
+  // Per-managed-athlete summary: attendance count (last 30d), upcoming
+  // bookings count, active membership name. Powers the parent quick
+  // dashboard on /member/profile.
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const accessibleIds: string[] = [
+    ...(user?.memberProfile ? [user.memberProfile.id] : []),
+    ...(user?.guardianOf ?? []).map((g) => g.member.id),
+  ];
+  const summaries: Record<string, {
+    attendanceLast30d: number;
+    upcomingBookings: number;
+    activeMembershipName: string | null;
+  }> = {};
+  if (accessibleIds.length > 0) {
+    const [attCounts, upcomingCounts, subs] = await Promise.all([
+      prisma.attendanceRecord.groupBy({
+        by: ["memberId"],
+        where: {
+          memberId: { in: accessibleIds },
+          createdAt: { gte: thirtyDaysAgo },
+          status: { in: ["PRESENT", "LATE", "DROP_IN", "TRIAL"] },
+        },
+        _count: { _all: true },
+      }),
+      prisma.booking.groupBy({
+        by: ["memberId"],
+        where: {
+          memberId: { in: accessibleIds },
+          status: { in: ["CONFIRMED", "WAITLISTED"] },
+          event: { startsAt: { gte: now } },
+        },
+        _count: { _all: true },
+      }),
+      prisma.memberSubscription.findMany({
+        where: { memberId: { in: accessibleIds }, status: "active" },
+        select: { memberId: true, membership: { select: { name: true } } },
+      }),
+    ]);
+    for (const id of accessibleIds) {
+      summaries[id] = {
+        attendanceLast30d: attCounts.find((r) => r.memberId === id)?._count._all ?? 0,
+        upcomingBookings: upcomingCounts.find((r) => r.memberId === id)?._count._all ?? 0,
+        activeMembershipName:
+          subs.find((s) => s.memberId === id)?.membership.name ?? null,
+      };
+    }
+  }
+
+  return NextResponse.json({ user, club, summaries });
 }
