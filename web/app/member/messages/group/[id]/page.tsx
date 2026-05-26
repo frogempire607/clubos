@@ -9,6 +9,8 @@ type GroupMsg = {
   id: string;
   body: string;
   createdAt: string;
+  readCount?: number;
+  readByMe?: boolean;
   senderId: string;
   sender: { id: string; firstName: string; lastName: string };
 };
@@ -143,6 +145,7 @@ export default function MemberGroupThreadPage() {
                         <div className="whitespace-pre-wrap">{m.body}</div>
                         <div className={`text-[10px] mt-0.5 ${mine ? "text-stone-400" : "text-stone-500"}`}>
                           {fmtTime(m.createdAt)}
+                          {mine && typeof m.readCount === "number" ? ` · Read ${m.readCount}` : ""}
                         </div>
                       </div>
                     </div>

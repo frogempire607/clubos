@@ -50,7 +50,31 @@ async function emailBookingConfirmation(args: {
 
 const schema = z.object({
   pricingType: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN"]).default("MEMBER"),
+  memberId: z.string().optional(),
 });
+
+async function resolveBookingMember(args: {
+  userId: string;
+  clubId: string;
+  email: string;
+  requestedMemberId?: string;
+}) {
+  const self = await findOrAutoLinkMember(args.userId, args.clubId, args.email);
+  const guardianships = await prisma.memberGuardianUser.findMany({
+    where: { userId: args.userId, member: { clubId: args.clubId } },
+    include: { member: true },
+  });
+  const accessible = [
+    ...(self ? [self] : []),
+    ...guardianships.map((g) => g.member),
+  ];
+
+  if (args.requestedMemberId) {
+    return accessible.find((m) => m.id === args.requestedMemberId) ?? null;
+  }
+
+  return self ?? accessible[0] ?? null;
+}
 
 // POST /api/member/events/[id]/register
 // Member self-registers. Free path if active sub matches an accepted membership.
@@ -61,7 +85,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { pricingType } = schema.parse(await req.json().catch(() => ({})));
+    const { pricingType, memberId } = schema.parse(await req.json().catch(() => ({})));
 
     const event = await prisma.event.findFirst({
       where: {
@@ -83,7 +107,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       select: { email: true },
     });
     const member = sessionUser
-      ? await findOrAutoLinkMember(session.user.id, session.user.clubId, sessionUser.email)
+      ? await resolveBookingMember({
+          userId: session.user.id,
+          clubId: session.user.clubId,
+          email: sessionUser.email,
+          requestedMemberId: memberId,
+        })
       : null;
     if (!member) {
       return NextResponse.json(

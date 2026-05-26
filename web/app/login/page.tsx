@@ -40,11 +40,11 @@ function LoginInner() {
     }
 
     // Role-based redirect (the account's real role wins, regardless of tab).
-    const sessionRes = await fetch("/api/auth/session");
+    const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
     const session = await sessionRes.json();
     const userRole = session?.user?.role;
-    if (userRole === "MEMBER") router.push("/member");
-    else router.push("/dashboard");
+    router.replace(userRole === "MEMBER" ? "/member" : "/dashboard");
+    router.refresh();
   }
 
   const isStaff = role === "staff";

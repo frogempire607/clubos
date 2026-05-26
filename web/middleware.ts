@@ -35,8 +35,13 @@ export default withAuth(
       }
     }
 
-    // Member portal: only members (owners/staff can preview)
+    // Member portal: route real members here. Owners/staff belong in the
+    // dashboard; the member APIs are scoped to MEMBER sessions and would not
+    // render a useful preview for staff roles.
     if (pathname.startsWith("/member")) {
+      if (role === "OWNER" || role === "STAFF") {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
       if (role !== "MEMBER" && role !== "OWNER" && role !== "STAFF") {
         return NextResponse.redirect(new URL("/login", req.url));
       }

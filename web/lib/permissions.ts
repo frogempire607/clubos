@@ -106,6 +106,7 @@ export const PATH_PERMISSIONS: { prefix: string; rule: NavRule }[] = [
   { prefix: "/dashboard/privates", rule: { key: "events", level: "view" } },
   { prefix: "/dashboard/products", rule: { key: "events", level: "view" } },
   { prefix: "/dashboard/calendar", rule: { key: "schedule", level: "view" } },
+  { prefix: "/dashboard/communication", rule: { key: "messages", level: "view" } },
   { prefix: "/dashboard/messages", rule: { key: "messages", level: "view" } },
   { prefix: "/dashboard/announcements", rule: { key: "messages", level: "view" } },
   { prefix: "/dashboard/attendance", rule: { key: "attendance", level: "edit" } },

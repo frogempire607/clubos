@@ -55,6 +55,7 @@ const NAV: NavItem[] = [
     children: [
       { id: "messages", label: "Messaging", href: "/dashboard/messages" },
       { id: "announcements", label: "Announcements", href: "/dashboard/announcements" },
+      { id: "campaigns", label: "Campaigns", href: "/dashboard/communication/campaigns" },
     ],
   },
   { id: "attendance", label: "Attendance", icon: "✓", href: "/dashboard/attendance" },

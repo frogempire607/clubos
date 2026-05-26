@@ -40,6 +40,15 @@ export default function MemberAnnouncementsPage() {
       });
   }, []);
 
+  async function openAnnouncement(announcement: Announcement) {
+    setOpen(announcement);
+    await fetch(`/api/member/announcements/${announcement.id}/engagement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "open" }),
+    }).catch(() => {});
+  }
+
   return (
     <>
       <div className="mb-6">
@@ -62,7 +71,7 @@ export default function MemberAnnouncementsPage() {
             return (
               <button
                 key={a.id}
-                onClick={() => setOpen(a)}
+                onClick={() => openAnnouncement(a)}
                 className="w-full text-left bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
               >
                 <div className="flex items-start justify-between gap-3 mb-1">

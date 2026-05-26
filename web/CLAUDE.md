@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-02 (Bug fixes: calendar refetch, per-occurrence class edit, multi-file staff docs, error UX, branded app restore)
+Last updated: 2026-06-03 (Campaigns foundation, communication engagement/read receipts, product type system)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -112,6 +112,7 @@ Current dashboard sidebar structure:
 - Communication
   - Messaging
   - Announcements
+  - Campaigns
 - Attendance
 - Financials
 - Reports
@@ -151,6 +152,7 @@ Dashboard pages:
 - `/dashboard/calendar` — unified Events + Classes + Private Lessons monthly grid with kind + subtype filters
 - `/dashboard/messages`
 - `/dashboard/announcements`
+- `/dashboard/communication/campaigns` — campaign analytics shell with KPIs, lead source breakdown, funnel/stage tracking, revenue attribution, and campaign activity foundation
 - `/dashboard/attendance`
 - `/dashboard/financials`
 - `/dashboard/reports` — KPI cards, revenue chart, breakdowns, top events, CSV exports (gated by tier)
@@ -237,6 +239,8 @@ Messaging/documents:
 - `/api/messages/dm`, `/api/messages/dm/[userId]`
 - `/api/messages/groups`, `/api/messages/groups/[id]`
 - `/api/announcements`, `/api/announcements/[id]` — broadcast emails gated on `emailSms` tier flag
+- `/api/announcements/[id]/engagement` — owner/staff engagement detail for a specific announcement (seen/opened/clicked member list)
+- `/api/campaigns/overview?range=…` — communication/campaign dashboard analytics from member lead fields, transactions, and campaign attribution rows
 - `/api/documents`, `/api/documents/[id]` — schema accepts `signatureValidForDays`
 - `/api/documents/[id]/signatures` — owner audit trail listing every signature on a document
 
@@ -280,6 +284,7 @@ Member-side:
 - `/api/member/club` — public club info for portal (logo, tagline, aboutUs)
 - `/api/member/staff` — visible staff (only `showOnPortal=true`)
 - `/api/member/announcements`
+- `/api/member/announcements/[id]/engagement` — records member portal announcement opens/clicks
 - `/api/member/documents?memberId=…` — context-aware; returns docs + signature status for a given accessible member (self or linked child); signature includes `expiresAt`/`expired` based on `signatureValidForDays`
 - `/api/member/documents/[id]/sign` — POST persists a `DocumentSignature` with relationship (SELF | GUARDIAN), IP, user agent; enforces that minors can't self-sign guardian-required docs
 - `/api/member/messages`, `.../dm/[userId]`, `.../groups/[id]`
@@ -300,7 +305,8 @@ Core models currently present:
 - Members/family: `Member`, `Guardian`, `MemberGuardianUser`
 - Purchase options: `Membership`, `MemberSubscription`, `Discount`, `Product`, `ProductSale`
 - Classes/events: `RecurringClass`, `ClassSession`, `Event`, `EventSession`, `Booking`, `ClubEventType`, `AttendanceRecord`, `EventStaffAssignment`
-- Messaging/announcements: `Message`, `MessageGroup`, `MessageGroupMember`, `GroupMessage`, `Announcement`
+- Messaging/announcements: `Message`, `MessageGroup`, `MessageGroupMember`, `GroupMessage`, `GroupMessageReceipt`, `Announcement`, `AnnouncementEngagement`
+- Campaigns/lead attribution: `Campaign`, `CampaignAttribution`; `Member` carries lightweight `leadSource`, `leadStage`, `leadSourceUpdatedAt`
 - Documents/settings: `Document`, `DocumentSignature`, `CustomField`, `ClubProfile`, `LegalEntity`, `DonationLink`
 - Financials: `Transaction`, `Expense`
 - Private lessons/staff: `PrivateLessonType`, `PrivatePackage`, `PrivateCreditLedger`, `PrivateBooking`, `PrivateLessonPayRate`, `StaffAvailability`, `StaffAvailabilityException`
@@ -312,6 +318,9 @@ Notable model fields added since 2026-05-03:
 - `Membership.trialEnabled Boolean`, `trialDays Int?`, `trialAppliesToReturning Boolean`
 - `RecurringClass.dayOverrides Json` — `[{ dayOfWeek, startTime, endTime }, …]` — overrides default start/end times on specific days
 - `Club.subscriptionStatus String?`, `stripeSubscriptionId String? @unique` (used for platform-side billing)
+- `Product.productType`, `visibility`, `showLocation`, `taxable`, `internalNotes`, `settings` — product type system foundation for gear, rentals, birthday packages, digital items, and custom products
+- `AnnouncementEngagement` + `GroupMessageReceipt` — shared communication engagement layer for announcement seen/open/click data and group-message read receipts
+- `Campaign` + `CampaignAttribution`, plus member lead fields — campaign analytics/revenue attribution foundation
 
 Migration folders currently present:
 
@@ -346,10 +355,13 @@ Migration folders currently present:
 - `20260531000000_staff_documents` — `StaffDocument` table (owner-uploaded tax docs / contracts / agreements per staff user, with sharedWithStaff visibility flag)
 - `20260601000000_private_packages_multi_types` — `PrivatePackage.lessonTypeIds` (JSONB) for multi-type packages
 - `20260602000000_package_discounts_bonus_thresholds` — `PrivatePackage.pricingMode` (FLAT | PERCENT | FIXED) + `discountValue` (Decimal?); `CompensationBonus.minThreshold` + `maxThreshold` (Int?)
+- `20260603000000_campaigns_lead_attribution` — `Campaign`, `CampaignAttribution`, and member lead source/stage fields
+- `20260603010000_communication_engagement` — `AnnouncementEngagement` and `GroupMessageReceipt`
+- `20260603020000_product_type_system` — product type/visibility/show-location/taxable/internal-notes/settings fields on `Product`
 
 Current migration status:
 
-- `npx prisma migrate status` reports the database schema is up to date.
+- `npx prisma migrate status` currently fails locally with a bare `Schema engine error:` even though direct `psql` checks work and the additive 20260603 migrations were applied locally.
 - `npx prisma validate` passes.
 - New libs: `lib/permissions.ts`, `lib/apiGuard.ts`, `lib/fees.ts`, `lib/financials.ts`, `lib/financialReports.ts`, `lib/migration.ts`, `lib/migrationServer.ts`, `lib/memberLink.ts`, `lib/dashboardWidgets.ts`, `lib/datetime.ts`, `lib/activeProfile.ts`, `lib/categoryMatcher.ts`, `lib/privatePartners.ts`, `lib/memberMessaging.ts`, `lib/eventTypeColors.ts`.
 - Major additions this cycle: member-portal club branding + auto-link, event mass-invoicing + tournament pricing fix, customizable dashboard, Guest/Contractor management, staff roles/permissions + restricted staff view, per-occurrence class schedule edits, Member Migration wizard, new 3-tier pricing + pass-through fees, Financial OS, attendance cash/comp/invoice for non-members.
@@ -426,6 +438,14 @@ Current migration status:
 - `/dashboard/reports` with KPI cards (revenue / net / new members / attendance), 12-month revenue bar chart, breakdowns (revenue by source, members by status, subscriptions, attendance, top events, expenses by category), and CSV export links for members / attendance / transactions.
 - `/api/reports/overview` is tier-gated (Starter blocked); reports page shows an upgrade CTA when 403'd.
 
+### Campaigns & communication engagement
+- `/dashboard/communication/campaigns` is a first-pass Campaigns dashboard under the existing Communication group. It includes KPI cards (New Leads, Intro Offers Sold, First Time Bookings, Clients Won Back, Marketing Revenue), Leads by Source donut/table, Leads by Stage funnel, Revenue Attribution, and Campaign Activity empty state.
+- Data architecture is real, not UI-only: `Campaign` stores campaign metadata (type/status/dates/audience/channel plan/revenue + lead attribution mode), and `CampaignAttribution` can link campaigns to members and transactions. `Member.leadSource/leadStage` provide a lightweight attribution foundation until owner-editable CRM flows exist.
+- `/api/campaigns/overview` computes fallback analytics from existing members and transactions. SMS/push are marked as future-ready hooks only; there is no fake SMS/push delivery.
+- Announcements now have per-user engagement via `AnnouncementEngagement`: member announcement list marks `seen`, opening the announcement marks `opened`, and the owner Announcements page shows seen/opened/clicked counts plus an Engagement modal listing members.
+- Group messages now have per-user `GroupMessageReceipt` rows when users open a group thread. Group-message bubbles show "Read X" for messages the current user sent.
+- Direct messages already had `Message.readAt`; UI now surfaces Sent/Read for sent DMs.
+
 ### Staff scheduling, availability, payroll
 - `/dashboard/staff/availability` — pick a staff member, edit per-day recurring slots, add/remove date exceptions (`UNAVAILABLE` or `PARTIAL` with modified hours).
 - `/dashboard/staff/schedule` — weekly grid (Sun-Sat columns × staff rows) showing availability windows, class assignments (expanded from `RecurringClass.assignedStaffIds`), event assignments (`EventStaffAssignment`), and date exceptions. Prev / This week / Next nav.
@@ -438,6 +458,14 @@ Current migration status:
 - **Bonus thresholds**: every bonus row now supports optional `minThreshold` / `maxThreshold` (Int?). The engine in `lib/compensation.ts` only pays for the slice of items *above* min and *up to* max — e.g. "bonus starts after 10 athletes, caps at 25". REVENUE_SHARE applies the same slice to qualifying items in collection order so dollar revenue reflects the same window. Editor fields are surfaced under each bonus card on `/dashboard/staff`.
 - **Tier-aware private packages**: `PrivatePackage.pricingMode` + `discountValue` let a package describe a per-lesson discount instead of a flat total — PERCENT (% off each tier price) or FIXED ($ off each tier price). The package modal shows a live tier-by-tier pricing preview, and the Assign Package modal picks lesson type + coach tier and shows the computed total. `lib/privateLessonRules.ts` exposes `packageTotalForBasePrice()` and `pricePerLessonAfterDiscount()` so the booking + member-side purchase flows can compute the correct prepaid total for the chosen tier. Legacy `FLAT` mode continues to honor the stored `price` field.
 - **Payroll in Financials/Reports (Phase 6)**: `lib/payroll.ts` computes staff payout totals from the same compensation engine used by Payroll/Payouts. Reports and Financials fold computed staff payroll plus contractor payments into the `PAYROLL` expense category so owners do not have to manually enter payroll for accurate net/expense reporting.
+
+### Product type system
+- Sidebar remains **Purchase Options → Products**. Do not rename Products.
+- `Product` now supports `productType` values: `GEAR`, `FACILITY_RENTAL`, `BIRTHDAY_PARTY`, `DIGITAL`, `OTHER`.
+- Product metadata fields: `visibility` (`MEMBERS_ONLY`, `PUBLIC_ONLY`, `MEMBERS_AND_PUBLIC`, `INTERNAL_ONLY`), `showLocation` (`MEMBER_PORTAL`, `PUBLIC_CHECKOUT`, `INTERNAL_ONLY`), `taxable`, `internalNotes`, and flexible JSON `settings`.
+- Owner Products form starts with product type selection and conditionally shows relevant first-pass sections: gear inventory/low-stock basics, rental/party booking-summary capture, digital delivery instructions, custom questions, visibility, taxable, and advanced/internal notes.
+- Existing gear/product sales remain backed by `ProductSale` and Stripe/manual sale routes. Member store filters out internal/public-only products and blocks rental/party types from old instant checkout until the product booking/request model is built.
+- Full rental/party booking records, variant-level inventory, public checkout links, and digital file delivery are not complete yet.
 
 ### Stripe / billing / file storage
 - Stripe Connect (member → club) onboarding, status sync, dashboard redirect, Checkout, webhook flows.

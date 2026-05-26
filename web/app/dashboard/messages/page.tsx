@@ -15,6 +15,8 @@ type GroupMessage = {
   body: string;
   createdAt: string;
   sender: { id: string; firstName: string; lastName: string };
+  readCount?: number;
+  readByMe?: boolean;
 };
 
 type MessageGroup = {
@@ -67,6 +69,7 @@ type DMMessage = {
   id: string;
   body: string;
   createdAt: string;
+  readAt?: string | null;
   sender: { id: string; firstName: string; lastName: string };
 };
 
@@ -443,6 +446,7 @@ function GroupsTab() {
                                 <p>{m.body}</p>
                                 <p className="text-[10px] mt-1 text-text-muted">
                                   {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                                  {mine && typeof m.readCount === "number" ? ` · Read ${m.readCount}` : ""}
                                 </p>
                               </div>
                             </div>
@@ -871,6 +875,7 @@ function DMsTab() {
                         <p>{m.body}</p>
                         <p className="text-[10px] mt-1 text-text-muted">
                           {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                          {mine ? ` · ${m.readAt ? "Read" : "Sent"}` : ""}
                         </p>
                       </div>
                     </div>

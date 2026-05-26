@@ -111,6 +111,8 @@ model Club {
   // Any missing key falls back to the hardcoded defaults. Custom
   // ClubEventType colors take precedence over both.
   builtInEventColors       Json?
+  campaigns                  Campaign[]
+  campaignAttributions       CampaignAttribution[]
   // JSON array of {label, url} pairs (Instagram, Facebook, YouTube, …)
   socialLinks              Json      @default("[]")
   // JSON map of {monday: "9-5", tuesday: "...", ...} or free-form blob
@@ -126,6 +128,8 @@ model Club {
   events                      Event[]
   messages                    Message[]
   announcements               Announcement[]
+  announcementEngagements     AnnouncementEngagement[]
+  groupMessageReceipts        GroupMessageReceipt[]
   transactions                Transaction[]
   documents                   Document[]
   customFields                CustomField[]
@@ -214,8 +218,10 @@ model User {
   guardianOf              MemberGuardianUser[]         @relation("GuardianLink")
   sentMessages            Message[]                    @relation("Sender")
   receivedMessages        Message[]                    @relation("Recipient")
+  announcementEngagements AnnouncementEngagement[]
   messageGroupMemberships MessageGroupMember[]
   sentGroupMessages       GroupMessage[]               @relation("GroupSender")
+  groupMessageReceipts    GroupMessageReceipt[]
   availability            StaffAvailability[]
   availabilityExceptions  StaffAvailabilityException[]
   eventAssignments        EventStaffAssignment[]
@@ -316,6 +322,11 @@ model Member {
   gender               String?
   stripeCustomerId     String?
   profileImageUrl      String?
+  // Lightweight lead attribution for the Campaigns dashboard. Defaults keep
+  // existing members in the funnel without forcing owners to classify them.
+  leadSource           String       @default("UNKNOWN")
+  leadStage            String       @default("NEW")
+  leadSourceUpdatedAt  DateTime?
   // Minor / guardian fields
   isMinor              Boolean      @default(false)
   guardianName         String?
@@ -397,6 +408,7 @@ model Member {
   documentSignatures DocumentSignature[]
   eventRegistrations EventRegistration[]
   migrationEvents    MemberMigrationEvent[]
+  campaignAttributions CampaignAttribution[]
   relationshipsFrom  MemberRelationship[] @relation("RelationshipFrom")
   relationshipsTo    MemberRelationship[] @relation("RelationshipTo")
 
@@ -792,10 +804,35 @@ model Announcement {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club        Club                     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  engagements AnnouncementEngagement[]
 
   @@index([clubId])
   @@map("announcements")
+}
+
+model AnnouncementEngagement {
+  id             String    @id @default(cuid())
+  clubId         String
+  announcementId String
+  userId         String
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  openedAt       DateTime?
+  openCount      Int       @default(0)
+  clickedAt      DateTime?
+  clickCount     Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  club         Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([clubId])
+  @@index([userId])
+  @@map("announcement_engagements")
 }
 
 model Transaction {
@@ -834,11 +871,66 @@ model Transaction {
   club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
   member      Member?      @relation(fields: [memberId], references: [id])
   legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
+  campaignAttributions CampaignAttribution[]
 
   @@index([clubId])
   @@index([memberId])
   @@index([legalEntityId])
   @@map("transactions")
+}
+
+model Campaign {
+  id                    String    @id @default(cuid())
+  clubId                String
+  name                  String
+  type                  String
+  status                String    @default("DRAFT") // DRAFT | ACTIVE | SCHEDULED | COMPLETED
+  startAt               DateTime?
+  endAt                 DateTime?
+  audienceFilters       Json      @default("{}")
+  linkedAnnouncementIds Json      @default("[]")
+  linkedMessageGroupIds Json      @default("[]")
+  channelPlan           Json      @default("[]") // email/app now; sms/push future
+  revenueAttribution    String    @default("AUTO")
+  leadAttribution       String    @default("AUTO")
+  notes                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  club         Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  attributions CampaignAttribution[]
+
+  @@index([clubId])
+  @@index([status])
+  @@map("campaigns")
+}
+
+model CampaignAttribution {
+  id            String    @id @default(cuid())
+  clubId        String
+  campaignId    String?
+  memberId      String?
+  transactionId String?
+  source        String    @default("UNKNOWN")
+  stage         String    @default("NEW")
+  revenueAmount Decimal?  @db.Decimal(10, 2)
+  firstTouchAt  DateTime  @default(now())
+  lastTouchAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  campaign    Campaign?    @relation(fields: [campaignId], references: [id])
+  member      Member?      @relation(fields: [memberId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@index([clubId])
+  @@index([campaignId])
+  @@index([memberId])
+  @@index([source])
+  @@index([stage])
+  @@map("campaign_attributions")
 }
 
 model Document {
@@ -1039,11 +1131,33 @@ model GroupMessage {
   body      String
   createdAt DateTime @default(now())
 
-  group  MessageGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  sender User         @relation("GroupSender", fields: [senderId], references: [id], onDelete: Cascade)
+  group    MessageGroup          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender   User                  @relation("GroupSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receipts GroupMessageReceipt[]
 
   @@index([groupId])
   @@map("group_messages")
+}
+
+model GroupMessageReceipt {
+  id             String   @id @default(cuid())
+  clubId         String
+  groupId        String
+  groupMessageId String
+  userId         String
+  readAt         DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  club    Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  message GroupMessage @relation(fields: [groupMessageId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupMessageId, userId])
+  @@index([clubId])
+  @@index([groupId])
+  @@index([userId])
+  @@map("group_message_receipts")
 }
 
 model ClubProfile {
@@ -1138,8 +1252,14 @@ model Product {
   description    String?
   price          Decimal   @db.Decimal(10, 2)
   category       String    @default("OTHER") // GEAR | APPAREL | FACILITY | SERVICE | OTHER
+  productType    String    @default("GEAR") // GEAR | FACILITY_RENTAL | BIRTHDAY_PARTY | DIGITAL | OTHER
   imageUrl       String?
   active         Boolean   @default(true)
+  visibility     String    @default("MEMBERS_AND_PUBLIC") // MEMBERS_ONLY | PUBLIC_ONLY | MEMBERS_AND_PUBLIC | INTERNAL_ONLY
+  showLocation   String    @default("MEMBER_PORTAL") // MEMBER_PORTAL | PUBLIC_CHECKOUT | INTERNAL_ONLY
+  taxable        Boolean   @default(false)
+  internalNotes  String?
+  settings       Json      @default("{}")
   trackInventory Boolean   @default(false)
   inventory      Int?
   deletedAt      DateTime?

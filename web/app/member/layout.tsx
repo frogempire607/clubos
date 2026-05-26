@@ -10,7 +10,7 @@ import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 const NAV = [
   { href: "/member",           label: "Home",      icon: HomeIcon,      exact: true  },
   { href: "/member/messages",  label: "Messages",  icon: MessageIcon,   exact: false },
-  { href: "/member/bookings",  label: "Bookings",  icon: BookingIcon,   exact: false },
+  { href: "/member/schedule",  label: "Schedule",  icon: BookingIcon,   exact: false },
   { href: "/member/documents", label: "Documents", icon: DocumentIcon,  exact: false },
   { href: "/member/profile",   label: "Profile",   icon: ProfileIcon,   exact: false },
 ];
@@ -316,7 +316,7 @@ function buildPortalNav(config: BrandedAppConfig | null | undefined) {
   if (!config) return NAV;
   const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean }> = {
     book: { href: "/member/shop", icon: HomeIcon, exact: false },
-    schedule: { href: "/member/bookings", icon: BookingIcon, exact: false },
+    schedule: { href: "/member/schedule", icon: BookingIcon, exact: false },
     store: { href: "/member/products", icon: StoreIcon, exact: false },
     videos: { href: "/member/shop", icon: VideoIcon, exact: false },
     more: { href: "/member/profile", icon: ProfileIcon, exact: false },

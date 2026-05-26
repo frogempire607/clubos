@@ -234,7 +234,14 @@ function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) 
     const res = await fetch("/api/club/update", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, slug, sport: sport || null, tagline: tagline || null, primaryColor }),
+      body: JSON.stringify({
+        name,
+        slug,
+        sport: sport || null,
+        tagline: tagline || null,
+        primaryColor,
+        logoUrl: logoUrl || null,
+      }),
     });
     setSaving(false);
     if (!res.ok) {

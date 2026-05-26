@@ -27,13 +27,42 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const group = await requireMembership(params.id, session.user.id, session.user.clubId);
   if (!group) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const messageIds = await prisma.groupMessage.findMany({
+    where: { groupId: params.id },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, senderId: true },
+  });
+
+  const readableMessages = messageIds.filter((message) => message.senderId !== session.user.id);
+  if (readableMessages.length > 0) {
+    await prisma.groupMessageReceipt.createMany({
+      data: readableMessages.map((message) => ({
+        clubId: session.user.clubId,
+        groupId: params.id,
+        groupMessageId: message.id,
+        userId: session.user.id,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   const messages = await prisma.groupMessage.findMany({
     where: { groupId: params.id },
     orderBy: { createdAt: "asc" },
-    include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+    include: {
+      sender: { select: { id: true, firstName: true, lastName: true } },
+      receipts: { select: { userId: true, readAt: true } },
+    },
   });
 
-  return NextResponse.json({ group, messages });
+  return NextResponse.json({
+    group,
+    messages: messages.map(({ receipts, ...message }) => ({
+      ...message,
+      readCount: receipts.length,
+      readByMe: receipts.some((receipt) => receipt.userId === session.user.id),
+    })),
+  });
 }
 
 const sendSchema = z.object({ body: z.string().min(1) });

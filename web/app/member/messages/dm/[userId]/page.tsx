@@ -9,6 +9,7 @@ type Msg = {
   id: string;
   body: string;
   createdAt: string;
+  readAt?: string | null;
   senderId: string;
   sender: { id: string; firstName: string; lastName: string };
 };
@@ -126,6 +127,7 @@ export default function MemberDmThreadPage() {
                       <div className="whitespace-pre-wrap">{m.body}</div>
                       <div className={`text-[10px] mt-0.5 ${mine ? "text-stone-400" : "text-stone-500"}`}>
                         {fmtTime(m.createdAt)}
+                        {mine ? ` · ${m.readAt ? "Read" : "Sent"}` : ""}
                       </div>
                     </div>
                   </div>
