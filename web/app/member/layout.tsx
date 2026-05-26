@@ -8,11 +8,12 @@ import ProfileSwitcher from "@/components/member/ProfileSwitcher";
 import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 
 const NAV = [
-  { href: "/member",           label: "Home",      icon: HomeIcon,      exact: true  },
-  { href: "/member/messages",  label: "Messages",  icon: MessageIcon,   exact: false },
-  { href: "/member/schedule",  label: "Schedule",  icon: BookingIcon,   exact: false },
-  { href: "/member/documents", label: "Documents", icon: DocumentIcon,  exact: false },
-  { href: "/member/profile",   label: "Profile",   icon: ProfileIcon,   exact: false },
+  { href: "/member",              label: "Home",      icon: HomeIcon,         exact: true  },
+  { href: "/member/schedule",     label: "Schedule",  icon: BookingIcon,      exact: false },
+  { href: "/member/messages",     label: "Messages",  icon: MessageIcon,      exact: false },
+  { href: "/member/announcements", label: "News",     icon: AnnouncementIcon, exact: false },
+  { href: "/member/documents",    label: "Docs",      icon: DocumentIcon,     exact: false },
+  { href: "/member/profile",      label: "Profile",   icon: ProfileIcon,      exact: false },
 ];
 
 type ClubInfo = {
@@ -294,6 +295,13 @@ function BookingIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
       <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
+    </svg>
+  );
+}
+function AnnouncementIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <path d="M18 3a1 1 0 00-1.447-.894L8.763 6H5a3 3 0 000 6h.28l1.771 5.316A1 1 0 008 18h1a1 1 0 001-1v-4.382l6.553 3.276A1 1 0 0018 15V3z" />
     </svg>
   );
 }

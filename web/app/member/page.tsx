@@ -310,7 +310,17 @@ function AdultAthleteView({ data }: { data: PortalData }) {
         <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
           <p className="text-2xl mb-1">✓</p>
           <p className="text-sm font-medium text-stone-900">My Bookings</p>
-          <p className="text-xs text-stone-500">View registered sessions</p>
+          <p className="text-xs text-stone-500">Classes & events you&apos;re registered for</p>
+        </Link>
+        <Link href="/member/messages" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">✉</p>
+          <p className="text-sm font-medium text-stone-900">Messages</p>
+          <p className="text-xs text-stone-500">Conversations with your club</p>
+        </Link>
+        <Link href="/member/announcements" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">📣</p>
+          <p className="text-sm font-medium text-stone-900">Announcements</p>
+          <p className="text-xs text-stone-500">News and updates from your club</p>
         </Link>
         <Link href="/member/documents" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
           <p className="text-2xl mb-1">▤</p>
@@ -606,6 +616,21 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
           <p className="text-2xl mb-1">◷</p>
           <p className="text-sm font-medium text-stone-900">Schedule</p>
           <p className="text-xs text-stone-500">Browse classes and events</p>
+        </Link>
+        <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">✓</p>
+          <p className="text-sm font-medium text-stone-900">My Bookings</p>
+          <p className="text-xs text-stone-500">Registered sessions</p>
+        </Link>
+        <Link href="/member/messages" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">✉</p>
+          <p className="text-sm font-medium text-stone-900">Messages</p>
+          <p className="text-xs text-stone-500">Conversations with your club</p>
+        </Link>
+        <Link href="/member/announcements" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">📣</p>
+          <p className="text-sm font-medium text-stone-900">Announcements</p>
+          <p className="text-xs text-stone-500">News from your club</p>
         </Link>
         <Link href="/member/documents" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
           <p className="text-2xl mb-1">▤</p>

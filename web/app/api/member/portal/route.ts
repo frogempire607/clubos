@@ -5,6 +5,25 @@ import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 
 async function fetchUser(userId: string) {
+  // Class registrations live in AttendanceRecord, not Booking, so we pull
+  // upcoming class sessions per-member separately and surface them as a
+  // sibling `classBookings` field on each accessible member. The member
+  // portal's "My Bookings" page merges them with the event bookings below.
+  const now = new Date();
+  const classWhere = {
+    classSessionId: { not: null },
+    status: { in: ["PRESENT", "LATE", "DROP_IN", "TRIAL"] },
+    classSession: { startsAt: { gte: now }, canceled: false },
+  };
+  const classInclude = {
+    classSession: {
+      include: {
+        recurringClass: {
+          select: { id: true, name: true, color: true, textColor: true, assignedStaffIds: true },
+        },
+      },
+    },
+  };
   return prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -19,6 +38,12 @@ async function fetchUser(userId: string) {
             where: { status: { in: ["CONFIRMED", "WAITLISTED"] } },
             include: { event: { include: { customEventType: true } } },
             orderBy: { event: { startsAt: "asc" } },
+            take: 20,
+          },
+          attendanceRecords: {
+            where: classWhere,
+            include: classInclude,
+            orderBy: { classSession: { startsAt: "asc" } },
             take: 20,
           },
           guardianLinks: {
@@ -36,6 +61,12 @@ async function fetchUser(userId: string) {
                 include: { event: { include: { customEventType: true } } },
                 orderBy: { event: { startsAt: "asc" } },
                 take: 10,
+              },
+              attendanceRecords: {
+                where: classWhere,
+                include: classInclude,
+                orderBy: { classSession: { startsAt: "asc" } },
+                take: 20,
               },
             },
           },

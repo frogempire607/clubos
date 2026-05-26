@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 type FormField = {
   id: string;
@@ -35,6 +37,7 @@ type PublicEvent = {
 export default function PublicEventPage() {
   const { slug } = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const [event, setEvent] = useState<PublicEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -127,6 +130,20 @@ export default function PublicEventPage() {
             </div>
           )}
           <span className="text-sm font-semibold text-stone-900">{event.club.name}</span>
+          <div className="ml-auto">
+            {session?.user ? (
+              <Link href="/member" className="text-xs px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50">
+                Member portal →
+              </Link>
+            ) : (
+              <Link
+                href={`/login?callbackUrl=${encodeURIComponent(`/e/${slug}`)}`}
+                className="text-xs px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50"
+              >
+                Member sign in
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
@@ -183,6 +200,29 @@ export default function PublicEventPage() {
             <span className="text-xs uppercase tracking-wider text-stone-400 font-medium">Cost</span>
             <span className="text-sm font-semibold text-stone-900">{event.priceLabel}</span>
           </div>
+          {/* Members get their own pricing through the portal. This banner
+              points them at the right surface so they don't double-pay at
+              the public non-member rate. */}
+          {session?.user?.role === "MEMBER" ? (
+            <div className="mt-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 flex items-center justify-between gap-2">
+              <span>You&apos;re signed in. Register from your member portal to use member pricing or your active membership.</span>
+              <Link href="/member/events" className="underline whitespace-nowrap" style={{ color: accent }}>
+                Open portal →
+              </Link>
+            </div>
+          ) : !session?.user ? (
+            <div className="mt-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700">
+              Already a member of {event.club.name}?{" "}
+              <Link
+                href={`/login?callbackUrl=${encodeURIComponent(`/e/${slug}`)}`}
+                className="underline"
+                style={{ color: accent }}
+              >
+                Sign in
+              </Link>{" "}
+              to use your member pricing.
+            </div>
+          ) : null}
         </div>
 
         {/* Status banners */}

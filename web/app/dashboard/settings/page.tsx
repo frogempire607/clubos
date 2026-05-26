@@ -21,6 +21,12 @@ type Club = {
   appFontFamily?: string | null;
   appTextAlign?: string | null;
   appHomeContent?: string | null;
+  memberBillingVisibility?: {
+    showPlan?: boolean;
+    showNextBilling?: boolean;
+    showPrice?: boolean;
+    showInvoices?: boolean;
+  } | null;
 };
 
 const SUB_STATUS_LABEL: Record<string, { label: string; bg: string; fg: string }> = {
@@ -111,7 +117,7 @@ type DonationLink = {
 };
 
 export default function SettingsPage() {
-  const [section, setSection] = useState<"profile" | "identity" | "plan" | "app" | "locations" | "notifications" | "security" | "legal" | "danger">("profile");
+  const [section, setSection] = useState<"profile" | "identity" | "plan" | "app" | "memberPortal" | "locations" | "notifications" | "security" | "legal" | "danger">("profile");
   const [club, setClub] = useState<Club | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,6 +141,7 @@ export default function SettingsPage() {
     { id: "identity", label: "Club Identity" },
     { id: "plan", label: "Plan & Billing" },
     { id: "app", label: "Branded App" },
+    { id: "memberPortal", label: "Member Portal" },
     { id: "locations", label: "Locations" },
     { id: "notifications", label: "Notifications" },
     { id: "security", label: "Security" },
@@ -202,6 +209,7 @@ export default function SettingsPage() {
           {section === "identity" && <IdentitySection />}
           {section === "plan" && club && <PlanSection club={club} onSaved={loadClub} />}
           {section === "app" && club && <BrandedAppSection club={club} onSaved={loadClub} />}
+          {section === "memberPortal" && club && <MemberPortalSection club={club} onSaved={loadClub} />}
           {section === "locations" && <LocationsSection locations={locations} onSaved={loadLocations} />}
           {section === "notifications" && club && <NotificationsSection prefs={club.notificationPrefs} />}
           {section === "security" && <SecuritySection />}
@@ -523,6 +531,112 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
       >
         Stripe diagnostics →
       </Link>
+    </div>
+  );
+}
+
+/* ─── Member Portal — owner controls for what members see ─── */
+
+function MemberPortalSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
+  // Owner toggles for which billing details show on /member/profile. All on
+  // by default; null/missing on the club row means "show everything".
+  const initial = club.memberBillingVisibility ?? {};
+  const [showPlan,        setShowPlan]        = useState<boolean>(initial.showPlan        ?? true);
+  const [showNextBilling, setShowNextBilling] = useState<boolean>(initial.showNextBilling ?? true);
+  const [showPrice,       setShowPrice]       = useState<boolean>(initial.showPrice       ?? true);
+  const [showInvoices,    setShowInvoices]    = useState<boolean>(initial.showInvoices    ?? true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    const res = await fetch("/api/club/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      // /api/club/update requires name + slug; we resend them so the request
+      // validates without touching them.
+      body: JSON.stringify({
+        name: club.name,
+        slug: club.slug,
+        memberBillingVisibility: { showPlan, showNextBilling, showPrice, showInvoices },
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Save failed");
+      return;
+    }
+    setSaved(true);
+    onSaved();
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  const rows = [
+    { state: showPlan,        set: setShowPlan,        label: "Plan name",         desc: "Show the active membership name on the member's profile." },
+    { state: showNextBilling, set: setShowNextBilling, label: "Next billing date", desc: "Show when the next charge is scheduled." },
+    { state: showPrice,       set: setShowPrice,       label: "Plan price",        desc: "Show the recurring price of the plan." },
+    { state: showInvoices,    set: setShowInvoices,    label: "Invoice history",   desc: "Surface a 'View invoices' link to their Stripe billing portal." },
+  ];
+
+  return (
+    <div className="bg-white rounded-xl border border-app-border p-6 space-y-6">
+      <div>
+        <h2 className="text-base font-semibold text-text-primary mb-1">Member Portal</h2>
+        <p className="text-sm text-text-muted">
+          Control what members can see when they log in. Useful when you handle billing
+          offline and don&apos;t want members to see prices or charge dates.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary mb-2">Billing visibility</h3>
+        <p className="text-xs text-text-muted mb-3">
+          Owners and staff always see everything in the dashboard. These toggles only
+          affect what shows on <code className="px-1 py-0.5 bg-app-bg rounded text-[11px]">/member/profile</code>.
+        </p>
+        <div className="space-y-2">
+          {rows.map((row) => (
+            <label key={row.label} className="flex items-start gap-3 p-3 border border-app-border rounded-lg hover:bg-app-bg cursor-pointer">
+              <input
+                type="checkbox"
+                checked={row.state}
+                onChange={(e) => row.set(e.target.checked)}
+                className="mt-1"
+              />
+              <span className="flex-1">
+                <span className="text-sm font-medium text-text-primary block">{row.label}</span>
+                <span className="text-xs text-text-muted">{row.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-lg bg-app-bg border border-app-border p-3 text-xs text-text-muted">
+        Looking for more portal controls? <Link href="/dashboard/settings/club" className="underline text-text-primary">
+          Full club profile (banner, hours, contact, about)
+        </Link> · <Link href="/dashboard/settings/branded-app" className="underline text-text-primary">
+          Branded app appearance
+        </Link>
+      </div>
+
+      {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+      {saved && <div className="text-sm text-text-primary bg-lime-accent border border-lime-accent/40 rounded-lg px-3 py-2">Saved.</div>}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="px-5 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+      </div>
     </div>
   );
 }
