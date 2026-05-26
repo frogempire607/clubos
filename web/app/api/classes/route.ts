@@ -35,6 +35,7 @@ const createSchema = z.object({
   assignedStaffIds: z.array(z.string()).default([]),
   color: z.string().optional().nullable(),
   textColor: z.string().optional().nullable(),
+  visibility: z.enum(["PUBLIC", "MEMBERS_ONLY", "PRIVATE"]).optional(),
 });
 
 
@@ -93,6 +94,7 @@ export async function POST(req: Request) {
       assignedStaffIds: d.assignedStaffIds,
       color: d.color || null,
       textColor: d.textColor || null,
+      visibility: d.visibility ?? "MEMBERS_ONLY",
     },
   });
 

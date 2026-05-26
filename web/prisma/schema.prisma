@@ -1720,6 +1720,15 @@ model RecurringClass {
   // fall back to the generic class color in the calendar grid.
   color               String?
   textColor           String?
+  // Who can see this class on the member portal schedule.
+  //   PUBLIC        — visible to everyone (logged-in members + future
+  //                   public class-finder pages); coach is opting it into
+  //                   broad discovery
+  //   MEMBERS_ONLY  — visible to any signed-in club member regardless of
+  //                   whether they're enrolled in a covering plan
+  //   PRIVATE       — invite/roster only; hidden from the member schedule
+  // Defaults to MEMBERS_ONLY to preserve the existing behavior.
+  visibility          String    @default("MEMBERS_ONLY")
   active              Boolean   @default(true)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt

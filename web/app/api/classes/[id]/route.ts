@@ -33,6 +33,7 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
   color: z.string().optional().nullable(),
   textColor: z.string().optional().nullable(),
+  visibility: z.enum(["PUBLIC", "MEMBERS_ONLY", "PRIVATE"]).optional(),
 });
 
 async function findClass(id: string, clubId: string) {

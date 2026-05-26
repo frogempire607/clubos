@@ -17,7 +17,15 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
         orderBy: { createdAt: "asc" },
         include: {
           sender: { select: { id: true, firstName: true, lastName: true } },
-          receipts: { select: { userId: true, readAt: true } },
+          // Pull the reader name so owners/coaches can see WHO read each
+          // message and exactly WHEN.
+          receipts: {
+            select: {
+              userId: true,
+              readAt: true,
+              user: { select: { firstName: true, lastName: true } },
+            },
+          },
         },
       },
     },
@@ -44,6 +52,16 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       ...message,
       readCount: receipts.length,
       readByMe: receipts.some((receipt) => receipt.userId === session.user.id),
+      // Per-reader detail (with timestamp) so owners/coaches can see who
+      // saw the message and when.
+      readers: receipts
+        .filter((r) => r.user)
+        .map((r) => ({
+          userId: r.userId,
+          firstName: r.user!.firstName,
+          lastName: r.user!.lastName,
+          readAt: r.readAt,
+        })),
     })),
   });
 }

@@ -17,6 +17,7 @@ type GroupMessage = {
   sender: { id: string; firstName: string; lastName: string };
   readCount?: number;
   readByMe?: boolean;
+  readers?: { userId: string; firstName: string; lastName: string; readAt: string }[];
 };
 
 type MessageGroup = {
@@ -277,6 +278,9 @@ function GroupsTab() {
   const [groups, setGroups] = useState<MessageGroup[]>([]);
   const [activeGroup, setActiveGroup] = useState<MessageGroup | null>(null);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
+  // Per-message "Read N" expand toggle so coaches can see which member read
+  // the broadcast and when.
+  const [expandedReadersId, setExpandedReadersId] = useState<string | null>(null);
   const [msgBody, setMsgBody] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -446,8 +450,40 @@ function GroupsTab() {
                                 <p>{m.body}</p>
                                 <p className="text-[10px] mt-1 text-text-muted">
                                   {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                                  {mine && typeof m.readCount === "number" ? ` · Read ${m.readCount}` : ""}
+                                  {mine && typeof m.readCount === "number" && m.readCount > 0 ? (
+                                    <>
+                                      {" · "}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedReadersId(
+                                            expandedReadersId === m.id ? null : m.id,
+                                          )
+                                        }
+                                        className={`underline ${mine ? "text-white/80 hover:text-white" : "hover:text-text-primary"}`}
+                                      >
+                                        Read {m.readCount}
+                                      </button>
+                                    </>
+                                  ) : mine && typeof m.readCount === "number" ? (
+                                    " · Sent"
+                                  ) : null}
                                 </p>
+                                {mine && expandedReadersId === m.id && m.readers && m.readers.length > 0 && (
+                                  <ul className={`mt-1 text-[10px] space-y-0.5 ${mine ? "text-white/80" : "text-text-muted"}`}>
+                                    {m.readers.map((r) => (
+                                      <li key={r.userId}>
+                                        {r.firstName} {r.lastName} ·{" "}
+                                        {new Date(r.readAt).toLocaleString("en-US", {
+                                          month: "short",
+                                          day: "numeric",
+                                          hour: "numeric",
+                                          minute: "2-digit",
+                                        })}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -875,7 +911,18 @@ function DMsTab() {
                         <p>{m.body}</p>
                         <p className="text-[10px] mt-1 text-text-muted">
                           {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                          {mine ? ` · ${m.readAt ? "Read" : "Sent"}` : ""}
+                          {mine
+                            ? ` · ${
+                                m.readAt
+                                  ? `Read ${new Date(m.readAt).toLocaleString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      hour: "numeric",
+                                      minute: "2-digit",
+                                    })}`
+                                  : "Sent"
+                              }`
+                            : ""}
                         </p>
                       </div>
                     </div>

@@ -25,6 +25,7 @@ type RecurringClass = {
   assignedStaffIds?: string[];
   color?: string | null;
   textColor?: string | null;
+  visibility?: string | null;
   active: boolean;
   locationId: string | null;
   location: { name: string } | null;
@@ -113,6 +114,7 @@ type FormData = {
   assignedStaffIds: string[];
   color: string;
   textColor: string;
+  visibility: "PUBLIC" | "MEMBERS_ONLY" | "PRIVATE";
 };
 
 const emptyForm = (): FormData => ({
@@ -136,6 +138,7 @@ const emptyForm = (): FormData => ({
   assignedStaffIds: [],
   color: "",
   textColor: "",
+  visibility: "MEMBERS_ONLY",
 });
 
 function formFromClass(c: RecurringClass): FormData {
@@ -167,6 +170,8 @@ function formFromClass(c: RecurringClass): FormData {
     assignedStaffIds: c.assignedStaffIds ?? [],
     color: c.color ?? "",
     textColor: c.textColor ?? "",
+    visibility:
+      (c.visibility as "PUBLIC" | "MEMBERS_ONLY" | "PRIVATE") ?? "MEMBERS_ONLY",
   };
 }
 
@@ -239,6 +244,7 @@ function ClassModal({
       assignedStaffIds: form.assignedStaffIds,
       color: form.color || null,
       textColor: form.textColor || null,
+      visibility: form.visibility,
     };
 
     const url = editing ? `/api/classes/${editing.id}` : "/api/classes";
@@ -585,6 +591,36 @@ function ClassModal({
               >
                 Default
               </button>
+            </div>
+          </div>
+
+          {/* Visibility — controls who sees this class on the member portal
+              schedule. PRIVATE = invite/roster only. */}
+          <div>
+            <label className="block text-xs font-medium text-text-primary mb-2">
+              Who can see this class
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { v: "PUBLIC", title: "Public", desc: "Anyone signed in can see it (members + future public discovery)." },
+                { v: "MEMBERS_ONLY", title: "Members only", desc: "Visible to your members on their schedule." },
+                { v: "PRIVATE", title: "Private", desc: "Hidden from the member schedule — invite/roster only." },
+              ] as const).map((opt) => {
+                const selected = form.visibility === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => set("visibility", opt.v)}
+                    className={`text-left px-3 py-2 rounded-lg border transition ${
+                      selected ? "border-brand bg-brand/10" : "border-app-border hover:bg-app-bg"
+                    }`}
+                  >
+                    <p className={`text-xs font-semibold ${selected ? "text-brand" : "text-text-primary"}`}>{opt.title}</p>
+                    <p className="text-[11px] text-text-muted mt-0.5">{opt.desc}</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

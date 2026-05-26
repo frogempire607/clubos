@@ -120,7 +120,13 @@ export async function GET(req: Request) {
         clubId,
         canceled: false,
         startsAt: { gte: now, lte: to },
-        recurringClass: { active: true, deletedAt: null },
+        recurringClass: {
+          active: true,
+          deletedAt: null,
+          // PRIVATE classes are invite/roster-only — hide from the member
+          // schedule. PUBLIC + MEMBERS_ONLY both show to signed-in members.
+          visibility: { in: ["PUBLIC", "MEMBERS_ONLY"] },
+        },
       },
       orderBy: { startsAt: "asc" },
       include: {
@@ -167,8 +173,12 @@ export async function GET(req: Request) {
     : [];
   const staffById = new Map(staff.map((u) => [u.id, `${u.firstName} ${u.lastName}`]));
 
+  // Member schedule shows CLASSES only — events live on the dedicated
+  // /member/events surface. We keep the events query so other downstream
+  // helpers don't break, but skip them in the items list.
+  const INCLUDE_EVENTS_IN_SCHEDULE = false;
   const items = [
-    ...events.flatMap((event) => {
+    ...(INCLUDE_EVENTS_IN_SCHEDULE ? events : []).flatMap((event) => {
       const acceptedMembershipIds = parsePricingOptions(event.pricingOptions)
         .filter((opt): opt is { type: "membership"; membershipId: string } => opt.type === "membership" && !!opt.membershipId)
         .map((opt) => opt.membershipId);

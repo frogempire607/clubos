@@ -37,8 +37,25 @@ type MeUser = {
 
 type PortalExtras = {
   user: {
-    memberProfile: { id: string; firstName: string; lastName: string; status: string } | null;
-    guardianOf: { member: { id: string; firstName: string; lastName: string; email: string | null; status: string } }[];
+    memberProfile: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      status: string;
+      dateOfBirth?: string | null;
+      isMinor?: boolean;
+    } | null;
+    guardianOf: {
+      member: {
+        id: string;
+        firstName: string;
+        lastName: string;
+        email: string | null;
+        status: string;
+        dateOfBirth?: string | null;
+        isMinor?: boolean;
+      };
+    }[];
   };
 };
 
@@ -374,6 +391,25 @@ export default function MemberProfilePage() {
                     </p>
                     <p className="text-xs text-stone-400">
                       {g.member.email || "No email on file"} · {g.member.status}
+                      {g.member.dateOfBirth ? (
+                        <>
+                          {" · DOB "}
+                          {new Date(g.member.dateOfBirth).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                          {(() => {
+                            const d = new Date(g.member.dateOfBirth);
+                            const now = new Date();
+                            let age = now.getFullYear() - d.getFullYear();
+                            const m = now.getMonth() - d.getMonth();
+                            if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+                            return ` (age ${age})`;
+                          })()}
+                        </>
+                      ) : null}
+                      {g.member.isMinor ? " · Minor" : null}
                     </p>
                   </div>
                   <button
