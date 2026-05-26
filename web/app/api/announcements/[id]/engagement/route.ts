@@ -40,6 +40,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       seen: rows.length,
       opened: rows.filter((row) => row.openedAt).length,
       clicked: rows.filter((row) => row.clickedAt).length,
+      linkClicks: rows.filter((row) => row.clickedAt).length,
     },
     members: rows.map((row) => ({
       userId: row.userId,

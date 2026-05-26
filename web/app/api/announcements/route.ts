@@ -36,6 +36,7 @@ export async function GET() {
         seen: engagements.length,
         opened: engagements.filter((e) => e.openedAt).length,
         clicked: engagements.filter((e) => e.clickedAt).length,
+        linkClicks: engagements.filter((e) => e.clickedAt).length,
       },
     })),
   );

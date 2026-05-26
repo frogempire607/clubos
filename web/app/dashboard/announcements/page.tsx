@@ -14,12 +14,13 @@ type Announcement = {
     seen: number;
     opened: number;
     clicked: number;
+    linkClicks?: number;
   };
 };
 
 type AnnouncementEngagement = {
   announcement: { id: string; title: string };
-  totals: { seen: number; opened: number; clicked: number };
+  totals: { seen: number; opened: number; clicked: number; linkClicks?: number };
   members: Array<{
     userId: string;
     name: string;
@@ -183,7 +184,9 @@ export default function AnnouncementsPage() {
                       {a.engagement && (
                         <span>
                           Seen {a.engagement.seen} · Opened {a.engagement.opened}
-                          {a.engagement.clicked > 0 ? ` · Clicked ${a.engagement.clicked}` : ""}
+                          {(a.engagement.linkClicks ?? a.engagement.clicked) > 0
+                            ? ` · Link clicks ${a.engagement.linkClicks ?? a.engagement.clicked}`
+                            : ""}
                         </span>
                       )}
                     </div>
@@ -261,7 +264,7 @@ function EngagementModal({
               {[
                 ["Seen", data.totals.seen],
                 ["Opened", data.totals.opened],
-                ["Clicked", data.totals.clicked],
+                ["Link clicks", data.totals.linkClicks ?? data.totals.clicked],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-app-border bg-app-bg p-3">
                   <p className="text-xs text-text-muted uppercase tracking-wide">{label}</p>
@@ -269,6 +272,9 @@ function EngagementModal({
                 </div>
               ))}
             </div>
+            <p className="text-xs text-text-muted">
+              Seen means the announcement was listed in the member portal. Opened means the member opened the announcement detail. Link clicks only count URL links inside the announcement body.
+            </p>
 
             {data.members.length === 0 ? (
               <div className="text-center py-10 text-sm text-text-muted border border-dashed border-app-border rounded-lg">
@@ -279,7 +285,7 @@ function EngagementModal({
                 <table className="w-full text-sm">
                   <thead className="bg-app-bg border-b border-app-border">
                     <tr>
-                      {["Member", "Status", "Seen", "Opened", "Clicked"].map((h) => (
+                      {["Member", "Status", "Seen", "Opened", "Link clicks"].map((h) => (
                         <th key={h} className="text-left text-xs text-text-muted uppercase tracking-wide px-3 py-2">{h}</th>
                       ))}
                     </tr>

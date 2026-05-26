@@ -81,6 +81,17 @@ function productTypeToCategory(type: ProductType): Category {
   return "OTHER";
 }
 
+function listToLines(value: unknown): string {
+  return Array.isArray(value) ? value.map((v) => String(v ?? "")).filter(Boolean).join("\n") : "";
+}
+
+function linesToList(value: string): string[] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,9 +236,28 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
   const [trackInventory, setTrackInventory] = useState(product?.trackInventory || false);
   const [inventory, setInventory] = useState(product?.inventory != null ? String(product.inventory) : "");
   const [lowStockAlertQuantity, setLowStockAlertQuantity] = useState(String(product?.settings?.lowStockAlertQuantity ?? ""));
+  const [variantOptions, setVariantOptions] = useState(listToLines(product?.settings?.variantOptions));
+  const [variantStock, setVariantStock] = useState(listToLines(product?.settings?.variantStock));
+  const [fulfillment, setFulfillment] = useState(String(product?.settings?.fulfillment ?? "PICKUP"));
   const [digitalInstructions, setDigitalInstructions] = useState(String(product?.settings?.digitalInstructions ?? ""));
-  const [bookingSummary, setBookingSummary] = useState(String(product?.settings?.bookingSummary ?? ""));
+  const [digitalAccess, setDigitalAccess] = useState(String(product?.settings?.digitalAccess ?? ""));
+  const [availableDays, setAvailableDays] = useState<string[]>(
+    Array.isArray(product?.settings?.availableDays) ? product!.settings!.availableDays as string[] : [],
+  );
+  const [timeWindows, setTimeWindows] = useState(listToLines(product?.settings?.timeWindows));
+  const [durationPrices, setDurationPrices] = useState(listToLines(product?.settings?.durationPrices));
+  const [bufferMinutes, setBufferMinutes] = useState(String(product?.settings?.bufferMinutes ?? ""));
+  const [capacityLimit, setCapacityLimit] = useState(String(product?.settings?.capacityLimit ?? ""));
+  const [requiresApproval, setRequiresApproval] = useState(!!product?.settings?.requiresApproval);
+  const [depositMode, setDepositMode] = useState(String(product?.settings?.depositMode ?? "FULL"));
+  const [depositAmount, setDepositAmount] = useState(String(product?.settings?.depositAmount ?? ""));
+  const [blackoutDates, setBlackoutDates] = useState(listToLines(product?.settings?.blackoutDates));
+  const [memberPrice, setMemberPrice] = useState(String(product?.settings?.memberPrice ?? ""));
+  const [packageTiers, setPackageTiers] = useState(listToLines(product?.settings?.packageTiers));
+  const [maxGuests, setMaxGuests] = useState(String(product?.settings?.maxGuests ?? ""));
+  const [addOns, setAddOns] = useState(listToLines(product?.settings?.addOns));
   const [customQuestions, setCustomQuestions] = useState(String(product?.settings?.customQuestions ?? ""));
+  const [otherRequiresApproval, setOtherRequiresApproval] = useState(!!product?.settings?.otherRequiresApproval);
   const [imageUrl, setImageUrl] = useState((product as any)?.imageUrl || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -249,9 +279,26 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
       internalNotes: internalNotes || null,
       settings: {
         lowStockAlertQuantity: lowStockAlertQuantity !== "" ? parseInt(lowStockAlertQuantity, 10) : null,
+        variantOptions: linesToList(variantOptions),
+        variantStock: linesToList(variantStock),
+        fulfillment,
         digitalInstructions: digitalInstructions || null,
-        bookingSummary: bookingSummary || null,
+        digitalAccess: digitalAccess || null,
+        availableDays,
+        timeWindows: linesToList(timeWindows),
+        durationPrices: linesToList(durationPrices),
+        bufferMinutes: bufferMinutes !== "" ? parseInt(bufferMinutes, 10) : null,
+        capacityLimit: capacityLimit !== "" ? parseInt(capacityLimit, 10) : null,
+        requiresApproval,
+        depositMode,
+        depositAmount: depositAmount !== "" ? parseFloat(depositAmount) : null,
+        blackoutDates: linesToList(blackoutDates),
+        memberPrice: memberPrice !== "" ? parseFloat(memberPrice) : null,
+        packageTiers: linesToList(packageTiers),
+        maxGuests: maxGuests !== "" ? parseInt(maxGuests, 10) : null,
+        addOns: linesToList(addOns),
         customQuestions: customQuestions || null,
+        otherRequiresApproval,
       },
       trackInventory: productType === "GEAR" ? trackInventory : false,
       inventory: productType === "GEAR" && trackInventory && inventory !== "" ? parseInt(inventory, 10) : null,
@@ -346,38 +393,128 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
               </div>
 
               {trackInventory && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-text-primary mb-1">Total stock quantity</label>
-                    <input type="number" min="0" value={inventory} onChange={(e) => setInventory(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary mb-1">Total stock quantity</label>
+                      <input type="number" min="0" value={inventory} onChange={(e) => setInventory(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary mb-1">Low-stock alert quantity</label>
+                      <input type="number" min="0" value={lowStockAlertQuantity} onChange={(e) => setLowStockAlertQuantity(e.target.value)} placeholder="3" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary mb-1">Variants/options</label>
+                      <textarea value={variantOptions} onChange={(e) => setVariantOptions(e.target.value)} rows={3} placeholder={"Size: Youth S, Youth M, Adult L\nColor: Black, White\nStyle: Short sleeve"} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                      <p className="text-xs text-text-muted mt-1">One option group per line.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary mb-1">Stock per variant</label>
+                      <textarea value={variantStock} onChange={(e) => setVariantStock(e.target.value)} rows={3} placeholder={"Youth S / Black: 8\nYouth M / Black: 10\nAdult L / White: 4"} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                      <p className="text-xs text-text-muted mt-1">Simple stock notes for staff until variant checkout is connected.</p>
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-text-primary mb-1">Low-stock alert quantity</label>
-                    <input type="number" min="0" value={lowStockAlertQuantity} onChange={(e) => setLowStockAlertQuantity(e.target.value)} placeholder="3" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                    <label className="block text-sm font-medium text-text-primary mb-1">Fulfillment</label>
+                    <select value={fulfillment} onChange={(e) => setFulfillment(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
+                      <option value="PICKUP">Pickup only</option>
+                      <option value="SHIPPING_FUTURE">Shipping later</option>
+                    </select>
                   </div>
-                </div>
+                </>
               )}
-              <p className="text-xs text-text-muted">Variant stock by size/color/style is reserved in settings for the next phase; pickup is the current fulfillment method.</p>
             </section>
           )}
 
-          {(productType === "FACILITY_RENTAL" || productType === "BIRTHDAY_PARTY") && (
+          {productType === "FACILITY_RENTAL" && (
             <section className="space-y-3 border-t border-app-border pt-5">
-              <p className="text-xs uppercase tracking-wide text-text-muted font-medium">
-                {productType === "FACILITY_RENTAL" ? "Booking settings" : "Package settings"}
-              </p>
+              <p className="text-xs uppercase tracking-wide text-text-muted font-medium">Facility rental settings</p>
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1">Available days</label>
+                <div className="flex flex-wrap gap-2">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => {
+                    const active = availableDays.includes(day);
+                    return (
+                      <button key={day} type="button" onClick={() => setAvailableDays((prev) => active ? prev.filter((d) => d !== day) : [...prev, day])} className={`px-3 py-1.5 rounded-full text-xs border ${active ? "bg-brand text-white border-brand" : "border-app-border text-text-muted hover:bg-app-bg"}`}>
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Time windows</label>
+                  <textarea value={timeWindows} onChange={(e) => setTimeWindows(e.target.value)} rows={3} placeholder={"Mon-Fri 4:00 PM-8:00 PM\nSat 9:00 AM-1:00 PM"} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Duration pricing</label>
+                  <textarea value={durationPrices} onChange={(e) => setDurationPrices(e.target.value)} rows={3} placeholder={"30 minutes: $40\n60 minutes: $75\n90 minutes: $110\n120 minutes: $140"} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Field label="Buffer minutes" value={bufferMinutes} onChange={setBufferMinutes} type="number" />
+                <Field label="Capacity limit" value={capacityLimit} onChange={setCapacityLimit} type="number" />
+                <Field label="Member price" value={memberPrice} onChange={setMemberPrice} type="number" step="0.01" />
+                <Field label="Deposit amount" value={depositAmount} onChange={setDepositAmount} type="number" step="0.01" />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="flex items-center gap-3 py-2 border border-app-border rounded-lg px-3">
+                  <input type="checkbox" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} className="rounded" />
+                  <span className="text-sm font-medium text-text-primary">Require owner/staff approval</span>
+                </label>
+                <select value={depositMode} onChange={(e) => setDepositMode(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
+                  <option value="FULL">Full payment</option>
+                  <option value="DEPOSIT">Deposit required</option>
+                  <option value="REQUEST_ONLY">Request approval first</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1">Blackout dates</label>
+                <textarea value={blackoutDates} onChange={(e) => setBlackoutDates(e.target.value)} rows={2} placeholder={"2026-07-04\n2026-12-25"} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+              </div>
+            </section>
+          )}
+
+          {productType === "BIRTHDAY_PARTY" && (
+            <section className="space-y-3 border-t border-app-border pt-5">
+              <p className="text-xs uppercase tracking-wide text-text-muted font-medium">Birthday party / rental package settings</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Package tiers</label>
+                  <textarea value={packageTiers} onChange={(e) => setPackageTiers(e.target.value)} rows={3} placeholder={"Basic: 60 minutes, $150\nPlus: 90 minutes, $225\nPremium: 120 minutes, $300"} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Add-ons</label>
+                  <textarea value={addOns} onChange={(e) => setAddOns(e.target.value)} rows={3} placeholder={"Extra 30 minutes: $75\nExtra coach: $50\nT-shirt package: $100"} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Field label="Max guests" value={maxGuests} onChange={setMaxGuests} type="number" />
+                <Field label="Deposit amount" value={depositAmount} onChange={setDepositAmount} type="number" step="0.01" />
+                <Field label="Buffer minutes" value={bufferMinutes} onChange={setBufferMinutes} type="number" />
+                <Field label="Capacity limit" value={capacityLimit} onChange={setCapacityLimit} type="number" />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="flex items-center gap-3 py-2 border border-app-border rounded-lg px-3">
+                  <input type="checkbox" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} className="rounded" />
+                  <span className="text-sm font-medium text-text-primary">Require staff approval</span>
+                </label>
+                <select value={depositMode} onChange={(e) => setDepositMode(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
+                  <option value="FULL">Full payment</option>
+                  <option value="DEPOSIT">Deposit required</option>
+                  <option value="REQUEST_ONLY">Request approval first</option>
+                </select>
+              </div>
               <textarea
-                value={bookingSummary}
-                onChange={(e) => setBookingSummary(e.target.value)}
-                rows={4}
-                placeholder={
-                  productType === "FACILITY_RENTAL"
-                    ? "Example: 30 min $40, 60 min $75, approval required, weekdays 4-8pm"
-                    : "Example: 60 min $150, 90 min $225, max 20 guests, add-ons available"
-                }
+                value={customQuestions}
+                onChange={(e) => setCustomQuestions(e.target.value)}
+                rows={3}
+                placeholder="Custom form questions, waiver notes, party theme, guest names, allergies..."
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
-              <p className="text-xs text-text-muted">This safely captures owner intent now; full date/time booking records come in the next rental phase.</p>
             </section>
           )}
 
@@ -391,6 +528,13 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
                 placeholder="Delivery instructions shown or sent after purchase."
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
+              <input
+                value={digitalAccess}
+                onChange={(e) => setDigitalAccess(e.target.value)}
+                placeholder="File/access note, existing file id, or external access instructions"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+              <p className="text-xs text-text-muted">Use existing private uploads/file IDs when attaching files; do not paste public upload paths.</p>
             </section>
           )}
 
@@ -404,6 +548,10 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
                 placeholder="Optional questions or notes for staff to collect."
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
+              <label className="flex items-center gap-3 py-2 border border-app-border rounded-lg px-3">
+                <input type="checkbox" checked={otherRequiresApproval} onChange={(e) => setOtherRequiresApproval(e.target.checked)} className="rounded" />
+                <span className="text-sm font-medium text-text-primary">Require approval before fulfilling</span>
+              </label>
             </section>
           )}
 
@@ -450,6 +598,33 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  step,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  step?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-text-primary mb-1">{label}</label>
+      <input
+        type={type}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+      />
     </div>
   );
 }

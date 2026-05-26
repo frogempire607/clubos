@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const schema = z.object({
-  action: z.enum(["open", "click"]).default("open"),
+  action: z.enum(["open", "click", "link_click"]).default("open"),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -22,7 +22,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const data = schema.parse(await req.json().catch(() => ({})));
   const now = new Date();
   const update =
-    data.action === "click"
+    data.action === "click" || data.action === "link_click"
       ? { lastSeenAt: now, clickedAt: now, clickCount: { increment: 1 } }
       : { lastSeenAt: now, openedAt: now, openCount: { increment: 1 } };
 
@@ -37,8 +37,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       lastSeenAt: now,
       openedAt: data.action === "open" ? now : null,
       openCount: data.action === "open" ? 1 : 0,
-      clickedAt: data.action === "click" ? now : null,
-      clickCount: data.action === "click" ? 1 : 0,
+      clickedAt: data.action === "click" || data.action === "link_click" ? now : null,
+      clickCount: data.action === "click" || data.action === "link_click" ? 1 : 0,
     },
   });
 

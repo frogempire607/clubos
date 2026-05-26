@@ -8,6 +8,12 @@ import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
 
+function optionCoachIds(option: Opt, eligibleCoachIds: string[], allCoachIds: string[]): string[] {
+  if (option.coachIds.length > 0) return option.coachIds;
+  if (eligibleCoachIds.length > 0) return eligibleCoachIds;
+  return allCoachIds;
+}
+
 // GET /api/member/privates — lesson types (+ price options), the coaches who
 // teach them, and this member's existing private bookings.
 export async function GET() {
@@ -200,20 +206,32 @@ export async function POST(req: Request) {
   const options = Array.isArray(lessonType.priceOptions)
     ? (lessonType.priceOptions as unknown as Opt[])
     : [];
+  const eligibleCoachIds = Array.isArray(lessonType.eligibleCoachIds)
+    ? (lessonType.eligibleCoachIds as unknown as string[])
+    : [];
+  const allCoachIds = (
+    await prisma.user.findMany({
+      where: { clubId, deletedAt: null, role: { in: ["OWNER", "STAFF"] } },
+      select: { id: true },
+    })
+  ).map((u) => u.id);
   const chosen = data.priceOptionId
     ? options.find((o) => o.id === data.priceOptionId) || null
     : null;
   if (data.priceOptionId && !chosen) {
     return NextResponse.json({ error: "That pricing option is no longer available." }, { status: 400 });
   }
-  if (
-    chosen &&
-    chosen.coachIds.length > 0 &&
-    data.coachId &&
-    !chosen.coachIds.includes(data.coachId)
-  ) {
+  if (options.length > 0 && !chosen) {
+    return NextResponse.json({ error: "Pick a valid pricing option for this private lesson." }, { status: 400 });
+  }
+  const validCoachIds = chosen
+    ? optionCoachIds(chosen, eligibleCoachIds, allCoachIds)
+    : eligibleCoachIds.length > 0
+      ? eligibleCoachIds
+      : allCoachIds;
+  if (data.coachId && !validCoachIds.includes(data.coachId)) {
     return NextResponse.json(
-      { error: "That coach isn't available for the selected option." },
+      { error: "That coach isn't available for the selected private lesson option." },
       { status: 400 },
     );
   }

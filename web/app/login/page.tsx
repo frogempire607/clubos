@@ -18,11 +18,17 @@ function LoginInner() {
   const [password, setPassword] = useState("");
   const [clubSlug, setClubSlug] = useState(searchParams.get("club") ?? "");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(
+    searchParams.get("memberRedirect") === "1"
+      ? "That login is a member account, so we sent it to the member portal."
+      : "",
+  );
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setNotice("");
     setLoading(true);
 
     const result = await signIn("credentials", {
@@ -43,7 +49,14 @@ function LoginInner() {
     const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
     const session = await sessionRes.json();
     const userRole = session?.user?.role;
-    router.replace(userRole === "MEMBER" ? "/member" : "/dashboard");
+    if (userRole === "MEMBER") {
+      if (role === "staff") {
+        setNotice("That is a member account. Redirecting to the member portal...");
+      }
+      router.replace(role === "staff" ? "/member?from=staff-login" : "/member");
+    } else {
+      router.replace("/dashboard");
+    }
     router.refresh();
   }
 
@@ -144,6 +157,11 @@ function LoginInner() {
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 {error}
+              </div>
+            )}
+            {notice && (
+              <div className="text-sm text-stone-700 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+                {notice}
               </div>
             )}
 
