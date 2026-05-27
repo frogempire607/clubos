@@ -83,15 +83,27 @@ export default function FinancialsPage() {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [entity, setEntity] = useState("all");
   const [preset, setPreset] = useState("ytd");
+  // Bank filter — shared across every Financials tab. Empty/"all" means
+  // include transactions/expenses from every bank connection.
+  const [bankConnections, setBankConnections] = useState<BankConnection[]>([]);
+  const [bank, setBank] = useState("all");
   const { from, to } = rangeFor(preset);
 
   useEffect(() => {
     fetch("/api/club/legal-entities")
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => setEntities(Array.isArray(d) ? d : []));
+    // Load Plaid connections so the bank dropdown can render labels. We
+    // tolerate 403 (Plaid tier-gated off) and just show no dropdown.
+    fetch("/api/plaid/connections")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.connections) setBankConnections(d.connections);
+      })
+      .catch(() => {});
   }, []);
 
-  const qs = `entity=${entity}&from=${from}&to=${to}`;
+  const qs = `entity=${entity}&from=${from}&to=${to}&bank=${bank}`;
 
   return (
     <div className="p-8 max-w-7xl">
@@ -111,6 +123,23 @@ export default function FinancialsPage() {
               <option key={en.id} value={en.id}>{en.name}{en.entityType === "NONPROFIT" ? " (Nonprofit)" : ""}</option>
             ))}
           </select>
+          {/* Bank filter — only shown when 2+ Plaid connections exist.
+              Scopes every Financials tab (Money In, Money Out, Donations,
+              Tax) to a single bank account via ?bank=<connectionId>. */}
+          {bankConnections.length > 1 && (
+            <select
+              value={bank}
+              onChange={(e) => setBank(e.target.value)}
+              className="text-sm px-3 py-2 border border-app-border rounded-lg bg-white"
+            >
+              <option value="all">All bank accounts</option>
+              {bankConnections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label || c.institutionName || "Bank"}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={preset}
             onChange={(e) => setPreset(e.target.value)}
@@ -139,7 +168,7 @@ export default function FinancialsPage() {
 
       {tab === "overview" && <OverviewTab qs={qs} />}
       {tab === "in" && <MoneyInTab qs={qs} entity={entity} entities={entities} />}
-      {tab === "out" && <MoneyOutTab entity={entity} entities={entities} />}
+      {tab === "out" && <MoneyOutTab entity={entity} entities={entities} bank={bank} bankConnections={bankConnections} />}
       {tab === "donations" && <DonationsTab qs={qs} entity={entity} entities={entities} />}
       {tab === "tax" && <TaxSummaryTab qs={qs} />}
       {tab === "stripe" && <StripeTab />}
@@ -453,7 +482,7 @@ function AssignTxModal({ tx, entities, onClose, onSaved }: { tx: Tx; entities: E
 }
 
 /* ── Money Out (expenses + receipts) ── */
-function MoneyOutTab({ entity, entities }: { entity: string; entities: Entity[] }) {
+function MoneyOutTab({ entity, entities, bank, bankConnections }: { entity: string; entities: Entity[]; bank: string; bankConnections: BankConnection[] }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -461,8 +490,8 @@ function MoneyOutTab({ entity, entities }: { entity: string; entities: Entity[] 
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch(`/api/expenses?entity=${entity}`).then((r) => (r.ok ? r.json() : [])).then((d) => { setExpenses(Array.isArray(d) ? d : []); setLoading(false); });
-  }, [entity]);
+    fetch(`/api/expenses?entity=${entity}&bank=${bank}`).then((r) => (r.ok ? r.json() : [])).then((d) => { setExpenses(Array.isArray(d) ? d : []); setLoading(false); });
+  }, [entity, bank]);
   useEffect(() => { load(); }, [load]);
 
   async function del(id: string) {
@@ -517,13 +546,13 @@ function MoneyOutTab({ entity, entities }: { entity: string; entities: Entity[] 
         </div>
       )}
       {(showAdd || editing) && (
-        <ExpenseModal expense={editing} entities={entities} onClose={() => { setShowAdd(false); setEditing(null); }} onSaved={() => { setShowAdd(false); setEditing(null); load(); }} />
+        <ExpenseModal expense={editing} entities={entities} bankConnections={bankConnections} onClose={() => { setShowAdd(false); setEditing(null); }} onSaved={() => { setShowAdd(false); setEditing(null); load(); }} />
       )}
     </>
   );
 }
 
-function ExpenseModal({ expense, entities, onClose, onSaved }: { expense: Expense | null; entities: Entity[]; onClose: () => void; onSaved: () => void }) {
+function ExpenseModal({ expense, entities, bankConnections, onClose, onSaved }: { expense: Expense | null; entities: Entity[]; bankConnections: BankConnection[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!expense;
   const [description, setDescription] = useState(expense?.description || "");
   const [amount, setAmount] = useState(expense ? String(parseFloat(expense.amount)) : "");
@@ -531,6 +560,11 @@ function ExpenseModal({ expense, entities, onClose, onSaved }: { expense: Expens
   const [vendor, setVendor] = useState(expense?.vendor || "");
   const [method, setMethod] = useState(expense?.paymentMethod || "CARD");
   const [legalEntityId, setLegalEntityId] = useState(expense?.legalEntityId || "");
+  // Optional Plaid bank tag — lets the owner say which account this
+  // expense actually came out of. Empty = unset.
+  const [plaidConnectionId, setPlaidConnectionId] = useState<string>(
+    (expense as { plaidConnectionId?: string | null } | null)?.plaidConnectionId || "",
+  );
   const [date, setDate] = useState(expense ? expense.date.split("T")[0] : new Date().toISOString().split("T")[0]);
   const [isRecurring, setIsRecurring] = useState(expense?.isRecurring || false);
   const [kind, setKind] = useState<string>((expense as { kind?: string | null } | null)?.kind || "");
@@ -551,6 +585,7 @@ function ExpenseModal({ expense, entities, onClose, onSaved }: { expense: Expens
         notes: notes || null, vendor: vendor || null, paymentMethod: method,
         legalEntityId: legalEntityId || null, reimbursable, receiptUrl,
         kind: kind || null,
+        plaidConnectionId: plaidConnectionId || null,
       }),
     });
     setSaving(false);
@@ -609,6 +644,18 @@ function ExpenseModal({ expense, entities, onClose, onSaved }: { expense: Expens
             </select>
           </Field>
         </div>
+        {bankConnections.length > 0 && (
+          <Field label="Bank account (optional)">
+            <select value={plaidConnectionId} onChange={(e) => setPlaidConnectionId(e.target.value)} className="inp">
+              <option value="">— Not assigned —</option>
+              {bankConnections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label || c.institutionName || "Bank"}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Receipt"><ReceiptUpload value={receiptUrl} onChange={setReceiptUrl} /></Field>
         <Field label="Notes"><input value={notes} onChange={(e) => setNotes(e.target.value)} className="inp" placeholder="Invoice #, etc." /></Field>
         <div className="flex gap-4">
