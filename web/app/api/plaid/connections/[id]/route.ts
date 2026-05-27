@@ -56,25 +56,5 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
     data: { deletedAt: new Date() },
   });
 
-  // If the legacy Club fields still point at this connection, clear them
-  // so the older single-account UI doesn't keep showing a stale name.
-  const club = await prisma.club.findUnique({
-    where: { id: session.user.clubId },
-    select: { plaidItemId: true },
-  });
-  if (club?.plaidItemId === conn.itemId) {
-    const replacement = await prisma.plaidConnection.findFirst({
-      where: { clubId: session.user.clubId, deletedAt: null },
-      orderBy: { createdAt: "asc" },
-    });
-    await prisma.club.update({
-      where: { id: session.user.clubId },
-      data: {
-        plaidAccessToken: replacement?.accessToken ?? null,
-        plaidItemId: replacement?.itemId ?? null,
-      },
-    });
-  }
-
   return NextResponse.json({ ok: true });
 }

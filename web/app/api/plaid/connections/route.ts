@@ -6,28 +6,6 @@ import { plaidClient } from "@/lib/plaid";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures } from "@/lib/tier";
 
-// Lazy-migrate the legacy single Plaid account stored on Club into a
-// PlaidConnection row. Safe to call repeatedly — only inserts when missing.
-async function ensureLegacyConnection(clubId: string) {
-  const club = await prisma.club.findUnique({
-    where: { id: clubId },
-    select: { plaidAccessToken: true, plaidItemId: true },
-  });
-  if (!club?.plaidAccessToken || !club?.plaidItemId) return;
-  const existing = await prisma.plaidConnection.findUnique({
-    where: { itemId: club.plaidItemId },
-  });
-  if (existing) return;
-  await prisma.plaidConnection.create({
-    data: {
-      clubId,
-      accessToken: club.plaidAccessToken,
-      itemId: club.plaidItemId,
-      label: "Primary",
-    },
-  });
-}
-
 // GET /api/plaid/connections — list every active bank connection for the
 // current club, plus the cached institution name so the UI can label them.
 export async function GET() {
@@ -45,8 +23,6 @@ export async function GET() {
       upgradeRequired: "pro" as const,
     });
   }
-
-  await ensureLegacyConnection(session.user.clubId);
 
   const connections = await prisma.plaidConnection.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },
@@ -125,14 +101,6 @@ export async function POST(req: Request) {
         label: label || institutionName || null,
         institutionName,
       },
-    });
-
-    // Keep the legacy Club fields populated for older code paths that still
-    // read them. Always write the most-recently-added bank so it stays
-    // pointing at a real account.
-    await prisma.club.update({
-      where: { id: session.user.clubId },
-      data: { plaidAccessToken: accessToken, plaidItemId: itemId },
     });
 
     return NextResponse.json({

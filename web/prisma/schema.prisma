@@ -73,9 +73,9 @@ model Club {
   stripeCustomerId         String?   @unique
   stripeSubscriptionId     String?   @unique
   subscriptionStatus       String?
-  // Plaid bank integration
-  plaidAccessToken         String?
-  plaidItemId              String?
+  // Plaid bank integration lives on the PlaidConnection model now (one row
+  // per linked bank). The legacy single-account fields were dropped in
+  // migration 20260608000000_drop_legacy_plaid_columns.
   notificationPrefs        Json      @default("{}")
   // Member intake form configuration
   // { enabledFields: string[], requiredFields: string[] }

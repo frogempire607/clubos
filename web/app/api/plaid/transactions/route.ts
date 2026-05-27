@@ -6,29 +6,6 @@ import { prisma } from "@/lib/prisma";
 import { getTierFeatures } from "@/lib/tier";
 import { suggestExpenseCategory } from "@/lib/categoryMatcher";
 
-// Lazy-migrate the legacy Club.plaidAccessToken into a PlaidConnection row.
-// Mirrors the helper in /api/plaid/connections; duplicated locally so this
-// route stays self-contained.
-async function ensureLegacyConnection(clubId: string) {
-  const club = await prisma.club.findUnique({
-    where: { id: clubId },
-    select: { plaidAccessToken: true, plaidItemId: true },
-  });
-  if (!club?.plaidAccessToken || !club?.plaidItemId) return;
-  const existing = await prisma.plaidConnection.findUnique({
-    where: { itemId: club.plaidItemId },
-  });
-  if (existing) return;
-  await prisma.plaidConnection.create({
-    data: {
-      clubId,
-      accessToken: club.plaidAccessToken,
-      itemId: club.plaidItemId,
-      label: "Primary",
-    },
-  });
-}
-
 // GET /api/plaid/transactions?connectionId=...
 //   - Without `connectionId`: aggregates accounts + transactions across
 //     every active PlaidConnection for the club.
@@ -55,8 +32,6 @@ export async function GET(req: Request) {
       { status: 403 },
     );
   }
-
-  await ensureLegacyConnection(session.user.clubId);
 
   const url = new URL(req.url);
   const filterConnectionId = url.searchParams.get("connectionId");
@@ -174,19 +149,6 @@ export async function DELETE(req: Request) {
       data: { deletedAt: new Date() },
     });
   }
-
-  // Keep the legacy Club fields in sync with what's left.
-  const remaining = await prisma.plaidConnection.findFirst({
-    where: { clubId: session.user.clubId, deletedAt: null },
-    orderBy: { createdAt: "asc" },
-  });
-  await prisma.club.update({
-    where: { id: session.user.clubId },
-    data: {
-      plaidAccessToken: remaining?.accessToken ?? null,
-      plaidItemId: remaining?.itemId ?? null,
-    },
-  });
 
   return NextResponse.json({ ok: true });
 }
