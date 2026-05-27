@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { PREVIEW_COOKIE, readPreviewCookie, canStartPreview } from "@/lib/preview";
 
 async function fetchUser(userId: string) {
   // Class registrations live in AttendanceRecord, not Booking, so we pull
@@ -78,7 +80,38 @@ async function fetchUser(userId: string) {
 
 export async function GET() {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "MEMBER") {
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const sessionRole = session.user.role as string;
+  const previewMode = readPreviewCookie(cookies());
+
+  // Preview mode: owner/staff can browse the member portal layout but we
+  // never leak real member data. Return a sanitized stub that hydrates the
+  // club brand + makes it clear this is a preview view.
+  if (sessionRole !== "MEMBER") {
+    if (canStartPreview(sessionRole) && previewMode === "member") {
+      const club = await prisma.club.findUnique({
+        where: { id: session.user.clubId },
+        select: {
+          id: true, name: true, slug: true, sport: true,
+          primaryColor: true, logoUrl: true, tier: true,
+          memberBillingVisibility: true,
+        },
+      });
+      return NextResponse.json({
+        user: {
+          id: session.user.id,
+          firstName: session.user.name?.split(" ")[0] || "Preview",
+          lastName: session.user.name?.split(" ").slice(1).join(" ") || "User",
+          email: session.user.email || "preview@example.com",
+          memberProfile: null,
+          guardianOf: [],
+        },
+        club,
+        summaries: {},
+        preview: { mode: "member" },
+      });
+    }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

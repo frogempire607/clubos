@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -34,7 +35,11 @@ const inviteSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(8),
+  // Either provide a temp password (legacy flow) OR set sendSetupLink=true
+  // and we'll email a setup link the staff member uses to choose their
+  // own password. At least one of the two is required at runtime.
+  password: z.string().min(8).optional(),
+  sendSetupLink: z.boolean().optional(),
   title: z.string().optional(),
   // Accept any subset of permission keys; resolvePermissions normalizes and
   // fills defaults so the editor can evolve without schema churn.
@@ -49,6 +54,12 @@ export async function POST(req: Request) {
 
   try {
     const data = inviteSchema.parse(await req.json());
+    if (!data.password && !data.sendSetupLink) {
+      return NextResponse.json(
+        { error: "Provide a password or set sendSetupLink to true." },
+        { status: 400 },
+      );
+    }
 
     const existing = await prisma.user.findUnique({
       where: { clubId_email: { clubId: session.user.clubId, email: data.email.toLowerCase() } },
@@ -57,7 +68,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Email already registered in this club" }, { status: 409 });
     }
 
-    const passwordHash = await bcrypt.hash(data.password, 10);
+    // Setup-link flow: bcrypt-hash a random, never-shared secret so the
+    // account can't be logged into until the staff member sets their own
+    // password via the emailed link. resetToken doubles as the invite token.
+    const usingSetupLink = !!data.sendSetupLink;
+    const effectivePassword = data.password ?? crypto.randomBytes(32).toString("hex");
+    const passwordHash = await bcrypt.hash(effectivePassword, 10);
+    const resetToken = usingSetupLink ? crypto.randomBytes(32).toString("hex") : null;
+    const resetExpires = usingSetupLink
+      ? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) // 14 days
+      : null;
     const defaultPermissions = resolvePermissions(data.permissions ?? null);
 
     const user = await prisma.user.create({
@@ -68,6 +88,8 @@ export async function POST(req: Request) {
         firstName: data.firstName,
         lastName: data.lastName,
         role: "STAFF",
+        resetToken,
+        resetExpires,
         staffProfile: {
           create: {
             title: data.title || null,
@@ -82,20 +104,24 @@ export async function POST(req: Request) {
     try {
       const club = await prisma.club.findUnique({
         where: { id: session.user.clubId },
-        select: { name: true },
+        select: { name: true, slug: true },
       });
       const inviter = await prisma.user.findUnique({
         where: { id: session.user.id },
         select: { firstName: true, lastName: true },
       });
       const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+      const setupUrl = usingSetupLink && resetToken
+        ? `${baseUrl}/setup?token=${resetToken}&club=${encodeURIComponent(club?.slug ?? "")}`
+        : undefined;
       await sendStaffInviteEmail({
         to: user.email,
         firstName: user.firstName,
         clubName: club?.name ?? "your club",
         inviterName: inviter ? `${inviter.firstName} ${inviter.lastName}`.trim() : "Your club owner",
         loginUrl: `${baseUrl}/login`,
-        tempPassword: data.password,
+        tempPassword: usingSetupLink ? undefined : data.password,
+        setupUrl,
       });
     } catch (emailErr) {
       console.error("Staff invite email failed:", emailErr);

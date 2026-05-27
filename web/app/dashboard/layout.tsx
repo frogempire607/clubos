@@ -317,6 +317,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <ThemeToggle />
         </div>
 
+        {/* Preview / Client view — owner & staff. Always shown so it's
+            discoverable; the API enforces role on activation. */}
+        <div style={{ padding: "4px 8px 0" }}>
+          <Link
+            href="/dashboard/preview"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              width: "100%", textAlign: "left",
+              padding: "7px 12px", borderRadius: 8,
+              fontSize: 13, textDecoration: "none",
+              background: isActive("/dashboard/preview") ? SIDEBAR_HOVER : "transparent",
+              color: isActive("/dashboard/preview") ? "#fff" : TEXT_DIM,
+              transition: "background 0.15s, color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
+              (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive("/dashboard/preview")) {
+                (e.currentTarget as HTMLElement).style.background = "transparent";
+                (e.currentTarget as HTMLElement).style.color = TEXT_DIM;
+              }
+            }}
+          >
+            <span style={{ width: 22, textAlign: "center", fontSize: 16, opacity: 0.85, lineHeight: 1 }}>◐</span>
+            Client view
+          </Link>
+        </div>
+
         {/* Need help */}
         <div style={{ padding: "10px 8px 0" }}>
           <Link

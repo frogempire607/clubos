@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { readPreviewCookie, canStartPreview } from "@/lib/preview";
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
@@ -56,8 +58,30 @@ async function resolveMemberContext(userId: string, clubId: string, requestedMem
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "MEMBER") {
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const sessionRole = session.user.role as string;
+  const previewing =
+    sessionRole !== "MEMBER" &&
+    canStartPreview(sessionRole) &&
+    readPreviewCookie(cookies()) === "member";
+
+  // Preview mode for owner/staff: render the schedule UI but without a
+  // member context so the page shows "Sign in as a member to see real data"
+  // empty states instead of a 401.
+  if (sessionRole !== "MEMBER" && !previewing) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (previewing) {
+    return NextResponse.json({
+      contextMember: null,
+      accessibleMembers: [],
+      activeMembershipIds: [],
+      activeMembershipNames: [],
+      items: [],
+      privateOfferings: [],
+      preview: { mode: "member" },
+    });
   }
 
   const url = new URL(req.url);

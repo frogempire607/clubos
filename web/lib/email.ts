@@ -148,6 +148,7 @@ export async function sendStaffInviteEmail({
   inviterName,
   loginUrl,
   tempPassword,
+  setupUrl,
 }: {
   to: string;
   firstName: string;
@@ -155,25 +156,35 @@ export async function sendStaffInviteEmail({
   inviterName: string;
   loginUrl: string;
   tempPassword?: string;
+  // When provided, the email becomes a "Set up your account" invite that
+  // points the recipient at the password-setup page instead of handing
+  // out a temporary password. tempPassword is ignored if setupUrl is set.
+  setupUrl?: string;
 }) {
+  const ctaUrl = setupUrl || loginUrl;
+  const ctaLabel = setupUrl ? "Set up your account" : "Sign in";
   await sendEmail({
     to,
-    subject: `You've been added as staff at ${clubName}`,
+    subject: setupUrl
+      ? `Finish setting up your staff account at ${clubName}`
+      : `You've been added as staff at ${clubName}`,
     html: baseLayout(`
       <h2 style="color:#1c1917;margin:0 0 8px">Welcome to the team, ${firstName}!</h2>
       <p style="color:#57534e;line-height:1.6;margin:0 0 12px">
         ${inviterName} added you as staff at <strong>${clubName}</strong> on AthletixOS.
-        You can now sign in to manage members, classes, and more.
+        ${setupUrl
+          ? "Click below to create your password and finish activating your account. The link expires in 14 days."
+          : "You can now sign in to manage members, classes, and more."}
       </p>
-      ${tempPassword ? `
+      ${!setupUrl && tempPassword ? `
         <div style="background:#F5F3EE;border-radius:8px;padding:14px;margin:0 0 16px">
           <p style="color:#57534e;margin:0 0 4px;font-size:13px">Your temporary password:</p>
           <p style="font-family:monospace;font-size:15px;color:#1c1917;margin:0">${tempPassword}</p>
           <p style="color:#a8a29e;font-size:12px;margin:8px 0 0">Change it after your first login from Settings.</p>
         </div>
       ` : ""}
-      <a href="${loginUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
-        Sign in
+      <a href="${ctaUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        ${ctaLabel}
       </a>
     `),
   });

@@ -212,6 +212,9 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Mode picker: "invite" emails a one-time setup link (recommended);
+  // "temp" lets the owner hand over a temporary password they pick.
+  const [mode, setMode] = useState<"invite" | "temp">("invite");
   const [title, setTitle] = useState("");
   const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>(defaultPermissions());
   const [saving, setSaving] = useState(false);
@@ -225,10 +228,14 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     e.preventDefault();
     setSaving(true);
     setError("");
+    const body =
+      mode === "invite"
+        ? { firstName, lastName, email, sendSetupLink: true, title, permissions }
+        : { firstName, lastName, email, password, title, permissions };
     const res = await fetch("/api/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ firstName, lastName, email, password, title, permissions }),
+      body: JSON.stringify(body),
     });
     setSaving(false);
     if (!res.ok) {
@@ -268,10 +275,43 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Temporary password</label>
-            <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
-              placeholder="They can change this after signing in"
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            <p className="text-sm font-medium text-text-primary mb-2">How should they sign in?</p>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setMode("invite")}
+                className={`rounded-lg border px-3 py-2 text-left transition ${
+                  mode === "invite"
+                    ? "border-brand bg-brand/5 text-text-primary"
+                    : "border-app-border text-text-muted hover:border-text-muted"
+                }`}
+              >
+                <div className="text-sm font-semibold">Email setup link</div>
+                <div className="text-[11px] mt-0.5 opacity-80">They choose their own password (recommended)</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("temp")}
+                className={`rounded-lg border px-3 py-2 text-left transition ${
+                  mode === "temp"
+                    ? "border-brand bg-brand/5 text-text-primary"
+                    : "border-app-border text-text-muted hover:border-text-muted"
+                }`}
+              >
+                <div className="text-sm font-semibold">Set a temporary password</div>
+                <div className="text-[11px] mt-0.5 opacity-80">You hand it over and they change it later</div>
+              </button>
+            </div>
+            {mode === "temp" ? (
+              <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
+                placeholder="At least 8 characters"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            ) : (
+              <p className="text-xs text-text-muted">
+                We&apos;ll email <strong>{email || "the staff member"}</strong> a one-time setup link
+                that expires in 14 days. They&apos;ll create their own password and land back at the sign-in page.
+              </p>
+            )}
           </div>
 
           <div>

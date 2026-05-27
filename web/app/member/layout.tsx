@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import ProfileSwitcher from "@/components/member/ProfileSwitcher";
 import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 
@@ -32,10 +32,23 @@ type BeforeInstallPromptEvent = Event & {
 
 export default function MemberLayout({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
+  const router = useRouter();
   const pathname = usePathname();
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [club, setClub] = useState<ClubInfo | null>(null);
+  const [previewMode, setPreviewMode] = useState<"member" | "public" | null>(null);
+
+  useEffect(() => {
+    fetch("/api/preview").then((r) => (r.ok ? r.json() : { mode: null })).then((d) => setPreviewMode(d?.mode ?? null)).catch(() => {});
+  }, [pathname]);
+
+  async function exitPreview() {
+    await fetch("/api/preview", { method: "DELETE" });
+    setPreviewMode(null);
+    router.replace("/dashboard");
+    router.refresh();
+  }
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -104,6 +117,25 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className="min-h-screen bg-stone-50" style={brandedStyle}>
+      {/* Preview-mode banner. Only visible to owner/staff sessions that
+          activated preview from the dashboard; members never see this. */}
+      {previewMode && (
+        <div className="bg-amber-100 border-b border-amber-300 text-amber-900 text-xs sm:text-sm">
+          <div className="max-w-4xl mx-auto px-4 py-2 flex items-center justify-between gap-3">
+            <span>
+              <strong>Preview mode</strong> — you&apos;re seeing what your members see.
+              Real member data isn&apos;t loaded.
+            </span>
+            <button
+              onClick={exitPreview}
+              className="text-xs px-3 py-1 rounded-lg bg-amber-900 text-amber-50 hover:bg-amber-800 font-medium flex-shrink-0"
+            >
+              Exit preview
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Desktop top bar ── */}
       <header className="bg-white border-b border-stone-200 sticky top-0 z-40 hidden md:block">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
