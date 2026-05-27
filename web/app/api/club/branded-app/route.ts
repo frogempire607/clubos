@@ -10,8 +10,9 @@ import {
   type BrandedAppConfig,
 } from "@/lib/brandedApp";
 
-// Branded mobile-app configuration. Owner-only — this drives the native
-// wrapper (Capacitor) the club ships to the App Store / Google Play.
+// Branded member portal configuration. Owner-only. These settings currently
+// style the member portal and PWA experience; the native AthletixOS shell loads
+// the same portal after login. Per-club App Store apps remain future roadmap.
 
 export async function GET() {
   const session = await getServerSession(authOptions);

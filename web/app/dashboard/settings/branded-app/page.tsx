@@ -34,6 +34,10 @@ const SECTIONS: { key: SectionKey; label: string; description: string }[] = [
   { key: "reviews", label: "Reviews screen", description: "Prompt members to leave public feedback." },
 ];
 
+const CURRENT_SECTIONS = SECTIONS.filter((section) =>
+  section.key === "style" || section.key === "navigation"
+);
+
 const NAV_LABELS: Record<BrandedNavKey, string> = {
   book: "Book Now",
   schedule: "My Schedule",
@@ -47,7 +51,7 @@ export default function BrandedAppPage() {
   const [clubInfo, setClubInfo] = useState<ClubInfo | null>(null);
   const [portalUrl, setPortalUrl] = useState("");
   const [loginUrl, setLoginUrl] = useState("");
-  const [active, setActive] = useState<SectionKey>("thumbnail");
+  const [active, setActive] = useState<SectionKey>("style");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState("");
@@ -132,10 +136,10 @@ export default function BrandedAppPage() {
 
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Branded app editor</h1>
+          <h1 className="text-2xl font-semibold text-text-primary">Member portal branding</h1>
           <p className="text-sm text-text-muted mt-1 max-w-2xl">
-            Customize the installable member portal experience with a live phone preview.
-            These settings are scoped to {clubInfo?.name || "this club"}.
+            Customize the mobile member portal and PWA experience for {clubInfo?.name || "this club"}.
+            The native AthletixOS app shell uses this same portal after members sign in.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -165,9 +169,27 @@ export default function BrandedAppPage() {
         </div>
       )}
 
+      <div className="mb-5 grid md:grid-cols-3 gap-3">
+        <StatusCard
+          label="Available now"
+          title="Member portal branding"
+          body="Header colors, bottom tabs, portal content, logo, and club profile styling are live today."
+        />
+        <StatusCard
+          label="Available now"
+          title="PWA branding"
+          body="Members can install the portal from mobile Safari or Chrome with the current AthletixOS manifest."
+        />
+        <StatusCard
+          label="Native shell"
+          title="AthletixOS iOS + Android"
+          body="One native app shell loads the existing portal. Per-club store apps and automated submissions are roadmap items."
+        />
+      </div>
+
       <div className="grid lg:grid-cols-[260px_minmax(0,1fr)_330px] gap-5 items-start">
         <aside className="bg-white border border-app-border rounded-lg overflow-hidden">
-          {SECTIONS.map((s) => (
+          {CURRENT_SECTIONS.map((s) => (
             <button
               key={s.key}
               type="button"
@@ -242,9 +264,22 @@ export default function BrandedAppPage() {
           <div className="mt-4 bg-white border border-app-border rounded-lg p-4 text-xs text-text-muted space-y-1">
             <p>Portal URL: <span className="font-mono text-text-primary">{portalUrl}</span></p>
             <p>Member sign-in: <span className="font-mono text-text-primary">{loginUrl}</span></p>
+            <p className="pt-2 border-t border-app-border">
+              Native app store IDs are managed by the AthletixOS shell for now, not per-club settings.
+            </p>
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function StatusCard({ label, title, body }: { label: string; title: string; body: string }) {
+  return (
+    <div className="bg-white border border-app-border rounded-lg p-4">
+      <p className="text-[11px] uppercase tracking-wider text-text-muted font-medium">{label}</p>
+      <h2 className="text-sm font-semibold text-text-primary mt-1">{title}</h2>
+      <p className="text-xs text-text-muted mt-1 leading-relaxed">{body}</p>
     </div>
   );
 }

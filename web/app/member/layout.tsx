@@ -117,7 +117,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const portalNav = buildPortalNav(branded);
 
   return (
-    <div className="min-h-screen bg-stone-50" style={brandedStyle}>
+    <div className="min-h-screen bg-stone-50 native-shell-root" style={brandedStyle}>
       {/* Preview-mode banner. Only visible to owner/staff sessions that
           activated preview from the dashboard; members never see this. */}
       {previewMode && (
@@ -182,7 +182,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       </header>
 
       {/* ── Mobile top bar ── */}
-      <header className="sticky top-0 z-40 md:hidden" style={{ background: headerBg, color: headerText }}>
+      <header className="sticky top-0 z-40 md:hidden safe-area-top" style={{ background: headerBg, color: headerText }}>
         <div className="px-4 h-13 flex items-center justify-between" style={{ height: "52px" }}>
           <Link href="/member" className="flex items-center gap-2">
             <ClubLogo logoUrl={club?.logoUrl} name={clubName} accent={accent} size={30} light />
@@ -225,7 +225,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       )}
 
       {/* ── Page content ── */}
-      <main className="max-w-4xl mx-auto px-4 py-5 pb-24 md:pb-10">
+      <main className="max-w-4xl mx-auto px-4 py-5 pb-24 md:pb-10 safe-area-content-bottom">
         {/* Universal back button. Hidden on the member home so the header
             isn't cluttered with a back link that points at the same page. */}
         {pathname !== "/member" && (
