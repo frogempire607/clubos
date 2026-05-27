@@ -19,6 +19,29 @@ export default function EmailSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [testTo, setTestTo] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function sendTestEmail() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/club/email-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(testTo ? { to: testTo } : {}),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.ok) {
+        setTestResult({ ok: true, text: `Sent to ${j.to}. Check your inbox (and spam folder).` });
+      } else {
+        setTestResult({ ok: false, text: j.error || "Send failed" });
+      }
+    } finally {
+      setTesting(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/club/email-settings")
@@ -78,12 +101,47 @@ export default function EmailSettingsPage() {
           {d.configured ? "✓ Email is connected" : "⚠ Email is NOT connected yet"}
         </p>
         {d.configured ? (
-          <p className="text-sm text-text-muted">
-            Outgoing mail is sending from{" "}
-            <span className="font-mono text-text-primary">{d.sendingAddress}</span>. This
-            is why your test didn&apos;t arrive previously — until this was set, every
-            email (including activation links) was only logged, never delivered.
-          </p>
+          <>
+            <p className="text-sm text-text-muted mb-3">
+              Outgoing mail is sending from{" "}
+              <span className="font-mono text-text-primary">{d.sendingAddress}</span>.
+              Send a test below to confirm staff invites, password resets, and
+              announcements will deliver.
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-[11px] font-medium text-text-muted mb-1">
+                  Send test to (leave blank to use your login email)
+                </label>
+                <input
+                  type="email"
+                  value={testTo}
+                  onChange={(e) => setTestTo(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={sendTestEmail}
+                disabled={testing}
+                className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+              >
+                {testing ? "Sending…" : "Send test email"}
+              </button>
+            </div>
+            {testResult && (
+              <div
+                className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+                  testResult.ok
+                    ? "bg-lime-accent/15 border border-lime-accent/40 text-text-primary"
+                    : "bg-red-50 border border-red-200 text-red-700"
+                }`}
+              >
+                {testResult.ok ? "✓ " : "✗ "}{testResult.text}
+              </div>
+            )}
+          </>
         ) : (
           <div className="text-sm text-text-muted space-y-2">
             <p>
