@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isValidPrivateDuration } from "@/lib/privateLessonRules";
+import { requirePermission } from "@/lib/apiGuard";
 
 const priceOption = z.object({
   id: z.string().min(1),
@@ -33,11 +34,10 @@ async function requireType(id: string, clubId: string) {
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const guard = requirePermission(session, "events", "edit");
+  if (guard) return guard;
 
-  const type = await requireType(params.id, session.user.clubId);
+  const type = await requireType(params.id, session!.user.clubId);
   if (!type) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {
@@ -53,11 +53,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // Deletion is a more destructive action, so require full events access.
+  const guard = requirePermission(session, "events", "full");
+  if (guard) return guard;
 
-  const type = await requireType(params.id, session.user.clubId);
+  const type = await requireType(params.id, session!.user.clubId);
   if (!type) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   await prisma.privateLessonType.update({ where: { id: params.id }, data: { deletedAt: new Date() } });

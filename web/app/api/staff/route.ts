@@ -132,20 +132,25 @@ export async function POST(req: Request) {
           include: { staffProfile: true },
         });
 
-    // Fire-and-forget welcome email. Don't block on failure — invite is created either way.
+    // Email send is fire-and-forget — never block invite creation on it. We
+    // also return the setupUrl in the response when applicable so the owner
+    // can copy the link from the dashboard even if SMTP is unset or the
+    // email lands in spam.
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+    const club = await prisma.club.findUnique({
+      where: { id: session.user.clubId },
+      select: { name: true, slug: true },
+    });
+    const setupUrl = usingSetupLink && resetToken
+      ? `${baseUrl}/setup?token=${resetToken}&club=${encodeURIComponent(club?.slug ?? "")}`
+      : null;
+    let emailed = false;
+    let emailError: string | null = null;
     try {
-      const club = await prisma.club.findUnique({
-        where: { id: session.user.clubId },
-        select: { name: true, slug: true },
-      });
       const inviter = await prisma.user.findUnique({
         where: { id: session.user.id },
         select: { firstName: true, lastName: true },
       });
-      const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
-      const setupUrl = usingSetupLink && resetToken
-        ? `${baseUrl}/setup?token=${resetToken}&club=${encodeURIComponent(club?.slug ?? "")}`
-        : undefined;
       await sendStaffInviteEmail({
         to: user.email,
         firstName: user.firstName,
@@ -153,13 +158,18 @@ export async function POST(req: Request) {
         inviterName: inviter ? `${inviter.firstName} ${inviter.lastName}`.trim() : "Your club owner",
         loginUrl: `${baseUrl}/login`,
         tempPassword: usingSetupLink ? undefined : data.password,
-        setupUrl,
+        setupUrl: setupUrl ?? undefined,
       });
+      emailed = true;
     } catch (emailErr) {
+      emailError = emailErr instanceof Error ? emailErr.message : String(emailErr);
       console.error("Staff invite email failed:", emailErr);
     }
 
-    return NextResponse.json(user, { status: 201 });
+    return NextResponse.json(
+      { ...user, setupUrl, emailed, emailError },
+      { status: 201 },
+    );
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });

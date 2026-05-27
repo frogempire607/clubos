@@ -146,6 +146,24 @@ export default function StaffPage() {
                       Edit
                     </button>
                     <button
+                      onClick={async () => {
+                        const res = await fetch(`/api/staff/${s.id}/setup-link`, { method: "POST" });
+                        const d = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          window.alert(d.error || "Could not regenerate setup link.");
+                          return;
+                        }
+                        const msg = d.emailed
+                          ? "Setup link emailed. Copy it below in case the email doesn't arrive:\n\n" + d.setupUrl
+                          : "Email failed to send. Copy this link and send it to them manually:\n\n" + d.setupUrl;
+                        window.prompt(msg, d.setupUrl);
+                      }}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                      title="Generate a fresh 14-day setup link"
+                    >
+                      Setup link
+                    </button>
+                    <button
                       onClick={() => handleRemove(s.id)}
                       className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded"
                     >
@@ -224,6 +242,9 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     setPermissions((p) => ({ ...p, [key]: val }));
   }
 
+  const [createdSetupUrl, setCreatedSetupUrl] = useState<string | null>(null);
+  const [createdEmailed, setCreatedEmailed] = useState<boolean>(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -243,7 +264,56 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
       setError(data.error?.toString() || "Failed to add staff");
       return;
     }
+    const data = await res.json().catch(() => ({}));
+    if (mode === "invite" && data?.setupUrl) {
+      // Show the link inside the modal so the owner can copy it manually
+      // when email isn't reliable. Hitting Done closes the modal.
+      setCreatedSetupUrl(data.setupUrl);
+      setCreatedEmailed(!!data.emailed);
+      return;
+    }
     onSaved();
+  }
+
+  // After a setup-link invite succeeds we swap the form for a confirmation
+  // panel that surfaces the URL — critical when SMTP isn't configured so
+  // the owner still has a way to deliver the link.
+  if (createdSetupUrl) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl w-full max-w-lg p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary mb-1">Staff member added</h2>
+            <p className="text-sm text-text-muted">
+              {createdEmailed
+                ? "We emailed a one-time setup link. It expires in 14 days."
+                : "Email couldn't be sent (your SMTP may not be configured). Copy this link and send it to them directly:"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-app-border bg-app-bg p-3 text-xs font-mono break-all text-text-primary">
+            {createdSetupUrl}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(createdSetupUrl).catch(() => {});
+              }}
+              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg"
+            >
+              Copy link
+            </button>
+            <button
+              type="button"
+              onClick={onSaved}
+              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -317,6 +317,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <ThemeToggle />
         </div>
 
+        {/* My account — every signed-in user (owner + staff) can change
+            their own password and update their name here, even if the owner
+            hasn't granted any other dashboard permissions. */}
+        <div style={{ padding: "4px 8px 0" }}>
+          <Link
+            href="/dashboard/my-account"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              width: "100%", textAlign: "left",
+              padding: "7px 12px", borderRadius: 8,
+              fontSize: 13, textDecoration: "none",
+              background: isActive("/dashboard/my-account") ? SIDEBAR_HOVER : "transparent",
+              color: isActive("/dashboard/my-account") ? "#fff" : TEXT_DIM,
+              transition: "background 0.15s, color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
+              (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive("/dashboard/my-account")) {
+                (e.currentTarget as HTMLElement).style.background = "transparent";
+                (e.currentTarget as HTMLElement).style.color = TEXT_DIM;
+              }
+            }}
+          >
+            <span style={{ width: 22, textAlign: "center", fontSize: 16, opacity: 0.85, lineHeight: 1 }}>◎</span>
+            My account
+          </Link>
+        </div>
+
         {/* Preview / Client view — owner & staff. Always shown so it's
             discoverable; the API enforces role on activation. */}
         <div style={{ padding: "4px 8px 0" }}>

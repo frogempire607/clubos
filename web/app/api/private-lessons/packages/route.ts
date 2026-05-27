@@ -4,13 +4,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { packageLessonTypeIds } from "@/lib/privateLessonRules";
+import { requirePermission } from "@/lib/apiGuard";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const packages = await prisma.privatePackage.findMany({
-    where: { clubId: session.user.clubId, deletedAt: null },
+    where: { clubId: session!.user.clubId, deletedAt: null },
     include: { lessonType: { select: { title: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -42,16 +43,15 @@ const schema = z
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const guard = requirePermission(session, "events", "edit");
+  if (guard) return guard;
 
   try {
     const data = schema.parse(await req.json());
     const lessonTypeIds = packageLessonTypeIds(data.lessonTypeIds, data.lessonTypeId);
     if (lessonTypeIds.length) {
       const count = await prisma.privateLessonType.count({
-        where: { clubId: session.user.clubId, deletedAt: null, id: { in: lessonTypeIds } },
+        where: { clubId: session!.user.clubId, deletedAt: null, id: { in: lessonTypeIds } },
       });
       if (count !== lessonTypeIds.length) {
         return NextResponse.json({ error: "One or more lesson types were not found." }, { status: 400 });
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     }
     const pkg = await prisma.privatePackage.create({
       data: {
-        clubId: session.user.clubId,
+        clubId: session!.user.clubId,
         ...data,
         discountValue: data.pricingMode === "FLAT" ? null : data.discountValue ?? null,
         lessonTypeId: lessonTypeIds.length === 1 ? lessonTypeIds[0] : null,
