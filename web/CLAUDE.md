@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-03 (Member portal schedule/family polish, private lesson tier/coach filtering, products dynamic forms, campaign/engagement clarity)
+Last updated: 2026-06-07 (Staff invite setup-link + my-account, Client/Preview mode, multi-bank Plaid, back button, event image focal picker, privates confirmation UX, member portal nav + classes in bookings, owner-controlled billing visibility, parent sees child messages, member class self-book)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -164,7 +164,14 @@ Dashboard pages:
 - `/dashboard/settings/club`
 - `/dashboard/settings/member-form`
 - `/dashboard/settings/diagnostics` — Stripe diagnostics: setup checklist, env vars, webhook event log
+- `/dashboard/settings/email` — SMTP status, sender identity, **Send test email** button
+- `/dashboard/my-account` — self-service password change + name update for owner & staff
+- `/dashboard/preview` — Client View launcher: Preview Member Portal + public link list
 - `/dashboard/schedule` (legacy; kept for back-compat)
+
+Public / setup pages (unauthenticated):
+- `/setup?token=...&club=<slug>` — first-time staff account activation (sets password via existing `/api/auth/reset-password`)
+- `/e/[slug]` — public event registration with optional Member sign-in CTA
 
 Member portal pages:
 
@@ -191,11 +198,13 @@ Auth:
 - `/api/auth/forgot-password`
 - `/api/auth/reset-password`
 - `/api/auth/change-password`
+- `/api/me` (GET — live role + permissions), `/api/me/profile` (PATCH — change own first/last name), `/api/preview` (GET/POST/DELETE — Client view cookie)
 
 Club/settings:
 
-- `/api/club/update` — also writes `aboutUs`
-- `/api/club/info` — returns logo, tier, subscriptionStatus, stripeSubscriptionId, etc.
+- `/api/club/update` — also writes `aboutUs`, `memberBillingVisibility`, branded-app fields; `sport/tagline/primaryColor` are now `nullable` so blank-input saves don't 400
+- `/api/club/info` — returns logo, tier, subscriptionStatus, stripeSubscriptionId, `memberBillingVisibility`, etc.
+- `/api/club/email-test` — owner sends a one-off test email through the configured SMTP transport; returns ok or transport error
 - `/api/club/profile`
 - `/api/club/tier` — promo-code path only; paid tier upgrades go through `/api/club/subscription/checkout` (returns 400 if a paid tier is set without promo)
 - `/api/club/notifications`
@@ -262,14 +271,17 @@ Financial/payment/product:
 - `/api/stripe/dashboard`
 - `/api/stripe/webhook` — idempotent (skips known event IDs), logs every event to `StripeWebhookEvent`, handles Connect events (member sub activate / renewal / payment_failed) AND platform events (ClubOS-own subscription activate / update / cancel)
 - `/api/stripe/diagnostics` — owner-only; returns Connect + platform status, env checklist, event counts, last 50 events
-- `/api/plaid/link-token`, `/api/plaid/exchange`, `/api/plaid/transactions` — gated on `plaid` tier flag
+- `/api/plaid/link-token`, `/api/plaid/exchange`, `/api/plaid/transactions` — gated on `plaid` tier flag (Pro+)
+- `/api/plaid/connections` (GET/POST), `/api/plaid/connections/[id]` (PATCH/DELETE) — multi-bank: list/add/rename/disconnect connections
+- `/api/transactions?bank=<connectionId>` and `/api/expenses?bank=<connectionId>` — filter financials by Plaid connection
 
 Private lessons/staff/export:
 
 - `/api/private-lessons/types`, `.../types/[id]`
 - `/api/private-lessons/packages`, `.../packages/[id]`
 - `/api/private-lessons/bookings`, `.../bookings/[id]`
-- `/api/staff`, `/api/staff/[id]`
+- `/api/staff`, `/api/staff/[id]` — POST supports `sendSetupLink:true` (emails an activation link via `/setup`) OR `password` (legacy temp-password); resurrects a soft-deleted match instead of 409
+- `/api/staff/[id]/setup-link` — POST: regenerates the 14-day setup token and returns the absolute `setupUrl`; surfaced via "Setup link" button on the staff list
 - `/api/staff/[id]/availability`, `/api/staff/[id]/availability/exceptions`
 - `/api/staff/[id]/pay-rates`
 - `/api/staff/schedule?from=&to=` — weekly schedule aggregator (availability + classes + events)
@@ -279,12 +291,14 @@ Private lessons/staff/export:
 Member-side:
 
 - `/api/member/signup`
-- `/api/member/portal`
+- `/api/member/portal` — also returns per-accessible-member `summaries` (attendance30d, upcoming bookings, active membership) + each member's upcoming class `attendanceRecords` for the unified My Bookings view + `club.memberBillingVisibility` for the portal billing card; honors preview cookie for owner/staff with a sanitized stub
 - `/api/member/portal/link-child` — parent/guardian can link an existing same-club member by email into `MemberGuardianUser`
 - `/api/member/me` — GET/PATCH/DELETE own profile
 - `/api/member/club` — public club info for portal (logo, tagline, aboutUs)
 - `/api/member/staff` — visible staff (only `showOnPortal=true`)
 - `/api/member/announcements`
+- `/api/member/messages` — also returns `childConversations[]` and `childGroups[]` for guardian sessions, each tagged with `forMember`
+- `/api/member/classes/book` — POST: member-self class booking with auto-detected price tier (MEMBERSHIP / MEMBER / NON_MEMBER / DROP_IN); free path for covered subs, Stripe Checkout otherwise
 - `/api/member/announcements/[id]/engagement` — records member portal announcement opens and URL link clicks
 - `/api/member/schedule?memberId=…` — active-profile-aware schedule feed for member portal; combines visible events, class sessions, membership/price status, bookings, and private lesson offerings
 - `/api/member/documents?memberId=…` — context-aware; returns docs + signature status for a given accessible member (self or linked child); signature includes `expiresAt`/`expired` based on `signatureValidForDays`
@@ -300,7 +314,7 @@ Member-side:
 
 ## Current Prisma Schema Status
 
-`prisma/schema.prisma` validates as of 2026-06-03.
+`prisma/schema.prisma` validates as of 2026-06-07.
 
 Core models currently present:
 
@@ -311,7 +325,7 @@ Core models currently present:
 - Messaging/announcements: `Message`, `MessageGroup`, `MessageGroupMember`, `GroupMessage`, `GroupMessageReceipt`, `Announcement`, `AnnouncementEngagement`
 - Campaigns/lead attribution: `Campaign`, `CampaignAttribution`; `Member` carries lightweight `leadSource`, `leadStage`, `leadSourceUpdatedAt`
 - Documents/settings: `Document`, `DocumentSignature`, `CustomField`, `ClubProfile`, `LegalEntity`, `DonationLink`
-- Financials: `Transaction`, `Expense`
+- Financials: `Transaction`, `Expense`, `PlaidConnection`
 - Private lessons/staff: `PrivateLessonType`, `PrivatePackage`, `PrivateCreditLedger`, `PrivateBooking`, `PrivateLessonPayRate`, `StaffAvailability`, `StaffAvailabilityException`
 - Infra: `UploadedFile`, `StripeWebhookEvent`
 
@@ -324,6 +338,9 @@ Notable model fields added since 2026-05-03:
 - `Product.productType`, `visibility`, `showLocation`, `taxable`, `internalNotes`, `settings` — product type system foundation for gear, rentals, birthday packages, digital items, and custom products
 - `AnnouncementEngagement` + `GroupMessageReceipt` — shared communication engagement layer for announcement seen/open/click data and group-message read receipts
 - `Campaign` + `CampaignAttribution`, plus member lead fields — campaign analytics/revenue attribution foundation
+- `RecurringClass.visibility String @default("MEMBERS_ONLY")` — PUBLIC | MEMBERS_ONLY | PRIVATE; PRIVATE classes are roster-only on member surfaces
+- `Club.memberBillingVisibility Json?` — owner-controlled toggles for plan / next-billing / price / invoices on the member portal
+- `PlaidConnection` (clubId, label, institutionName, accessToken, itemId, accountsCache, soft-delete) — multi-bank Plaid support; `Transaction.plaidConnectionId` and `Expense.plaidConnectionId` FKs for filtering
 
 Migration folders currently present:
 
@@ -361,6 +378,9 @@ Migration folders currently present:
 - `20260603000000_campaigns_lead_attribution` — `Campaign`, `CampaignAttribution`, and member lead source/stage fields
 - `20260603010000_communication_engagement` — `AnnouncementEngagement` and `GroupMessageReceipt`
 - `20260603020000_product_type_system` — product type/visibility/show-location/taxable/internal-notes/settings fields on `Product`
+- `20260604000000_class_visibility_message_read_dates` — `RecurringClass.visibility` (PUBLIC/MEMBERS_ONLY/PRIVATE), `AnnouncementEngagement` / `GroupMessageReceipt` index work
+- `20260605000000_member_billing_visibility` — `Club.memberBillingVisibility` JSONB
+- `20260607000000_plaid_multiple_banks` — `plaid_connections` table + nullable `plaidConnectionId` on `transactions` and `expenses`; backfills legacy single-bank rows
 
 Current migration status:
 
@@ -520,6 +540,75 @@ All sends are `try/catch` + `console.error` — a failed email never breaks the 
 - Members CSV import mapping mirrors the Add Member form (name, email, phone, DOB, gender, full address, status, tags, notes, isMinor, guardian fields, active custom fields). Membership assignment via CSV was removed.
 - Public marketing landing at `/` with embedded tiers; `/pricing` page with 4-tier card grid, comparison table, FAQ.
 - Export endpoints (members, attendance, transactions) gated on `reports` tier flag.
+
+### Staff invite & self-service (2026-06-06)
+- **Setup-link invite flow**: Add Staff modal defaults to "Email setup link". `/api/staff` (POST) with `sendSetupLink:true` creates the user with a random throwaway hash + a 14-day `resetToken` and emails a link to `/setup?token=...&club=<slug>`. The user picks their own password via the existing `/api/auth/reset-password` endpoint (single-use by construction). Legacy temp-password mode is still available as a toggle.
+- Owner-resilient invite: `POST /api/staff` returns the absolute `setupUrl` + `emailed`/`emailError` flags. The modal swaps to a confirmation panel with a "Copy link" button so the owner can hand-deliver the link if SMTP isn't configured or email lands in spam.
+- **Resend setup link**: `POST /api/staff/[id]/setup-link` regenerates a fresh 14-day token and returns the URL. Staff list has a per-row **Setup link** button (next to Edit/Remove) that surfaces the URL via prompt.
+- **Soft-delete + re-add**: `POST /api/staff` now resurrects a soft-deleted match (clears `deletedAt`, refreshes name/password/permissions) instead of returning 409. Active duplicates still 409 as before.
+- **`/dashboard/my-account`**: Every signed-in dashboard user (owner OR staff, regardless of permissions) gets a self-service account page. Lets them change their password (existing `/api/auth/change-password`) and update first/last name (new `PATCH /api/me/profile`). Linked from the sidebar above "Client view" so staff have somewhere to go even with no other section access.
+- Privates API mutations were hardcoded `role !== "OWNER"`; swapped to `requirePermission(session, "events", "edit"|"full")` so a head coach with `events:full` can now create / edit / duplicate / delete privates types & packages.
+
+### Client / Preview mode (2026-06-06)
+- `lib/preview.ts` defines a `PREVIEW_COOKIE = "aox_preview"` ("member" | "public"), an 8h HttpOnly SameSite=Lax cookie. Owner/staff only.
+- `POST /api/preview { mode }` sets the cookie; `DELETE /api/preview` clears it; `GET /api/preview` reads it (member layout polls this to render the banner).
+- Middleware: when an owner/staff session has `aox_preview=member`, the `/member/*` redirect-to-dashboard guard is skipped so the member layout renders for them.
+- `/api/member/portal` and `/api/member/schedule` honor the cookie: when role is not MEMBER but cookie+role pass `canStartPreview()`, they return a sanitized PREVIEW payload (club brand only, no real bookings/subscriptions, empty schedule). Real member data never leaks.
+- Member layout shows an amber **"Preview mode — Exit preview"** banner whenever the cookie is present. Exit calls `DELETE /api/preview` and bounces back to `/dashboard`.
+- `/dashboard/preview` launcher: "Preview Member Portal" button + curated public-link list (landing, pricing, signup, sign-in with club prefilled, every `/e/<publicSlug>` the club has live). Tier-agnostic — every tier can use it. Linked from the sidebar as **"Client view"**.
+
+### Member portal: nav + classes + family (2026-06-04 → 2026-06-05)
+- **Class visibility**: `RecurringClass.visibility` enum (`PUBLIC | MEMBERS_ONLY | PRIVATE`, default `MEMBERS_ONLY`). 3-tile picker on `/dashboard/classes`. `/api/member/schedule` filters to `PUBLIC + MEMBERS_ONLY`; `PRIVATE` classes are roster-only.
+- **Member schedule** hides events by default (gated by `INCLUDE_EVENTS_IN_SCHEDULE = false`); events live on `/member/events`.
+- **Read receipts with timestamps**: DM bubbles show `Read Aug 24, 7:42 PM`. Group messages show `Read N` → expandable reader list with per-user timestamps (`AnnouncementEngagement` + `GroupMessageReceipt` rows; group messages route returns `readers[]`). Owner-side timestamps are now legible on the violet bubble — fixed `text-text-muted` → `text-white/75` for own messages.
+- **Family switcher** on `/member/profile` shows DOB / computed age / `Minor` flag per linked athlete.
+- **Parent quick-dashboard per child**: `/api/member/portal` returns per-member `summaries` (`attendanceLast30d`, `upcomingBookings`, `activeMembershipName`). `/member/profile` renders a 3-tile mini dashboard per linked athlete under DOB row.
+- **Parent sees child messages**: `/api/member/messages` adds `childConversations[]` and `childGroups[]` for DMs/groups belonging to linked child User accounts, tagged with `forMember:{id,firstName,lastName}`. `/member/messages` renders a "Messages for your athletes" section with a "For \<child\>" chip per row.
+- **Owner-controlled billing visibility**: `Club.memberBillingVisibility JSON?` ({showPlan, showNextBilling, showPrice, showInvoices}). Settings → **Member Portal** sidebar tab exposes the 4 toggles. `/member/profile` Payment & billing conditionally renders plan/next-billing/price + "View invoices" link based on these flags.
+- **Member portal nav**: Layout nav has Home / Schedule / Messages / News (Announcements) / Docs / Profile so every section is discoverable. Home tiles include Bookings, Messages, Announcements, Documents, Our team.
+- **My Bookings includes classes**: `/api/member/portal` returns each accessible member's upcoming class `AttendanceRecord`s (PRESENT/LATE/DROP_IN/TRIAL with future `classSession.startsAt`) + the recurring class's color + assignedStaffIds. `/member/bookings` merges them into the unified list with coach (resolved via `/api/member/staff`), sorted chronologically.
+
+### Member class self-booking with auto-detected price (2026-06-05)
+- `/api/member/schedule` computes a `bookingTier` per class (`MEMBERSHIP | MEMBER | NON_MEMBER | DROP_IN`) from the member's subscription state, plus `bookingLabel` and `price`.
+- `POST /api/member/classes/book` validates the resolved tier server-side, creates an `AttendanceRecord` for the free path or opens Stripe Checkout on the club's connected account otherwise.
+- `/member/schedule` modal shows resolved price + a **Book** button per class.
+
+### Public event link improvements (2026-06-05)
+- `/e/[slug]` header now has a **"Member sign in"** link (callbackUrl back to the same `/e/<slug>`) for signed-out visitors and a **"Member portal"** link for signed-in ones.
+- Below the cost row, a banner tells members to register from the portal (so they get member pricing / membership coverage), and tells signed-out viewers they can sign in to use member pricing.
+
+### Back button — universal (2026-06-07)
+- `components/BackButton.tsx`: uses `router.back()` when history is poppable; falls back to `/dashboard` (owner/staff) or `/member` (members) — caller can override with `fallbackHref`.
+- Dashboard layout puts a back button in the sticky topbar on every page except `/dashboard` home.
+- Member layout puts a back button above page content on every `/member/*` page except `/member` home.
+
+### Plaid multiple bank accounts (2026-06-07)
+- **New model `PlaidConnection`** (clubId, label, institutionName, accessToken, itemId, accountsCache JSON, soft-delete). Legacy `Club.plaidAccessToken/plaidItemId` stay populated for back-compat; the new code lazy-migrates them into a `PlaidConnection` row on first read.
+- Migration `20260607000000_plaid_multiple_banks` adds `plaid_connections` + nullable `plaidConnectionId` FK on `Transaction` and `Expense` (ON DELETE SET NULL), and backfills existing single-bank into a row.
+- API: `GET/POST /api/plaid/connections` (list + add via Plaid Link); `PATCH/DELETE /api/plaid/connections/[id]` (rename + soft-disconnect). `/api/plaid/transactions` aggregates across every connection and accepts `?connectionId=` to filter. `/api/plaid/exchange` still works and now also creates a connection row.
+- Tier-gating: `plaid` feature flag in `lib/tier.ts` stays Pro+. Multi-account is naturally Pro+ as a result. Plaid response 403s with `upgradeRequired: "pro"` on Growth.
+- Filtering: `/api/transactions` and `/api/expenses` accept `?bank=<connectionId>`. `POST /api/expenses` accepts `plaidConnectionId`.
+- UI: **Financials → Bank** tab lists every connection (label / rename / disconnect), shows a **+ Add bank** CTA, and a per-bank filter dropdown when 2+ banks are connected. Transactions table includes a Bank column.
+
+### Event image cropping (2026-06-07)
+- Schema columns `Event.imagePositionX/Y` (Int, default 50, 0–100%) were already present. Public `/e/[slug]` already uses them via CSS `object-position`. The missing piece was the editor UI.
+- **`EventImageFocalPicker`** inside the event modal: click/drag inside a 16:9 preview (matches the public page) to set the focal point. Stored as percentages, applied via `object-position` — no re-encoding, no new files. Includes "Reset to center".
+
+### Privates confirmation UX (2026-06-07)
+- Requested-slot rows in the booking modal render as **"Thu, Jun 15 · 2:30 PM – 3:30 PM"** (locale weekday + AM/PM) instead of `YYYY-MM-DD · HH:mm` (which read like military time).
+- Each requested-slot row has an **"Accept this time"** button that pre-fills `confirmedStart`/`confirmedEnd` from the slot and opens the confirm form in one click.
+- The main **"Confirm or change time"** button also pre-fills with the first requested slot so the default action is a single click — owner can still tweak.
+- `fmt()` forces `hour12: true` so the OS locale never falls back to 24h on the owner-facing UI.
+
+### Email / SMTP (2026-06-07)
+- `lib/email.ts` reads SMTP from env at runtime: `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `EMAIL_FROM`. Nothing hardcoded.
+- New `POST /api/club/email-test` (owner only) sends a real email via the configured transport and returns `ok:true/false` + error message. Settings → Email shows a **"Send test email"** form with an optional recipient override (defaults to the owner's login email).
+- Per-club `emailFromName` and `emailReplyTo` (existing) flow through `sendEmail()` so members see the club's friendly name in their inbox.
+
+### Club profile persistence fix (2026-06-07)
+- `/api/club/update` Zod schema now allows `null` on `sport`, `tagline`, and `primaryColor`. Previously the schema was `.optional()` only (not `.nullable()`); clients sent `null` for empty fields, Zod rejected the whole request, and only the required `name`/`slug` appeared to persist.
+- Inline `ProfileSection` re-hydrates state with `useEffect` when the `club` prop changes after save, so the form never shows stale values.
+- Inline Profile tab now links to `/dashboard/settings/club` for the extended fields (About Us, cover image, hours, contact, social links) so the full editor is discoverable.
 
 ## Built But Needs End-to-End Testing
 
