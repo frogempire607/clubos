@@ -61,10 +61,15 @@ export async function POST(req: Request) {
       );
     }
 
+    // Soft-deleted accounts keep the (clubId, email) row in place because of
+    // the unique index. If the owner deletes a coach and then tries to re-add
+    // them, we want to RESURRECT the existing user instead of failing with
+    // "Email already registered." Active duplicates still 409.
     const existing = await prisma.user.findUnique({
       where: { clubId_email: { clubId: session.user.clubId, email: data.email.toLowerCase() } },
+      include: { staffProfile: true },
     });
-    if (existing) {
+    if (existing && !existing.deletedAt) {
       return NextResponse.json({ error: "Email already registered in this club" }, { status: 409 });
     }
 
@@ -80,25 +85,52 @@ export async function POST(req: Request) {
       : null;
     const defaultPermissions = resolvePermissions(data.permissions ?? null);
 
-    const user = await prisma.user.create({
-      data: {
-        clubId: session.user.clubId,
-        email: data.email.toLowerCase(),
-        passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        role: "STAFF",
-        resetToken,
-        resetExpires,
-        staffProfile: {
-          create: {
-            title: data.title || null,
-            permissions: defaultPermissions,
+    const user = existing
+      ? await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            deletedAt: null,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: "STAFF",
+            passwordHash,
+            resetToken,
+            resetExpires,
+            staffProfile: existing.staffProfile
+              ? {
+                  update: {
+                    title: data.title || null,
+                    permissions: defaultPermissions,
+                  },
+                }
+              : {
+                  create: {
+                    title: data.title || null,
+                    permissions: defaultPermissions,
+                  },
+                },
           },
-        },
-      },
-      include: { staffProfile: true },
-    });
+          include: { staffProfile: true },
+        })
+      : await prisma.user.create({
+          data: {
+            clubId: session.user.clubId,
+            email: data.email.toLowerCase(),
+            passwordHash,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: "STAFF",
+            resetToken,
+            resetExpires,
+            staffProfile: {
+              create: {
+                title: data.title || null,
+                permissions: defaultPermissions,
+              },
+            },
+          },
+          include: { staffProfile: true },
+        });
 
     // Fire-and-forget welcome email. Don't block on failure — invite is created either way.
     try {

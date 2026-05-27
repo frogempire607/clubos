@@ -448,7 +448,7 @@ function GroupsTab() {
                               )}
                               <div className={`px-3 py-2 rounded-xl text-sm ${mine ? "bg-brand text-white" : "bg-app-bg text-text-primary"}`}>
                                 <p>{m.body}</p>
-                                <p className="text-[10px] mt-1 text-text-muted">
+                                <p className={`text-[10px] mt-1 ${mine ? "text-white/75" : "text-text-muted"}`}>
                                   {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                                   {mine && typeof m.readCount === "number" && m.readCount > 0 ? (
                                     <>
@@ -909,7 +909,10 @@ function DMsTab() {
                     <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[70%] px-3 py-2 rounded-xl text-sm ${mine ? "bg-brand text-white" : "bg-app-bg text-text-primary"}`}>
                         <p>{m.body}</p>
-                        <p className="text-[10px] mt-1 text-text-muted">
+                        {/* Timestamp + read/sent receipt. Use white/75 on the
+                            violet bubble for legibility — text-text-muted on
+                            purple is effectively invisible. */}
+                        <p className={`text-[10px] mt-1 ${mine ? "text-white/75" : "text-text-muted"}`}>
                           {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                           {mine
                             ? ` · ${

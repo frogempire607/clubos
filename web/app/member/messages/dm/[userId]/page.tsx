@@ -125,9 +125,20 @@ export default function MemberDmThreadPage() {
                       }`}
                     >
                       <div className="whitespace-pre-wrap">{m.body}</div>
-                      <div className={`text-[10px] mt-0.5 ${mine ? "text-stone-400" : "text-stone-500"}`}>
+                      <div className={`text-[10px] mt-0.5 ${mine ? "text-stone-300" : "text-stone-500"}`}>
                         {fmtTime(m.createdAt)}
-                        {mine ? ` · ${m.readAt ? "Read" : "Sent"}` : ""}
+                        {mine
+                          ? ` · ${
+                              m.readAt
+                                ? `Read ${new Date(m.readAt).toLocaleString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                  })}`
+                                : "Sent"
+                            }`
+                          : ""}
                       </div>
                     </div>
                   </div>
