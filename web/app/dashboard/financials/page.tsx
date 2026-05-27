@@ -47,8 +47,9 @@ type Donation = {
   receiptUrl: string | null; notes: string | null; legalEntityId: string | null;
   legalEntity: { id: string; name: string; entityType: string } | null;
 };
-type BankAccount = { account_id: string; name: string; type: string; subtype: string; balances: { available: number | null; current: number | null; iso_currency_code: string } };
-type BankTx = { transaction_id: string; date: string; name: string; amount: number; category: string[] | null };
+type BankAccount = { account_id: string; name: string; type: string; subtype: string; balances: { available: number | null; current: number | null; iso_currency_code: string }; connectionId?: string; connectionLabel?: string };
+type BankTx = { transaction_id: string; date: string; name: string; amount: number; category: string[] | null; connectionId?: string; connectionLabel?: string };
+type BankConnection = { id: string; label: string | null; institutionName: string | null };
 
 const DATE_PRESETS = [
   { key: "ytd", label: "This year" },
@@ -878,14 +879,23 @@ function StripeTab() {
 
 /* ── Bank / Plaid (unchanged) ── */
 function BankTab() {
-  const [bankData, setBankData] = useState<{ connected: boolean; accounts: BankAccount[]; transactions: BankTx[] } | null>(null);
+  const [bankData, setBankData] = useState<{
+    connected: boolean;
+    accounts: BankAccount[];
+    transactions: BankTx[];
+    connections?: BankConnection[];
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [plaidConfigured, setPlaidConfigured] = useState(true);
+  // Owner-selected filter — when set, transactions/accounts are scoped
+  // to just that bank connection. null = "All accounts".
+  const [connectionFilter, setConnectionFilter] = useState<string | null>(null);
 
-  async function loadBankData() {
-    const res = await fetch("/api/plaid/transactions");
+  async function loadBankData(filterId: string | null = connectionFilter) {
+    const qs = filterId ? `?connectionId=${encodeURIComponent(filterId)}` : "";
+    const res = await fetch(`/api/plaid/transactions${qs}`);
     if (res.ok) {
       const data = await res.json();
       if (data.error === "Plaid not configured") setPlaidConfigured(false);
@@ -893,7 +903,7 @@ function BankTab() {
     }
     setLoading(false);
   }
-  useEffect(() => { loadBankData(); }, []);
+  useEffect(() => { loadBankData(null); }, []);
 
   async function startPlaidLink() {
     setConnecting(true);
@@ -905,18 +915,50 @@ function BankTab() {
   }
   const onSuccess = useCallback(async (publicToken: string) => {
     setLoading(true);
-    await fetch("/api/plaid/exchange", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ publicToken }) });
+    // Use the new connections endpoint so the bank is stored as a
+    // PlaidConnection row. The legacy exchange endpoint still works for
+    // older clients but the new flow gives us per-bank labels.
+    await fetch("/api/plaid/connections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicToken }),
+    });
     setLinkToken(null);
-    loadBankData();
+    loadBankData(null);
   }, []);
   const { open: openPlaid, ready: plaidReady } = usePlaidLink({ token: linkToken || "", onSuccess });
   useEffect(() => { if (linkToken && plaidReady) openPlaid(); }, [linkToken, plaidReady, openPlaid]);
 
-  async function disconnect() {
-    if (!confirm("Disconnect your bank account?")) return;
+  async function disconnectAll() {
+    if (!confirm("Disconnect ALL bank accounts? Manual entry will still work.")) return;
     await fetch("/api/plaid/transactions", { method: "DELETE" });
     setBankData(null);
-    loadBankData();
+    setConnectionFilter(null);
+    loadBankData(null);
+  }
+
+  async function disconnectOne(id: string, label: string) {
+    if (!confirm(`Disconnect "${label}"? Other bank accounts stay connected.`)) return;
+    await fetch(`/api/plaid/connections/${id}`, { method: "DELETE" });
+    if (connectionFilter === id) setConnectionFilter(null);
+    loadBankData(connectionFilter === id ? null : connectionFilter);
+  }
+
+  async function renameConnection(id: string, current: string) {
+    const next = window.prompt("Rename this bank account", current);
+    if (next == null) return;
+    await fetch(`/api/plaid/connections/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: next.trim() || null }),
+    });
+    loadBankData(connectionFilter);
+  }
+
+  function applyFilter(id: string | null) {
+    setConnectionFilter(id);
+    setLoading(true);
+    loadBankData(id);
   }
 
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
@@ -944,37 +986,121 @@ function BankTab() {
     );
   }
   const totalBalance = bankData.accounts.reduce((s, a) => s + (a.balances.current || 0), 0);
+  const connections = bankData.connections ?? [];
   return (
     <>
+      {/* Per-bank manager — list of connected accounts with rename /
+          disconnect, plus an "Add another bank" CTA. Filtering happens via
+          the dropdown below so adding doesn't reset the user's view. */}
+      <div className="bg-white rounded-xl border border-app-border p-5 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-text-primary">Connected bank accounts</h2>
+          <button
+            onClick={startPlaidLink}
+            disabled={connecting}
+            className="text-xs px-3 py-1.5 bg-brand text-white rounded-lg font-medium hover:bg-brand-hover disabled:opacity-50"
+          >
+            {connecting ? "Opening…" : "+ Add bank"}
+          </button>
+        </div>
+        {connections.length === 0 ? (
+          <p className="text-xs text-text-muted">
+            None labelled yet — connect a second bank to organize operating, foundation, savings, etc.
+          </p>
+        ) : (
+          <ul className="divide-y divide-app-border">
+            {connections.map((c) => {
+              const display = c.label || c.institutionName || "Bank";
+              return (
+                <li key={c.id} className="flex items-center justify-between py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="text-text-primary font-medium truncate">{display}</div>
+                    {c.institutionName && c.label && (
+                      <div className="text-[11px] text-text-muted">{c.institutionName}</div>
+                    )}
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => renameConnection(c.id, display)}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      onClick={() => disconnectOne(c.id, display)}
+                      className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Bank-account filter — drives the accounts grid + transaction list. */}
+      {connections.length > 1 && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xs text-text-muted">Showing</span>
+          <select
+            value={connectionFilter ?? ""}
+            onChange={(e) => applyFilter(e.target.value || null)}
+            className="text-sm px-3 py-1.5 border border-app-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand"
+          >
+            <option value="">All bank accounts</option>
+            {connections.map((c) => (
+              <option key={c.id} value={c.id}>{c.label || c.institutionName || "Bank"}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-4 mb-6">
         {bankData.accounts.map((a) => (
           <div key={a.account_id} className="bg-white rounded-xl border border-app-border p-5">
             <div className="text-xs text-text-muted uppercase tracking-wider mb-1">{a.name}</div>
             <div className="text-2xl font-semibold text-text-primary mb-1">{money(a.balances.current || 0)}</div>
-            <div className="text-xs text-text-muted">{a.subtype} · {a.balances.iso_currency_code}</div>
+            <div className="text-xs text-text-muted">
+              {a.subtype} · {a.balances.iso_currency_code}
+              {a.connectionLabel ? ` · ${a.connectionLabel}` : ""}
+            </div>
           </div>
         ))}
         <div className="bg-brand rounded-xl p-5">
           <div className="text-xs text-white/70 uppercase tracking-wider mb-1">Total balance</div>
           <div className="text-2xl font-semibold text-white mb-1">{money(totalBalance)}</div>
-          <div className="text-xs text-white/70">Across all accounts</div>
+          <div className="text-xs text-white/70">
+            {connectionFilter ? "In the selected bank" : "Across all accounts"}
+          </div>
         </div>
       </div>
       <div className="bg-white rounded-xl border border-app-border overflow-hidden">
         <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-text-primary">Bank transactions (last 30 days)</h2>
-          <button onClick={disconnect} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Disconnect</button>
+          <h2 className="text-sm font-semibold text-text-primary">
+            Bank transactions (last 30 days)
+            {connectionFilter && connections.length > 1 ? (
+              <span className="ml-2 text-xs font-normal text-text-muted">
+                — {connections.find((c) => c.id === connectionFilter)?.label || "filtered"}
+              </span>
+            ) : null}
+          </h2>
+          <button onClick={disconnectAll} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">
+            Disconnect all
+          </button>
         </div>
         {bankData.transactions.length === 0 ? (
           <div className="p-8 text-center text-text-muted text-sm">No transactions in the last 30 days.</div>
         ) : (
           <table className="w-full">
-            <thead className="bg-app-bg border-b border-app-border"><tr><Th>Date</Th><Th>Description</Th><Th>Category</Th><Th>Amount</Th></tr></thead>
+            <thead className="bg-app-bg border-b border-app-border"><tr><Th>Date</Th><Th>Description</Th><Th>Bank</Th><Th>Category</Th><Th>Amount</Th></tr></thead>
             <tbody>
               {bankData.transactions.map((t) => (
                 <tr key={t.transaction_id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
                   <Td><span className="text-xs text-text-muted">{new Date(t.date).toLocaleDateString()}</span></Td>
                   <Td><span className="text-sm text-text-primary">{t.name}</span></Td>
+                  <Td><span className="text-xs text-text-muted">{t.connectionLabel || "—"}</span></Td>
                   <Td><span className="text-xs text-text-muted">{t.category?.[0] || "—"}</span></Td>
                   <Td><span className={`text-sm font-medium ${t.amount > 0 ? "text-red-700" : "text-text-primary"}`}>{t.amount > 0 ? "-" : "+"}{money(Math.abs(t.amount))}</span></Td>
                 </tr>

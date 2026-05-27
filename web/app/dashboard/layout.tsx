@@ -6,6 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import GlobalSearch from "@/components/GlobalSearch";
+import BackButton from "@/components/BackButton";
 import { canAccessPath } from "@/lib/permissions";
 
 type NavChild = { id: string; label: string; href: string };
@@ -443,6 +444,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             display: "flex", alignItems: "center", gap: 12,
           }}
         >
+          {/* Back button — hidden on the dashboard home so the topbar
+              doesn't get a dead "Back" that only points at itself. */}
+          {pathname !== "/dashboard" && <BackButton fallbackHref="/dashboard" />}
           <GlobalSearch />
         </div>
         <div style={{ flex: 1 }}>{children}</div>

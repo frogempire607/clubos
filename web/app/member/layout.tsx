@@ -5,6 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import ProfileSwitcher from "@/components/member/ProfileSwitcher";
+import BackButton from "@/components/BackButton";
 import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 
 const NAV = [
@@ -225,6 +226,13 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
       {/* ── Page content ── */}
       <main className="max-w-4xl mx-auto px-4 py-5 pb-24 md:pb-10">
+        {/* Universal back button. Hidden on the member home so the header
+            isn't cluttered with a back link that points at the same page. */}
+        {pathname !== "/member" && (
+          <div className="mb-3">
+            <BackButton fallbackHref="/member" />
+          </div>
+        )}
         <ProfileSwitcher />
         {children}
       </main>

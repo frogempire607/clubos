@@ -170,9 +170,38 @@ model Club {
   attendanceRecords           AttendanceRecord[]
   memberRelationships         MemberRelationship[]
   staffCompensations          StaffCompensation[]
+  plaidConnections            PlaidConnection[]
 
   @@index([slug])
   @@map("clubs")
+}
+
+// One row per Plaid Item the club connects. Lets a club link multiple
+// bank accounts (operating, foundation, savings, …) instead of being
+// limited to a single Plaid access token on Club. The legacy
+// `Club.plaidAccessToken` columns stay for back-compat and are migrated
+// lazily into a PlaidConnection row on first read.
+model PlaidConnection {
+  id              String   @id @default(cuid())
+  clubId          String
+  // Owner-chosen friendly name. Falls back to the institution name from
+  // Plaid when null.
+  label           String?
+  institutionName String?
+  accessToken     String
+  itemId          String   @unique
+  // Optional cache so the UI doesn't have to hit Plaid every render.
+  accountsCache   Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  club         Club          @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  expenses     Expense[]
+
+  @@index([clubId])
+  @@map("plaid_connections")
 }
 
 model Location {
@@ -870,12 +899,16 @@ model Transaction {
   // Effective accounting date (owner-set for manual entries). Falls back to
   // createdAt for reporting when null.
   txDate                DateTime?
+  // Optional FK to the bank/PlaidConnection this money landed in. Lets
+  // financials/reports filter by bank account (operating vs foundation).
+  plaidConnectionId     String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
   club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
   member      Member?      @relation(fields: [memberId], references: [id])
   legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
+  plaidConnection PlaidConnection? @relation(fields: [plaidConnectionId], references: [id])
   campaignAttributions CampaignAttribution[]
 
   @@index([clubId])
@@ -1056,11 +1089,15 @@ model Expense {
   reimbursable  Boolean  @default(false)
   // Receipt: private file URL from /api/upload (type=document) or null.
   receiptUrl    String?
+  // Optional FK to the PlaidConnection this expense came out of. Lets
+  // financials/reports filter by bank account.
+  plaidConnectionId String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
+  club            Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntity     LegalEntity?     @relation(fields: [legalEntityId], references: [id])
+  plaidConnection PlaidConnection? @relation(fields: [plaidConnectionId], references: [id])
 
   @@index([clubId])
   @@index([date])

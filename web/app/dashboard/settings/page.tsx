@@ -234,6 +234,18 @@ function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
+  // Re-hydrate inputs whenever the parent reloads the club (e.g. after Save
+  // or when the user navigates back to this tab). Without this, useState
+  // keeps its first-mount value and a saved field can look unchanged.
+  useEffect(() => {
+    setName(club.name);
+    setSlug(club.slug);
+    setSport(club.sport || "");
+    setTagline(club.tagline || "");
+    setPrimaryColor(club.primaryColor || "#6D5DF6");
+    setLogoUrl(club.logoUrl || "");
+  }, [club.id, club.name, club.slug, club.sport, club.tagline, club.primaryColor, club.logoUrl]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -264,7 +276,14 @@ function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) 
 
   return (
     <div className="bg-white rounded-xl border border-app-border p-6">
-      <h2 className="text-base font-semibold text-text-primary mb-5">Club Profile</h2>
+      <h2 className="text-base font-semibold text-text-primary mb-1">Club Profile</h2>
+      <p className="text-sm text-text-muted mb-4">
+        Basic profile info. For your About Us, cover image, hours, contact info,
+        and social links, open the{" "}
+        <Link href="/dashboard/settings/club" className="underline text-text-primary">
+          full club profile editor
+        </Link>.
+      </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-text-primary mb-1">Club name</label>

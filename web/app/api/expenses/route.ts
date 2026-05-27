@@ -16,11 +16,14 @@ export async function GET(req: Request) {
   const to = searchParams.get("to");
 
   const entity = searchParams.get("entity");
+  // Optional filter by Plaid bank connection (operating vs foundation, etc).
+  const bank = searchParams.get("bank");
 
   const expenses = await prisma.expense.findMany({
     where: {
       clubId: session.user.clubId,
       ...(entity && entity !== "all" ? { legalEntityId: entity } : {}),
+      ...(bank && bank !== "all" ? { plaidConnectionId: bank } : {}),
       ...(from || to ? {
         date: {
           ...(from ? { gte: new Date(from) } : {}),
@@ -50,6 +53,8 @@ const createSchema = z.object({
   reimbursable: z.boolean().optional().default(false),
   receiptUrl: z.string().optional().nullable(),
   kind: z.enum(["FIXED", "VARIABLE"]).optional().nullable(),
+  // Which bank/PlaidConnection this expense came out of, for filtering.
+  plaidConnectionId: z.string().optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -75,6 +80,7 @@ export async function POST(req: Request) {
         reimbursable: data.reimbursable ?? false,
         receiptUrl: data.receiptUrl || null,
         kind: data.kind || null,
+        plaidConnectionId: data.plaidConnectionId || null,
       },
     });
     return NextResponse.json(expense, { status: 201 });
