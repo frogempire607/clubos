@@ -6,13 +6,15 @@ import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfi
 type Booking = {
   id: string;
   status: string;
+  kind?: "event" | "class";
+  coach?: string | null;
   event: {
     id: string;
     name: string;
     type: string;
     startsAt: string;
     endsAt: string;
-    capacity: number | null;
+    capacity?: number | null;
     customEventType: { name: string; color: string; textColor: string } | null;
   };
 };
@@ -24,6 +26,57 @@ type MemberContext = {
   kind: "self" | "child";
   bookings: Booking[];
 };
+
+type RawAttendanceRecord = {
+  id: string;
+  status: string;
+  classSession: {
+    id: string;
+    startsAt: string;
+    endsAt: string;
+    recurringClass: {
+      id: string;
+      name: string;
+      color: string | null;
+      textColor: string | null;
+      assignedStaffIds: unknown;
+    } | null;
+  } | null;
+};
+
+function classAttendanceToBookings(
+  records: RawAttendanceRecord[] | undefined,
+  staffById: Map<string, string>,
+): Booking[] {
+  if (!records) return [];
+  return records
+    .filter((r) => r.classSession && r.classSession.recurringClass)
+    .map((r) => {
+      const cs = r.classSession!;
+      const rc = cs.recurringClass!;
+      const staffIds = Array.isArray(rc.assignedStaffIds) ? (rc.assignedStaffIds as string[]) : [];
+      const coach = staffIds.map((id) => staffById.get(id)).filter(Boolean).join(", ") || null;
+      // Status semantics differ: AttendanceRecord uses PRESENT/LATE/DROP_IN/TRIAL
+      // ahead of time as "booked" markers. Show all as Confirmed in the list.
+      return {
+        id: `class:${r.id}`,
+        status: "CONFIRMED",
+        kind: "class" as const,
+        coach,
+        event: {
+          id: rc.id,
+          name: rc.name,
+          type: "CLASS",
+          startsAt: cs.startsAt,
+          endsAt: cs.endsAt,
+          capacity: null,
+          customEventType: rc.color
+            ? { name: "Class", color: rc.color, textColor: rc.textColor || "#fff" }
+            : null,
+        },
+      };
+    });
+}
 
 const builtInColors: Record<string, { bg: string; fg: string }> = {
   CLASS: { bg: "var(--color-primary)", fg: "#fff" },
@@ -61,32 +114,59 @@ export default function MemberBookingsPage() {
   const [filter, setFilter] = useState<"upcoming" | "past" | "all">("upcoming");
 
   useEffect(() => {
-    fetch("/api/member/portal")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        const list: MemberContext[] = [];
-        if (d?.user?.memberProfile) {
-          list.push({
-            id: d.user.memberProfile.id,
-            firstName: d.user.memberProfile.firstName,
-            lastName: d.user.memberProfile.lastName,
-            kind: "self",
-            bookings: d.user.memberProfile.bookings ?? [],
-          });
+    (async () => {
+      const portal = await fetch("/api/member/portal").then((r) => (r.ok ? r.json() : null));
+      if (!portal) { setLoading(false); return; }
+
+      // Resolve coach names for class attendance records by looking up the
+      // assigned staff IDs we already have in the payload.
+      const staffIds = new Set<string>();
+      const collect = (arr: RawAttendanceRecord[] | undefined) => {
+        for (const r of arr ?? []) {
+          const ids = r.classSession?.recurringClass?.assignedStaffIds;
+          if (Array.isArray(ids)) ids.forEach((id) => typeof id === "string" && staffIds.add(id));
         }
-        for (const g of d?.user?.guardianOf ?? []) {
-          list.push({
-            id: g.member.id,
-            firstName: g.member.firstName,
-            lastName: g.member.lastName,
-            kind: "child",
-            bookings: g.member.bookings ?? [],
-          });
-        }
-        setMembers(list);
-        setActiveId(resolveActiveProfileId(list.map((m) => m.id)));
-        setLoading(false);
-      });
+      };
+      collect(portal?.user?.memberProfile?.attendanceRecords);
+      for (const g of portal?.user?.guardianOf ?? []) collect(g.member?.attendanceRecords);
+
+      const staffById = new Map<string, string>();
+      if (staffIds.size > 0) {
+        const res = await fetch("/api/member/staff").then((r) => (r.ok ? r.json() : []));
+        const items: Array<{ id: string; firstName: string; lastName: string }> = Array.isArray(res) ? res : res.items ?? [];
+        for (const u of items) staffById.set(u.id, `${u.firstName} ${u.lastName}`.trim());
+      }
+
+      const list: MemberContext[] = [];
+      if (portal?.user?.memberProfile) {
+        const m = portal.user.memberProfile;
+        list.push({
+          id: m.id,
+          firstName: m.firstName,
+          lastName: m.lastName,
+          kind: "self",
+          bookings: [
+            ...((m.bookings ?? []) as Booking[]).map((b) => ({ ...b, kind: "event" as const })),
+            ...classAttendanceToBookings(m.attendanceRecords, staffById),
+          ],
+        });
+      }
+      for (const g of portal?.user?.guardianOf ?? []) {
+        list.push({
+          id: g.member.id,
+          firstName: g.member.firstName,
+          lastName: g.member.lastName,
+          kind: "child",
+          bookings: [
+            ...((g.member.bookings ?? []) as Booking[]).map((b) => ({ ...b, kind: "event" as const })),
+            ...classAttendanceToBookings(g.member.attendanceRecords, staffById),
+          ],
+        });
+      }
+      setMembers(list);
+      setActiveId(resolveActiveProfileId(list.map((m) => m.id)));
+      setLoading(false);
+    })();
   }, []);
 
   // Follow the account-level switcher (shared across all portal pages).
@@ -95,18 +175,20 @@ export default function MemberBookingsPage() {
   const active = useMemo(() => members.find((m) => m.id === activeId), [members, activeId]);
 
   const now = new Date();
-  const filtered = (active?.bookings ?? []).filter((b) => {
-    const start = new Date(b.event.startsAt);
-    if (filter === "upcoming") return start >= now && b.status !== "CANCELED";
-    if (filter === "past") return start < now || b.status === "CANCELED";
-    return true;
-  });
+  const filtered = (active?.bookings ?? [])
+    .filter((b) => {
+      const start = new Date(b.event.startsAt);
+      if (filter === "upcoming") return start >= now && b.status !== "CANCELED";
+      if (filter === "past") return start < now || b.status === "CANCELED";
+      return true;
+    })
+    .sort((a, b) => new Date(a.event.startsAt).getTime() - new Date(b.event.startsAt).getTime());
 
   return (
     <>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-stone-900 mb-1">My Bookings</h1>
-        <p className="text-sm text-stone-500">All your class and event registrations.</p>
+        <p className="text-sm text-stone-500">All your upcoming classes and event registrations.</p>
       </div>
 
       {/* Profile selection is handled account-wide by the ProfileSwitcher in
@@ -193,6 +275,7 @@ export default function MemberBookingsPage() {
                       {new Date(b.event.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                       {" – "}
                       {new Date(b.event.endsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                      {b.coach ? ` · Coach ${b.coach}` : ""}
                     </p>
                   </div>
                 </div>

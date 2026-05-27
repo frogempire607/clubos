@@ -6,6 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import GlobalSearch from "@/components/GlobalSearch";
+import BackButton from "@/components/BackButton";
 import { canAccessPath } from "@/lib/permissions";
 
 type NavChild = { id: string; label: string; href: string };
@@ -55,6 +56,7 @@ const NAV: NavItem[] = [
     children: [
       { id: "messages", label: "Messaging", href: "/dashboard/messages" },
       { id: "announcements", label: "Announcements", href: "/dashboard/announcements" },
+      { id: "campaigns", label: "Campaigns", href: "/dashboard/communication/campaigns" },
     ],
   },
   { id: "attendance", label: "Attendance", icon: "✓", href: "/dashboard/attendance" },
@@ -316,6 +318,67 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <ThemeToggle />
         </div>
 
+        {/* My account — every signed-in user (owner + staff) can change
+            their own password and update their name here, even if the owner
+            hasn't granted any other dashboard permissions. */}
+        <div style={{ padding: "4px 8px 0" }}>
+          <Link
+            href="/dashboard/my-account"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              width: "100%", textAlign: "left",
+              padding: "7px 12px", borderRadius: 8,
+              fontSize: 13, textDecoration: "none",
+              background: isActive("/dashboard/my-account") ? SIDEBAR_HOVER : "transparent",
+              color: isActive("/dashboard/my-account") ? "#fff" : TEXT_DIM,
+              transition: "background 0.15s, color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
+              (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive("/dashboard/my-account")) {
+                (e.currentTarget as HTMLElement).style.background = "transparent";
+                (e.currentTarget as HTMLElement).style.color = TEXT_DIM;
+              }
+            }}
+          >
+            <span style={{ width: 22, textAlign: "center", fontSize: 16, opacity: 0.85, lineHeight: 1 }}>◎</span>
+            My account
+          </Link>
+        </div>
+
+        {/* Preview / Client view — owner & staff. Always shown so it's
+            discoverable; the API enforces role on activation. */}
+        <div style={{ padding: "4px 8px 0" }}>
+          <Link
+            href="/dashboard/preview"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              width: "100%", textAlign: "left",
+              padding: "7px 12px", borderRadius: 8,
+              fontSize: 13, textDecoration: "none",
+              background: isActive("/dashboard/preview") ? SIDEBAR_HOVER : "transparent",
+              color: isActive("/dashboard/preview") ? "#fff" : TEXT_DIM,
+              transition: "background 0.15s, color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = SIDEBAR_HOVER;
+              (e.currentTarget as HTMLElement).style.color = TEXT_HOVER;
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive("/dashboard/preview")) {
+                (e.currentTarget as HTMLElement).style.background = "transparent";
+                (e.currentTarget as HTMLElement).style.color = TEXT_DIM;
+              }
+            }}
+          >
+            <span style={{ width: 22, textAlign: "center", fontSize: 16, opacity: 0.85, lineHeight: 1 }}>◐</span>
+            Client view
+          </Link>
+        </div>
+
         {/* Need help */}
         <div style={{ padding: "10px 8px 0" }}>
           <Link
@@ -381,6 +444,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             display: "flex", alignItems: "center", gap: 12,
           }}
         >
+          {/* Back button — hidden on the dashboard home so the topbar
+              doesn't get a dead "Back" that only points at itself. */}
+          {pathname !== "/dashboard" && <BackButton fallbackHref="/dashboard" />}
           <GlobalSearch />
         </div>
         <div style={{ flex: 1 }}>{children}</div>

@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-02 (Bug fixes: calendar refetch, per-occurrence class edit, multi-file staff docs, error UX, branded app restore)
+Last updated: 2026-06-03 (Member portal schedule/family polish, private lesson tier/coach filtering, products dynamic forms, campaign/engagement clarity)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -112,6 +112,7 @@ Current dashboard sidebar structure:
 - Communication
   - Messaging
   - Announcements
+  - Campaigns
 - Attendance
 - Financials
 - Reports
@@ -151,6 +152,7 @@ Dashboard pages:
 - `/dashboard/calendar` — unified Events + Classes + Private Lessons monthly grid with kind + subtype filters
 - `/dashboard/messages`
 - `/dashboard/announcements`
+- `/dashboard/communication/campaigns` — campaign analytics shell with KPIs, lead source breakdown, funnel/stage tracking, revenue attribution, and campaign activity foundation
 - `/dashboard/attendance`
 - `/dashboard/financials`
 - `/dashboard/reports` — KPI cards, revenue chart, breakdowns, top events, CSV exports (gated by tier)
@@ -167,9 +169,10 @@ Dashboard pages:
 Member portal pages:
 
 - `/member`
+- `/member/schedule` — full member-facing schedule for classes, events, and private lesson offerings; respects active parent/child profile selection and shows eligibility/status messaging
 - `/member/bookings` — child-switcher for parents; shows bookings per accessible member
 - `/member/documents` — child-switcher + sign / re-sign with audit trail and frequency-based expiry
-- `/member/profile`
+- `/member/profile` — account profile plus Family & athlete access area for parent/guardian switching and child linking
 - `/member/signup`
 - `/member/announcements`
 - `/member/messages`, `.../dm/[userId]`, `.../group/[id]`
@@ -237,6 +240,8 @@ Messaging/documents:
 - `/api/messages/dm`, `/api/messages/dm/[userId]`
 - `/api/messages/groups`, `/api/messages/groups/[id]`
 - `/api/announcements`, `/api/announcements/[id]` — broadcast emails gated on `emailSms` tier flag
+- `/api/announcements/[id]/engagement` — owner/staff engagement detail for a specific announcement (seen/opened/clicked member list)
+- `/api/campaigns/overview?range=…` — communication/campaign dashboard analytics from member lead fields, transactions, and campaign attribution rows
 - `/api/documents`, `/api/documents/[id]` — schema accepts `signatureValidForDays`
 - `/api/documents/[id]/signatures` — owner audit trail listing every signature on a document
 
@@ -275,11 +280,13 @@ Member-side:
 
 - `/api/member/signup`
 - `/api/member/portal`
-- `/api/member/portal/link-child`
+- `/api/member/portal/link-child` — parent/guardian can link an existing same-club member by email into `MemberGuardianUser`
 - `/api/member/me` — GET/PATCH/DELETE own profile
 - `/api/member/club` — public club info for portal (logo, tagline, aboutUs)
 - `/api/member/staff` — visible staff (only `showOnPortal=true`)
 - `/api/member/announcements`
+- `/api/member/announcements/[id]/engagement` — records member portal announcement opens and URL link clicks
+- `/api/member/schedule?memberId=…` — active-profile-aware schedule feed for member portal; combines visible events, class sessions, membership/price status, bookings, and private lesson offerings
 - `/api/member/documents?memberId=…` — context-aware; returns docs + signature status for a given accessible member (self or linked child); signature includes `expiresAt`/`expired` based on `signatureValidForDays`
 - `/api/member/documents/[id]/sign` — POST persists a `DocumentSignature` with relationship (SELF | GUARDIAN), IP, user agent; enforces that minors can't self-sign guardian-required docs
 - `/api/member/messages`, `.../dm/[userId]`, `.../groups/[id]`
@@ -287,12 +294,13 @@ Member-side:
 - `/api/member/memberships/subscribe` — honors trial rules
 - `/api/member/billing-portal`
 - `/api/member/events`
-- `/api/member/events/[id]/register` — emits booking confirmation email on free paths
+- `/api/member/events/[id]/register` — emits booking confirmation email on free paths; accepts a verified `memberId` so parents can register the selected child profile safely
 - `/api/member/products`, `.../products/[id]/buy`
+- `/api/member/privates` — member private lesson request flow; validates coach/tier combinations server-side and rejects invalid pairings
 
 ## Current Prisma Schema Status
 
-`prisma/schema.prisma` validates as of 2026-05-15.
+`prisma/schema.prisma` validates as of 2026-06-03.
 
 Core models currently present:
 
@@ -300,7 +308,8 @@ Core models currently present:
 - Members/family: `Member`, `Guardian`, `MemberGuardianUser`
 - Purchase options: `Membership`, `MemberSubscription`, `Discount`, `Product`, `ProductSale`
 - Classes/events: `RecurringClass`, `ClassSession`, `Event`, `EventSession`, `Booking`, `ClubEventType`, `AttendanceRecord`, `EventStaffAssignment`
-- Messaging/announcements: `Message`, `MessageGroup`, `MessageGroupMember`, `GroupMessage`, `Announcement`
+- Messaging/announcements: `Message`, `MessageGroup`, `MessageGroupMember`, `GroupMessage`, `GroupMessageReceipt`, `Announcement`, `AnnouncementEngagement`
+- Campaigns/lead attribution: `Campaign`, `CampaignAttribution`; `Member` carries lightweight `leadSource`, `leadStage`, `leadSourceUpdatedAt`
 - Documents/settings: `Document`, `DocumentSignature`, `CustomField`, `ClubProfile`, `LegalEntity`, `DonationLink`
 - Financials: `Transaction`, `Expense`
 - Private lessons/staff: `PrivateLessonType`, `PrivatePackage`, `PrivateCreditLedger`, `PrivateBooking`, `PrivateLessonPayRate`, `StaffAvailability`, `StaffAvailabilityException`
@@ -312,6 +321,9 @@ Notable model fields added since 2026-05-03:
 - `Membership.trialEnabled Boolean`, `trialDays Int?`, `trialAppliesToReturning Boolean`
 - `RecurringClass.dayOverrides Json` — `[{ dayOfWeek, startTime, endTime }, …]` — overrides default start/end times on specific days
 - `Club.subscriptionStatus String?`, `stripeSubscriptionId String? @unique` (used for platform-side billing)
+- `Product.productType`, `visibility`, `showLocation`, `taxable`, `internalNotes`, `settings` — product type system foundation for gear, rentals, birthday packages, digital items, and custom products
+- `AnnouncementEngagement` + `GroupMessageReceipt` — shared communication engagement layer for announcement seen/open/click data and group-message read receipts
+- `Campaign` + `CampaignAttribution`, plus member lead fields — campaign analytics/revenue attribution foundation
 
 Migration folders currently present:
 
@@ -346,10 +358,13 @@ Migration folders currently present:
 - `20260531000000_staff_documents` — `StaffDocument` table (owner-uploaded tax docs / contracts / agreements per staff user, with sharedWithStaff visibility flag)
 - `20260601000000_private_packages_multi_types` — `PrivatePackage.lessonTypeIds` (JSONB) for multi-type packages
 - `20260602000000_package_discounts_bonus_thresholds` — `PrivatePackage.pricingMode` (FLAT | PERCENT | FIXED) + `discountValue` (Decimal?); `CompensationBonus.minThreshold` + `maxThreshold` (Int?)
+- `20260603000000_campaigns_lead_attribution` — `Campaign`, `CampaignAttribution`, and member lead source/stage fields
+- `20260603010000_communication_engagement` — `AnnouncementEngagement` and `GroupMessageReceipt`
+- `20260603020000_product_type_system` — product type/visibility/show-location/taxable/internal-notes/settings fields on `Product`
 
 Current migration status:
 
-- `npx prisma migrate status` reports the database schema is up to date.
+- `npx prisma migrate status` currently fails locally with a bare `Schema engine error:` even though direct `psql` checks work and the additive 20260603 migrations were applied locally.
 - `npx prisma validate` passes.
 - New libs: `lib/permissions.ts`, `lib/apiGuard.ts`, `lib/fees.ts`, `lib/financials.ts`, `lib/financialReports.ts`, `lib/migration.ts`, `lib/migrationServer.ts`, `lib/memberLink.ts`, `lib/dashboardWidgets.ts`, `lib/datetime.ts`, `lib/activeProfile.ts`, `lib/categoryMatcher.ts`, `lib/privatePartners.ts`, `lib/memberMessaging.ts`, `lib/eventTypeColors.ts`.
 - Major additions this cycle: member-portal club branding + auto-link, event mass-invoicing + tournament pricing fix, customizable dashboard, Guest/Contractor management, staff roles/permissions + restricted staff view, per-occurrence class schedule edits, Member Migration wizard, new 3-tier pricing + pass-through fees, Financial OS, attendance cash/comp/invoice for non-members.
@@ -419,12 +434,25 @@ Current migration status:
 
 ### Member portal (guardian/minor)
 - `/member` portal home with separate Adult / Minor / Parent views and Link Child modal.
-- Parents see a child-switcher on `/member/bookings` and `/member/documents` so they can act on behalf of linked minors.
+- `/member/schedule` is the main member-facing schedule surface. It shows visible classes, events, and private lesson offerings even when the member cannot book them. Cards and the detail modal show time, type, coach, location, description, capacity/spots, price/status, and eligibility text such as "Included in your membership", "Purchase required", "Members only", or "Registration closed".
+- The member layout bottom nav now points the schedule tab to `/member/schedule`; `/member/bookings` remains available for already-registered sessions/history.
+- Parents see a shared active-profile switcher across the portal (via `lib/activeProfile.ts`) and child-aware views on `/member/schedule`, `/member/bookings`, and `/member/documents`.
+- `/member/profile` now includes a Family & athlete access area. Parents can see linked athletes, switch the selected athlete, and link/request an existing same-club child/member by email through `/api/member/portal/link-child`.
+- Child/minor accounts stay scoped to their own profile and do not get the child-linking form.
 - `MemberGuardianUser` junction records portal access; guardians are still the family profile and not duplicated.
+- Login separation: `/login` routes by the authenticated account's real role. Members who submit through the Club/Staff tab get a clear member-account redirect and land in `/member`; owners/staff land in `/dashboard`. Middleware redirects MEMBER away from `/dashboard` and redirects OWNER/STAFF away from `/member` because member APIs are role-scoped.
 
 ### Reports
 - `/dashboard/reports` with KPI cards (revenue / net / new members / attendance), 12-month revenue bar chart, breakdowns (revenue by source, members by status, subscriptions, attendance, top events, expenses by category), and CSV export links for members / attendance / transactions.
-- `/api/reports/overview` is tier-gated (Starter blocked); reports page shows an upgrade CTA when 403'd.
+- `/api/reports/overview` is tier-gated by feature flag; reports page shows an upgrade CTA when 403'd.
+
+### Campaigns & communication engagement
+- `/dashboard/communication/campaigns` is a first-pass Campaigns dashboard under the existing Communication group. It includes KPI cards (New Leads, Intro Offers Sold, First Time Bookings, Clients Won Back, Marketing Revenue), Leads by Source donut/table, Leads by Stage funnel, Revenue Attribution, and Campaign Activity empty state.
+- Data architecture is real, not UI-only: `Campaign` stores campaign metadata (type/status/dates/audience/channel plan/revenue + lead attribution mode), and `CampaignAttribution` can link campaigns to members and transactions. `Member.leadSource/leadStage` provide a lightweight attribution foundation until owner-editable CRM flows exist.
+- `/api/campaigns/overview` computes fallback analytics from existing members and transactions. SMS/push are marked as future-ready hooks only; there is no fake SMS/push delivery.
+- Announcements now have per-user engagement via `AnnouncementEngagement`: member announcement list marks `seen`, opening the announcement detail marks `opened`, and clicking an `http(s)` URL inside the announcement body marks a **Link click**. Owner Announcements UI labels this clearly as Seen / Opened / Link clicks and the Engagement modal explains the distinction.
+- Group messages now have per-user `GroupMessageReceipt` rows when users open a group thread. Group-message bubbles show "Read X" for messages the current user sent.
+- Direct messages already had `Message.readAt`; UI now surfaces Sent/Read for sent DMs.
 
 ### Staff scheduling, availability, payroll
 - `/dashboard/staff/availability` — pick a staff member, edit per-day recurring slots, add/remove date exceptions (`UNAVAILABLE` or `PARTIAL` with modified hours).
@@ -434,10 +462,24 @@ Current migration status:
 
 ### Owner Dashboard follow-up phases 4-6
 - **Private lesson duration/packages (Phase 4)**: private lesson type duration is now limited to owner presets in 15-minute increments from 15 minutes through 4 hours (`lib/privateLessonRules.ts`). API validation enforces the same rule. Private packages now support one or more lesson types via `PrivatePackage.lessonTypeIds` JSONB while preserving legacy `lessonTypeId`. Member private requests derive end time from the lesson duration; athletes no longer choose custom duration. When a member has usable package credits, they can submit multiple requested lesson dates/times up to their remaining package balance, creating one request per requested lesson.
+- **Member private lesson tier/coach filtering**: member private requests now treat coach and pricing tier as linked choices. Selecting a coach filters to only that coach's assigned price options; selecting a price option filters to eligible coaches. Server-side `/api/member/privates` revalidates the pairing using `PrivateLessonType.priceOptions[].coachIds`, `eligibleCoachIds`, and all active owner/staff fallback, so invalid coach-tier combinations cannot be booked even if the UI is bypassed.
 - **Staff bonus clarity (Phase 5)**: compensation UI now presents signup bonus as “pay on next paycheck” and class growth/retention as a per-kid/per-class incentive. Existing payroll computation uses `SIGNUP` for once-per-period signup/purchase bonuses and `ATTENDANCE` for scoped class/event attendance incentives.
 - **Bonus thresholds**: every bonus row now supports optional `minThreshold` / `maxThreshold` (Int?). The engine in `lib/compensation.ts` only pays for the slice of items *above* min and *up to* max — e.g. "bonus starts after 10 athletes, caps at 25". REVENUE_SHARE applies the same slice to qualifying items in collection order so dollar revenue reflects the same window. Editor fields are surfaced under each bonus card on `/dashboard/staff`.
 - **Tier-aware private packages**: `PrivatePackage.pricingMode` + `discountValue` let a package describe a per-lesson discount instead of a flat total — PERCENT (% off each tier price) or FIXED ($ off each tier price). The package modal shows a live tier-by-tier pricing preview, and the Assign Package modal picks lesson type + coach tier and shows the computed total. `lib/privateLessonRules.ts` exposes `packageTotalForBasePrice()` and `pricePerLessonAfterDiscount()` so the booking + member-side purchase flows can compute the correct prepaid total for the chosen tier. Legacy `FLAT` mode continues to honor the stored `price` field.
 - **Payroll in Financials/Reports (Phase 6)**: `lib/payroll.ts` computes staff payout totals from the same compensation engine used by Payroll/Payouts. Reports and Financials fold computed staff payroll plus contractor payments into the `PAYROLL` expense category so owners do not have to manually enter payroll for accurate net/expense reporting.
+
+### Product type system
+- Sidebar remains **Purchase Options → Products**. Do not rename Products.
+- `Product` now supports `productType` values: `GEAR`, `FACILITY_RENTAL`, `BIRTHDAY_PARTY`, `DIGITAL`, `OTHER`.
+- Product metadata fields: `visibility` (`MEMBERS_ONLY`, `PUBLIC_ONLY`, `MEMBERS_AND_PUBLIC`, `INTERNAL_ONLY`), `showLocation` (`MEMBER_PORTAL`, `PUBLIC_CHECKOUT`, `INTERNAL_ONLY`), `taxable`, `internalNotes`, and flexible JSON `settings`.
+- Owner Products form starts with product type selection and conditionally shows relevant sections:
+  - Gear / Merchandise: inventory tracking, total stock, low-stock alert, variant/options notes, per-variant stock notes, fulfillment setting.
+  - Facility Rental: available days, time windows, duration pricing, buffer, capacity, approval requirement, deposit/full/request mode, blackout dates, member price.
+  - Birthday Party / Rental Package: package tiers, duration/price notes, max guests, add-ons, deposit/approval, custom form questions.
+  - Digital Item: delivery instructions and access/file notes using the existing private-file strategy when files are needed.
+  - Other: flexible custom questions and optional approval requirement.
+- Existing gear/product sales remain backed by `ProductSale` and Stripe/manual sale routes. Member store filters out internal/public-only products and blocks rental/party types from old instant checkout until the product booking/request model is built.
+- Full rental/party booking records, variant-aware checkout/inventory decrement, public checkout links, and automated digital file delivery are not complete yet. The owner form captures the needed configuration in `Product.settings` for the next booking/checkout phase.
 
 ### Stripe / billing / file storage
 - Stripe Connect (member → club) onboarding, status sync, dashboard redirect, Checkout, webhook flows.
@@ -445,7 +487,7 @@ Current migration status:
 - **ClubOS platform subscription billing** (club → AthletixOS):
   - `/api/club/subscription/checkout` opens platform-account Stripe Checkout for the chosen tier (uses `STRIPE_PRICE_GROWTH / STRIPE_PRICE_PRO / STRIPE_PRICE_ENTERPRISE` env vars).
   - `/api/club/subscription/portal` opens Stripe Billing Portal for plan-swap / card / invoice / cancel.
-  - Webhook handles platform `checkout.session.completed` (sets tier + `stripeCustomerId` + `stripeSubscriptionId` + `subscriptionStatus="active"`), `customer.subscription.updated` (status sync + tier swap via Price-ID mapping), `customer.subscription.deleted` (downgrades to Starter).
+  - Webhook handles platform `checkout.session.completed` (sets tier + `stripeCustomerId` + `stripeSubscriptionId` + `subscriptionStatus="active"`), `customer.subscription.updated` (status sync + tier swap via Price-ID mapping), and `customer.subscription.deleted` (keeps tier, sets `subscriptionStatus="canceled"`; no Starter fallback).
   - `/api/club/tier` PATCH blocks direct paid-tier set without a promo code; paid plans must go through Checkout.
 - **Webhook hardening + observability**: `StripeWebhookEvent` table logs every event with idempotency (skips duplicates by `stripeEventId`). Failures are caught and the error stored on the row instead of 500'ing — Stripe doesn't retry-storm on persistent bugs.
 - **Diagnostics page** at `/dashboard/settings/diagnostics`: setup checklist (env vars, Connect status, Price IDs), 24h / total / error counts, last 50 webhook events with status badges and live-mode indicators, copy-paste webhook URL.
@@ -498,7 +540,7 @@ These flows exist in code but haven't been verified against a live Stripe enviro
 - Some old top-level routes remain alongside newer grouped routes, especially purchase options.
 - `/dashboard/schedule` and `/dashboard/staff/schedule` both exist; current sidebar points under Staff.
 - Add Staff (invite) modal does not collect bio/photo/public-contact fields yet — only the Edit Staff modal does. Owner adds the staff member, then opens Edit to fill the public profile.
-- Tier-gating helper `requireGrowth` in `/api/messages/*` is effectively a no-op since `directMessaging=true` on Starter. Leave in place if policy might flip.
+- Tier-gating helper `requireGrowth` in `/api/messages/*` is effectively a no-op since `directMessaging=true` on all current paid tiers. Leave in place if policy might flip.
 - Member-side messaging, memberships, events, products endpoints check session but don't apply tier gating beyond what the owner's plan allows.
 - Member portal stays light-themed intentionally; raw `bg-stone-*` / `bg-white` / `text-stone-*` classes there will not respond to the dashboard dark-mode toggle.
 

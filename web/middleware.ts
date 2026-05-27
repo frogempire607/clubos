@@ -1,6 +1,7 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 import { canAccessPath } from "@/lib/permissions";
+import { PREVIEW_COOKIE, isValidPreviewMode } from "@/lib/preview";
 
 // Public routes that live under a protected prefix but must be reachable
 // while logged OUT (e.g. prospective members creating an account).
@@ -35,8 +36,17 @@ export default withAuth(
       }
     }
 
-    // Member portal: only members (owners/staff can preview)
+    // Member portal: route real members here. Owners/staff belong in the
+    // dashboard; the member APIs are scoped to MEMBER sessions and would not
+    // render a useful preview for staff roles — UNLESS preview mode is on,
+    // in which case we let the layout render and the member portal APIs
+    // serve a sanitized PREVIEW payload (see lib/preview + /api/member/*).
     if (pathname.startsWith("/member")) {
+      const previewRaw = req.cookies.get(PREVIEW_COOKIE)?.value;
+      const previewing = isValidPreviewMode(previewRaw) && previewRaw === "member";
+      if ((role === "OWNER" || role === "STAFF") && !previewing) {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
       if (role !== "MEMBER" && role !== "OWNER" && role !== "STAFF") {
         return NextResponse.redirect(new URL("/login", req.url));
       }

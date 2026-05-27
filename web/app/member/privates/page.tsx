@@ -139,6 +139,24 @@ export default function MemberPrivatesPage() {
   const options = type?.priceOptions ?? [];
   const option = options.find((o) => o.id === optionId) || null;
 
+  function optionCoachIds(o: Opt, lesson: LessonType): string[] {
+    if (o.coachIds.length > 0) return o.coachIds;
+    if (lesson.eligibleCoachIds.length > 0) return lesson.eligibleCoachIds;
+    return coaches.map((c) => c.id);
+  }
+
+  function coachIdsForLesson(lesson: LessonType): string[] {
+    const ids = new Set<string>();
+    if (lesson.priceOptions.length > 0) {
+      for (const o of lesson.priceOptions) optionCoachIds(o, lesson).forEach((id) => ids.add(id));
+    } else if (lesson.eligibleCoachIds.length > 0) {
+      lesson.eligibleCoachIds.forEach((id) => ids.add(id));
+    } else {
+      coaches.forEach((c) => ids.add(c.id));
+    }
+    return Array.from(ids);
+  }
+
   // Reset partners whenever the lesson type changes so the slot count matches
   // the new lesson's maxAthletes.
   useEffect(() => {
@@ -147,13 +165,15 @@ export default function MemberPrivatesPage() {
     setPartners(Array.from({ length: partnerSlots }, () => ({ kind: null })));
   }, [typeId, type?.maxAthletes]);
 
-  // Coaches available for the current selection.
-  const availableCoachIds: string[] =
-    option && option.coachIds.length > 0
-      ? option.coachIds
-      : type && type.eligibleCoachIds.length > 0
-        ? type.eligibleCoachIds
-        : coaches.map((c) => c.id);
+  const availableOptions =
+    type && coachId
+      ? options.filter((o) => optionCoachIds(o, type).includes(coachId))
+      : options;
+  const availableCoachIds: string[] = type
+    ? option
+      ? optionCoachIds(option, type)
+      : coachIdsForLesson(type)
+    : [];
   const availableCoaches = coaches.filter((c) => availableCoachIds.includes(c.id));
 
   const price = option ? option.price : type ? type.basePrice : 0;
@@ -167,6 +187,13 @@ export default function MemberPrivatesPage() {
       }) ?? null
     : null;
   const maxSlotCount = usableCredit ? Math.min(usableCredit.remaining, 16) : 3;
+
+  useEffect(() => {
+    if (!type) return;
+    if (coachId && !coachIdsForLesson(type).includes(coachId)) setCoachId("");
+    if (option && coachId && !optionCoachIds(option, type).includes(coachId)) setOptionId("");
+    if (option && !availableOptions.some((o) => o.id === option.id)) setOptionId("");
+  }, [typeId, coachId, optionId, types, coaches]);
 
   function setSlot(i: number, patch: Partial<Slot>) {
     setSlots((s) => s.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
@@ -187,7 +214,11 @@ export default function MemberPrivatesPage() {
     (p) => p.kind !== null && (p.kind !== "MEMBER" || !!p.memberId),
   );
   const canSubmit =
-    !!type && validSlots.length > 0 && (options.length === 0 || !!option) && partnersComplete;
+    !!type &&
+    validSlots.length > 0 &&
+    (options.length === 0 || !!option) &&
+    (!coachId || availableCoachIds.includes(coachId)) &&
+    partnersComplete;
 
   async function submit() {
     if (!canSubmit) return;
@@ -346,36 +377,11 @@ export default function MemberPrivatesPage() {
             </div>
           </div>
 
-          {/* 2. Pricing option */}
-          {type && options.length > 0 && (
+          {/* 2. Coach */}
+          {type && (
             <div>
               <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
-                2 · Option
-              </p>
-              <div className="grid sm:grid-cols-2 gap-2">
-                {options.map((o) => (
-                  <button
-                    key={o.id}
-                    onClick={() => { setOptionId(o.id); setCoachId(""); }}
-                    className={`text-left p-3 rounded-lg border transition ${
-                      optionId === o.id
-                        ? "border-stone-900 bg-stone-50"
-                        : "border-stone-200 hover:border-stone-300"
-                    }`}
-                  >
-                    <p className="text-sm font-semibold text-stone-900">{o.label}</p>
-                    <p className="text-xs text-stone-500">${Number(o.price).toFixed(2)}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 3. Coach */}
-          {type && (options.length === 0 || option) && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
-                {options.length > 0 ? "3" : "2"} · Coach
+                2 · Coach
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -391,10 +397,13 @@ export default function MemberPrivatesPage() {
                 {availableCoaches.map((c) => (
                   <button
                     key={c.id}
-                    onClick={() => setCoachId(c.id)}
+                    onClick={() => {
+                      setCoachId(c.id);
+                      if (option && type && !optionCoachIds(option, type).includes(c.id)) setOptionId("");
+                    }}
                     className={`px-3 py-1.5 rounded-full text-sm border transition ${
                       coachId === c.id
-                        ? "border-stone-900 bg-stone-900 text-white"
+                        ? "border-stone-900 bg-stone-50"
                         : "border-stone-200 text-stone-600 hover:bg-stone-50"
                     }`}
                   >
@@ -402,6 +411,40 @@ export default function MemberPrivatesPage() {
                   </button>
                 ))}
               </div>
+              {options.length > 0 && (
+                <p className="text-xs text-stone-500 mt-2">Choosing a coach filters the pricing options below.</p>
+              )}
+            </div>
+          )}
+
+          {/* 3. Pricing option */}
+          {type && options.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
+                3 · Pricing option
+              </p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {availableOptions.map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => {
+                      setOptionId(o.id);
+                      if (type && coachId && !optionCoachIds(o, type).includes(coachId)) setCoachId("");
+                    }}
+                    className={`text-left p-3 rounded-lg border transition ${
+                      optionId === o.id
+                        ? "border-stone-900 bg-stone-900 text-white"
+                        : "border-stone-200 hover:border-stone-300"
+                    }`}
+                  >
+                    <p className={optionId === o.id ? "text-sm font-semibold text-white" : "text-sm font-semibold text-stone-900"}>{o.label}</p>
+                    <p className={optionId === o.id ? "text-xs text-white/75" : "text-xs text-stone-500"}>${Number(o.price).toFixed(2)}</p>
+                  </button>
+                ))}
+              </div>
+              {availableOptions.length === 0 && (
+                <p className="text-sm text-stone-500">No pricing options are assigned to that coach.</p>
+              )}
             </div>
           )}
 

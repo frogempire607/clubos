@@ -31,5 +31,24 @@ export async function GET() {
     },
   });
 
+  if (announcements.length > 0) {
+    const nowSeen = new Date();
+    await Promise.all(
+      announcements.map((announcement) =>
+        prisma.announcementEngagement.upsert({
+          where: { announcementId_userId: { announcementId: announcement.id, userId: session.user.id } },
+          update: { lastSeenAt: nowSeen },
+          create: {
+            clubId: session.user.clubId,
+            announcementId: announcement.id,
+            userId: session.user.id,
+            firstSeenAt: nowSeen,
+            lastSeenAt: nowSeen,
+          },
+        }),
+      ),
+    );
+  }
+
   return NextResponse.json(announcements);
 }

@@ -32,6 +32,7 @@ export async function GET() {
       notificationPrefs: true,
       clubProfile: true,
       builtInEventColors: true,
+      memberBillingVisibility: true,
     },
   });
 

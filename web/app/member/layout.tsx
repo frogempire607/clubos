@@ -3,16 +3,18 @@
 import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import ProfileSwitcher from "@/components/member/ProfileSwitcher";
+import BackButton from "@/components/BackButton";
 import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 
 const NAV = [
-  { href: "/member",           label: "Home",      icon: HomeIcon,      exact: true  },
-  { href: "/member/messages",  label: "Messages",  icon: MessageIcon,   exact: false },
-  { href: "/member/bookings",  label: "Bookings",  icon: BookingIcon,   exact: false },
-  { href: "/member/documents", label: "Documents", icon: DocumentIcon,  exact: false },
-  { href: "/member/profile",   label: "Profile",   icon: ProfileIcon,   exact: false },
+  { href: "/member",              label: "Home",      icon: HomeIcon,         exact: true  },
+  { href: "/member/schedule",     label: "Schedule",  icon: BookingIcon,      exact: false },
+  { href: "/member/messages",     label: "Messages",  icon: MessageIcon,      exact: false },
+  { href: "/member/announcements", label: "News",     icon: AnnouncementIcon, exact: false },
+  { href: "/member/documents",    label: "Docs",      icon: DocumentIcon,     exact: false },
+  { href: "/member/profile",      label: "Profile",   icon: ProfileIcon,      exact: false },
 ];
 
 type ClubInfo = {
@@ -31,10 +33,23 @@ type BeforeInstallPromptEvent = Event & {
 
 export default function MemberLayout({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
+  const router = useRouter();
   const pathname = usePathname();
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [club, setClub] = useState<ClubInfo | null>(null);
+  const [previewMode, setPreviewMode] = useState<"member" | "public" | null>(null);
+
+  useEffect(() => {
+    fetch("/api/preview").then((r) => (r.ok ? r.json() : { mode: null })).then((d) => setPreviewMode(d?.mode ?? null)).catch(() => {});
+  }, [pathname]);
+
+  async function exitPreview() {
+    await fetch("/api/preview", { method: "DELETE" });
+    setPreviewMode(null);
+    router.replace("/dashboard");
+    router.refresh();
+  }
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -103,6 +118,25 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className="min-h-screen bg-stone-50" style={brandedStyle}>
+      {/* Preview-mode banner. Only visible to owner/staff sessions that
+          activated preview from the dashboard; members never see this. */}
+      {previewMode && (
+        <div className="bg-amber-100 border-b border-amber-300 text-amber-900 text-xs sm:text-sm">
+          <div className="max-w-4xl mx-auto px-4 py-2 flex items-center justify-between gap-3">
+            <span>
+              <strong>Preview mode</strong> — you&apos;re seeing what your members see.
+              Real member data isn&apos;t loaded.
+            </span>
+            <button
+              onClick={exitPreview}
+              className="text-xs px-3 py-1 rounded-lg bg-amber-900 text-amber-50 hover:bg-amber-800 font-medium flex-shrink-0"
+            >
+              Exit preview
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Desktop top bar ── */}
       <header className="bg-white border-b border-stone-200 sticky top-0 z-40 hidden md:block">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -192,6 +226,13 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
       {/* ── Page content ── */}
       <main className="max-w-4xl mx-auto px-4 py-5 pb-24 md:pb-10">
+        {/* Universal back button. Hidden on the member home so the header
+            isn't cluttered with a back link that points at the same page. */}
+        {pathname !== "/member" && (
+          <div className="mb-3">
+            <BackButton fallbackHref="/member" />
+          </div>
+        )}
         <ProfileSwitcher />
         {children}
       </main>
@@ -297,6 +338,13 @@ function BookingIcon({ size }: { size: number }) {
     </svg>
   );
 }
+function AnnouncementIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <path d="M18 3a1 1 0 00-1.447-.894L8.763 6H5a3 3 0 000 6h.28l1.771 5.316A1 1 0 008 18h1a1 1 0 001-1v-4.382l6.553 3.276A1 1 0 0018 15V3z" />
+    </svg>
+  );
+}
 function DocumentIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
@@ -316,7 +364,7 @@ function buildPortalNav(config: BrandedAppConfig | null | undefined) {
   if (!config) return NAV;
   const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean }> = {
     book: { href: "/member/shop", icon: HomeIcon, exact: false },
-    schedule: { href: "/member/bookings", icon: BookingIcon, exact: false },
+    schedule: { href: "/member/schedule", icon: BookingIcon, exact: false },
     store: { href: "/member/products", icon: StoreIcon, exact: false },
     videos: { href: "/member/shop", icon: VideoIcon, exact: false },
     more: { href: "/member/profile", icon: ProfileIcon, exact: false },

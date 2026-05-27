@@ -4,13 +4,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isValidPrivateDuration } from "@/lib/privateLessonRules";
+import { requirePermission } from "@/lib/apiGuard";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const types = await prisma.privateLessonType.findMany({
-    where: { clubId: session.user.clubId, deletedAt: null },
+    where: { clubId: session!.user.clubId, deletedAt: null },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: { location: { select: { name: true } } },
   });
@@ -40,14 +41,15 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // Privates live under the "events / purchase options" permission. Owner
+  // bypasses; staff need at least edit-level access on `events`.
+  const guard = requirePermission(session, "events", "edit");
+  if (guard) return guard;
 
   try {
     const data = schema.parse(await req.json());
     const type = await prisma.privateLessonType.create({
-      data: { clubId: session.user.clubId, ...data },
+      data: { clubId: session!.user.clubId, ...data },
     });
     return NextResponse.json(type, { status: 201 });
   } catch (err) {

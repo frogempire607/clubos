@@ -10,6 +10,30 @@ type Announcement = {
   publishAt: string | null;
   unpublishAt: string | null;
   createdAt: string;
+  engagement?: {
+    seen: number;
+    opened: number;
+    clicked: number;
+    linkClicks?: number;
+  };
+};
+
+type AnnouncementEngagement = {
+  announcement: { id: string; title: string };
+  totals: { seen: number; opened: number; clicked: number; linkClicks?: number };
+  members: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    role: string;
+    memberStatus: string | null;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    openedAt: string | null;
+    openCount: number;
+    clickedAt: string | null;
+    clickCount: number;
+  }>;
 };
 
 type Status = "LIVE" | "SCHEDULED" | "EXPIRED";
@@ -46,6 +70,8 @@ export default function AnnouncementsPage() {
   const [filter, setFilter]     = useState<"ALL" | Status>("ALL");
   const [showModal, setShowModal]   = useState(false);
   const [editing, setEditing]       = useState<Announcement | null>(null);
+  const [engagement, setEngagement] = useState<AnnouncementEngagement | null>(null);
+  const [engagementLoading, setEngagementLoading] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -62,6 +88,13 @@ export default function AnnouncementsPage() {
     if (!confirm("Archive this announcement?")) return;
     await fetch(`/api/announcements/${id}`, { method: "DELETE" });
     load();
+  }
+
+  async function openEngagement(id: string) {
+    setEngagementLoading(true);
+    const res = await fetch(`/api/announcements/${id}/engagement`);
+    if (res.ok) setEngagement(await res.json());
+    setEngagementLoading(false);
   }
 
   return (
@@ -148,9 +181,23 @@ export default function AnnouncementsPage() {
                       {!a.publishAt && (
                         <span>Created {new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
                       )}
+                      {a.engagement && (
+                        <span>
+                          Seen {a.engagement.seen} · Opened {a.engagement.opened}
+                          {(a.engagement.linkClicks ?? a.engagement.clicked) > 0
+                            ? ` · Link clicks ${a.engagement.linkClicks ?? a.engagement.clicked}`
+                            : ""}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => openEngagement(a.id)}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-muted hover:bg-app-bg transition-colors"
+                    >
+                      Engagement
+                    </button>
                     <button
                       onClick={() => { setEditing(a); setShowModal(true); }}
                       className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-muted hover:bg-app-bg transition-colors"
@@ -178,8 +225,106 @@ export default function AnnouncementsPage() {
           onSaved={() => { setShowModal(false); setEditing(null); load(); }}
         />
       )}
+      {(engagement || engagementLoading) && (
+        <EngagementModal
+          loading={engagementLoading}
+          data={engagement}
+          onClose={() => { setEngagement(null); setEngagementLoading(false); }}
+        />
+      )}
     </div>
   );
+}
+
+function EngagementModal({
+  loading,
+  data,
+  onClose,
+}: {
+  loading: boolean;
+  data: AnnouncementEngagement | null;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">Announcement engagement</h2>
+            {data && <p className="text-xs text-text-muted mt-0.5">{data.announcement.title}</p>}
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+        </div>
+
+        {loading || !data ? (
+          <div className="p-8 text-center text-sm text-text-muted">Loading engagement...</div>
+        ) : (
+          <div className="p-6 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                ["Seen", data.totals.seen],
+                ["Opened", data.totals.opened],
+                ["Link clicks", data.totals.linkClicks ?? data.totals.clicked],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-app-border bg-app-bg p-3">
+                  <p className="text-xs text-text-muted uppercase tracking-wide">{label}</p>
+                  <p className="text-2xl font-semibold text-text-primary">{value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-text-muted">
+              Seen means the announcement was listed in the member portal. Opened means the member opened the announcement detail. Link clicks only count URL links inside the announcement body.
+            </p>
+
+            {data.members.length === 0 ? (
+              <div className="text-center py-10 text-sm text-text-muted border border-dashed border-app-border rounded-lg">
+                No member views recorded yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-app-border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="bg-app-bg border-b border-app-border">
+                    <tr>
+                      {["Member", "Status", "Seen", "Opened", "Link clicks"].map((h) => (
+                        <th key={h} className="text-left text-xs text-text-muted uppercase tracking-wide px-3 py-2">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.members.map((member) => (
+                      <tr key={member.userId} className="border-b border-app-border last:border-0">
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-text-primary">{member.name}</p>
+                          <p className="text-xs text-text-muted">{member.email}</p>
+                        </td>
+                        <td className="px-3 py-2 text-text-muted">{member.memberStatus || member.role}</td>
+                        <td className="px-3 py-2 text-text-muted">{formatDateTime(member.lastSeenAt)}</td>
+                        <td className="px-3 py-2 text-text-muted">
+                          {member.openedAt ? `${formatDateTime(member.openedAt)} (${member.openCount})` : "Not yet"}
+                        </td>
+                        <td className="px-3 py-2 text-text-muted">
+                          {member.clickedAt ? `${formatDateTime(member.clickedAt)} (${member.clickCount})` : "Not yet"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function AnnouncementModal({

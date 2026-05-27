@@ -22,9 +22,24 @@ export async function GET() {
   const announcements = await prisma.announcement.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },
     orderBy: { createdAt: "desc" },
+    include: {
+      engagements: {
+        select: { firstSeenAt: true, openedAt: true, clickedAt: true },
+      },
+    },
   });
 
-  return NextResponse.json(announcements);
+  return NextResponse.json(
+    announcements.map(({ engagements, ...announcement }) => ({
+      ...announcement,
+      engagement: {
+        seen: engagements.length,
+        opened: engagements.filter((e) => e.openedAt).length,
+        clicked: engagements.filter((e) => e.clickedAt).length,
+        linkClicks: engagements.filter((e) => e.clickedAt).length,
+      },
+    })),
+  );
 }
 
 export async function POST(req: Request) {

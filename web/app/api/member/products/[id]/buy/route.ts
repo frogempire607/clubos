@@ -20,9 +20,22 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const { quantity } = schema.parse(await req.json().catch(() => ({})));
 
     const product = await prisma.product.findFirst({
-      where: { id: params.id, clubId: session.user.clubId, deletedAt: null, active: true },
+      where: {
+        id: params.id,
+        clubId: session.user.clubId,
+        deletedAt: null,
+        active: true,
+        visibility: { in: ["MEMBERS_ONLY", "MEMBERS_AND_PUBLIC"] },
+        showLocation: { in: ["MEMBER_PORTAL", "PUBLIC_CHECKOUT"] },
+      },
     });
     if (!product) return NextResponse.json({ error: "Product not available" }, { status: 404 });
+    if (product.productType !== "GEAR" && product.productType !== "OTHER" && product.productType !== "DIGITAL") {
+      return NextResponse.json(
+        { error: "This product type needs a booking/request flow and cannot be purchased here yet." },
+        { status: 400 },
+      );
+    }
 
     if (product.trackInventory && product.inventory !== null && product.inventory < quantity) {
       return NextResponse.json(

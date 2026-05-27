@@ -9,16 +9,20 @@ type Product = {
   description: string | null;
   price: string | number;
   category: string;
+  productType: string;
   imageUrl: string | null;
   trackInventory: boolean;
   inventory: number | null;
 };
 
 const categoryLabel: Record<string, string> = {
-  GEAR:     "Gear",
+  GEAR:     "Gear / Merchandise",
   APPAREL:  "Apparel",
+  FACILITY_RENTAL: "Facility Rentals",
+  BIRTHDAY_PARTY: "Birthday Parties",
+  DIGITAL: "Digital Items",
   FACILITY: "Facility",
-  SERVICE:  "Service",
+  SERVICE: "Services",
   OTHER:    "Other",
 };
 
@@ -66,11 +70,11 @@ export default function MemberProductsPage() {
   // Group by category
   const grouped: Record<string, Product[]> = {};
   for (const p of products) {
-    const cat = p.category || "OTHER";
+    const cat = p.productType || p.category || "OTHER";
     if (!grouped[cat]) grouped[cat] = [];
     grouped[cat].push(p);
   }
-  const orderedCats = ["GEAR", "APPAREL", "FACILITY", "SERVICE", "OTHER"].filter((c) => grouped[c]?.length);
+  const orderedCats = ["GEAR", "FACILITY_RENTAL", "BIRTHDAY_PARTY", "DIGITAL", "APPAREL", "FACILITY", "SERVICE", "OTHER"].filter((c) => grouped[c]?.length);
 
   return (
     <>
@@ -107,6 +111,7 @@ export default function MemberProductsPage() {
                 {grouped[cat].map((p) => {
                   const outOfStock = p.trackInventory && p.inventory !== null && p.inventory <= 0;
                   const lowStock   = p.trackInventory && p.inventory !== null && p.inventory > 0 && p.inventory <= 3;
+                  const needsBookingFlow = p.productType === "FACILITY_RENTAL" || p.productType === "BIRTHDAY_PARTY";
                   return (
                     <div key={p.id} className="bg-white rounded-xl border border-stone-200 overflow-hidden">
                       {p.imageUrl ? (
@@ -134,11 +139,11 @@ export default function MemberProductsPage() {
                             <span />
                           )}
                           <button
-                            disabled={!hasMemberProfile || outOfStock || busy === p.id}
+                            disabled={!hasMemberProfile || outOfStock || needsBookingFlow || busy === p.id}
                             onClick={() => buy(p.id)}
                             className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50"
                           >
-                            {busy === p.id ? "…" : "Buy"}
+                            {busy === p.id ? "…" : needsBookingFlow ? "Request soon" : "Buy"}
                           </button>
                         </div>
                       </div>

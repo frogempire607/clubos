@@ -7,9 +7,13 @@ import { prisma } from "@/lib/prisma";
 const schema = z.object({
   name: z.string().min(1),
   slug: z.string().min(2).regex(/^[a-z0-9-]+$/, "Lowercase letters, numbers, and dashes only"),
-  sport: z.string().optional(),
-  tagline: z.string().optional(),
-  primaryColor: z.string().optional(),
+  // Clients used to send `null` for empty values, which a non-nullable
+  // .optional() rejected. The Zod failure short-circuited the whole save,
+  // so only the form's required fields (name, slug) appeared to persist
+  // when other inputs were blank. Allow null on every text field.
+  sport: z.string().optional().nullable(),
+  tagline: z.string().optional().nullable(),
+  primaryColor: z.string().optional().nullable(),
   logoUrl: z.string().optional().nullable(),
   aboutUs: z.string().max(5000).optional().nullable(),
   coverImageUrl: z.string().optional().nullable(),
@@ -26,6 +30,12 @@ const schema = z.object({
   builtInEventColors: z.record(
     z.object({ bg: z.string(), fg: z.string() }),
   ).optional().nullable(),
+  memberBillingVisibility: z.object({
+    showPlan: z.boolean().optional(),
+    showNextBilling: z.boolean().optional(),
+    showPrice: z.boolean().optional(),
+    showInvoices: z.boolean().optional(),
+  }).optional().nullable(),
 });
 
 export async function PATCH(req: Request) {
@@ -65,6 +75,7 @@ export async function PATCH(req: Request) {
         ...(data.appHomeContent !== undefined ? { appHomeContent: data.appHomeContent || null } : {}),
         ...(data.appCopy !== undefined ? { appCopy: data.appCopy ?? undefined } : {}),
         ...(data.builtInEventColors !== undefined ? { builtInEventColors: data.builtInEventColors ?? undefined } : {}),
+        ...(data.memberBillingVisibility !== undefined ? { memberBillingVisibility: data.memberBillingVisibility ?? undefined } : {}),
       },
     });
 

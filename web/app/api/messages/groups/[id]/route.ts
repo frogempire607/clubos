@@ -15,13 +15,55 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       members: { include: { user: { select: { id: true, firstName: true, lastName: true, role: true } } } },
       messages: {
         orderBy: { createdAt: "asc" },
-        include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+        include: {
+          sender: { select: { id: true, firstName: true, lastName: true } },
+          // Pull the reader name so owners/coaches can see WHO read each
+          // message and exactly WHEN.
+          receipts: {
+            select: {
+              userId: true,
+              readAt: true,
+              user: { select: { firstName: true, lastName: true } },
+            },
+          },
+        },
       },
     },
   });
 
   if (!group) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(group);
+
+  const unreadForViewer = group.messages.filter((message) => message.senderId !== session.user.id);
+  if (unreadForViewer.length > 0) {
+    await prisma.groupMessageReceipt.createMany({
+      data: unreadForViewer.map((message) => ({
+        clubId: session.user.clubId,
+        groupId: group.id,
+        groupMessageId: message.id,
+        userId: session.user.id,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  return NextResponse.json({
+    ...group,
+    messages: group.messages.map(({ receipts, ...message }) => ({
+      ...message,
+      readCount: receipts.length,
+      readByMe: receipts.some((receipt) => receipt.userId === session.user.id),
+      // Per-reader detail (with timestamp) so owners/coaches can see who
+      // saw the message and when.
+      readers: receipts
+        .filter((r) => r.user)
+        .map((r) => ({
+          userId: r.userId,
+          firstName: r.user!.firstName,
+          lastName: r.user!.lastName,
+          readAt: r.readAt,
+        })),
+    })),
+  });
 }
 
 const sendSchema = z.object({ body: z.string().min(1) });

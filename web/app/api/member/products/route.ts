@@ -13,6 +13,8 @@ export async function GET() {
       clubId: session.user.clubId,
       deletedAt: null,
       active: true,
+      visibility: { in: ["MEMBERS_ONLY", "MEMBERS_AND_PUBLIC"] },
+      showLocation: { in: ["MEMBER_PORTAL", "PUBLIC_CHECKOUT"] },
     },
     orderBy: [{ category: "asc" }, { createdAt: "desc" }],
     select: {
@@ -21,9 +23,11 @@ export async function GET() {
       description: true,
       price: true,
       category: true,
+      productType: true,
       imageUrl: true,
       trackInventory: true,
       inventory: true,
+      visibility: true,
     },
   });
 

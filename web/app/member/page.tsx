@@ -289,23 +289,38 @@ function AdultAthleteView({ data }: { data: PortalData }) {
       </div>
 
       <Link
-        href="/member/shop"
+        href="/member/schedule"
         className="block mt-4 bg-stone-900 text-white rounded-xl p-5 hover:bg-stone-800 transition"
       >
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold mb-0.5">Browse the club</p>
-            <p className="text-xs text-stone-300">Memberships · Events · Shop</p>
+            <p className="text-sm font-semibold mb-0.5">View the full schedule</p>
+            <p className="text-xs text-stone-300">Classes · Events · Private lessons</p>
           </div>
           <span className="text-2xl">›</span>
         </div>
       </Link>
 
       <div className="grid grid-cols-2 gap-3 mt-4">
-        <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+        <Link href="/member/schedule" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
           <p className="text-2xl mb-1">◷</p>
+          <p className="text-sm font-medium text-stone-900">Schedule</p>
+          <p className="text-xs text-stone-500">Browse all classes and events</p>
+        </Link>
+        <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">✓</p>
           <p className="text-sm font-medium text-stone-900">My Bookings</p>
-          <p className="text-xs text-stone-500">View all upcoming classes</p>
+          <p className="text-xs text-stone-500">Classes & events you&apos;re registered for</p>
+        </Link>
+        <Link href="/member/messages" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">✉</p>
+          <p className="text-sm font-medium text-stone-900">Messages</p>
+          <p className="text-xs text-stone-500">Conversations with your club</p>
+        </Link>
+        <Link href="/member/announcements" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">📣</p>
+          <p className="text-sm font-medium text-stone-900">Announcements</p>
+          <p className="text-xs text-stone-500">News and updates from your club</p>
         </Link>
         <Link href="/member/documents" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
           <p className="text-2xl mb-1">▤</p>
@@ -597,6 +612,26 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
       )}
 
       <div className="grid grid-cols-2 gap-3 mt-4">
+        <Link href="/member/schedule" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">◷</p>
+          <p className="text-sm font-medium text-stone-900">Schedule</p>
+          <p className="text-xs text-stone-500">Browse classes and events</p>
+        </Link>
+        <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">✓</p>
+          <p className="text-sm font-medium text-stone-900">My Bookings</p>
+          <p className="text-xs text-stone-500">Registered sessions</p>
+        </Link>
+        <Link href="/member/messages" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">✉</p>
+          <p className="text-sm font-medium text-stone-900">Messages</p>
+          <p className="text-xs text-stone-500">Conversations with your club</p>
+        </Link>
+        <Link href="/member/announcements" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
+          <p className="text-2xl mb-1">📣</p>
+          <p className="text-sm font-medium text-stone-900">Announcements</p>
+          <p className="text-xs text-stone-500">News from your club</p>
+        </Link>
         <Link href="/member/documents" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
           <p className="text-2xl mb-1">▤</p>
           <p className="text-sm font-medium text-stone-900">Documents</p>

@@ -16,14 +16,27 @@ export async function POST(req: Request) {
   try {
     const { publicToken } = schema.parse(await req.json());
     const res = await plaidClient.itemPublicTokenExchange({ public_token: publicToken });
+    const accessToken = res.data.access_token;
+    const itemId = res.data.item_id;
 
-    await prisma.club.update({
-      where: { id: session.user.clubId },
-      data: {
-        plaidAccessToken: res.data.access_token,
-        plaidItemId: res.data.item_id,
-      },
-    });
+    // Mirror legacy fields for back-compat AND create a row in the new
+    // plaid_connections table so the multi-bank API sees it.
+    await prisma.$transaction([
+      prisma.club.update({
+        where: { id: session.user.clubId },
+        data: { plaidAccessToken: accessToken, plaidItemId: itemId },
+      }),
+      prisma.plaidConnection.upsert({
+        where: { itemId },
+        update: { accessToken, deletedAt: null },
+        create: {
+          clubId: session.user.clubId,
+          accessToken,
+          itemId,
+          label: "Primary",
+        },
+      }),
+    ]);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -26,6 +26,20 @@ function fmtRelative(iso: string) {
   return fmtDate(iso);
 }
 
+function bodyParts(text: string): Array<{ text: string; url?: string }> {
+  const regex = /(https?:\/\/[^\s]+)/g;
+  const parts: Array<{ text: string; url?: string }> = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(regex)) {
+    if (match.index == null) continue;
+    if (match.index > lastIndex) parts.push({ text: text.slice(lastIndex, match.index) });
+    parts.push({ text: match[0], url: match[0] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) parts.push({ text: text.slice(lastIndex) });
+  return parts;
+}
+
 export default function MemberAnnouncementsPage() {
   const [items, setItems] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +53,15 @@ export default function MemberAnnouncementsPage() {
         setLoading(false);
       });
   }, []);
+
+  async function openAnnouncement(announcement: Announcement) {
+    setOpen(announcement);
+    await fetch(`/api/member/announcements/${announcement.id}/engagement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "open" }),
+    }).catch(() => {});
+  }
 
   return (
     <>
@@ -62,7 +85,7 @@ export default function MemberAnnouncementsPage() {
             return (
               <button
                 key={a.id}
-                onClick={() => setOpen(a)}
+                onClick={() => openAnnouncement(a)}
                 className="w-full text-left bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
               >
                 <div className="flex items-start justify-between gap-3 mb-1">
@@ -83,6 +106,13 @@ export default function MemberAnnouncementsPage() {
 
 function AnnouncementViewer({ announcement, onClose }: { announcement: Announcement; onClose: () => void }) {
   const dateIso = announcement.publishAt || announcement.createdAt;
+  async function trackLinkClick() {
+    await fetch(`/api/member/announcements/${announcement.id}/engagement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "link_click" }),
+    }).catch(() => {});
+  }
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
@@ -94,7 +124,24 @@ function AnnouncementViewer({ announcement, onClose }: { announcement: Announcem
           <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none ml-4 flex-shrink-0">×</button>
         </div>
         <div className="p-6">
-          <div className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">{announcement.body}</div>
+          <div className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
+            {bodyParts(announcement.body).map((part, idx) =>
+              part.url ? (
+                <a
+                  key={idx}
+                  href={part.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={trackLinkClick}
+                  className="text-stone-900 underline underline-offset-2"
+                >
+                  {part.text}
+                </a>
+              ) : (
+                <span key={idx}>{part.text}</span>
+              ),
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -150,7 +150,40 @@ function partnerHeadline(p: Partner): string {
 }
 
 function fmt(dateStr: string) {
-  return new Date(dateStr).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  // hour12 is set explicitly so the value never falls back to military time
+  // when the OS locale prefers 24h — the owner-facing UI is always AM/PM.
+  return new Date(dateStr).toLocaleString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+// Friendly label for a requested-slot row, e.g.
+//   "Thu, Jun 15 · 2:30 PM – 3:30 PM"
+// Inputs come from the booking form as ISO date ("YYYY-MM-DD") and 24h
+// time strings ("HH:mm"). We re-parse them into a Date so toLocaleString
+// can render them in the owner's locale with AM/PM.
+function formatRequestedSlot(s: { date: string; startTime: string; endTime: string }) {
+  const start = new Date(`${s.date}T${s.startTime}`);
+  const end = new Date(`${s.date}T${s.endTime}`);
+  if (Number.isNaN(start.getTime())) return `${s.date} · ${s.startTime}–${s.endTime}`;
+  const datePart = start.toLocaleDateString([], {
+    weekday: "short", month: "short", day: "numeric",
+  });
+  const timeOpts: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit", hour12: true };
+  return `${datePart} · ${start.toLocaleTimeString([], timeOpts)} – ${end.toLocaleTimeString([], timeOpts)}`;
+}
+
+// Combine an ISO date + "HH:mm" time into the value an <input
+// type="datetime-local"> wants: "YYYY-MM-DDTHH:mm". Pre-fills the
+// confirm form so the owner can hit Confirm with one click.
+function combineToLocalInput(date: string, time: string): string | null {
+  if (!date || !time) return null;
+  return `${date}T${time.length === 5 ? time : time.padStart(5, "0")}`;
 }
 
 // ─── LessonTypeModal ─────────────────────────────────────────────────────────
@@ -760,15 +793,35 @@ function BookingModal({
             )}
           </div>
 
-          {/* Requested slots */}
+          {/* Requested slots — friendly format, with one-click accept that
+              pre-fills the confirm form. The owner can still click "Confirm
+              time" and override if they want to propose a different slot. */}
           <div>
             <p className="text-xs font-medium text-text-muted mb-2">Requested times</p>
-            <div className="space-y-1">
-              {booking.requestedSlots.map((s, i) => (
-                <div key={i} className="text-sm bg-orange-accent/10 px-3 py-1.5 rounded">
-                  {s.date} · {s.startTime}–{s.endTime}
-                </div>
-              ))}
+            <div className="space-y-1.5">
+              {booking.requestedSlots.map((s, i) => {
+                const pretty = formatRequestedSlot(s);
+                return (
+                  <div key={i} className="flex items-center justify-between gap-3 bg-orange-accent/10 px-3 py-2 rounded">
+                    <span className="text-sm text-text-primary">{pretty}</span>
+                    {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const startIso = combineToLocalInput(s.date, s.startTime);
+                          const endIso = combineToLocalInput(s.date, s.endTime);
+                          if (startIso) setConfirmedStart(startIso);
+                          if (endIso) setConfirmedEnd(endIso);
+                          setAction("confirm");
+                        }}
+                        className="text-xs px-2 py-1 bg-lime-accent text-white rounded-md hover:opacity-90 flex-shrink-0"
+                      >
+                        Accept this time
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -793,8 +846,22 @@ function BookingModal({
                 </button>
               )}
               {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
-                <button onClick={() => setAction("confirm")} className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:bg-lime-accent">
-                  Confirm time
+                <button
+                  onClick={() => {
+                    // Pre-fill with the first requested slot so "Confirm" is
+                    // a one-click action by default. Owner can still tweak.
+                    const first = booking.requestedSlots[0];
+                    if (first && !confirmedStart) {
+                      const startIso = combineToLocalInput(first.date, first.startTime);
+                      const endIso = combineToLocalInput(first.date, first.endTime);
+                      if (startIso) setConfirmedStart(startIso);
+                      if (endIso) setConfirmedEnd(endIso);
+                    }
+                    setAction("confirm");
+                  }}
+                  className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:opacity-90"
+                >
+                  Confirm or change time
                 </button>
               )}
               {booking.status === "CONFIRMED" && !booking.ownerApproved && (

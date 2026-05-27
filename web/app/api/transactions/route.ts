@@ -15,10 +15,14 @@ export async function GET(req: Request) {
   const entity = searchParams.get("entity");
   const from = searchParams.get("from");
   const to = searchParams.get("to");
+  // Optional filter by Plaid bank connection. Empty/"all" = include every
+  // transaction; otherwise scope to the matching plaidConnectionId.
+  const bank = searchParams.get("bank");
 
   const where: Prisma.TransactionWhereInput = {
     clubId: session.user.clubId,
     ...(entity && entity !== "all" ? { legalEntityId: entity } : {}),
+    ...(bank && bank !== "all" ? { plaidConnectionId: bank } : {}),
     ...(from || to
       ? { createdAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }
       : {}),
