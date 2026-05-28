@@ -1128,26 +1128,23 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
       <div className="bg-white rounded-xl border border-app-border p-6">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="text-base font-semibold text-text-primary">Native app path</h2>
-            <p className="text-xs text-text-muted mt-0.5">
-              AthletixOS now uses one native iOS and Android shell. Club branding appears inside the app after login.
-            </p>
+            <h2 className="text-base font-semibold text-text-primary">Native App</h2>
+            <p className="text-xs text-text-muted mt-0.5">Dedicated iOS and Android app with your club's branding.</p>
           </div>
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
             isPro ? "bg-brand/10 text-brand" : "bg-app-bg text-text-muted"
           }`}>
-            {isPro ? "Portal branding enabled" : "Pro+ portal branding"}
+            {isPro ? "Pro / Enterprise" : "Pro+ required"}
           </span>
         </div>
 
         <div className="space-y-3">
           {[
-            { status: "done", label: "Member portal branding", desc: "Live now — logo, colors, content, and mobile navigation styling" },
-            { status: "done", label: "PWA branding", desc: "Live now — members can install the portal from their browser" },
-            { status: "done", label: "AthletixOS native shell", desc: "One App Store / Play Store app that loads the existing member portal" },
-            { status: "soon", label: "Separate per-club App Store apps", desc: "Future roadmap — not part of the current native shell" },
-            { status: "soon", label: "Automated app submissions", desc: "Future roadmap — App Store and Play Store submission automation later" },
-            { status: "soon", label: "Native push notifications", desc: "Future roadmap for messages, bookings, and announcements" },
+            { status: "done", label: "PWA (installable web app)", desc: "Live now — members install via browser" },
+            { status: "soon", label: "Custom app name & splash screen", desc: "Your club name replaces 'AthletixOS' on install" },
+            { status: "soon", label: "App Store listing (iOS & Android)", desc: "White-labeled app under your developer account" },
+            { status: "soon", label: "Push notifications", desc: "Native push for bookings, messages, and announcements" },
+            { status: "soon", label: "Offline full access", desc: "Complete offline mode with background sync" },
           ].map((item) => (
             <div key={item.label} className="flex items-start gap-3">
               <span className={`text-xs mt-0.5 flex-shrink-0 ${
