@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-07 (Staff invite setup-link + my-account, Client/Preview mode, multi-bank Plaid, back button, event image focal picker, privates confirmation UX, member portal nav + classes in bookings, owner-controlled billing visibility, parent sees child messages, member class self-book)
+Last updated: 2026-06-07 (Native AthletixOS Capacitor shell, Staff invite setup-link + my-account, Client/Preview mode, multi-bank Plaid, back button, event image focal picker, privates confirmation UX, member portal nav + classes in bookings, owner-controlled billing visibility, parent sees child messages, member class self-book)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -610,6 +610,66 @@ All sends are `try/catch` + `console.error` — a failed email never breaks the 
 - Inline `ProfileSection` re-hydrates state with `useEffect` when the `club` prop changes after save, so the form never shows stale values.
 - Inline Profile tab now links to `/dashboard/settings/club` for the extended fields (About Us, cover image, hours, contact, social links) so the full editor is discoverable.
 
+### Native AthletixOS app shell setup (2026-06-07)
+
+Checkpoint commit: `c5021307bf6718776acbf7e2cadc52fb602f9d56` on branch `native-app-shell`; pushed to origin. Not merged to `main`.
+
+What was added:
+- Capacitor config at `capacitor.config.ts`.
+- Native iOS project under `ios/`.
+- Native Android project under `android/`.
+- Native fallback assets under `public/native-shell/`.
+- Native source/icon placeholder under `assets/native/`.
+- Internal launch checklist at `docs/native-launch-checklist.md`.
+- NPM scripts: `cap:sync`, `cap:ios`, `cap:android`.
+
+Current native shell decisions:
+- This is one AthletixOS native shell, not React Native and not separate per-club apps.
+- App name is `AthletixOS`.
+- iOS bundle ID and Android package ID are both `com.athletixos.app`.
+- The Capacitor shell points to the existing web/member portal and starts at `/member`.
+- Default local native URL is `http://localhost:3001`.
+- Release/native test URL should be set with `CAPACITOR_SERVER_URL=https://<production-domain>` before `npx cap sync`.
+- Fallback server URL order in config: `CAPACITOR_SERVER_URL`, then `NEXT_PUBLIC_APP_URL`, then `NEXTAUTH_URL`, then `http://localhost:3001`.
+- Native shell appends `AthletixOSNativeShell` to the user agent.
+- Native shell is portrait-oriented to match the member portal mobile flow.
+- Placeholder native icons/splash assets are generated from the existing AthletixOS brand icon. Replace with final 1024x1024 app art before store submission.
+
+Web/mobile changes made for the native shell:
+- `app/layout.tsx` now sets `viewportFit: "cover"`.
+- `app/globals.css` includes safe-area helpers and disables vertical overscroll bounce.
+- `app/member/layout.tsx` applies iOS safe-area padding to the mobile header, content, and bottom nav.
+- Existing PWA manifest and service worker path were preserved.
+- Existing NextAuth credentials/JWT session flow was preserved; no native-only auth was added.
+- Existing localStorage-based parent/athlete switching was preserved.
+- Stripe checkout links still use the existing web redirect/window flows; verify on device because platform browser behavior can differ.
+
+Branded App page reframe:
+- `/dashboard/settings/branded-app` now labels itself as member portal branding.
+- It explains what is available now: member portal branding, PWA branding, native AthletixOS shell.
+- It explains future roadmap: separate per-club App Store apps, automated app submissions, native push.
+- It hides the misleading unused per-club native sections from the editor UI for now, but does not delete saved `brandedAppConfig` data.
+- The inline Settings > Branded App roadmap now says the native app is one AthletixOS shell and club branding happens inside the app after login.
+
+Verification already run:
+- `npx prisma validate` passed.
+- `npx prisma generate` passed.
+- `npx tsc --noEmit` passed.
+- `npm run build` passed.
+- `npx cap sync` passed.
+- Browser smoke: mobile `/member` redirects to login when unauthenticated, and `public/native-shell/index.html` plus `native-shell-error.html` render.
+
+Important follow-up tests:
+- Run `CAPACITOR_SERVER_URL=https://<production-domain> npx cap sync` before release-device testing.
+- Open iOS with `npm run cap:ios`, set signing team in Xcode, run simulator/device.
+- Open Android with `npm run cap:android`, let Gradle sync, run emulator/device.
+- In the native shell, test member login, member home, schedule, bookings, products, memberships, announcements, messages, documents, and profile switching.
+- Test guardian/parent switching specifically.
+- Test Stripe checkout/billing portal handoff and return behavior from inside iOS and Android webviews.
+- Re-test PWA install from Safari and Chrome to confirm PWA behavior remains intact.
+
+Manual launch checklist lives in `docs/native-launch-checklist.md` and covers Apple Developer, Google Play Console, icons, splash, privacy/support URLs, screenshots, demo login, and review prep.
+
 ## Built But Needs End-to-End Testing
 
 These flows exist in code but haven't been verified against a live Stripe environment with webhook forwarding:
@@ -636,7 +696,7 @@ These flows exist in code but haven't been verified against a live Stripe enviro
 ## Not Built Yet
 
 - Multi-location full UX (schema + `maxLocations` gating in place, but the locations page is thin).
-- Native mobile apps.
+- Separate per-club native mobile apps.
 - SMS broadcast delivery (template + UI flag exists; provider not wired).
 - Push notifications.
 - Full report builder (current `/dashboard/reports` is fixed-shape).
