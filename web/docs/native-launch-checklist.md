@@ -53,10 +53,12 @@ In Xcode:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| `ERROR: Unable to load /App.app/public//member` | Old config had `appStartPath: "/member"` which iOS interpreted as a local file path | Already fixed — server URL now bakes the path in (`http://localhost:3001/member`). If you still see it, run `npx cap sync ios` and **Product → Clean Build Folder** in Xcode (Shift+Cmd+K), then ▶. |
 | Black screen on launch | App Transport Security blocking HTTP | `ios/App/App/Info.plist` already has `NSAllowsLocalNetworking`. Re-run `npx cap sync ios` and rebuild. |
 | "Can't reach AthletixOS" page | Dev server not running, or wrong URL | Confirm `npm run dev` is up on port 3001. If you're on a real device, set `CAPACITOR_SERVER_URL=http://<mac-lan-ip>:3001` and re-sync. |
 | Login loop in the WebView | `NEXTAUTH_URL` doesn't match the URL the WebView loads | Set `NEXTAUTH_URL=http://localhost:3001` in `web/.env` and restart the dev server. Cookies are scoped to that exact host. |
-| Stale config after editing `capacitor.config.ts` | Capacitor caches the iOS bundle | `npx cap sync ios` regenerates `capacitor.config.json` inside the Xcode project. |
+| Stale config after editing `capacitor.config.ts` | Capacitor caches the iOS bundle | `npx cap sync ios` regenerates `capacitor.config.json`, then in Xcode use **Clean Build Folder** (Shift+Cmd+K) before ▶. |
+| `UIScene` lifecycle warning | Capacitor 6 still uses the old AppDelegate launch path; harmless | No action — Apple is years out from making this an error. |
 | Stripe Checkout opens but never returns | External browser, not the WebView | Use `https://` URLs in production. On localhost, just verify the webhook fires server-side; the WebView won't bounce back. |
 
 ### Reaching the dev server from a real iPhone

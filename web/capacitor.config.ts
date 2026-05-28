@@ -39,21 +39,28 @@ const allowedHosts = Array.from(
   ),
 );
 
+// Start the WebView at the member portal. We bake the `/member` path into
+// the URL itself rather than using `appStartPath`, because Capacitor iOS
+// interprets `appStartPath` as a path INSIDE the local webDir bundle and
+// errors out at startup if that file doesn't exist (`Unable to load
+// /App.app/public//member`). The server URL form bypasses that local-file
+// check entirely. Middleware redirects unauthenticated visitors to /login,
+// then NextAuth's callbackUrl brings them back here after sign-in.
+const startUrl = `${nativeServerUrl.replace(/\/$/, "")}/member`;
+
 const config: CapacitorConfig = {
   appId: "com.athletixos.app",
   appName: "AthletixOS",
-  // Static fallback bundle. Used only when server.url is unreachable
-  // (`errorPath` below) — every other load goes to the live server.
+  // Static fallback bundle. The default appStartPath is "index.html",
+  // which exists at public/native-shell/index.html — so the local-file
+  // validator at iOS launch is satisfied even though the WebView always
+  // jumps straight to server.url.
   webDir: "public/native-shell",
   backgroundColor: "#1F1F23",
   appendUserAgent: "AthletixOSNativeShell",
   loggingBehavior: "debug",
   server: {
-    url: nativeServerUrl,
-    // Start the WebView at the member portal. Middleware redirects
-    // unauthenticated visitors to /login, then NextAuth's callbackUrl
-    // brings them back here after sign-in.
-    appStartPath: "/member",
+    url: startUrl,
     cleartext: nativeServerUrl.startsWith("http://"),
     allowNavigation: allowedHosts,
     errorPath: "native-shell-error.html",
