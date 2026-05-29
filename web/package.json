@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start",
     "cap:sync": "cap sync",
@@ -30,7 +30,7 @@
     "next": "14.2.35",
     "next-auth": "^4.24.7",
     "nodemailer": "^7.0.13",
-    "plaid": "^42.1.0",
+    "plaid": "^42.2.0",
     "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

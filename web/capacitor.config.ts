@@ -2,8 +2,8 @@ import type { CapacitorConfig } from "@capacitor/cli";
 
 // Capacitor server config.
 //
-// - Local dev (simulator):  http://127.0.0.1:3001  (default below)
-// - Real iOS device on LAN: http://<mac-lan-ip>:3001   via CAPACITOR_SERVER_URL
+// - Local dev (simulator):  http://127.0.0.1:3000  (default below)
+// - Real iOS device on LAN: http://<mac-lan-ip>:3000   via CAPACITOR_SERVER_URL
 // - Production:             https://app.yourdomain.com via CAPACITOR_SERVER_URL
 //   (or NEXT_PUBLIC_APP_URL — first one set wins)
 //
@@ -19,10 +19,16 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // We do NOT fall back to NEXTAUTH_URL here. A misconfigured .env (e.g.
 // the literal string `NEXTAUTH_URL=http://...` with the key name baked
 // into the value) would poison the WebView's start URL.
+//
+// Why port 3000 and not 3001: WebKit blocks a list of "restricted network
+// ports" inside WKWebView (the error reads "Not allowed to use restricted
+// network port"). 3001 hits that block on recent iOS versions while macOS
+// browsers don't, which made the dev server reachable in Safari/Chrome
+// but invisible to the simulator. 3000 is on WebKit's allowlist.
 const nativeServerUrl =
   process.env.CAPACITOR_SERVER_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
-  "http://127.0.0.1:3001";
+  "http://127.0.0.1:3000";
 
 function serverHost(url: string) {
   try {
@@ -39,8 +45,8 @@ const allowedHosts = Array.from(
   new Set(
     [
       serverHost(nativeServerUrl),
-      "localhost:3001",
-      "127.0.0.1:3001",
+      "localhost:3000",
+      "127.0.0.1:3000",
       "localhost",
       "127.0.0.1",
     ].filter(Boolean),
