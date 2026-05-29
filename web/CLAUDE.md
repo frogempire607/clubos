@@ -742,6 +742,77 @@ Documented in `.env.example`. Critical for production:
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing)
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
 
+## Session log — 2026-05-29 (native auth + WebView reliability)
+
+Branch: `native-app-shell` (pushed; not merged to `main`). Tip: `11c6493`.
+
+### What changed (in commit order)
+- `5d7db99` Login page now hard-navs (`window.location.href`) after `signIn` instead of `router.replace`, fixing the stuck-on-/login bug in iOS WKWebView and Safari.
+- `b0a9506` Added `app/post-login/route.ts` — server-side reads JWT via `getServerSession` and 307s to `/dashboard` or `/member`. Eliminates all client-side session hydration races.
+- `2c2980b` Safari Set-Cookie commit race: added a macrotask yield in the login page plus an HTML auto-retry page inside `/post-login` (`?retry=N`, max 2). If the cookie isn't visible to the server on first GET, the page reloads itself with a counter and the cookie is there by then.
+- `e4857a4` Reverted `.trim()` on email/clubSlug — was an unnecessary change and surfaced a non-`CredentialsSignin` error string in the UI when present.
+- `bdc0365` Two bug fixes in one:
+  - Explicit cookie config in `lib/auth.ts` (`useSecureCookies` + `cookies.sessionToken/callbackUrl/csrfToken`), pinned to `NODE_ENV` instead of `NEXTAUTH_URL`. Reason: `.env` had `NEXTAUTH_URL="NEXTAUTH_URL=http://..."` (literal key prefix inside the value), which made NextAuth's auto-detection pick `__Secure-` cookies on http://localhost — Safari refuses to store those.
+  - `cache-control: no-store, no-cache, must-revalidate` on every `/post-login` response so a previous OWNER login's cached 307 can't route a later MEMBER to `/dashboard`.
+- `5b47b13` Real root cause of the simulator 401: iOS WKWebView's default soft keyboard auto-capitalized the club slug. `apex-wrestling` arrived as `Apex-wrestling`. Fix: `autoCapitalize="none"`/`autoCorrect="off"`/`spellCheck={false}` + appropriate `autoComplete`/`inputMode` on all three login inputs. Also added dev-only `[auth/authorize] …` logging (no passwords, no hashes) and defensive `.trim().toLowerCase()` on email + clubSlug server-side.
+- `6ee0693` `capacitor.config.ts` default URL → `http://127.0.0.1:3000`. macOS resolves `localhost` to IPv6 `::1` first; Next dev was on IPv4 only, so the WebView's connect was refused. Removed `NEXTAUTH_URL` from the WebView fallback chain (malformed env was poisoning `server.url`).
+- `5d447ca` Dev port moved from 3001 → 3000 because WebKit added 3001 to its restricted-network-ports blocklist (the "Not allowed to use restricted network port" Xcode error). Updated `package.json`'s `dev` script to `next dev -H 0.0.0.0 -p 3000` so the simulator + any LAN device can reach Next regardless of IPv4/IPv6 preference.
+- `df12a40` Phase 1 reliability + logout pass:
+  - `public/native-shell/native-shell-error.html` rewritten: dark themed, spinner, auto-retries the server URL every 2s for up to 4 attempts (tracked in `sessionStorage`), then surfaces a "Try again" button. Replaces the static "Can't reach AthletixOS / reopen the app" dead-end.
+  - `lib/signOutEverywhere.ts` (new): calls `signOut({ redirect:false })`, `DELETE /api/preview` (clears the HttpOnly Client-View cookie), removes `athletixos-active-profile` from localStorage, then hard-navs to `/login`. Wired into `app/dashboard/layout.tsx` + `app/member/layout.tsx` (desktop + mobile sign-out buttons).
+- `11c6493` End-of-day misc: `package-lock.json` from before the session, plus the `android/.idea/` IDE files (probably should be gitignored next session).
+
+### Native shell state right now
+- Dev port: **3000** (was 3001; WebKit-blocked).
+- Default `server.url`: `http://127.0.0.1:3000/member` (was `http://localhost:3001/member`).
+- `npm run dev` binds `0.0.0.0:3000` automatically.
+- iOS simulator usually loads cleanly. If Next isn't up yet, the new dark "Reconnecting…" screen auto-retries instead of showing a dead "Can't reach" page.
+- Sign out works identically in Chrome, Safari, and WKWebView (always lands on `/login`, clears local state + preview cookie).
+
+### Tomorrow's queue
+
+**Must-do (cleanup from today):**
+1. **Fix `.env`** — the value is malformed and the port is wrong:
+   ```diff
+   - NEXTAUTH_URL="NEXTAUTH_URL=http://localhost:3001"
+   + NEXTAUTH_URL=http://localhost:3000
+   ```
+2. **Remove the temporary `[auth/authorize] …` dev logging** from `lib/auth.ts` once you've confirmed login is stable across web + native. Search for `[auth/authorize]` to find the lines — gated on `NODE_ENV !== "production"` already, so it never runs in prod, just noisy in dev.
+3. **Decide on `android/.idea/`** — committed today (5 files). If those are personal IDE config, add `android/.idea/` to `.gitignore` and revert that commit.
+
+**Doc/UI sweep (no behavior impact, do when convenient):**
+- CLAUDE.md still says port 3001 in a few places (this file's intro, native-shell section, Stripe CLI hint).
+- `app/dashboard/settings/page.tsx:1012` — "Member portal URL: localhost:3001/member" hint.
+- `app/dashboard/settings/diagnostics/page.tsx:140` — "stripe listen --forward-to localhost:3001/..." hint.
+- The `|| "http://localhost:3001"` fallbacks in API routes (~10 places) — only fire when `NEXTAUTH_URL` is unset, so safe to leave, but worth a sweep.
+
+**Phase 2 — Owner/staff dashboard redesign (not started):**
+- Plan was: nav first, then overview cards, then per-section visual passes — incrementally, not a swing-for-the-fences rewrite.
+- Sections in scope: sidebar/top nav, dashboard overview, members, classes/events, attendance, privates, financials, reports, staff tools, settings/personalization.
+- Constraint: do not change APIs, auth, Stripe/Plaid, or role permissions. UI-only.
+- Reuse design tokens from `app/globals.css` (no new color families).
+
+**Phase 3 — Member dashboard polish (not started):**
+- Keep direction/style; polish spacing, nav, empty states, buttons, mobile layout. Should feel like a real native app inside the WebView.
+
+**Out-of-scope items still open from prior sessions** (unchanged by today):
+- Live Stripe end-to-end + live Price IDs.
+- Multi-location UX.
+- SMS provider wiring.
+- Add-Staff invite bio/photo (currently Edit-only).
+- Smoke scripts for member-add → status flip, trial, doc re-sign, calendar feed, class regenerate.
+
+### Files touched this session
+- `web/app/login/page.tsx`
+- `web/app/post-login/route.ts` (new)
+- `web/lib/auth.ts`
+- `web/lib/signOutEverywhere.ts` (new)
+- `web/capacitor.config.ts`
+- `web/package.json`
+- `web/app/dashboard/layout.tsx`
+- `web/app/member/layout.tsx`
+- `web/public/native-shell/native-shell-error.html`
+
 ## Next Priorities
 
 - Run live Stripe end-to-end with the CLI (`stripe listen --forward-to localhost:3001/api/stripe/webhook`) and verify the diagnostics page surfaces each event correctly.
