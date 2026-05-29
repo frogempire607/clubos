@@ -1,29 +1,11 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { signIn, getSession } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Role = "staff" | "member";
-
-// Read the authenticated role with a short retry. In iOS/Capacitor WKWebView
-// the cookie set by /api/auth/callback/credentials can take a tick before
-// subsequent fetches see it; retrying smooths over that race without
-// punishing the browser path (first attempt almost always wins).
-async function resolveUserRole(): Promise<string | null> {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      const session = await getSession();
-      const role = (session?.user as { role?: string } | undefined)?.role;
-      if (role) return role;
-    } catch {
-      // ignore and retry
-    }
-    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
-  }
-  return null;
-}
 
 function LoginInner() {
   const searchParams = useSearchParams();
@@ -72,28 +54,15 @@ function LoginInner() {
       return;
     }
 
-    // Role-based target (account's real role wins, regardless of tab choice).
-    const userRole = await resolveUserRole();
-    let target = "/member";
-    if (userRole === "OWNER" || userRole === "STAFF") {
-      target = "/dashboard";
-    } else if (userRole === "MEMBER") {
-      target = role === "staff" ? "/member?from=staff-login" : "/member";
-    } else {
-      // Couldn't read session client-side (rare; e.g. WebView cookie race).
-      // Fall back to a safe landing path — middleware will route to the
-      // correct surface server-side based on the cookie that was just set.
-      target = "/member";
-    }
-
-    // Hard navigation rather than router.replace(): forces the WebView (and
-    // browser) to make a fresh document request that carries the just-set
-    // session cookie, so middleware decides routing and React re-mounts
-    // with a hydrated SessionProvider. Fixes a Capacitor WKWebView bug
-    // where client-side router transitions left the UI on /login even
-    // after a successful sign-in.
+    // Hard-nav to a server-side post-login redirect. The server reads the
+    // JWT cookie (which was just written by /api/auth/callback/credentials)
+    // and 307s to /dashboard or /member based on the account's real role.
+    // This avoids any client-side session hydration race — important for
+    // Capacitor iOS WKWebView where next-auth/react's getSession() can race
+    // the cookie write and silently return null.
     if (typeof window !== "undefined") {
-      window.location.assign(target);
+      const fromRole = role === "staff" ? "staff" : "member";
+      window.location.assign(`/post-login?fromRole=${fromRole}`);
     }
     // Intentionally leave `loading` true — the page is unmounting.
   }
