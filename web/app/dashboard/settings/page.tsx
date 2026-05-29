@@ -1009,7 +1009,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             </div>
           </div>
           <p className="text-[11px] text-text-muted mt-3">
-            Member portal URL: <span className="font-mono">localhost:3001/member</span>
+            Member portal URL: <span className="font-mono">localhost:3000/member</span>
             {" "}(replace with your production domain when you go live)
           </p>
         </div>

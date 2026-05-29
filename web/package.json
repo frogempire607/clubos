@@ -6,7 +6,7 @@
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start",
-    "cap:sync": "cap sync",
+    "cap:sync": "node scripts/native-shell-config.mjs && cap sync",
     "cap:ios": "cap open ios",
     "cap:android": "cap open android",
     "lint": "next lint",

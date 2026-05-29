@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { TIER_PRICES, type Tier } from "@/lib/tier";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const schema = z.object({
   tier: z.enum(["growth", "pro", "enterprise"]),
@@ -63,7 +64,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+    const baseUrl = getAppBaseUrl();
     const ownerEmail = session.user.email ?? undefined;
 
     const checkoutSession = await stripe.checkout.sessions.create({

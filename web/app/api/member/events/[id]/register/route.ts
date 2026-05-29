@@ -7,6 +7,7 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -31,7 +32,7 @@ async function emailBookingConfirmation(args: {
     ? (m.guardian?.email || m.guardianEmail || m.email)
     : (m.email || m.guardianEmail);
   if (!to) return;
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const baseUrl = getAppBaseUrl();
   try {
     await sendBookingConfirmationEmail({
       to,
@@ -288,7 +289,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
 
     const platformFee = calculatePlatformFee(priceCents, club.tier);
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
 
     const checkoutSession = await stripe.checkout.sessions.create(

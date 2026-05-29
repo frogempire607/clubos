@@ -40,24 +40,7 @@ export const authOptions: NextAuthOptions = {
         clubSlug: { label: "Club", type: "text" },
       },
       async authorize(credentials) {
-        // Temporary diagnostic logging. Dev-only; never logs the password
-        // or the password hash. Helps tell apart "no club / no user / bad
-        // password" so iOS simulator vs browser discrepancies are visible
-        // in the dev-server log. Remove once auth is stable across all
-        // surfaces.
-        const log = (...args: unknown[]) => {
-          if (process.env.NODE_ENV !== "production") {
-            // eslint-disable-next-line no-console
-            console.log("[auth/authorize]", ...args);
-          }
-        };
-
         if (!credentials?.email || !credentials?.password || !credentials?.clubSlug) {
-          log("missing field", {
-            hasEmail: Boolean(credentials?.email),
-            hasPassword: Boolean(credentials?.password),
-            hasClubSlug: Boolean(credentials?.clubSlug),
-          });
           return null;
         }
 
@@ -69,22 +52,11 @@ export const authOptions: NextAuthOptions = {
         // any surface can't lock a user out of their club.
         const emailNormalized = credentials.email.trim().toLowerCase();
         const slugNormalized = credentials.clubSlug.trim().toLowerCase();
-        const dbHost = (() => {
-          try {
-            return new URL(process.env.DATABASE_URL ?? "").host;
-          } catch {
-            return "unknown";
-          }
-        })();
-        log("attempt", { emailNormalized, slugNormalized, dbHost });
 
         const club = await prisma.club.findUnique({
           where: { slug: slugNormalized },
         });
-        if (!club) {
-          log("club not found for slug", slugNormalized);
-          return null;
-        }
+        if (!club) return null;
 
         const user = await prisma.user.findUnique({
           where: {
@@ -95,17 +67,10 @@ export const authOptions: NextAuthOptions = {
           },
           include: { staffProfile: { select: { permissions: true } } },
         });
-        if (!user || user.deletedAt) {
-          log("user not found or deleted", { clubId: club.id, deleted: Boolean(user?.deletedAt) });
-          return null;
-        }
+        if (!user || user.deletedAt) return null;
 
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) {
-          log("password mismatch for user", { userId: user.id, role: user.role });
-          return null;
-        }
-        log("ok", { userId: user.id, role: user.role });
+        if (!valid) return null;
 
         await prisma.user.update({
           where: { id: user.id },

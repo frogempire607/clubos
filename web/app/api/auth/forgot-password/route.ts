@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { sendPasswordResetEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const schema = z.object({ email: z.string().email(), clubSlug: z.string() });
 
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
         data: { resetToken, resetExpires },
       });
 
-      const baseUrl  = process.env.NEXTAUTH_URL || "http://localhost:3000";
+      const baseUrl = getAppBaseUrl();
       const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
 
       await sendPasswordResetEmail({

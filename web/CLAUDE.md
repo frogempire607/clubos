@@ -13,6 +13,64 @@ AthletixOS is a multi-tenant SaaS app for sports clubs and gyms. It has:
 - PostgreSQL database scoped by `clubId`.
 - Two-sided Stripe integration: Stripe Connect for member → club payments, plus a separate platform-account subscription for clubs paying AthletixOS.
 
+## Working Rules — read first on every task
+
+These rules apply to every software-development task in this repo. They override looser defaults from training data. Follow them in order.
+
+1. **Inspect before coding.** Before touching anything, read the project architecture, routes, layouts, auth, permissions, database relationships, and shared components that touch the task. Trace at least one end-to-end path through the area you're about to change.
+
+2. **Auto-discover and use installed Claude Code capabilities.** On every task, scan for and use the relevant:
+   - Skills
+   - Agents
+   - MCP servers
+   - Plugins
+   - Hooks
+   - LSP integrations
+   Don't rebuild functionality a skill or MCP already provides.
+
+3. **Prefer these capabilities when they apply:**
+   - `frontend-design` (or `impeccable` / `ui-ux-pro-max`) for UI work
+   - `feature-dev` for new feature scaffolding
+   - `systematic-debugging` for any bug, test failure, or unexpected behavior
+   - `verification-before-completion` before claiming work is done
+   - `review-local-changes` (or `review-pr`) before commit/merge
+   - `subagent-driven-development` for plans with independent tasks
+   - `dispatching-parallel-agents` for 2+ tasks without shared state
+
+4. **UI/UX work specifically:**
+   - Use **Magic (21st.dev) MCP** for inspiration and component generation.
+   - Perform a UX audit before any redesign.
+   - Propose a file plan (which files will be created/modified) **before** editing.
+
+5. **iOS, Capacitor, React Native, mobile, navigation, auth, or WebView changes:**
+   - Use `ios-simulator-skill`.
+   - Validate behavior in simulator (or device) **before** claiming completion.
+
+6. **Never perform broad rewrites** without understanding dependencies and impact.
+
+7. **Before editing, present:**
+   - The exact list of files affected
+   - Known risks
+   - A short implementation plan
+
+8. **Work in small checkpoints**, not one giant commit.
+
+9. **After each checkpoint, run:**
+   - Lint
+   - Build
+   - Regression check on adjacent functionality
+
+10. **Before claiming completion, verify:**
+    - Auth still works
+    - Permissions still gate the right surfaces
+    - Navigation still routes correctly
+    - Mobile/Capacitor behavior is intact
+    - Existing functionality hasn't regressed
+
+11. **Explicitly state** which skills, MCPs, plugins, and agents were used during the task in the final summary.
+
+12. **Do not claim testing was performed** unless you actually ran it. If you only ran type-checks and build, say that; don't conflate it with end-to-end testing.
+
 ## Current Tech Stack
 
 - Framework: Next.js 14.2.35, App Router.
@@ -25,8 +83,8 @@ AthletixOS is a multi-tenant SaaS app for sports clubs and gyms. It has:
 - Bank integration: Plaid routes and settings present.
 - Email: Nodemailer helper with transactional templates wired into key flows.
 - File storage: private on-disk store under `process.env.UPLOADS_DIR` (default `./storage/uploads`), served only through `/api/files/[id]` with club scoping.
-- Local dev port: `npm run dev` runs Next on `localhost:3001`.
-- Local auth URL: `.env` should use `NEXTAUTH_URL=http://localhost:3001`.
+- Local dev port: `npm run dev` runs Next on `127.0.0.1:3000` (bound to `0.0.0.0` so the iOS simulator can reach it). Port 3001 was abandoned because it's on WebKit's restricted-network-ports blocklist.
+- Local auth URL: `.env` should use `NEXTAUTH_URL=http://127.0.0.1:3000`. Using the literal IP (not `localhost`) avoids the macOS IPv6-first resolution that breaks the WKWebView connect.
 
 Do not upgrade Next, NextAuth, Prisma, or Stripe casually. This project depends on pinned versions.
 
@@ -628,9 +686,9 @@ Current native shell decisions:
 - App name is `AthletixOS`.
 - iOS bundle ID and Android package ID are both `com.athletixos.app`.
 - The Capacitor shell points to the existing web/member portal and starts at `/member`.
-- Default local native URL is `http://localhost:3001`.
+- Default local native URL is `http://127.0.0.1:3000`.
 - Release/native test URL should be set with `CAPACITOR_SERVER_URL=https://<production-domain>` before `npx cap sync`.
-- Fallback server URL order in config: `CAPACITOR_SERVER_URL`, then `NEXT_PUBLIC_APP_URL`, then `NEXTAUTH_URL`, then `http://localhost:3001`.
+- Fallback server URL order in `capacitor.config.ts`: `CAPACITOR_SERVER_URL`, then `NEXT_PUBLIC_APP_URL`, then `http://127.0.0.1:3000`. `NEXTAUTH_URL` is intentionally NOT in this chain — a misconfigured `.env` would otherwise poison the WebView's start URL.
 - Native shell appends `AthletixOSNativeShell` to the user agent.
 - Native shell is portrait-oriented to match the member portal mobile flow.
 - Placeholder native icons/splash assets are generated from the existing AthletixOS brand icon. Replace with final 1024x1024 app art before store submission.
@@ -815,7 +873,7 @@ Branch: `native-app-shell` (pushed; not merged to `main`). Tip: `11c6493`.
 
 ## Next Priorities
 
-- Run live Stripe end-to-end with the CLI (`stripe listen --forward-to localhost:3001/api/stripe/webhook`) and verify the diagnostics page surfaces each event correctly.
+- Run live Stripe end-to-end with the CLI (`stripe listen --forward-to localhost:3000/api/stripe/webhook`) and verify the diagnostics page surfaces each event correctly.
 - Configure live Stripe Price IDs in production env and verify ClubOS subscription upgrade flow round-trips.
 - Build out a real multi-location UX (locations page is thin, even though schema/gating is in place).
 - Wire SMS provider for the announcement broadcast flow (template + tier flag exist).

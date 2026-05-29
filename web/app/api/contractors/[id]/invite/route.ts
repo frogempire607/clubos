@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireOwner } from "@/lib/apiGuard";
 import { DEFAULT_PERMISSIONS } from "@/lib/permissions";
 import { sendStaffInviteEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 // POST /api/contractors/[id]/invite
 // Convert a contractor into a full staff account. Creates the User +
@@ -77,7 +78,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
       where: { id: session!.user.id },
       select: { firstName: true, lastName: true },
     });
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+    const baseUrl = getAppBaseUrl();
     await sendStaffInviteEmail({
       to: user.email,
       firstName: user.firstName,

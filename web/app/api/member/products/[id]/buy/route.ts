@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
@@ -77,7 +78,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
     });
 
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(totalCents, club.passProcessingFees);
 
     const checkoutSession = await stripe.checkout.sessions.create(

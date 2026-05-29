@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const bodySchema = z.object({
   // Re-invoice registrants who were already invoiced (still skips PAID).
@@ -123,7 +124,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     );
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const baseUrl = getAppBaseUrl();
   const splitNote =
     mode === "OFFICIAL"
       ? `Official split: $${total.toFixed(2)} ÷ ${activeCount} attendees`

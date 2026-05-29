@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { expireStaleProspects } from "@/lib/memberStatus";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -182,7 +183,7 @@ export async function POST(req: Request) {
           select: { name: true },
         });
         const { sendWelcomeEmail } = await import("@/lib/email");
-        const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+        const baseUrl = getAppBaseUrl();
         await sendWelcomeEmail({
           to: portalRecipient.toLowerCase(),
           firstName: data.isMinor ? (data.guardianName?.split(" ")[0] || "there") : data.firstName,

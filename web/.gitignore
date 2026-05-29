@@ -50,4 +50,8 @@ next-env.d.ts
 /public/uploads
 .claude/
 .DS_Store
-.DS_Store
+
+# Native build artifacts
+android/.idea/
+ios/App/build/
+ios/App/Pods/

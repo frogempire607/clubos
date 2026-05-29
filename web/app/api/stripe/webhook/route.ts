@@ -9,8 +9,9 @@ import {
   sendPaymentFailedEmail,
 } from "@/lib/email";
 import type Stripe from "stripe";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
-const BASE_URL = process.env.NEXTAUTH_URL || "http://localhost:3001";
+const BASE_URL = getAppBaseUrl();
 
 // Resolve the best email + first name for a member. Falls back to guardian email
 // for minors, then to the linked User account.
