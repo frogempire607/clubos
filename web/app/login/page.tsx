@@ -33,9 +33,9 @@ function LoginInner() {
     let result;
     try {
       result = await signIn("credentials", {
-        email: email.trim(),
+        email,
         password,
-        clubSlug: clubSlug.trim(),
+        clubSlug,
         redirect: false,
       });
     } catch {
@@ -46,10 +46,12 @@ function LoginInner() {
 
     if (!result || result.error) {
       setLoading(false);
+      // CredentialsSignin = authorize() returned null (bad email/password/club).
+      // Any other string = NextAuth/runtime config error worth surfacing.
       setError(
-        result?.error === "CredentialsSignin" || !result?.error
+        !result?.error || result.error === "CredentialsSignin"
           ? "Invalid email, password, or club. Please try again."
-          : result.error,
+          : `Sign-in error: ${result.error}`,
       );
       return;
     }
