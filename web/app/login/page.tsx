@@ -1,14 +1,31 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { signIn, getSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Role = "staff" | "member";
 
+// Read the authenticated role with a short retry. In iOS/Capacitor WKWebView
+// the cookie set by /api/auth/callback/credentials can take a tick before
+// subsequent fetches see it; retrying smooths over that race without
+// punishing the browser path (first attempt almost always wins).
+async function resolveUserRole(): Promise<string | null> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const session = await getSession();
+      const role = (session?.user as { role?: string } | undefined)?.role;
+      if (role) return role;
+    } catch {
+      // ignore and retry
+    }
+    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+  }
+  return null;
+}
+
 function LoginInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [role, setRole] = useState<Role>(
@@ -31,33 +48,54 @@ function LoginInner() {
     setNotice("");
     setLoading(true);
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      clubSlug,
-      redirect: false,
-    });
-
-    setLoading(false);
-
-    if (result?.error) {
-      setError("Invalid email, password, or club. Please try again.");
+    let result;
+    try {
+      result = await signIn("credentials", {
+        email: email.trim(),
+        password,
+        clubSlug: clubSlug.trim(),
+        redirect: false,
+      });
+    } catch {
+      setLoading(false);
+      setError("Could not reach the server. Check your connection and try again.");
       return;
     }
 
-    // Role-based redirect (the account's real role wins, regardless of tab).
-    const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
-    const session = await sessionRes.json();
-    const userRole = session?.user?.role;
-    if (userRole === "MEMBER") {
-      if (role === "staff") {
-        setNotice("That is a member account. Redirecting to the member portal...");
-      }
-      router.replace(role === "staff" ? "/member?from=staff-login" : "/member");
-    } else {
-      router.replace("/dashboard");
+    if (!result || result.error) {
+      setLoading(false);
+      setError(
+        result?.error === "CredentialsSignin" || !result?.error
+          ? "Invalid email, password, or club. Please try again."
+          : result.error,
+      );
+      return;
     }
-    router.refresh();
+
+    // Role-based target (account's real role wins, regardless of tab choice).
+    const userRole = await resolveUserRole();
+    let target = "/member";
+    if (userRole === "OWNER" || userRole === "STAFF") {
+      target = "/dashboard";
+    } else if (userRole === "MEMBER") {
+      target = role === "staff" ? "/member?from=staff-login" : "/member";
+    } else {
+      // Couldn't read session client-side (rare; e.g. WebView cookie race).
+      // Fall back to a safe landing path — middleware will route to the
+      // correct surface server-side based on the cookie that was just set.
+      target = "/member";
+    }
+
+    // Hard navigation rather than router.replace(): forces the WebView (and
+    // browser) to make a fresh document request that carries the just-set
+    // session cookie, so middleware decides routing and React re-mounts
+    // with a hydrated SessionProvider. Fixes a Capacitor WKWebView bug
+    // where client-side router transitions left the UI on /login even
+    // after a successful sign-in.
+    if (typeof window !== "undefined") {
+      window.location.assign(target);
+    }
+    // Intentionally leave `loading` true — the page is unmounting.
   }
 
   const isStaff = role === "staff";
