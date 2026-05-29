@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import ProfileSwitcher from "@/components/member/ProfileSwitcher";
 import BackButton from "@/components/BackButton";
+import { signOutEverywhere } from "@/lib/signOutEverywhere";
 import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 
 const NAV = [
@@ -172,7 +173,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
           <div className="flex items-center gap-3">
             <span className="text-sm text-stone-500">{session?.user?.name}</span>
             <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={() => signOutEverywhere({ callbackUrl: "/login" })}
               className="text-xs text-stone-400 hover:text-stone-700 px-2 py-1.5 rounded-lg hover:bg-stone-100 transition"
             >
               Sign out
@@ -193,7 +194,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
             )}
           </Link>
           <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={() => signOutEverywhere({ callbackUrl: "/login" })}
             className="text-xs px-2 py-1 opacity-75 hover:opacity-100"
             style={{ color: headerText }}
           >

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import GlobalSearch from "@/components/GlobalSearch";
 import BackButton from "@/components/BackButton";
 import { canAccessPath } from "@/lib/permissions";
+import { signOutEverywhere } from "@/lib/signOutEverywhere";
 
 type NavChild = { id: string; label: string; href: string };
 type NavItem =
@@ -411,7 +412,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Sign out */}
         <div style={{ padding: "10px 8px", borderTop: `1px solid ${SIDEBAR_BORDER}`, marginTop: 8 }}>
           <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={() => signOutEverywhere({ callbackUrl: "/login" })}
             style={{
               width: "100%", textAlign: "left",
               padding: "7px 12px", borderRadius: 8,
