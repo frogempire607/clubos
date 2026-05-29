@@ -22,6 +22,18 @@ const sections = [
   { label: "Settings", icon: "⚙", href: "/dashboard/settings", desc: "Billing, Stripe, club info" },
 ];
 
+// Primary daily actions — rendered as a persistent CTA bar above the
+// stats grid. Order matters: most common (Add member, New class) first.
+// Secondary actions stay in the widget grid via the `quickActions`
+// widget for owners who want them.
+const PRIMARY_QUICK_ACTIONS = [
+  { label: "Add member", href: "/dashboard/members", icon: "◉", primary: true },
+  { label: "New class", href: "/dashboard/classes", icon: "◈", primary: false },
+  { label: "New event", href: "/dashboard/events", icon: "◈", primary: false },
+  { label: "Send message", href: "/dashboard/messages", icon: "✉", primary: false },
+  { label: "Client view", href: "/dashboard/preview", icon: "◐", primary: false },
+];
+
 const QUICK_ACTIONS = [
   { label: "Add member", href: "/dashboard/members" },
   { label: "New event", href: "/dashboard/events" },
@@ -404,28 +416,55 @@ export default function DashboardPage() {
   const visibleSections = visible.filter((k) => !isStat(k));
 
   return (
-    <div className="p-8 max-w-7xl">
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary">{greeting}{firstName ? `, ${firstName}` : ""}</h1>
-          <p className="text-sm text-text-muted mt-1">Here's what's happening at your club today.</p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+      {/* Greeting + Customize. Stacks on mobile; row on sm+. */}
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-text-primary leading-tight tracking-tight">
+            {greeting}{firstName ? `, ${firstName}` : ""}
+          </h1>
+          <p className="text-sm text-text-muted mt-1">
+            Here&apos;s what&apos;s happening at your club today.
+          </p>
         </div>
         <button
           onClick={() => setCustomizing(true)}
-          className="text-xs px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg transition flex-shrink-0"
+          className="text-xs px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg transition self-start sm:self-auto sm:flex-shrink-0"
         >
           Customize
         </button>
       </div>
 
+      {/* Primary quick-action bar — always rendered above the widget grid
+          so owners can hit the daily actions without scrolling, even if
+          they hid the quickActions widget. Horizontal scroll on mobile. */}
+      <div className="mb-6 -mx-4 sm:mx-0 overflow-x-auto px-4 sm:px-0">
+        <div className="flex items-stretch gap-2 sm:gap-3 sm:flex-wrap">
+          {PRIMARY_QUICK_ACTIONS.map((a) => (
+            <Link
+              key={a.href + a.label}
+              href={a.href}
+              className={
+                a.primary
+                  ? "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap bg-brand text-white hover:bg-brand-hover transition shrink-0"
+                  : "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-medium whitespace-nowrap bg-surface border border-app-border text-text-primary hover:bg-app-bg transition shrink-0"
+              }
+            >
+              <span className="text-base leading-none opacity-90">{a.icon}</span>
+              {a.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+
       {visibleStats.length > 0 && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {visibleStats.map((k) => statWidget(k))}
         </div>
       )}
 
       {visibleSections.length > 0 && (
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
           {visibleSections.map((k) => (
             <div key={k} className={SECTION_SPAN[k] ?? "col-span-1"}>
               {sectionWidget(k)}
@@ -456,13 +495,13 @@ export default function DashboardPage() {
 
 function StatCard({ label, value, sub, href, accent }: { label: string; value: string; sub: string; href: string; accent: string }) {
   return (
-    <Link href={href} className="bg-surface rounded-xl border border-app-border p-5 hover:shadow-sm transition group">
-      <div className="flex items-start justify-between mb-3">
-        <div className="text-xs text-text-muted uppercase tracking-wider">{label}</div>
-        <div className="w-2 h-2 rounded-full mt-0.5" style={{ background: accent }} />
+    <Link href={href} className="bg-surface rounded-xl border border-app-border p-4 sm:p-5 hover:shadow-sm transition group min-w-0">
+      <div className="flex items-start justify-between mb-2 sm:mb-3 gap-2">
+        <div className="text-[10px] sm:text-xs text-text-muted uppercase tracking-wider truncate">{label}</div>
+        <div className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ background: accent }} />
       </div>
-      <div className="text-3xl font-semibold text-text-primary mb-1">{value}</div>
-      <div className="text-xs text-text-muted">{sub}</div>
+      <div className="text-2xl sm:text-3xl font-semibold text-text-primary mb-1 leading-tight truncate">{value}</div>
+      <div className="text-[11px] sm:text-xs text-text-muted truncate">{sub}</div>
     </Link>
   );
 }
