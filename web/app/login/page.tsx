@@ -60,9 +60,16 @@ function LoginInner() {
     // This avoids any client-side session hydration race — important for
     // Capacitor iOS WKWebView where next-auth/react's getSession() can race
     // the cookie write and silently return null.
+    //
+    // Safari (desktop + iOS WebKit) sometimes hasn't fully committed the
+    // Set-Cookie from the signIn POST by the time we navigate. Yielding
+    // through a macrotask boundary forces the cookie write to flush before
+    // the next request fires. Chrome doesn't need this, but it's cheap.
+    await new Promise((r) => setTimeout(r, 0));
+
     if (typeof window !== "undefined") {
       const fromRole = role === "staff" ? "staff" : "member";
-      window.location.assign(`/post-login?fromRole=${fromRole}`);
+      window.location.href = `/post-login?fromRole=${fromRole}`;
     }
     // Intentionally leave `loading` true — the page is unmounting.
   }
