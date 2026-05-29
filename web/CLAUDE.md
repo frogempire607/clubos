@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-07 (Staff invite setup-link + my-account, Client/Preview mode, multi-bank Plaid, back button, event image focal picker, privates confirmation UX, member portal nav + classes in bookings, owner-controlled billing visibility, parent sees child messages, member class self-book)
+Last updated: 2026-06-07 (Native AthletixOS Capacitor shell, Staff invite setup-link + my-account, Client/Preview mode, multi-bank Plaid, back button, event image focal picker, privates confirmation UX, member portal nav + classes in bookings, owner-controlled billing visibility, parent sees child messages, member class self-book)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -12,6 +12,64 @@ AthletixOS is a multi-tenant SaaS app for sports clubs and gyms. It has:
 - Member portal for members/guardians to view bookings, documents, profile, and portal content. Guardian/minor flows with child-switching and audited document signatures.
 - PostgreSQL database scoped by `clubId`.
 - Two-sided Stripe integration: Stripe Connect for member → club payments, plus a separate platform-account subscription for clubs paying AthletixOS.
+
+## Working Rules — read first on every task
+
+These rules apply to every software-development task in this repo. They override looser defaults from training data. Follow them in order.
+
+1. **Inspect before coding.** Before touching anything, read the project architecture, routes, layouts, auth, permissions, database relationships, and shared components that touch the task. Trace at least one end-to-end path through the area you're about to change.
+
+2. **Auto-discover and use installed Claude Code capabilities.** On every task, scan for and use the relevant:
+   - Skills
+   - Agents
+   - MCP servers
+   - Plugins
+   - Hooks
+   - LSP integrations
+   Don't rebuild functionality a skill or MCP already provides.
+
+3. **Prefer these capabilities when they apply:**
+   - `frontend-design` (or `impeccable` / `ui-ux-pro-max`) for UI work
+   - `feature-dev` for new feature scaffolding
+   - `systematic-debugging` for any bug, test failure, or unexpected behavior
+   - `verification-before-completion` before claiming work is done
+   - `review-local-changes` (or `review-pr`) before commit/merge
+   - `subagent-driven-development` for plans with independent tasks
+   - `dispatching-parallel-agents` for 2+ tasks without shared state
+
+4. **UI/UX work specifically:**
+   - Use **Magic (21st.dev) MCP** for inspiration and component generation.
+   - Perform a UX audit before any redesign.
+   - Propose a file plan (which files will be created/modified) **before** editing.
+
+5. **iOS, Capacitor, React Native, mobile, navigation, auth, or WebView changes:**
+   - Use `ios-simulator-skill`.
+   - Validate behavior in simulator (or device) **before** claiming completion.
+
+6. **Never perform broad rewrites** without understanding dependencies and impact.
+
+7. **Before editing, present:**
+   - The exact list of files affected
+   - Known risks
+   - A short implementation plan
+
+8. **Work in small checkpoints**, not one giant commit.
+
+9. **After each checkpoint, run:**
+   - Lint
+   - Build
+   - Regression check on adjacent functionality
+
+10. **Before claiming completion, verify:**
+    - Auth still works
+    - Permissions still gate the right surfaces
+    - Navigation still routes correctly
+    - Mobile/Capacitor behavior is intact
+    - Existing functionality hasn't regressed
+
+11. **Explicitly state** which skills, MCPs, plugins, and agents were used during the task in the final summary.
+
+12. **Do not claim testing was performed** unless you actually ran it. If you only ran type-checks and build, say that; don't conflate it with end-to-end testing.
 
 ## Current Tech Stack
 
@@ -610,6 +668,66 @@ All sends are `try/catch` + `console.error` — a failed email never breaks the 
 - Inline `ProfileSection` re-hydrates state with `useEffect` when the `club` prop changes after save, so the form never shows stale values.
 - Inline Profile tab now links to `/dashboard/settings/club` for the extended fields (About Us, cover image, hours, contact, social links) so the full editor is discoverable.
 
+### Native AthletixOS app shell setup (2026-06-07)
+
+Checkpoint commit: `c5021307bf6718776acbf7e2cadc52fb602f9d56` on branch `native-app-shell`; pushed to origin. Not merged to `main`.
+
+What was added:
+- Capacitor config at `capacitor.config.ts`.
+- Native iOS project under `ios/`.
+- Native Android project under `android/`.
+- Native fallback assets under `public/native-shell/`.
+- Native source/icon placeholder under `assets/native/`.
+- Internal launch checklist at `docs/native-launch-checklist.md`.
+- NPM scripts: `cap:sync`, `cap:ios`, `cap:android`.
+
+Current native shell decisions:
+- This is one AthletixOS native shell, not React Native and not separate per-club apps.
+- App name is `AthletixOS`.
+- iOS bundle ID and Android package ID are both `com.athletixos.app`.
+- The Capacitor shell points to the existing web/member portal and starts at `/member`.
+- Default local native URL is `http://localhost:3001`.
+- Release/native test URL should be set with `CAPACITOR_SERVER_URL=https://<production-domain>` before `npx cap sync`.
+- Fallback server URL order in config: `CAPACITOR_SERVER_URL`, then `NEXT_PUBLIC_APP_URL`, then `NEXTAUTH_URL`, then `http://localhost:3001`.
+- Native shell appends `AthletixOSNativeShell` to the user agent.
+- Native shell is portrait-oriented to match the member portal mobile flow.
+- Placeholder native icons/splash assets are generated from the existing AthletixOS brand icon. Replace with final 1024x1024 app art before store submission.
+
+Web/mobile changes made for the native shell:
+- `app/layout.tsx` now sets `viewportFit: "cover"`.
+- `app/globals.css` includes safe-area helpers and disables vertical overscroll bounce.
+- `app/member/layout.tsx` applies iOS safe-area padding to the mobile header, content, and bottom nav.
+- Existing PWA manifest and service worker path were preserved.
+- Existing NextAuth credentials/JWT session flow was preserved; no native-only auth was added.
+- Existing localStorage-based parent/athlete switching was preserved.
+- Stripe checkout links still use the existing web redirect/window flows; verify on device because platform browser behavior can differ.
+
+Branded App page reframe:
+- `/dashboard/settings/branded-app` now labels itself as member portal branding.
+- It explains what is available now: member portal branding, PWA branding, native AthletixOS shell.
+- It explains future roadmap: separate per-club App Store apps, automated app submissions, native push.
+- It hides the misleading unused per-club native sections from the editor UI for now, but does not delete saved `brandedAppConfig` data.
+- The inline Settings > Branded App roadmap now says the native app is one AthletixOS shell and club branding happens inside the app after login.
+
+Verification already run:
+- `npx prisma validate` passed.
+- `npx prisma generate` passed.
+- `npx tsc --noEmit` passed.
+- `npm run build` passed.
+- `npx cap sync` passed.
+- Browser smoke: mobile `/member` redirects to login when unauthenticated, and `public/native-shell/index.html` plus `native-shell-error.html` render.
+
+Important follow-up tests:
+- Run `CAPACITOR_SERVER_URL=https://<production-domain> npx cap sync` before release-device testing.
+- Open iOS with `npm run cap:ios`, set signing team in Xcode, run simulator/device.
+- Open Android with `npm run cap:android`, let Gradle sync, run emulator/device.
+- In the native shell, test member login, member home, schedule, bookings, products, memberships, announcements, messages, documents, and profile switching.
+- Test guardian/parent switching specifically.
+- Test Stripe checkout/billing portal handoff and return behavior from inside iOS and Android webviews.
+- Re-test PWA install from Safari and Chrome to confirm PWA behavior remains intact.
+
+Manual launch checklist lives in `docs/native-launch-checklist.md` and covers Apple Developer, Google Play Console, icons, splash, privacy/support URLs, screenshots, demo login, and review prep.
+
 ## Built But Needs End-to-End Testing
 
 These flows exist in code but haven't been verified against a live Stripe environment with webhook forwarding:
@@ -636,7 +754,7 @@ These flows exist in code but haven't been verified against a live Stripe enviro
 ## Not Built Yet
 
 - Multi-location full UX (schema + `maxLocations` gating in place, but the locations page is thin).
-- Native mobile apps.
+- Separate per-club native mobile apps.
 - SMS broadcast delivery (template + UI flag exists; provider not wired).
 - Push notifications.
 - Full report builder (current `/dashboard/reports` is fixed-shape).
@@ -681,6 +799,77 @@ Documented in `.env.example`. Critical for production:
 - `UPLOADS_DIR` (optional; defaults to `./storage/uploads`)
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing)
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
+
+## Session log — 2026-05-29 (native auth + WebView reliability)
+
+Branch: `native-app-shell` (pushed; not merged to `main`). Tip: `11c6493`.
+
+### What changed (in commit order)
+- `5d7db99` Login page now hard-navs (`window.location.href`) after `signIn` instead of `router.replace`, fixing the stuck-on-/login bug in iOS WKWebView and Safari.
+- `b0a9506` Added `app/post-login/route.ts` — server-side reads JWT via `getServerSession` and 307s to `/dashboard` or `/member`. Eliminates all client-side session hydration races.
+- `2c2980b` Safari Set-Cookie commit race: added a macrotask yield in the login page plus an HTML auto-retry page inside `/post-login` (`?retry=N`, max 2). If the cookie isn't visible to the server on first GET, the page reloads itself with a counter and the cookie is there by then.
+- `e4857a4` Reverted `.trim()` on email/clubSlug — was an unnecessary change and surfaced a non-`CredentialsSignin` error string in the UI when present.
+- `bdc0365` Two bug fixes in one:
+  - Explicit cookie config in `lib/auth.ts` (`useSecureCookies` + `cookies.sessionToken/callbackUrl/csrfToken`), pinned to `NODE_ENV` instead of `NEXTAUTH_URL`. Reason: `.env` had `NEXTAUTH_URL="NEXTAUTH_URL=http://..."` (literal key prefix inside the value), which made NextAuth's auto-detection pick `__Secure-` cookies on http://localhost — Safari refuses to store those.
+  - `cache-control: no-store, no-cache, must-revalidate` on every `/post-login` response so a previous OWNER login's cached 307 can't route a later MEMBER to `/dashboard`.
+- `5b47b13` Real root cause of the simulator 401: iOS WKWebView's default soft keyboard auto-capitalized the club slug. `apex-wrestling` arrived as `Apex-wrestling`. Fix: `autoCapitalize="none"`/`autoCorrect="off"`/`spellCheck={false}` + appropriate `autoComplete`/`inputMode` on all three login inputs. Also added dev-only `[auth/authorize] …` logging (no passwords, no hashes) and defensive `.trim().toLowerCase()` on email + clubSlug server-side.
+- `6ee0693` `capacitor.config.ts` default URL → `http://127.0.0.1:3000`. macOS resolves `localhost` to IPv6 `::1` first; Next dev was on IPv4 only, so the WebView's connect was refused. Removed `NEXTAUTH_URL` from the WebView fallback chain (malformed env was poisoning `server.url`).
+- `5d447ca` Dev port moved from 3001 → 3000 because WebKit added 3001 to its restricted-network-ports blocklist (the "Not allowed to use restricted network port" Xcode error). Updated `package.json`'s `dev` script to `next dev -H 0.0.0.0 -p 3000` so the simulator + any LAN device can reach Next regardless of IPv4/IPv6 preference.
+- `df12a40` Phase 1 reliability + logout pass:
+  - `public/native-shell/native-shell-error.html` rewritten: dark themed, spinner, auto-retries the server URL every 2s for up to 4 attempts (tracked in `sessionStorage`), then surfaces a "Try again" button. Replaces the static "Can't reach AthletixOS / reopen the app" dead-end.
+  - `lib/signOutEverywhere.ts` (new): calls `signOut({ redirect:false })`, `DELETE /api/preview` (clears the HttpOnly Client-View cookie), removes `athletixos-active-profile` from localStorage, then hard-navs to `/login`. Wired into `app/dashboard/layout.tsx` + `app/member/layout.tsx` (desktop + mobile sign-out buttons).
+- `11c6493` End-of-day misc: `package-lock.json` from before the session, plus the `android/.idea/` IDE files (probably should be gitignored next session).
+
+### Native shell state right now
+- Dev port: **3000** (was 3001; WebKit-blocked).
+- Default `server.url`: `http://127.0.0.1:3000/member` (was `http://localhost:3001/member`).
+- `npm run dev` binds `0.0.0.0:3000` automatically.
+- iOS simulator usually loads cleanly. If Next isn't up yet, the new dark "Reconnecting…" screen auto-retries instead of showing a dead "Can't reach" page.
+- Sign out works identically in Chrome, Safari, and WKWebView (always lands on `/login`, clears local state + preview cookie).
+
+### Tomorrow's queue
+
+**Must-do (cleanup from today):**
+1. **Fix `.env`** — the value is malformed and the port is wrong:
+   ```diff
+   - NEXTAUTH_URL="NEXTAUTH_URL=http://localhost:3001"
+   + NEXTAUTH_URL=http://localhost:3000
+   ```
+2. **Remove the temporary `[auth/authorize] …` dev logging** from `lib/auth.ts` once you've confirmed login is stable across web + native. Search for `[auth/authorize]` to find the lines — gated on `NODE_ENV !== "production"` already, so it never runs in prod, just noisy in dev.
+3. **Decide on `android/.idea/`** — committed today (5 files). If those are personal IDE config, add `android/.idea/` to `.gitignore` and revert that commit.
+
+**Doc/UI sweep (no behavior impact, do when convenient):**
+- CLAUDE.md still says port 3001 in a few places (this file's intro, native-shell section, Stripe CLI hint).
+- `app/dashboard/settings/page.tsx:1012` — "Member portal URL: localhost:3001/member" hint.
+- `app/dashboard/settings/diagnostics/page.tsx:140` — "stripe listen --forward-to localhost:3001/..." hint.
+- The `|| "http://localhost:3001"` fallbacks in API routes (~10 places) — only fire when `NEXTAUTH_URL` is unset, so safe to leave, but worth a sweep.
+
+**Phase 2 — Owner/staff dashboard redesign (not started):**
+- Plan was: nav first, then overview cards, then per-section visual passes — incrementally, not a swing-for-the-fences rewrite.
+- Sections in scope: sidebar/top nav, dashboard overview, members, classes/events, attendance, privates, financials, reports, staff tools, settings/personalization.
+- Constraint: do not change APIs, auth, Stripe/Plaid, or role permissions. UI-only.
+- Reuse design tokens from `app/globals.css` (no new color families).
+
+**Phase 3 — Member dashboard polish (not started):**
+- Keep direction/style; polish spacing, nav, empty states, buttons, mobile layout. Should feel like a real native app inside the WebView.
+
+**Out-of-scope items still open from prior sessions** (unchanged by today):
+- Live Stripe end-to-end + live Price IDs.
+- Multi-location UX.
+- SMS provider wiring.
+- Add-Staff invite bio/photo (currently Edit-only).
+- Smoke scripts for member-add → status flip, trial, doc re-sign, calendar feed, class regenerate.
+
+### Files touched this session
+- `web/app/login/page.tsx`
+- `web/app/post-login/route.ts` (new)
+- `web/lib/auth.ts`
+- `web/lib/signOutEverywhere.ts` (new)
+- `web/capacitor.config.ts`
+- `web/package.json`
+- `web/app/dashboard/layout.tsx`
+- `web/app/member/layout.tsx`
+- `web/public/native-shell/native-shell-error.html`
 
 ## Next Priorities
 
