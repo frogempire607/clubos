@@ -15,6 +15,16 @@ import { authOptions } from "@/lib/auth";
 // Safari sometimes hasn't committed the Set-Cookie from the signIn POST
 // by the time it issues this GET. The `?retry=N` param lets us re-check
 // once with a fresh request before giving up.
+// Every response from this route must be uncacheable. Browsers can and do
+// cache 307 redirects, and if a previous OWNER login left a cached
+// /post-login → /dashboard in the cache, a subsequent MEMBER login would
+// jump straight to /dashboard without re-checking the session.
+function noStore(res: NextResponse) {
+  res.headers.set("cache-control", "no-store, no-cache, must-revalidate");
+  res.headers.set("pragma", "no-cache");
+  return res;
+}
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const role = (session?.user as { role?: string } | undefined)?.role;
@@ -22,12 +32,12 @@ export async function GET(req: NextRequest) {
   const retry = Number(req.nextUrl.searchParams.get("retry") ?? "0");
 
   if (role === "OWNER" || role === "STAFF") {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    return noStore(NextResponse.redirect(new URL("/dashboard", req.url)));
   }
 
   if (role === "MEMBER") {
     const target = fromRole === "staff" ? "/member?from=staff-login" : "/member";
-    return NextResponse.redirect(new URL(target, req.url));
+    return noStore(NextResponse.redirect(new URL(target, req.url)));
   }
 
   // No session on the server yet. In Safari this can happen on the very
@@ -55,11 +65,13 @@ export async function GET(req: NextRequest) {
     <script>setTimeout(function(){ location.replace(${JSON.stringify(next.pathname + next.search)}); }, 80);</script>
   </body>
 </html>`;
-    return new NextResponse(html, {
-      status: 200,
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
-    });
+    return noStore(
+      new NextResponse(html, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
   }
 
-  return NextResponse.redirect(new URL("/login", req.url));
+  return noStore(NextResponse.redirect(new URL("/login", req.url)));
 }

@@ -4,9 +4,33 @@ import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import { resolvePermissions } from "./permissions";
 
+const isProd = process.env.NODE_ENV === "production";
+
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
+  // Explicit cookie config. NextAuth's defaults derive cookie name and
+  // `secure` from NEXTAUTH_URL. If NEXTAUTH_URL is missing/malformed (we
+  // hit one such .env in the wild), the auto-detection can pick the
+  // __Secure- prefix even on http://localhost, which Safari refuses to
+  // store on an insecure origin — login succeeds, no cookie persists,
+  // user bounces back to /login. Pinning name + secure to NODE_ENV
+  // removes that dependency entirely.
+  useSecureCookies: isProd,
+  cookies: {
+    sessionToken: {
+      name: `${isProd ? "__Secure-" : ""}next-auth.session-token`,
+      options: { httpOnly: true, sameSite: "lax", path: "/", secure: isProd },
+    },
+    callbackUrl: {
+      name: `${isProd ? "__Secure-" : ""}next-auth.callback-url`,
+      options: { sameSite: "lax", path: "/", secure: isProd },
+    },
+    csrfToken: {
+      name: `${isProd ? "__Host-" : ""}next-auth.csrf-token`,
+      options: { httpOnly: true, sameSite: "lax", path: "/", secure: isProd },
+    },
+  },
   providers: [
     CredentialsProvider({
       name: "credentials",
