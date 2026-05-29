@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-07 (Native AthletixOS Capacitor shell, Staff invite setup-link + my-account, Client/Preview mode, multi-bank Plaid, back button, event image focal picker, privates confirmation UX, member portal nav + classes in bookings, owner-controlled billing visibility, parent sees child messages, member class self-book)
+Last updated: 2026-05-30 (Phase 1 native shell URL/redirect hardening with centralized getAppBaseUrl + build-time injected native-shell error page retry URL, Phase 2A mobile-aware dashboard shell with extracted DashboardSidebar/UserMenu/MobileDrawer/BottomNav and PageHeader primitive, Phase 2B mobile-responsive dashboard overview + persistent primary CTA bar, Phase 2C EmptyState + LoadingSkeleton primitives. Phase 2C section sweep, 2D mobile polish, and 2E regression pass NOT done — see Session log — 2026-05-30 below.)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -799,6 +799,143 @@ Documented in `.env.example`. Critical for production:
 - `UPLOADS_DIR` (optional; defaults to `./storage/uploads`)
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing)
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
+
+## Session log — 2026-05-30 (Phase 1 native URL hardening + Phase 2A/B/C dashboard redesign foundation)
+
+Branch: `native-app-shell` (pushed: NO, merged: NO). Commits in order:
+
+| SHA       | Phase   | Title                                                 |
+|-----------|---------|-------------------------------------------------------|
+| `dfcc270` | 1       | harden native shell URL/redirect chain                |
+| `0aeabae` | 2A      | mobile-aware dashboard shell                          |
+| `4ae5923` | 2B      | mobile-responsive dashboard overview + primary CTA bar|
+| `fc96f22` | 2C      | add EmptyState and LoadingSkeleton primitives         |
+
+### Phase 1 — native shell URL/redirect hardening (DONE)
+
+Root cause of yesterday's 5 native iOS symptoms was a chain: `.env` had a malformed `NEXTAUTH_URL="NEXTAUTH_URL=http://localhost:3001"` (literal key prefix inside the value, WebKit-restricted port, IPv6-first `localhost`). 26 inline `process.env.NEXTAUTH_URL || "http://localhost:300x"` fallbacks across the codebase shipped that malformed string into Stripe / email / redirect URLs. WKWebView blocked the `:3001` nav, fell back to `errorPath`, and the error page retried to `/` (the marketing landing) — silently sending the owner to the wrong surface.
+
+Fixes (commit `dfcc270`):
+
+- **`.env`** (uncommitted because gitignored): set `NEXTAUTH_URL=http://127.0.0.1:3000` (literal IPv4, allowed WebKit port).
+- **`lib/baseUrl.ts` NEW** — `getAppBaseUrl()` parses `NEXTAUTH_URL` with `new URL()`, falls back to `http://127.0.0.1:3000` when missing OR malformed (the old `||` pattern only caught missing). Dev-only `console.warn` when fallback fires.
+- **23 routes + libs** migrated from the inline fallback to `getAppBaseUrl()`. Full list: `app/api/auth/forgot-password`, `app/api/classes/[id]/charge`, `app/api/club/branded-app`, `app/api/club/subscription/checkout`, `app/api/club/subscription/portal`, `app/api/contractors/[id]/invite`, `app/api/events/[id]/bill-registrants`, `app/api/events/[id]/charge`, `app/api/member/classes/book`, `app/api/member/events/[id]/register`, `app/api/member/memberships/subscribe`, `app/api/member/products/[id]/buy`, `app/api/members/migration/[id]`, `app/api/members/migration/activate/[token]`, `app/api/members/route.ts`, `app/api/members/subscribe`, `app/api/public/events/[slug]/register`, `app/api/staff/[id]/setup-link`, `app/api/staff/route.ts`, `app/api/stripe/connect`, `app/api/stripe/webhook`, `lib/migrationServer.ts`.
+- **`scripts/native-shell-config.mjs` NEW** + **`public/native-shell/server-config.js` NEW** — build-time injection of `window.NATIVE_SERVER_URL` from `CAPACITOR_SERVER_URL` / `NEXT_PUBLIC_APP_URL` so production builds retry against the real domain. Runs as part of `npm run cap:sync`.
+- **`public/native-shell/native-shell-error.html`** — loads `server-config.js`, retries to `SERVER_URL + "/member"` instead of `/`. Middleware routes from `/member` based on session: valid → `/dashboard` or `/member`; invalid → `/login`. Marketing landing no longer hijacks failed reconnect attempts.
+- **`package.json`** — `cap:sync` now runs `node scripts/native-shell-config.mjs && cap sync`.
+- **`lib/auth.ts`** — removed temporary `[auth/authorize]` dev logging from yesterday. Kept explicit cookie config + `.trim().toLowerCase()` defensive normalization.
+- **`.gitignore` + `git rm --cached -r android/.idea`** — 5 IDE files untracked.
+- **Cosmetic 3001→3000** — `app/dashboard/settings/page.tsx:1012`, `app/dashboard/settings/diagnostics/page.tsx:140`, and four lines in this CLAUDE.md.
+
+Verified at code level: `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run cap:sync` all clean. **Simulator end-to-end NOT verified** — needs user to run the 5-minute smoke (cold launch, owner login, logout, re-login, force a connect failure to confirm the error-page retries to `/member`).
+
+### Phase 2A — mobile-aware dashboard shell (DONE)
+
+Dashboard had a fixed 248px sidebar on every screen and no mobile sign-out path (sign-out was buried in the sidebar footer; mobile = no sidebar = no logout).
+
+Fixes (commit `0aeabae`):
+
+- **`lib/dashboardNav.ts` NEW** — single source for `NAV[]` + `BOTTOM_NAV[]` + `isGroupActive()` / `isItemActive()`. Both desktop sidebar and mobile bottom nav consume it.
+- **`components/DashboardSidebar.tsx` NEW** — extracts the 280-line inline sidebar from `app/dashboard/layout.tsx` verbatim. Desktop look pixel-identical (refactor only). Accepts `onNavigate` so the mobile drawer closes on link click. Preserves Phase 1 `signOutEverywhere` wiring on the sign-out button.
+- **`components/DashboardMobileDrawer.tsx` NEW** — slide-in overlay at `< md`. Locks body scroll while open; closes on Escape, backdrop tap, or route change.
+- **`components/DashboardBottomNav.tsx` NEW** — fixed bottom nav for mobile, 5 slots: Home / Members / Classes / Money / More. "More" opens the drawer. Charcoal background matches sidebar. `env(safe-area-inset-bottom)` for iOS home indicator.
+- **`components/UserMenu.tsx` NEW** — avatar dropdown for the topbar. Click outside / Escape closes. Contents: My account / Client view / Need help? / Sign out (still through `signOutEverywhere`). Solves the no-sign-out-on-mobile gap.
+- **`components/PageHeader.tsx` NEW** — shared `<PageHeader title description actions eyebrow />` primitive for section pages. Foundation for Phase 2C polish.
+- **`app/dashboard/layout.tsx`** — rebuilt around new components. Desktop (`≥ md`): persistent sidebar + existing BackButton/GlobalSearch topbar + new UserMenu on the right. Mobile (`< md`): charcoal topbar (hamburger + AthletixOS wordmark + UserMenu), second sticky row with Back + Search, fixed bottom nav.
+
+What did NOT change: member portal layout/theme/bottom nav, NextAuth, signOutEverywhere, preview cookie, `/api/me`, permission gating, sidebar content/order. All extracted verbatim.
+
+### Phase 2B — mobile-responsive dashboard overview + primary CTA bar (DONE)
+
+Three problems on the dashboard home: `grid-cols-4` overflowed on mobile; Quick Actions lived inside an optional widget so hiding it killed the fastest paths; `p-8` wasted mobile screen.
+
+Fixes (commit `4ae5923`, single file: `app/dashboard/page.tsx`):
+
+- Outer container: `p-4 sm:p-6 lg:p-8`.
+- Stat grid: `grid-cols-2 sm:grid-cols-3 lg:grid-cols-4` — 2 cols on phone, 4 on desktop.
+- Section grid: `grid-cols-1 lg:grid-cols-2`.
+- StatCard padding + type sizing responsive; long values truncate cleanly.
+- Greeting block stacks on mobile, returns to row on `sm+`. Customize button moves to `self-start`.
+- **NEW `PRIMARY_QUICK_ACTIONS` bar** above the stats grid — always rendered regardless of widget config. First action ("Add member") is the violet brand-color CTA; the rest are neutral surface buttons. Horizontally scrollable on mobile so it never wraps. Action set: Add member, New class, New event, Send message, Client view.
+
+Widget customize/order/hide system untouched. `/api/dashboard/summary` + `/api/dashboard/widgets` untouched.
+
+### Phase 2C — primitives only (PARTIAL)
+
+Fixes (commit `fc96f22`):
+
+- **`components/EmptyState.tsx` NEW** — icon + title + description + action slot (link or onClick).
+- **`components/LoadingSkeleton.tsx` NEW** — `SkeletonLine`, `SkeletonCard`, `SkeletonRow`, `SkeletonList`. Pulse-animated placeholders matching `bg-app-bg` / `bg-surface` tokens.
+
+NOT done in Phase 2C: applying these primitives across the per-section pages (members, classes, events, financials, reports, staff, settings). That sweep is queued for the next session — primitives compile and lint clean and are ready to drop in.
+
+### Files touched this session
+- New: `lib/baseUrl.ts`, `lib/dashboardNav.ts`, `scripts/native-shell-config.mjs`, `public/native-shell/server-config.js`, `components/DashboardSidebar.tsx`, `components/DashboardMobileDrawer.tsx`, `components/DashboardBottomNav.tsx`, `components/UserMenu.tsx`, `components/PageHeader.tsx`, `components/EmptyState.tsx`, `components/LoadingSkeleton.tsx`
+- Modified: 23 API routes + libs (see Phase 1 list), `app/dashboard/layout.tsx`, `app/dashboard/page.tsx`, `app/dashboard/settings/page.tsx`, `app/dashboard/settings/diagnostics/page.tsx`, `lib/auth.ts`, `lib/migrationServer.ts`, `package.json`, `public/native-shell/native-shell-error.html`, `.gitignore`, `CLAUDE.md`
+- Out of repo (`.env`): `NEXTAUTH_URL=http://127.0.0.1:3000`
+- Untracked / removed: 5 `android/.idea/*` files (still on disk, just untracked)
+
+### What's left when you return
+
+Tasks below are ordered for resumption. Pick up at the top.
+
+1. **Simulator verification of Phase 1** — REQUIRED before continuing. 5 minutes:
+   - `npm run dev` (port 3000)
+   - `npm run cap:ios` → run on simulator
+   - Cold launch the app → confirm it lands on `/member` (not `/`). Xcode console should show **zero** "restricted network port" lines.
+   - Owner login → confirm lands on `/dashboard`.
+   - Sign out → confirm lands on `/login`.
+   - Sign back in → confirm it works (this was the symptom-3 blocker).
+   - Stop the dev server briefly, watch the "Reconnecting…" screen → confirm it auto-retries to `/member` not `/` once the server comes back.
+   - Browser desktop smoke: same login/logout/Client View loop on Chrome / Safari to confirm browser flow is unchanged.
+
+2. **Phase 2C section sweep** (the big leftover). Apply the new primitives to each dashboard section page, one commit per section. For each: import `PageHeader`, replace the hand-rolled header at the top; replace `"Loading…"` text fallbacks with `SkeletonList` / `SkeletonCard`; replace `"No X yet"` text with `<EmptyState />`. Order by traffic:
+   - `app/dashboard/members/page.tsx`
+   - `app/dashboard/classes/page.tsx`
+   - `app/dashboard/events/page.tsx`
+   - `app/dashboard/financials/page.tsx`
+   - `app/dashboard/reports/page.tsx`
+   - `app/dashboard/staff/page.tsx`
+   - `app/dashboard/settings/page.tsx`
+   - `app/dashboard/attendance/page.tsx`
+   - `app/dashboard/documents/page.tsx`
+   - `app/dashboard/calendar/page.tsx`
+
+3. **Phase 2D — mobile polish sweep**. With the new mobile shell in place, every section page still uses desktop-only grids and `p-8`. Walk each one at iPhone width:
+   - Wrap overflowing tables to card rows on mobile, or add `overflow-x-auto` with a sticky first column.
+   - Stack any `grid-cols-N` to single column on mobile.
+   - Full-width primary buttons on mobile.
+   - Modals → bottom sheets (use `inset-x-0 bottom-0 rounded-t-2xl` on mobile, centered card on desktop).
+   - Verify no horizontal scroll on any page at `375px` width.
+
+4. **Phase 2E — final regression pass**:
+   - Member portal cold smoke (light theme stays; bottom nav works; child switcher unchanged).
+   - Owner / Staff / Member login + logout matrix.
+   - Client View enter + exit (both desktop sidebar and mobile UserMenu paths).
+   - Native shell: `npm run cap:sync` + simulator cold launch + walk through every nav item from the bottom nav + drawer.
+   - `npm run lint`, `npm run build`, `npx tsc --noEmit`.
+   - Dispatch `review:review-local-changes` agent for an outside review of the full Phase 1+2 diff before merging.
+
+5. **Pre-existing cleanup still open** (carried from yesterday + still relevant):
+   - `lib/auth.ts` lines 94, 102-113 have pre-existing `as any` casts on session/JWT — type properly with `next-auth.d.ts` augmentation when convenient.
+   - `app/dashboard/page.tsx:76` — unused `allEvents` state slot.
+   - `app/dashboard/settings/page.tsx:997-1007` — pre-existing unescaped quotes in iOS/Android install instructions.
+   - `app/dashboard/schedule/page.tsx` — orphan kept on purpose (back-compat), but nothing in source links to it anymore. Consider removing after the section sweep settles.
+
+6. **Out of scope but still worth doing** (from prior sessions, unchanged):
+   - Live Stripe end-to-end (`stripe listen --forward-to localhost:3000/api/stripe/webhook`) + live Price IDs.
+   - Multi-location full UX.
+   - SMS provider wiring for the announcement broadcast.
+   - Add-Staff invite bio/photo (currently Edit-only).
+   - Smoke scripts for: member-add → status flip, trial, document re-sign, calendar feed, class regenerate.
+
+### Architectural notes for future-me
+
+- `lib/baseUrl.ts` is the ONLY place that should derive an absolute URL from env. Never reintroduce `process.env.NEXTAUTH_URL || "http://..."` — the `||` pattern silently passes a malformed truthy value. A pre-commit grep for that pattern would catch regressions.
+- The native shell error page reads `window.NATIVE_SERVER_URL` from `server-config.js`. For a TestFlight or production build, run `CAPACITOR_SERVER_URL=https://app.athletixos.com npm run cap:sync` so the generator writes the right URL into the bundle.
+- `lib/dashboardNav.ts` is the single source for the nav tree. To add a section: add it to `NAV` (desktop sidebar uses it automatically) and decide whether it earns a `BOTTOM_NAV` slot (5 slots, max — fight for them).
+- `components/DashboardSidebar.tsx` is used in TWO places: directly inside the desktop `<aside>` and inside `DashboardMobileDrawer`. Any styling changes affect both surfaces.
+- The avatar in `UserMenu` uses `initialsOf(displayName, email)` — first letters of the first two words of the display name. Fallback is first letter of email. NextAuth's `session.user.name` is the source of truth; `/api/me` does NOT return name fields.
 
 ## Session log — 2026-05-29 (native auth + WebView reliability)
 
