@@ -139,6 +139,16 @@ function LoginInner() {
                 onChange={(e) => setClubSlug(e.target.value)}
                 placeholder="apex-wrestling"
                 required
+                // iOS WKWebView's default keyboard would otherwise capitalize
+                // the first letter and run autocorrect, turning a valid slug
+                // like `apex-wrestling` into `Apex-wrestling` and 401'ing the
+                // login. Same reasoning for autoComplete="off" — Keychain
+                // would suggest "Username" autofill on a slug field.
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+                inputMode="text"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
               <p className="text-xs text-stone-400 mt-1">
@@ -155,6 +165,11 @@ function LoginInner() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="email"
+                inputMode="email"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
             </div>
@@ -166,6 +181,10 @@ function LoginInner() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="current-password"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
             </div>
