@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-05-30 (Phase 1 native shell URL/redirect hardening with centralized getAppBaseUrl + build-time injected native-shell error page retry URL, Phase 2A mobile-aware dashboard shell with extracted DashboardSidebar/UserMenu/MobileDrawer/BottomNav and PageHeader primitive, Phase 2B mobile-responsive dashboard overview + persistent primary CTA bar, Phase 2C EmptyState + LoadingSkeleton primitives. Phase 2C section sweep, 2D mobile polish, and 2E regression pass NOT done — see Session log — 2026-05-30 below.)
+Last updated: 2026-05-30 (Phase 1 native shell URL/redirect hardening, Phase 2A mobile-aware dashboard shell, Phase 2B mobile-responsive dashboard overview, Phase 2C primitives + full section sweep across reports/documents/calendar/attendance/financials/classes/staff/members/events/settings. Phase 2D mobile polish sweep and 2E regression pass NOT done — see "What's left" in Session log — 2026-05-30 below.)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -810,6 +810,16 @@ Branch: `native-app-shell` (pushed: NO, merged: NO). Commits in order:
 | `0aeabae` | 2A      | mobile-aware dashboard shell                          |
 | `4ae5923` | 2B      | mobile-responsive dashboard overview + primary CTA bar|
 | `fc96f22` | 2C      | add EmptyState and LoadingSkeleton primitives         |
+| `d5b4b67` | 2C      | apply primitives to reports page                      |
+| `e122674` | 2C      | apply primitives to documents page                    |
+| `7e606a6` | 2C      | apply primitives to calendar page                     |
+| `6761ab7` | 2C      | apply primitives to attendance page                   |
+| `f32cbb7` | 2C      | apply primitives to financials page                   |
+| `7fc3fa7` | 2C      | apply primitives to classes page                      |
+| `304b45b` | 2C      | apply primitives to staff page                        |
+| `77efa9b` | 2C      | apply primitives to members page                      |
+| `a99879c` | 2C      | apply primitives to events page                       |
+| `80335df` | 2C      | apply primitives to settings page                     |
 
 ### Phase 1 — native shell URL/redirect hardening (DONE)
 
@@ -860,18 +870,31 @@ Fixes (commit `4ae5923`, single file: `app/dashboard/page.tsx`):
 
 Widget customize/order/hide system untouched. `/api/dashboard/summary` + `/api/dashboard/widgets` untouched.
 
-### Phase 2C — primitives only (PARTIAL)
+### Phase 2C — primitives + full section sweep (DONE)
 
-Fixes (commit `fc96f22`):
+Primitives (commit `fc96f22`):
 
 - **`components/EmptyState.tsx` NEW** — icon + title + description + action slot (link or onClick).
 - **`components/LoadingSkeleton.tsx` NEW** — `SkeletonLine`, `SkeletonCard`, `SkeletonRow`, `SkeletonList`. Pulse-animated placeholders matching `bg-app-bg` / `bg-surface` tokens.
 
-NOT done in Phase 2C: applying these primitives across the per-section pages (members, classes, events, financials, reports, staff, settings). That sweep is queued for the next session — primitives compile and lint clean and are ready to drop in.
+Section sweep (10 commits, one per page): applied `PageHeader` + `SkeletonList`/`SkeletonCard` + `EmptyState` (where structural) across `app/dashboard/{reports,documents,calendar,attendance,financials,classes,staff,members,events,settings}/page.tsx`. Every section page now:
+
+- Uses `PageHeader` with `title` / `description` / `actions` slots — consistent typography and mobile-stacking layout across the dashboard.
+- Replaces `"Loading…"` text fallbacks with `SkeletonCard`×N or `SkeletonList rows={N}` — the user sees the shape of what's loading rather than a blank line.
+- Where appropriate, the page-level empty state uses `EmptyState` (`documents`, `staff`, `events`, `reports`-tier-blocked). In-card "No X in this range" text fragments left as small text — they're contextual fillers, not page-level zero states.
+- Outer padding migrated from `p-8` → `p-4 sm:p-6 lg:p-8` — mobile-friendly density without sacrificing desktop airiness.
+- Primary CTAs gain `w-full sm:w-auto` so they're full-width on mobile.
+- Settings sub-nav stacks `flex-col md:flex-row` so the sub-section list is reachable without horizontal scroll on phone.
+
+What did NOT change in this sweep: data fetching, API endpoints, business logic, widget customize/order system, sub-section page structure (settings sub-tabs, member-form builder, branded-app config, etc. retain their own structure and can adopt `PageHeader` incrementally).
+
+Verified: full `npm run build`, `npx tsc --noEmit`, `npm run cap:sync` all clean. Pre-existing lint warnings in files (mostly `as any` casts and unescaped quotes) are unrelated — verified each is well outside the lines this sweep touched.
 
 ### Files touched this session
 - New: `lib/baseUrl.ts`, `lib/dashboardNav.ts`, `scripts/native-shell-config.mjs`, `public/native-shell/server-config.js`, `components/DashboardSidebar.tsx`, `components/DashboardMobileDrawer.tsx`, `components/DashboardBottomNav.tsx`, `components/UserMenu.tsx`, `components/PageHeader.tsx`, `components/EmptyState.tsx`, `components/LoadingSkeleton.tsx`
-- Modified: 23 API routes + libs (see Phase 1 list), `app/dashboard/layout.tsx`, `app/dashboard/page.tsx`, `app/dashboard/settings/page.tsx`, `app/dashboard/settings/diagnostics/page.tsx`, `lib/auth.ts`, `lib/migrationServer.ts`, `package.json`, `public/native-shell/native-shell-error.html`, `.gitignore`, `CLAUDE.md`
+- Modified (Phase 1): 23 API routes + libs (see Phase 1 list), `lib/auth.ts`, `lib/migrationServer.ts`, `package.json`, `public/native-shell/native-shell-error.html`, `app/dashboard/settings/diagnostics/page.tsx`, `.gitignore`, `CLAUDE.md`
+- Modified (Phase 2A/B): `app/dashboard/layout.tsx`, `app/dashboard/page.tsx`
+- Modified (Phase 2C sweep): `app/dashboard/{reports,documents,calendar,attendance,financials,classes,staff,members,events,settings}/page.tsx`
 - Out of repo (`.env`): `NEXTAUTH_URL=http://127.0.0.1:3000`
 - Untracked / removed: 5 `android/.idea/*` files (still on disk, just untracked)
 
@@ -889,24 +912,14 @@ Tasks below are ordered for resumption. Pick up at the top.
    - Stop the dev server briefly, watch the "Reconnecting…" screen → confirm it auto-retries to `/member` not `/` once the server comes back.
    - Browser desktop smoke: same login/logout/Client View loop on Chrome / Safari to confirm browser flow is unchanged.
 
-2. **Phase 2C section sweep** (the big leftover). Apply the new primitives to each dashboard section page, one commit per section. For each: import `PageHeader`, replace the hand-rolled header at the top; replace `"Loading…"` text fallbacks with `SkeletonList` / `SkeletonCard`; replace `"No X yet"` text with `<EmptyState />`. Order by traffic:
-   - `app/dashboard/members/page.tsx`
-   - `app/dashboard/classes/page.tsx`
-   - `app/dashboard/events/page.tsx`
-   - `app/dashboard/financials/page.tsx`
-   - `app/dashboard/reports/page.tsx`
-   - `app/dashboard/staff/page.tsx`
-   - `app/dashboard/settings/page.tsx`
-   - `app/dashboard/attendance/page.tsx`
-   - `app/dashboard/documents/page.tsx`
-   - `app/dashboard/calendar/page.tsx`
+2. **Phase 2C section sweep** — DONE this session. All 10 section pages now use the primitives. Sub-tabs inside settings (Profile / Billing / Email / Branded App / Diagnostics / Club / Member Portal / Member Form) can adopt `PageHeader` incrementally in the next sweep if needed.
 
-3. **Phase 2D — mobile polish sweep**. With the new mobile shell in place, every section page still uses desktop-only grids and `p-8`. Walk each one at iPhone width:
-   - Wrap overflowing tables to card rows on mobile, or add `overflow-x-auto` with a sticky first column.
-   - Stack any `grid-cols-N` to single column on mobile.
-   - Full-width primary buttons on mobile.
-   - Modals → bottom sheets (use `inset-x-0 bottom-0 rounded-t-2xl` on mobile, centered card on desktop).
-   - Verify no horizontal scroll on any page at `375px` width.
+3. **Phase 2D — mobile polish sweep** — NOT done. Page padding and headers are mobile-responsive after 2C, but the *inside* of each section still needs work at iPhone width:
+   - **Tables** — the biggest gap. Members table, financials transactions table, events list, classes table all overflow on `375px`. Each needs either `overflow-x-auto` with a sticky first column OR a switch to card rows on mobile. Members and financials are the highest-impact.
+   - **Modals** → bottom sheets on mobile. Pattern: `fixed inset-0 ... flex items-end sm:items-center justify-center` + `w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl`. Touches roughly every modal in the dashboard — start with high-traffic ones (AddMember, EditClass, EditEvent, attendance check-in form).
+   - **Inner grids** — any `grid-cols-N` that hasn't been responsive-ified yet (settings tabs, financials KPI rows when in non-summary tabs, etc.).
+   - **Forms** — long forms in modals still side-scroll on mobile. Stack `flex` rows to `flex-col` and add `space-y-3` where dense `gap-4` row patterns exist.
+   - Final check: visit every dashboard page at `375px` width in DevTools, screenshot anything that still overflows, fix.
 
 4. **Phase 2E — final regression pass**:
    - Member portal cold smoke (light theme stays; bottom nav works; child switcher unchanged).
