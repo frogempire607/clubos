@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
+import PageHeader from "@/components/PageHeader";
+import EmptyState from "@/components/EmptyState";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 
 type BuiltInType = "CLASS" | "PRIVATE" | "CLINIC" | "CAMP" | "TOURNAMENT" | "OTHER";
 
@@ -206,23 +209,23 @@ export default function EventsPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
       <StripeRequiredBanner feature="charge for events" />
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Events</h1>
-          <p className="text-sm text-text-muted">Classes, privates, clinics, camps, tournaments</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Manage event types
-          </button>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
-            + Add event
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Events"
+        description="Classes, privates, clinics, camps, tournaments"
+        actions={
+          <>
+            <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Manage event types
+            </button>
+            <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
+              + Add event
+            </button>
+          </>
+        }
+      />
 
       <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-4 w-fit">
         {(["upcoming", "past", "all"] as const).map((f) => (
@@ -233,16 +236,15 @@ export default function EventsPage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+        <SkeletonList rows={5} />
       ) : filtered.length === 0 ? (
-        <div className="bg-surface rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2">◈</div>
-          <h3 className="text-lg font-medium text-text-primary mb-1">No events</h3>
-          <p className="text-sm text-text-muted mb-4">{filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}</p>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
-            + Schedule your first event
-          </button>
-        </div>
+        <EmptyState
+          icon="◈"
+          title="No events"
+          description={filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}
+          action={{ label: "+ Schedule your first event", onClick: () => setShowAdd(true) }}
+          className="bg-surface rounded-xl border border-app-border"
+        />
       ) : (
         <div className="space-y-2">
           {filtered.map((e) => {
@@ -1415,7 +1417,7 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
         </div>
         <div className="p-6">
           {loading ? (
-            <div className="text-center text-sm text-text-muted py-4">Loading…</div>
+            <div className="py-2"><SkeletonList rows={2} /></div>
           ) : (
             <>
               <PricingBanner
@@ -1584,7 +1586,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
         </div>
         <div className="p-6">
           {loading || !data ? (
-            <p className="text-sm text-text-muted text-center py-8">Loading…</p>
+            <div className="py-2"><SkeletonList rows={3} /></div>
           ) : (
             <>
               {isVariable && (
