@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import PageHeader from "@/components/PageHeader";
+import EmptyState from "@/components/EmptyState";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 
 type Doc = {
   id: string;
@@ -57,38 +60,32 @@ export default function DocumentsPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Documents</h1>
-          <p className="text-sm text-text-muted">
-            Waivers, policies, handbooks, and agreements for your club.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
-        >
-          + New document
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
-      ) : docs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2 text-text-muted">▤</div>
-          <h3 className="text-lg font-medium text-text-primary mb-1">No documents yet</h3>
-          <p className="text-sm text-text-muted mb-4">
-            Add waivers, policies, and handbooks that members need to review.
-          </p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl">
+      <PageHeader
+        title="Documents"
+        description="Waivers, policies, handbooks, and agreements for your club."
+        actions={
           <button
             onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover w-full sm:w-auto"
           >
-            Create your first document
+            + New document
           </button>
+        }
+      />
+
+      {loading ? (
+        <div className="bg-white rounded-xl border border-app-border">
+          <SkeletonList rows={4} />
         </div>
+      ) : docs.length === 0 ? (
+        <EmptyState
+          icon="▤"
+          title="No documents yet"
+          description="Add waivers, policies, and handbooks that members need to review."
+          action={{ label: "Create your first document", onClick: () => setShowAdd(true) }}
+          className="bg-white rounded-xl border border-app-border"
+        />
       ) : (
         <div className="space-y-2">
           {docs.map((d) => {
@@ -241,7 +238,7 @@ function SignaturesModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
         </div>
         <div className="p-6">
           {loading ? (
-            <p className="text-sm text-text-muted text-center py-8">Loading…</p>
+            <div className="py-2"><SkeletonList rows={3} /></div>
           ) : signatures.length === 0 ? (
             <p className="text-sm text-text-muted text-center py-8">
               No one has signed this document yet.
