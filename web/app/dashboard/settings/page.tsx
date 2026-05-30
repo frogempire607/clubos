@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import ImageUpload from "@/components/ImageUpload";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Club = {
   id: string;
@@ -149,18 +151,24 @@ export default function SettingsPage() {
     { id: "danger", label: "Danger Zone" },
   ] as const;
 
-  if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
+  if (loading) return (
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <SkeletonCard /><SkeletonCard />
+      </div>
+    </div>
+  );
 
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Settings</h1>
-        <p className="text-sm text-text-muted">Configure your club, plan, and preferences.</p>
-      </div>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl">
+      <PageHeader
+        title="Settings"
+        description="Configure your club, plan, and preferences."
+      />
 
-      <div className="flex gap-6">
-        {/* Sidebar nav */}
-        <div className="w-44 flex-shrink-0">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+        {/* Sidebar nav — collapses to horizontal scroll on mobile */}
+        <div className="w-full md:w-44 flex-shrink-0">
           <nav className="space-y-0.5 sticky top-4">
             {NAV.map((n) => (
               <button
