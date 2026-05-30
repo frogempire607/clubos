@@ -822,6 +822,8 @@ Branch: `native-app-shell` (pushed: NO, merged: NO). Commits in order:
 | `80335df` | 2C      | apply primitives to settings page                     |
 | `5c1fc5d` | log     | mark 2C section sweep complete in session log         |
 | `53c4070` | 2D      | bottom-sheet modals + scroll tables + stack form grids|
+| `b04cfcb` | log     | mark 2D + 2E complete + test checklist                |
+| `b2b72d6` | 2E      | address HIGH/MEDIUM findings from code review         |
 
 ### Phase 1 — native shell URL/redirect hardening (DONE)
 
@@ -1004,8 +1006,20 @@ What needs a human at a browser / simulator to verify (test checklist below). Th
    - Webhook listening: `stripe listen --forward-to localhost:3000/api/stripe/webhook` works.
    - Client View preview: enter from `/dashboard/preview`, exit from the amber banner on the member portal — cookie cleared, lands at `/dashboard`.
 
-   **F. Outside review** (already kicked off in this session):
-   - The `review:code-reviewer` agent was dispatched in the background against the Phase 1 + 2A + 2D diffs. Check the latest agent run output for findings and triage any HIGH severity items before merging.
+   **F. Outside review** (done this session, follow-up items captured below):
+   - The `review:code-reviewer` agent reviewed the Phase 1 + 2A + 2D diffs and surfaced 10 items. The 2 HIGH-severity and 3 of 4 MEDIUM-severity were fixed in commit `b2b72d6`. The remaining LOW items and one MEDIUM (#4 subpath deployments — documented inline) are captured in "Known follow-ups from review" below.
+
+### Known follow-ups from review (LOW priority, not blocking merge)
+
+These are review findings that did NOT block merging but should be addressed when next touching the affected file:
+
+1. **Bulk-sed visual downgrades** — Phase 2D's form-grid sed rewrote *every* `grid-cols-3 gap-3` to stack on mobile. Most are form fields where stacking is correct, but a few short-label numeric KPI tiles (notably the Seen / Opened / Link clicks tiles on `app/dashboard/announcements/page.tsx` around line 263, and the City / State / Zip address row on `app/dashboard/members/page.tsx` around line 744) read better as 3-up even on small mobile. Audit and selectively revert these specific grids to `grid-cols-3 sm:gap-3` (without the `grid-cols-1 sm:` prefix) when convenient.
+
+2. **NAV duplication** — `lib/dashboardNav.ts` `NAV` and `app/dashboard/page.tsx` `sections` array are two independent lists of the same routes with the same labels and same icons. They'll drift silently. Next time `app/dashboard/page.tsx` is touched, hoist `sections` out and derive it from `NAV`.
+
+3. **/api/me redundant for OWNER** — `app/dashboard/layout.tsx` always fetches `/api/me`, but the session token already carries the OWNER role + null permissions. Skip the fetch when `session.user.role === "OWNER"` — saves one round-trip per dashboard page load for the most common user.
+
+4. **Subpath deployment caveat** — `lib/baseUrl.ts:getAppBaseUrl()` uses `new URL(raw).origin` which strips path components. A `NEXTAUTH_URL=https://example.com/app` becomes `https://example.com`, dropping the `/app` prefix. Currently NO deploys use subpath URLs; if that ever changes, return `new URL(raw).href.replace(/\/$/, "")` instead. Caveat documented inline at the top of `lib/baseUrl.ts`.
 
 5. **Pre-existing cleanup still open** (carried from yesterday + still relevant):
    - `lib/auth.ts` lines 94, 102-113 have pre-existing `as any` casts on session/JWT — type properly with `next-auth.d.ts` augmentation when convenient.
