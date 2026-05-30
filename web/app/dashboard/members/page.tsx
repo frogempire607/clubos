@@ -5,6 +5,8 @@ import Link from "next/link";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
 import ExportMenu from "@/components/ExportMenu";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 import {
   DEFAULT_MEMBER_FORM_CONFIG,
   isFieldEnabled,
@@ -277,33 +279,33 @@ export default function MembersPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
       <StripeRequiredBanner feature="charge members for memberships" />
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Members</h1>
-          <p className="text-sm text-text-muted">{members.length} total</p>
-        </div>
-        <div className="flex gap-2">
-          <a href="/dashboard/settings/member-form" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Form settings
-          </a>
-          <a href="/dashboard/custom-fields" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Custom fields
-          </a>
-          <ExportMenu baseUrl="/api/export/members" label="Export" />
-          <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Import CSV
-          </button>
-          <Link href="/dashboard/members/migration" className="text-sm px-3 py-2 rounded-lg border border-brand text-brand hover:bg-brand/10">
-            Import / Migrate
-          </Link>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors">
-            + Add member
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Members"
+        description={`${members.length} total`}
+        actions={
+          <>
+            <a href="/dashboard/settings/member-form" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Form settings
+            </a>
+            <a href="/dashboard/custom-fields" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Custom fields
+            </a>
+            <ExportMenu baseUrl="/api/export/members" label="Export" />
+            <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Import CSV
+            </button>
+            <Link href="/dashboard/members/migration" className="text-sm px-3 py-2 rounded-lg border border-brand text-brand hover:bg-brand/10">
+              Import / Migrate
+            </Link>
+            <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors">
+              + Add member
+            </button>
+          </>
+        }
+      />
 
       <div className="flex items-center gap-3 mb-4">
         <div className="flex gap-1 bg-app-bg rounded-lg p-1">
@@ -370,7 +372,7 @@ export default function MembersPage() {
 
       <div className="bg-surface rounded-xl border border-app-border overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+          <SkeletonList rows={6} />
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <div className="text-4xl mb-2">◉</div>
