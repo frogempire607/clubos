@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -791,30 +793,31 @@ export default function ClassesPage() {
   );
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Classes &amp; Events</h1>
-          <p className="text-sm text-text-muted mt-1">Manage recurring classes and one-time events</p>
-        </div>
-        {tab === "classes" && (
-          <button
-            onClick={() => { setEditing(null); setShowModal(true); }}
-            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover"
-          >
-            + New Class
-          </button>
-        )}
-        {tab === "events" && (
-          <a
-            href="/dashboard/events"
-            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover"
-          >
-            + New Event
-          </a>
-        )}
-      </div>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+      <PageHeader
+        title="Classes & Events"
+        description="Manage recurring classes and one-time events"
+        actions={
+          <>
+            {tab === "classes" && (
+              <button
+                onClick={() => { setEditing(null); setShowModal(true); }}
+                className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover w-full sm:w-auto"
+              >
+                + New Class
+              </button>
+            )}
+            {tab === "events" && (
+              <a
+                href="/dashboard/events"
+                className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover w-full sm:w-auto"
+              >
+                + New Event
+              </a>
+            )}
+          </>
+        }
+      />
 
       {occurrenceSuccess && (
         <div className="mb-4 rounded-lg border border-lime-accent/40 bg-lime-accent/15 px-4 py-3 text-sm text-text-primary">
@@ -1145,7 +1148,7 @@ function SessionEditModal({
         </div>
 
         {loading ? (
-          <div className="p-6 text-sm text-text-muted">Loading…</div>
+          <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={3} /></div>
         ) : !s ? (
           <div className="p-6 text-sm text-red-600">Session not found.</div>
         ) : (
