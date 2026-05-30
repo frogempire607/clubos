@@ -524,8 +524,8 @@ function BulkMessageModal({ memberIds, onClose, onSent }: { memberIds: string[];
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">Message {memberIds.length} member{memberIds.length === 1 ? "" : "s"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -667,8 +667,8 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit member" : "Add member"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -711,7 +711,7 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
           )}
 
           {(fieldEnabled("phone") || fieldEnabled("gender")) && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {fieldEnabled("phone") && (
                 <div className={fieldEnabled("gender") ? "" : "col-span-2"}>
                   <label className="block text-sm font-medium text-text-primary mb-1">Phone {fieldRequired("phone") && <span className="text-red-500">*</span>}</label>
@@ -741,7 +741,7 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
           )}
 
           {(fieldEnabled("city") || fieldEnabled("state") || fieldEnabled("zipCode")) && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {fieldEnabled("city") && (
                 <div className="col-span-1">
                   <label className="block text-sm font-medium text-text-primary mb-1">City {fieldRequired("city") && <span className="text-red-500">*</span>}</label>
@@ -793,7 +793,7 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
           {isMinor && (
             <div className="space-y-3 p-4 bg-orange-accent/10 border border-orange-accent/30 rounded-lg">
               <p className="text-xs font-medium text-text-primary uppercase tracking-wider">Guardian / Parent Information</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className={fieldEnabled("guardianRelationship") ? "" : "col-span-2"}>
                   <label className="block text-xs font-medium text-text-primary mb-1">Guardian name</label>
                   <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="Full name" />
@@ -975,8 +975,8 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
   if (done) {
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-        <div className="bg-surface rounded-xl w-full max-w-sm p-8 text-center">
+      <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-sm p-8 text-center">
           <div className="text-3xl mb-2">✓</div>
           <h3 className="text-lg font-semibold text-text-primary mb-1">Membership assigned</h3>
           <p className="text-sm text-text-muted mb-6">{member.firstName} {member.lastName} is now enrolled in {currentMembership?.name}.</p>
@@ -987,8 +987,8 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">Assign membership</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1069,7 +1069,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
                   {showAdvanced && (
                     <div className="space-y-3 p-4 bg-app-bg border border-app-border rounded-lg">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-text-primary mb-1">Start date</label>
                           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
@@ -1256,8 +1256,8 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
   const preview = buildMembers().slice(0, 5);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">Import members from CSV</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

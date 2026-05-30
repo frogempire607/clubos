@@ -398,8 +398,8 @@ function OccurrenceEditor({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-surface rounded-xl w-full max-w-sm border border-app-border" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-sm border border-app-border" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-text-primary">{instance.name}</h3>

@@ -236,8 +236,8 @@ function AnnouncementModal({ onClose, onSaved }: { onClose: () => void; onSaved:
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">New announcement</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -640,8 +640,8 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">Create group</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1026,8 +1026,8 @@ function DMComposeModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">New direct message</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

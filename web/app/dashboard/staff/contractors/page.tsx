@@ -217,8 +217,8 @@ function AddContractorModal({ onClose, onSaved }: { onClose: () => void; onSaved
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md border border-app-border max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md border border-app-border max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">Add contractor</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -234,7 +234,7 @@ function AddContractorModal({ onClose, onSaved }: { onClose: () => void; onSaved
             <input value={role} onChange={(e) => setRole(e.target.value)}
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" placeholder="Referee, Photographer, Guest clinician…" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Email</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
@@ -331,8 +331,8 @@ function ContractorDetailModal({ id, onClose, onChanged }: { id: string; onClose
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-2xl border border-app-border max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl border border-app-border max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <div>
             <h2 className="text-base font-semibold text-text-primary">{data?.name ?? "Contractor"}</h2>

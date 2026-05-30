@@ -272,8 +272,8 @@ function ClassModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="font-semibold text-text-primary">{editing ? "Edit Class" : "New Class"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
@@ -345,7 +345,7 @@ function ClassModal({
             <label className="block text-xs font-medium text-text-primary mb-1">
               Default times <span className="text-text-muted font-normal">(apply to every selected day unless overridden below)</span>
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
                 required
                 type="time"
@@ -444,7 +444,7 @@ function ClassModal({
           </div>
 
           {/* Recurrence */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-primary mb-1">Starts On *</label>
               <input
@@ -670,8 +670,8 @@ function SessionsModal({
   }, [cls.id]);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto shadow-xl">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-text-primary">{cls.name}</h2>
@@ -1134,7 +1134,7 @@ function SessionEditModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">
@@ -1160,7 +1160,7 @@ function SessionEditModal({
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-text-primary mb-1">Start</label>
                 <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}

@@ -123,7 +123,7 @@ export default function MyAccountPage() {
         {/* Name */}
         <form onSubmit={saveName} className="bg-surface border border-app-border rounded-xl p-5 space-y-3">
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Profile</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">First name</label>
               <input
@@ -177,7 +177,7 @@ export default function MyAccountPage() {
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">New password</label>
               <input

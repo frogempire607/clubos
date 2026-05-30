@@ -190,7 +190,7 @@ function AvailabilityEditor({ staffId }: { staffId: string }) {
 
         {showAddException && (
           <form onSubmit={addException} className="mt-3 bg-app-bg rounded-lg p-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-text-muted mb-1">Date *</label>
                 <input type="date" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
@@ -207,7 +207,7 @@ function AvailabilityEditor({ staffId }: { staffId: string }) {
             </div>
 
             {excForm.type === "PARTIAL" && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-text-muted mb-1">Available from</label>
                   <input type="time" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"

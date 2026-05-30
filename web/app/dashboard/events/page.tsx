@@ -569,8 +569,8 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit event" : "Create event"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -675,7 +675,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                           <span className="text-text-muted">Bill after the event, official split</span>
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-text-primary mb-1">
                             {varCostMode === "OFFICIAL" ? "Official total cost" : "Estimated total cost"}
@@ -871,7 +871,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           </div>
 
           {/* Main time (used when no sessions) */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Starts</label>
               <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
@@ -928,7 +928,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           {/* Pricing */}
           <div className="border-t border-app-border pt-4">
             <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Pricing</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium text-text-primary mb-1">Member price</label>
                 <input type="number" min="0" step="0.01" value={memberPrice} onChange={(e) => setMemberPrice(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
@@ -993,7 +993,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           {/* Visibility & Access */}
           <div className="border-t border-app-border pt-4">
             <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Visibility & Access</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-text-primary mb-1">Who can see this event?</label>
                 <select value={visibility} onChange={(e) => setVisibility(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
@@ -1027,7 +1027,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                 <label className="block text-sm font-medium text-text-primary mb-1">Travel fee</label>
                 <input type="number" min="0" step="0.01" value={travelFee} onChange={(e) => setTravelFee(e.target.value)} placeholder="For tournaments / off-site events" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">Publish at</label>
                   <input type="datetime-local" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
@@ -1141,8 +1141,8 @@ function ManageTypesModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Manage event types</h2>
@@ -1400,8 +1400,8 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
   const acceptedMemberships = allMemberships.filter((m) => acceptedMembershipIds.includes(m.id));
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Bookings · {totalBookings}{event?.capacity && `/${event.capacity}`}</h2>
@@ -1575,8 +1575,8 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Registrations</h2>
