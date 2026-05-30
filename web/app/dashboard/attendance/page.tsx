@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import ExportMenu from "@/components/ExportMenu";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -836,15 +838,12 @@ function AttendancePageInner() {
   return (
     <div className="flex h-full">
       {/* Main content */}
-      <div className="flex-1 p-8 max-w-2xl">
-        {/* Header */}
-        <div className="mb-6 flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-text-primary">Attendance</h1>
-            <p className="text-sm text-text-muted mt-1">Check in members for today's classes and events</p>
-          </div>
-          <ExportMenu baseUrl="/api/export/attendance" label="Export" />
-        </div>
+      <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-2xl">
+        <PageHeader
+          title="Attendance"
+          description="Check in members for today's classes and events"
+          actions={<ExportMenu baseUrl="/api/export/attendance" label="Export" />}
+        />
 
         {/* Date navigation */}
         <div className="flex items-center gap-3 mb-6">
@@ -981,7 +980,15 @@ function AttendancePageInner() {
 
 export default function AttendancePage() {
   return (
-    <Suspense fallback={<div className="p-8 text-text-muted text-sm">Loading…</div>}>
+    <Suspense
+      fallback={
+        <div className="p-4 sm:p-6 lg:p-8 max-w-2xl">
+          <div className="bg-white rounded-xl border border-app-border">
+            <SkeletonList rows={4} />
+          </div>
+        </div>
+      }
+    >
       <AttendancePageInner />
     </Suspense>
   );
