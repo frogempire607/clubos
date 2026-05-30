@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import PageHeader from "@/components/PageHeader";
+import EmptyState from "@/components/EmptyState";
+import { SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Range = "month" | "last_month" | "last_30" | "last_90" | "ytd" | "year" | "all";
 
@@ -88,43 +91,47 @@ export default function ReportsPage() {
   }, [data]);
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="mb-6 flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Reports</h1>
-          <p className="text-sm text-text-muted mt-1">Revenue, members, and attendance at a glance</p>
-        </div>
-        <div className="flex flex-wrap gap-1 bg-app-bg rounded-lg p-1">
-          {ranges.map((r) => (
-            <button
-              key={r.key}
-              onClick={() => setRange(r.key)}
-              className={`text-xs px-3 py-1.5 rounded-md transition ${
-                range === r.key
-                  ? "bg-surface shadow-sm text-text-primary font-medium"
-                  : "text-text-muted hover:text-text-primary"
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+      <PageHeader
+        title="Reports"
+        description="Revenue, members, and attendance at a glance"
+        actions={
+          <div className="flex flex-wrap gap-1 bg-app-bg rounded-lg p-1">
+            {ranges.map((r) => (
+              <button
+                key={r.key}
+                onClick={() => setRange(r.key)}
+                className={`text-xs px-3 py-1.5 rounded-md transition ${
+                  range === r.key
+                    ? "bg-surface shadow-sm text-text-primary font-medium"
+                    : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {tierBlocked ? (
-        <div className="bg-surface border border-app-border rounded-xl p-12 text-center">
-          <p className="text-3xl mb-2 text-text-muted">📊</p>
-          <p className="text-base font-medium text-text-primary mb-1">Reports require a paid plan</p>
-          <p className="text-sm text-text-muted mb-4">{tierBlocked.message}</p>
-          <Link
-            href="/dashboard/settings/billing"
-            className="inline-block text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
-          >
-            Upgrade to {tierBlocked.upgradeTo ? tierBlocked.upgradeTo.charAt(0).toUpperCase() + tierBlocked.upgradeTo.slice(1) : "Growth"} →
-          </Link>
-        </div>
+        <EmptyState
+          icon="▦"
+          title="Reports require a paid plan"
+          description={tierBlocked.message}
+          action={{
+            label: `Upgrade to ${tierBlocked.upgradeTo ? tierBlocked.upgradeTo.charAt(0).toUpperCase() + tierBlocked.upgradeTo.slice(1) : "Growth"} →`,
+            href: "/dashboard/settings/billing",
+          }}
+          className="bg-surface border border-app-border rounded-xl"
+        />
       ) : loading || !data ? (
-        <div className="text-center py-16 text-text-muted text-sm">Loading…</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       ) : (
         <>
           {/* KPI cards */}
@@ -160,7 +167,7 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             <Card title="Revenue — last 12 months" className="lg:col-span-2">
               {data.revenueMonthly.length === 0 ? (
-                <p className="text-sm text-text-muted">No revenue recorded yet.</p>
+                <EmptyState icon="$" title="No revenue recorded yet." className="py-8" />
               ) : (
                 <div className="flex items-end gap-2 h-40 mt-2">
                   {data.revenueMonthly.map((m) => {
