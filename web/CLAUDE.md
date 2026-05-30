@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-05-30 (Phase 1 native shell URL/redirect hardening, Phase 2A mobile-aware dashboard shell, Phase 2B mobile-responsive dashboard overview, Phase 2C primitives + full section sweep across reports/documents/calendar/attendance/financials/classes/staff/members/events/settings. Phase 2D mobile polish sweep and 2E regression pass NOT done — see "What's left" in Session log — 2026-05-30 below.)
+Last updated: 2026-05-30 (Phase 1 native shell URL/redirect hardening, Phase 2A mobile-aware dashboard shell, Phase 2B mobile-responsive dashboard overview, Phase 2C primitives + full section sweep across all 10 section pages, Phase 2D mobile polish sweep (bottom-sheet modals, scroll tables, stacked form grids across 22 files), Phase 2E code-level regression done (lint/tsc/build/cap-sync clean + outside review agent dispatched). End-to-end browser + simulator smoke is the only remaining item — full test checklist in Session log — 2026-05-30 below.)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -820,6 +820,8 @@ Branch: `native-app-shell` (pushed: NO, merged: NO). Commits in order:
 | `77efa9b` | 2C      | apply primitives to members page                      |
 | `a99879c` | 2C      | apply primitives to events page                       |
 | `80335df` | 2C      | apply primitives to settings page                     |
+| `5c1fc5d` | log     | mark 2C section sweep complete in session log         |
+| `53c4070` | 2D      | bottom-sheet modals + scroll tables + stack form grids|
 
 ### Phase 1 — native shell URL/redirect hardening (DONE)
 
@@ -914,20 +916,96 @@ Tasks below are ordered for resumption. Pick up at the top.
 
 2. **Phase 2C section sweep** — DONE this session. All 10 section pages now use the primitives. Sub-tabs inside settings (Profile / Billing / Email / Branded App / Diagnostics / Club / Member Portal / Member Form) can adopt `PageHeader` incrementally in the next sweep if needed.
 
-3. **Phase 2D — mobile polish sweep** — NOT done. Page padding and headers are mobile-responsive after 2C, but the *inside* of each section still needs work at iPhone width:
-   - **Tables** — the biggest gap. Members table, financials transactions table, events list, classes table all overflow on `375px`. Each needs either `overflow-x-auto` with a sticky first column OR a switch to card rows on mobile. Members and financials are the highest-impact.
-   - **Modals** → bottom sheets on mobile. Pattern: `fixed inset-0 ... flex items-end sm:items-center justify-center` + `w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl`. Touches roughly every modal in the dashboard — start with high-traffic ones (AddMember, EditClass, EditEvent, attendance check-in form).
-   - **Inner grids** — any `grid-cols-N` that hasn't been responsive-ified yet (settings tabs, financials KPI rows when in non-summary tabs, etc.).
-   - **Forms** — long forms in modals still side-scroll on mobile. Stack `flex` rows to `flex-col` and add `space-y-3` where dense `gap-4` row patterns exist.
-   - Final check: visit every dashboard page at `375px` width in DevTools, screenshot anything that still overflows, fix.
+### Phase 2D — mobile polish sweep (DONE)
 
-4. **Phase 2E — final regression pass**:
-   - Member portal cold smoke (light theme stays; bottom nav works; child switcher unchanged).
-   - Owner / Staff / Member login + logout matrix.
-   - Client View enter + exit (both desktop sidebar and mobile UserMenu paths).
-   - Native shell: `npm run cap:sync` + simulator cold launch + walk through every nav item from the bottom nav + drawer.
-   - `npm run lint`, `npm run build`, `npx tsc --noEmit`.
-   - Dispatch `review:review-local-changes` agent for an outside review of the full Phase 1+2 diff before merging.
+Bulk sed across 22 dashboard files via commit `53c4070`:
+
+- **Modal pattern** applied across all 47 inline modal wrappers in 18 files:
+  - Outer `flex items-center justify-center ... p-4` → `flex items-end sm:items-center justify-center ... p-0 sm:p-4` (bottom-sheet on mobile).
+  - Inner `rounded-xl w-full` → `rounded-t-2xl sm:rounded-xl w-full` (top-corner-only rounding on mobile).
+- **Tables**: 4 wrapper divs `bg-white rounded-xl border border-app-border overflow-hidden` containing `<table className="w-full">` swapped to `overflow-x-auto` so wide financial / product / privates tables scroll horizontally on mobile instead of being clipped.
+- **Form grids**: `grid-cols-2 gap-3`, `grid-cols-2 gap-4`, and `grid-cols-3 gap-3` patterns globally rewritten to `grid-cols-1 sm:grid-cols-N gap-N` — two-up form rows stack on mobile.
+
+What was deliberately left alone: calendar week grid (`grid-cols-7`), KPI grids that already had responsive classes from 2B, and `overflow-hidden` usages NOT direct-parent of a table.
+
+### Phase 2E — final regression pass (CODE LEVEL DONE; E2E SMOKE BLOCKED ON USER)
+
+What I verified at code level:
+
+- `npx tsc --noEmit` — clean (no new errors).
+- `npm run lint` — only pre-existing warnings/errors in files NOT touched by this branch.
+- `npm run build` — full Next.js production build clean.
+- `npm run cap:sync` — clean; native bundle re-synced.
+- Outside review: dispatched the `review:code-reviewer` agent in background to read the diff and surface anything I missed. Findings (if any) need to be addressed by the user or in a follow-up commit before merging.
+
+What needs a human at a browser / simulator to verify (test checklist below). This is the ONLY blocker between "branch complete" and "merge to main".
+
+4. **End-to-end test checklist before merging to main** (covers BOTH Phase 1 and Phase 2):
+
+   **A. Native iOS shell (Phase 1)** — ~10 min:
+   1. `npm run dev` (binds 0.0.0.0:3000)
+   2. `npm run cap:ios` → open in Xcode → run on simulator (cold launch from clean state).
+   3. App loads to `/member` (NOT marketing `/` and NOT a "Can't reach AthletixOS" screen).
+   4. Xcode console shows ZERO `restricted network port` errors during the full session.
+   5. Sign in as OWNER via the "Club / Staff" tab → lands at `/dashboard`.
+   6. Tap the avatar dropdown in the top-right → tap **Sign out** → lands at `/login`.
+   7. Sign back in with the same credentials → re-lands at `/dashboard`. (This was symptom #3 — re-login after logout. The malformed `NEXTAUTH_URL` previously broke this.)
+   8. With dev server running, stop it briefly (Ctrl-C in the terminal). Watch the WebView: should show "Reconnecting…" with the auto-retry spinner.
+   9. Restart `npm run dev`. The WebView should automatically navigate back to `/member` (NOT `/`). Middleware then sends a signed-in OWNER to `/dashboard`.
+   10. Sign out again, force-quit the app, relaunch cold: should land at `/login` (not the marketing landing).
+
+   **B. Browser desktop login matrix (Phase 1)** — ~5 min:
+   1. Chrome incognito + Safari private window, both fresh:
+   2. `/login` → sign in as OWNER → `/dashboard` loads cleanly.
+   3. Sign out (avatar menu, top right) → lands at `/login`.
+   4. Sign in as STAFF (a club user with limited permissions). Verify `Staff view · <title>` badge appears in sidebar and bottom-of-page nav. Verify restricted sections are hidden from sidebar AND bottom nav.
+   5. Sign in as MEMBER via the "Member / Parent" tab → lands at `/member`. Verify the member portal still renders LIGHT (no dark-mode flip).
+   6. As MEMBER, try to manually navigate to `/dashboard/members` → middleware redirects to `/member`.
+   7. As OWNER, try `/dashboard/preview` → "Client view" page loads → tap "Preview Member Portal" → amber "Preview mode — Exit preview" banner shows. Tap Exit → bounces back to `/dashboard`. Cookie cleared.
+
+   **C. Desktop dashboard surface (Phase 2A/B/C)** — ~10 min at full desktop width (≥1280px):
+   1. `/dashboard` home: hero greeting renders, primary CTA bar shows 5 actions, 4 stat cards in a row, section grid in 2 columns. Customize modal still opens/saves widget prefs.
+   2. Sidebar: every section visible; clicking a section sets active state; group sections (Staff, Purchase Options, Classes & Events, Communication) expand/collapse correctly.
+   3. Topbar: BackButton hidden on `/dashboard`, shows on every sub-page. GlobalSearch (⌘K) opens. UserMenu avatar at the right opens with My account / Client view / Need help? / Sign out.
+   4. Each of these section pages renders the new PageHeader and shows a skeleton on initial load:
+      - `/dashboard/members` (table list)
+      - `/dashboard/classes` (Classes tab + Events tab)
+      - `/dashboard/events`
+      - `/dashboard/financials` (Summary / Money In / Money Out / Donations / Tax tabs all skeleton on load)
+      - `/dashboard/reports` (KPI skeleton, then chart loads)
+      - `/dashboard/staff`
+      - `/dashboard/settings` (sub-nav still works)
+      - `/dashboard/attendance` (skeleton on Suspense fallback)
+      - `/dashboard/documents`
+      - `/dashboard/calendar` (42-cell skeleton grid on month change)
+   5. Empty states: with a fresh test club, `/dashboard/documents`, `/dashboard/staff`, `/dashboard/events` should each show the new EmptyState UI (icon + title + description + CTA), not raw "No X yet" text.
+
+   **D. Mobile dashboard at 375px width (Phase 2A/D)** — ~10 min using Chrome DevTools device mode (iPhone SE) OR the native shell:
+   1. Top app-bar shows: hamburger (left) + AthletixOS wordmark + UserMenu avatar (right). Charcoal background.
+   2. Tap hamburger → drawer slides in from the left with full sidebar. Backdrop is dimmed. Body doesn't scroll behind drawer. Tap backdrop or press Esc → drawer closes.
+   3. Bottom nav (fixed, charcoal): Home / Members / Classes / Money / More. Tap each — active state updates. "More" opens the drawer.
+   4. Drawer "Sign out" works the same as desktop (lands at `/login`).
+   5. Avatar menu in mobile topbar: My account / Client view / Need help? / Sign out all reachable. Closes on outside tap.
+   6. Navigate to `/dashboard/members`, `/dashboard/financials`, `/dashboard/events`, `/dashboard/classes`. Verify:
+      - No horizontal page scroll (the page itself never overflows; content stays within 375px).
+      - Page header stacks: title and description on top, action buttons below in a wrapping row.
+      - Stat-card grids render 2-up on mobile, not 4-up.
+      - Tables (financials transactions, products list, privates packages) scroll horizontally inside their rounded card — the outer page does not.
+   7. Open ANY modal on mobile (Add member, Edit class, etc.):
+      - Modal slides up from the bottom edge (bottom-sheet style).
+      - Modal has rounded TOP corners only (touches bottom edge).
+      - Tap outside / backdrop closes it (where the original modal supported that).
+      - Modal content scrolls inside the sheet; the underlying page does not.
+   8. Open a form-heavy modal (Edit Class is good): two-up form fields stack to single-column on mobile.
+
+   **E. Phase 1 + 2 do not regress what was working:**
+   - Stripe checkout / payment flows: complete a member subscription (test mode) → ensure success/cancel URLs land back on the right page (not at `:3001`).
+   - Email flows: trigger a staff invite, password reset, or booking confirmation → the link in the email uses `127.0.0.1:3000` (or the configured prod URL), NOT `localhost:3001`.
+   - Webhook listening: `stripe listen --forward-to localhost:3000/api/stripe/webhook` works.
+   - Client View preview: enter from `/dashboard/preview`, exit from the amber banner on the member portal — cookie cleared, lands at `/dashboard`.
+
+   **F. Outside review** (already kicked off in this session):
+   - The `review:code-reviewer` agent was dispatched in the background against the Phase 1 + 2A + 2D diffs. Check the latest agent run output for findings and triage any HIGH severity items before merging.
 
 5. **Pre-existing cleanup still open** (carried from yesterday + still relevant):
    - `lib/auth.ts` lines 94, 102-113 have pre-existing `as any` casts on session/JWT — type properly with `next-auth.d.ts` augmentation when convenient.
