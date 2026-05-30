@@ -34,3 +34,21 @@ const body =
 
 fs.writeFileSync(out, body);
 console.log(`[native-shell-config] wrote ${path.relative(ROOT, out)} → ${normalized}`);
+
+// Loud warning if no env was set AND the resolved URL points at the dev
+// fallback. `server-config.js` is now gitignored so the only way it can
+// reach a release bundle is via this script; if a release engineer ran
+// us without setting CAPACITOR_SERVER_URL, the native shell would auto-
+// retry against 127.0.0.1:3000 on a real device. Surface that NOW.
+if (
+  !process.env.CAPACITOR_SERVER_URL &&
+  !process.env.NEXT_PUBLIC_APP_URL &&
+  normalized === DEFAULT
+) {
+  console.warn(
+    `[native-shell-config] WARNING: neither CAPACITOR_SERVER_URL nor ` +
+      `NEXT_PUBLIC_APP_URL is set — using dev fallback (${DEFAULT}). ` +
+      `Fine for simulator dev. For a release build, set CAPACITOR_SERVER_URL ` +
+      `to the production app URL before running \`npm run cap:sync\`.`,
+  );
+}

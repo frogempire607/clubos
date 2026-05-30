@@ -11,8 +11,6 @@ import {
 import type Stripe from "stripe";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 
-const BASE_URL = getAppBaseUrl();
-
 // Resolve the best email + first name for a member. Falls back to guardian email
 // for minors, then to the linked User account.
 async function memberContact(memberId: string): Promise<{ email: string | null; firstName: string; clubName: string }> {
@@ -40,6 +38,11 @@ function safeAsync(fn: () => Promise<unknown>) {
 }
 
 export async function POST(req: Request) {
+  // Resolved per-request rather than at module load so a `.env` fix
+  // doesn't require a server restart for the webhook to pick it up,
+  // matching the pattern every other route in this codebase uses.
+  const BASE_URL = getAppBaseUrl();
+
   const body = await req.text();
   const sig = (await headers()).get("stripe-signature");
   const secret = process.env.STRIPE_WEBHOOK_SECRET;

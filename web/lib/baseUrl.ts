@@ -22,19 +22,34 @@ const DEV_FALLBACK = "http://127.0.0.1:3000";
 
 let warnedThisProcess = false;
 
+// IMPORTANT: subpath deployments (NEXTAUTH_URL=https://example.com/app)
+// are NOT supported by this helper — `.origin` drops the path. If you
+// ever need that, return new URL(raw).href.replace(/\/$/, "") instead
+// and audit every `${baseUrl}/...` call site for double-slashing.
 export function getAppBaseUrl(): string {
   const raw = process.env.NEXTAUTH_URL;
   if (raw) {
     try {
       return new URL(raw).origin;
     } catch {
-      if (!warnedThisProcess && process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.warn(
+      // Always log, including in production. The point of this hardening
+      // was to surface misconfig loudly — silencing prod buries the bug
+      // exactly where it matters most (Stripe redirect URLs, email links,
+      // webhook callback URLs all use this value).
+      if (!warnedThisProcess) {
+        const msg =
           `[baseUrl] NEXTAUTH_URL is set but does not parse as a URL ` +
-            `(value: ${JSON.stringify(raw)}). Falling back to ${DEV_FALLBACK}. ` +
-            `Fix .env so this never fires in production.`,
-        );
+          `(value: ${JSON.stringify(raw)}). Falling back to ${DEV_FALLBACK}. ` +
+          `If this fires in production, every Stripe/email URL constructed ` +
+          `from this value is unreachable. Fix .env immediately.`;
+        // Error level in prod, warn elsewhere.
+        if (process.env.NODE_ENV === "production") {
+          // eslint-disable-next-line no-console
+          console.error(msg);
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn(msg);
+        }
         warnedThisProcess = true;
       }
     }

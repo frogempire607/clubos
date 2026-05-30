@@ -36,14 +36,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [me, setMe] = useState<Me>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Gate /api/me on an authenticated session. Without the gate, the
+  // fetch can race the NextAuth cookie commit (especially in WKWebView
+  // and Safari) — the API returns 401, we silently swallow, and STAFF
+  // users see the full nav instead of their filtered nav until the next
+  // page navigation.
   useEffect(() => {
+    if (status !== "authenticated") return;
     fetch("/api/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d) setMe(d);
       })
       .catch(() => {});
-  }, []);
+  }, [status]);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -165,10 +171,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="flex-1 pb-24 md:pb-0">{children}</div>
       </main>
 
-      {/* Mobile bottom nav — fixed, persistent */}
+      {/* Mobile bottom nav — fixed, persistent. Permission-filtered for
+          STAFF so they don't see tabs that dead-end on a 403 redirect. */}
       <DashboardBottomNav
         pathname={pathname}
         onMore={() => setDrawerOpen(true)}
+        role={me?.role}
+        permissions={me?.permissions}
       />
     </div>
   );
