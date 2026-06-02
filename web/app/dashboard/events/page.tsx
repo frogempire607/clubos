@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CalendarRange } from "lucide-react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
@@ -239,10 +240,10 @@ export default function EventsPage() {
         <SkeletonList rows={5} />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon="◈"
+          icon={<CalendarRange size={26} strokeWidth={1.75} />}
           title="No events"
           description={filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}
-          action={{ label: "+ Schedule your first event", onClick: () => setShowAdd(true) }}
+          action={{ label: "Schedule your first event", onClick: () => setShowAdd(true) }}
           className="bg-surface rounded-xl border border-app-border"
         />
       ) : (

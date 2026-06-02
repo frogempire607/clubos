@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { FileText } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
@@ -80,7 +81,7 @@ export default function DocumentsPage() {
         </div>
       ) : docs.length === 0 ? (
         <EmptyState
-          icon="▤"
+          icon={<FileText size={26} strokeWidth={1.75} />}
           title="No documents yet"
           description="Add waivers, policies, and handbooks that members need to review."
           action={{ label: "Create your first document", onClick: () => setShowAdd(true) }}

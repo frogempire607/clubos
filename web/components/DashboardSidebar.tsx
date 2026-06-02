@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { UserCircle2, Eye, HelpCircle, LogOut, type LucideIcon } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { canAccessPath } from "@/lib/permissions";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
@@ -143,6 +144,7 @@ export default function DashboardSidebar({
           if (!hasChildren) {
             const href = (item as { href: string }).href;
             const active = isItemActive(href, pathname);
+            const Icon = item.icon;
             return (
               <Link
                 key={item.id}
@@ -175,9 +177,7 @@ export default function DashboardSidebar({
                   }
                 }}
               >
-                <span style={{ width: 22, textAlign: "center", fontSize: 17, opacity: 0.85, lineHeight: 1 }}>
-                  {item.icon}
-                </span>
+                <Icon size={18} strokeWidth={2} style={{ flexShrink: 0, opacity: active ? 1 : 0.85 }} />
                 {item.label}
               </Link>
             );
@@ -185,6 +185,7 @@ export default function DashboardSidebar({
 
           const open = !!expanded[item.id];
           const groupActive = isGroupActive(item, pathname);
+          const Icon = item.icon;
 
           return (
             <div key={item.id}>
@@ -216,9 +217,7 @@ export default function DashboardSidebar({
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ width: 22, textAlign: "center", fontSize: 17, opacity: 0.85, lineHeight: 1 }}>
-                    {item.icon}
-                  </span>
+                  <Icon size={18} strokeWidth={2} style={{ flexShrink: 0, opacity: groupActive ? 1 : 0.85 }} />
                   {item.label}
                 </span>
                 <span
@@ -299,7 +298,7 @@ export default function DashboardSidebar({
         <SidebarLink
           href="/dashboard/my-account"
           label="My account"
-          icon="◎"
+          icon={UserCircle2}
           pathname={pathname}
           onNavigate={onNavigate}
         />
@@ -310,7 +309,7 @@ export default function DashboardSidebar({
         <SidebarLink
           href="/dashboard/preview"
           label="Client view"
-          icon="◐"
+          icon={Eye}
           pathname={pathname}
           onNavigate={onNavigate}
         />
@@ -321,7 +320,7 @@ export default function DashboardSidebar({
         <SidebarLink
           href="/dashboard/help"
           label="Need help?"
-          icon="?"
+          icon={HelpCircle}
           pathname={pathname}
           onNavigate={onNavigate}
         />
@@ -342,6 +341,9 @@ export default function DashboardSidebar({
               cursor: "pointer",
               background: "transparent",
               color: TEXT_DIM,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
               transition: "background 0.15s, color 0.15s",
             }}
             onMouseEnter={(e) => {
@@ -353,6 +355,7 @@ export default function DashboardSidebar({
               (e.currentTarget as HTMLElement).style.color = TEXT_DIM;
             }}
           >
+            <LogOut size={16} strokeWidth={2} style={{ flexShrink: 0, opacity: 0.85 }} />
             Sign out
           </button>
         </div>
@@ -364,13 +367,13 @@ export default function DashboardSidebar({
 function SidebarLink({
   href,
   label,
-  icon,
+  icon: Icon,
   pathname,
   onNavigate,
 }: {
   href: string;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -404,9 +407,7 @@ function SidebarLink({
         }
       }}
     >
-      <span style={{ width: 22, textAlign: "center", fontSize: 16, opacity: 0.85, lineHeight: 1 }}>
-        {icon}
-      </span>
+      <Icon size={16} strokeWidth={2} style={{ flexShrink: 0, opacity: active ? 1 : 0.85 }} />
       {label}
     </Link>
   );

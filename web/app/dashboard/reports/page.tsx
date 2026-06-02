@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { BarChart3, DollarSign } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonCard } from "@/components/LoadingSkeleton";
@@ -116,7 +117,7 @@ export default function ReportsPage() {
 
       {tierBlocked ? (
         <EmptyState
-          icon="▦"
+          icon={<BarChart3 size={26} strokeWidth={1.75} />}
           title="Reports require a paid plan"
           description={tierBlocked.message}
           action={{
@@ -167,7 +168,7 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             <Card title="Revenue — last 12 months" className="lg:col-span-2">
               {data.revenueMonthly.length === 0 ? (
-                <EmptyState icon="$" title="No revenue recorded yet." className="py-8" />
+                <EmptyState icon={<DollarSign size={24} strokeWidth={1.75} />} title="No revenue recorded yet." className="py-8" />
               ) : (
                 <div className="flex items-end gap-2 h-40 mt-2">
                   {data.revenueMonthly.map((m) => {

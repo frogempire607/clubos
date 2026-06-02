@@ -3,35 +3,55 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import {
+  Users,
+  Calendar,
+  CalendarRange,
+  Ticket,
+  UserCheck,
+  Package,
+  CalendarDays,
+  MessageSquare,
+  DollarSign,
+  FileText,
+  Settings,
+  UserPlus,
+  Send,
+  Eye,
+  type LucideIcon,
+} from "lucide-react";
 import type { WidgetDef, WidgetPrefs } from "@/lib/dashboardWidgets";
 import { fmtTime, kindIsWallClockUTC, dayNumber, sameMonth } from "@/lib/datetime";
 
 type CalItem = { kind: string; id: string; name: string; startsAt: string };
 
-const sections = [
-  { label: "Members", icon: "◉", href: "/dashboard/members", desc: "Manage your club roster" },
-  { label: "Classes", icon: "◈", href: "/dashboard/classes", desc: "Recurring weekly programming" },
-  { label: "Events", icon: "◈", href: "/dashboard/events", desc: "Clinics, camps, tournaments" },
-  { label: "Memberships", icon: "◇", href: "/dashboard/purchase-options/memberships", desc: "Plans and billing options" },
-  { label: "Privates", icon: "◎", href: "/dashboard/purchase-options/privates", desc: "Lessons and credit packages" },
-  { label: "Products", icon: "□", href: "/dashboard/purchase-options/products", desc: "Gear, services, rentals" },
-  { label: "Calendar", icon: "▦", href: "/dashboard/calendar", desc: "Monthly event view" },
-  { label: "Messages", icon: "✉", href: "/dashboard/messages", desc: "Announce to your members" },
-  { label: "Financials", icon: "$", href: "/dashboard/financials", desc: "Revenue and transactions" },
-  { label: "Documents", icon: "□", href: "/dashboard/documents", desc: "Waivers and forms" },
-  { label: "Settings", icon: "⚙", href: "/dashboard/settings", desc: "Billing, Stripe, club info" },
+type SectionLink = { label: string; icon: LucideIcon; href: string; desc: string };
+
+const sections: SectionLink[] = [
+  { label: "Members", icon: Users, href: "/dashboard/members", desc: "Manage your club roster" },
+  { label: "Classes", icon: Calendar, href: "/dashboard/classes", desc: "Recurring weekly programming" },
+  { label: "Events", icon: CalendarRange, href: "/dashboard/events", desc: "Clinics, camps, tournaments" },
+  { label: "Memberships", icon: Ticket, href: "/dashboard/purchase-options/memberships", desc: "Plans and billing options" },
+  { label: "Privates", icon: UserCheck, href: "/dashboard/purchase-options/privates", desc: "Lessons and credit packages" },
+  { label: "Products", icon: Package, href: "/dashboard/purchase-options/products", desc: "Gear, services, rentals" },
+  { label: "Calendar", icon: CalendarDays, href: "/dashboard/calendar", desc: "Monthly event view" },
+  { label: "Messages", icon: MessageSquare, href: "/dashboard/messages", desc: "Announce to your members" },
+  { label: "Financials", icon: DollarSign, href: "/dashboard/financials", desc: "Revenue and transactions" },
+  { label: "Documents", icon: FileText, href: "/dashboard/documents", desc: "Waivers and forms" },
+  { label: "Settings", icon: Settings, href: "/dashboard/settings", desc: "Billing, Stripe, club info" },
 ];
 
 // Primary daily actions — rendered as a persistent CTA bar above the
 // stats grid. Order matters: most common (Add member, New class) first.
 // Secondary actions stay in the widget grid via the `quickActions`
 // widget for owners who want them.
-const PRIMARY_QUICK_ACTIONS = [
-  { label: "Add member", href: "/dashboard/members", icon: "◉", primary: true },
-  { label: "New class", href: "/dashboard/classes", icon: "◈", primary: false },
-  { label: "New event", href: "/dashboard/events", icon: "◈", primary: false },
-  { label: "Send message", href: "/dashboard/messages", icon: "✉", primary: false },
-  { label: "Client view", href: "/dashboard/preview", icon: "◐", primary: false },
+type QuickAction = { label: string; href: string; icon: LucideIcon; primary: boolean };
+const PRIMARY_QUICK_ACTIONS: QuickAction[] = [
+  { label: "Add member", href: "/dashboard/members", icon: UserPlus, primary: true },
+  { label: "New class", href: "/dashboard/classes", icon: Calendar, primary: false },
+  { label: "New event", href: "/dashboard/events", icon: CalendarRange, primary: false },
+  { label: "Send message", href: "/dashboard/messages", icon: Send, primary: false },
+  { label: "Client view", href: "/dashboard/preview", icon: Eye, primary: false },
 ];
 
 const QUICK_ACTIONS = [
@@ -255,13 +275,18 @@ export default function DashboardPage() {
       case "quickNav":
         return (
           <div key={key} className="grid grid-cols-4 gap-3 content-start">
-            {sections.map((sx) => (
-              <Link key={sx.href} href={sx.href} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition group">
-                <div className="text-xl mb-2 text-text-muted group-hover:text-text-primary transition">{sx.icon}</div>
-                <div className="text-sm font-semibold text-text-primary mb-0.5">{sx.label}</div>
-                <div className="text-xs text-text-muted">{sx.desc}</div>
-              </Link>
-            ))}
+            {sections.map((sx) => {
+              const Icon = sx.icon;
+              return (
+                <Link key={sx.href} href={sx.href} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition group">
+                  <div className="mb-2 text-text-muted group-hover:text-text-primary transition">
+                    <Icon size={20} strokeWidth={2} />
+                  </div>
+                  <div className="text-sm font-semibold text-text-primary mb-0.5">{sx.label}</div>
+                  <div className="text-xs text-text-muted">{sx.desc}</div>
+                </Link>
+              );
+            })}
           </div>
         );
       case "quickActions":
@@ -440,20 +465,23 @@ export default function DashboardPage() {
           they hid the quickActions widget. Horizontal scroll on mobile. */}
       <div className="mb-6 -mx-4 sm:mx-0 overflow-x-auto px-4 sm:px-0">
         <div className="flex items-stretch gap-2 sm:gap-3 sm:flex-wrap">
-          {PRIMARY_QUICK_ACTIONS.map((a) => (
-            <Link
-              key={a.href + a.label}
-              href={a.href}
-              className={
-                a.primary
-                  ? "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap bg-brand text-white hover:bg-brand-hover transition shrink-0"
-                  : "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-medium whitespace-nowrap bg-surface border border-app-border text-text-primary hover:bg-app-bg transition shrink-0"
-              }
-            >
-              <span className="text-base leading-none opacity-90">{a.icon}</span>
-              {a.label}
-            </Link>
-          ))}
+          {PRIMARY_QUICK_ACTIONS.map((a) => {
+            const Icon = a.icon;
+            return (
+              <Link
+                key={a.href + a.label}
+                href={a.href}
+                className={
+                  a.primary
+                    ? "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap bg-brand text-white hover:bg-brand-hover transition shrink-0"
+                    : "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-medium whitespace-nowrap bg-surface border border-app-border text-text-primary hover:bg-app-bg transition shrink-0"
+                }
+              >
+                <Icon size={16} strokeWidth={2} className="opacity-90" />
+                {a.label}
+              </Link>
+            );
+          })}
         </div>
       </div>
 

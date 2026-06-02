@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Shield } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
@@ -88,7 +89,7 @@ export default function StaffPage() {
         <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
       ) : staff.length === 0 ? (
         <EmptyState
-          icon="◎"
+          icon={<Shield size={26} strokeWidth={1.75} />}
           title="No staff yet"
           description="Add coaches and staff to give them access to the dashboard."
           action={{ label: "Add your first staff member", onClick: () => setShowAdd(true) }}

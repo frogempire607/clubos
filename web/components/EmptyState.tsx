@@ -35,11 +35,17 @@ export default function EmptyState({
       }`}
     >
       {icon && (
-        <div className="w-12 h-12 rounded-full bg-app-bg flex items-center justify-center text-xl text-text-muted mb-3">
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
+          style={{
+            background: "rgba(163, 230, 53, 0.12)",
+            color: "#5C8C1F",
+          }}
+        >
           {icon}
         </div>
       )}
-      <div className="text-sm font-semibold text-text-primary mb-1">{title}</div>
+      <div className="text-base font-semibold text-text-primary mb-1.5">{title}</div>
       {description && (
         <div className="text-xs text-text-muted max-w-sm">{description}</div>
       )}

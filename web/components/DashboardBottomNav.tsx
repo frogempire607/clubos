@@ -45,34 +45,35 @@ export default function DashboardBottomNav({
       <ul className="flex items-stretch">
         {visibleItems.map((item) => {
           if (item.kind === "more") {
+            const Icon = item.icon;
             return (
               <li key={item.id} className="flex-1">
                 <button
                   type="button"
                   onClick={onMore}
-                  className="w-full h-full flex flex-col items-center justify-center gap-0.5 py-2 text-white/60 hover:text-white"
+                  className="w-full h-full flex flex-col items-center justify-center gap-1 py-2 text-white/60 hover:text-white"
                 >
-                  <span className="text-xl leading-none">{item.icon}</span>
+                  <Icon size={22} strokeWidth={2} />
                   <span className="text-[10px] font-medium">{item.label}</span>
                 </button>
               </li>
             );
           }
+          const Icon = item.icon;
           const active = isItemActive(item.href, pathname);
           return (
             <li key={item.id} className="flex-1">
               <Link
                 href={item.href}
-                className={`w-full h-full flex flex-col items-center justify-center gap-0.5 py-2 ${
+                className={`w-full h-full flex flex-col items-center justify-center gap-1 py-2 ${
                   active ? "text-white" : "text-white/60 hover:text-white"
                 }`}
               >
-                <span
-                  className="text-xl leading-none"
-                  style={{ color: active ? "var(--color-primary)" : undefined }}
-                >
-                  {item.icon}
-                </span>
+                <Icon
+                  size={22}
+                  strokeWidth={2}
+                  style={{ color: active ? "var(--color-lime-accent, #A3E635)" : undefined }}
+                />
                 <span className="text-[10px] font-medium">{item.label}</span>
               </Link>
             </li>
