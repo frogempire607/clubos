@@ -107,7 +107,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </DashboardMobileDrawer>
 
       {/* ── Main content column ── */}
-      <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+      {/* overflowX: "hidden" — safety net. CSS grid items inside `/dashboard`
+          can briefly overflow at mount on iOS Safari before min-w-0 kicks
+          in. Clipping here prevents the body-level horizontal scroll bar
+          users were seeing on the iOS native shell. */}
+      <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column" }}>
         {/* Mobile topbar (charcoal, matches sidebar tone for native-app feel) */}
         <div
           className="md:hidden sticky top-0 z-30 flex items-center gap-2 px-3 py-2 border-b border-white/10"

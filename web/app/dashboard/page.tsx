@@ -229,26 +229,38 @@ export default function DashboardPage() {
     switch (key) {
       case "calendar":
         return (
-          <div key={key} className="bg-surface rounded-xl border border-app-border p-4">
+          // min-w-0 — see note on the section grid wrapper. Without it, an
+          // adjacent overflowing widget can squeeze this column to a few
+          // pixels wide and the 7-column day grid collapses into what reads
+          // like a vertical column of overlapping numbers.
+          <div key={key} className="bg-surface rounded-xl border border-app-border p-3 sm:p-4 min-w-0">
             <div className="flex items-center justify-between mb-3">
-              <button onClick={prevMonth} className="text-text-muted hover:text-text-primary w-6 h-6 flex items-center justify-center rounded hover:bg-app-bg">‹</button>
-              <span className="text-sm font-semibold text-text-primary">{MONTHS[month]} {year}</span>
-              <button onClick={nextMonth} className="text-text-muted hover:text-text-primary w-6 h-6 flex items-center justify-center rounded hover:bg-app-bg">›</button>
+              <button onClick={prevMonth} aria-label="Previous month" className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg">‹</button>
+              <span className="text-sm font-semibold text-text-primary tabular-nums">{MONTHS[month]} {year}</span>
+              <button onClick={nextMonth} aria-label="Next month" className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg">›</button>
             </div>
-            <div className="grid grid-cols-7 gap-0.5 mb-1">
-              {DAYS.map((d) => <div key={d} className="text-center text-[10px] font-medium text-text-muted py-0.5">{d}</div>)}
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {DAYS.map((d) => <div key={d} className="text-center text-[10px] font-semibold uppercase tracking-wider text-text-muted py-1">{d}</div>)}
             </div>
-            <div className="grid grid-cols-7 gap-0.5">
+            <div className="grid grid-cols-7 gap-1">
               {cells.map((day, i) => {
-                if (!day) return <div key={i} />;
+                if (!day) return <div key={i} className="aspect-square" />;
                 const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
                 const hasEvents = eventDays.has(day);
                 const isSelected = selectedDay === day;
                 return (
-                  <button key={i} onClick={() => setSelectedDay(isSelected ? null : day)}
-                    className={`relative flex flex-col items-center justify-center rounded text-xs py-1 transition ${isSelected ? "bg-brand text-white" : isToday ? "bg-app-bg text-text-primary font-semibold" : "text-text-primary hover:bg-app-bg"}`}>
+                  <button
+                    key={i}
+                    onClick={() => setSelectedDay(isSelected ? null : day)}
+                    className={`relative aspect-square min-w-0 flex flex-col items-center justify-center rounded-md text-xs sm:text-sm tabular-nums transition ${isSelected ? "bg-brand text-white font-semibold" : isToday ? "bg-app-bg text-text-primary font-semibold ring-1 ring-app-border" : "text-text-primary hover:bg-app-bg"}`}
+                  >
                     {day}
-                    {hasEvents && !isSelected && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-brand" />}
+                    {hasEvents && !isSelected && (
+                      <span
+                        className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                        style={{ background: "var(--color-lime-accent, #A3E635)" }}
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -274,16 +286,20 @@ export default function DashboardPage() {
         );
       case "quickNav":
         return (
-          <div key={key} className="grid grid-cols-4 gap-3 content-start">
+          // Responsive — 2 cols on phone, 3 on tablet, 4 on desktop. On
+          // iOS Safari `grid-cols-4` rendered tiles ~80px wide and labels
+          // like "Purchase Options" wrapped 3+ lines, blowing card height
+          // and making the row visually overlap its neighbor.
+          <div key={key} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 content-start min-w-0">
             {sections.map((sx) => {
               const Icon = sx.icon;
               return (
-                <Link key={sx.href} href={sx.href} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition group">
+                <Link key={sx.href} href={sx.href} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition group min-w-0">
                   <div className="mb-2 text-text-muted group-hover:text-text-primary transition">
                     <Icon size={20} strokeWidth={2} />
                   </div>
-                  <div className="text-sm font-semibold text-text-primary mb-0.5">{sx.label}</div>
-                  <div className="text-xs text-text-muted">{sx.desc}</div>
+                  <div className="text-sm font-semibold text-text-primary mb-0.5 truncate">{sx.label}</div>
+                  <div className="text-xs text-text-muted line-clamp-2">{sx.desc}</div>
                 </Link>
               );
             })}
@@ -496,7 +512,12 @@ export default function DashboardPage() {
       {visibleSections.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
           {visibleSections.map((k) => (
-            <div key={k} className={SECTION_SPAN[k] ?? "col-span-1"}>
+            // min-w-0 prevents grid items from blowing out their column on
+            // iOS Safari. Without it, a child with long unbroken content
+            // (event names, table rows) defaults to min-width: auto and
+            // overflows the column track, causing adjacent widgets to
+            // visually overlap and the page to gain horizontal scroll.
+            <div key={k} className={`${SECTION_SPAN[k] ?? "col-span-1"} min-w-0`}>
               {sectionWidget(k)}
             </div>
           ))}
