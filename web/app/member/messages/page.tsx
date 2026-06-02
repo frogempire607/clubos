@@ -2,6 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Users as UsersIcon, Mail as MailIcon } from "lucide-react";
+
+// Lime accent for child-thread visual markers. Defined as constants so
+// every consumer in this file uses the exact same color even when the
+// Tailwind palette isn't fully available (e.g. an iOS WebKit JIT race
+// on the very first paint after install). Inline style guarantees the
+// color renders even if `bg-lime-100` etc. don't get compiled.
+const LIME = "#A3E635";
+const LIME_BG = "rgba(163, 230, 53, 0.18)";
+const LIME_BORDER = "rgba(163, 230, 53, 0.55)";
+const LIME_TEXT = "#3F6212";
 
 type ForMember = { id: string; firstName: string; lastName: string };
 
@@ -30,11 +41,20 @@ type ChildGroup = {
 
 // Shared pill used on the list page (and matched in the thread page
 // headers) so parents see a consistent visual marker for "this thread
-// is for <kid>". Lime accent matches the athletic feel and reads at a
-// glance — the older amber-100 version blended into the card background.
+// is for <kid>". Inline styles — Tailwind's `bg-lime-100` etc. depend
+// on the lime palette being in the compiled CSS, which is not
+// guaranteed on every install of Tailwind v4. Inline styles render
+// the same on every browser and every device.
 function ChildBadge({ name }: { name: string }) {
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-lime-100 text-lime-800 border border-lime-300 flex-shrink-0">
+    <span
+      className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+      style={{
+        background: LIME_BG,
+        color: LIME_TEXT,
+        border: `1px solid ${LIME_BORDER}`,
+      }}
+    >
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
         <circle cx="12" cy="7" r="4" />
@@ -56,11 +76,18 @@ function relTime(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+type LinkedChild = { id: string; firstName: string; lastName: string; hasOwnLogin: boolean };
+
 export default function MemberMessagesPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [childConversations, setChildConversations] = useState<Conversation[]>([]);
   const [childGroups, setChildGroups] = useState<ChildGroup[]>([]);
+  // Linked-children list pulled from /api/member/portal so the page can
+  // tell the parent "this is where messages for <kid> show up" even
+  // before any messages exist — otherwise the section is invisible and
+  // the parent has no way to know the feature is plumbed at all.
+  const [linkedChildren, setLinkedChildren] = useState<LinkedChild[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -83,6 +110,27 @@ export default function MemberMessagesPage() {
         }
         setLoading(false);
       });
+
+    // Best-effort fetch — used only for the empty-state "no child
+    // messages yet" copy. Failure is silent.
+    fetch("/api/member/portal")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d?.user?.guardianOf) return;
+        const kids: LinkedChild[] = d.user.guardianOf.map(
+          (g: { member: { id: string; firstName: string; lastName: string; user?: { id: string } | null } }) => ({
+            id: g.member.id,
+            firstName: g.member.firstName,
+            lastName: g.member.lastName,
+            // A child can receive coach DMs only if they have their own
+            // User row (their own portal login). Otherwise they're a
+            // Member-only record and the API can't surface their threads.
+            hasOwnLogin: !!g.member.user,
+          }),
+        );
+        setLinkedChildren(kids);
+      })
+      .catch(() => {});
   }, []);
 
   const isEmpty =
@@ -154,82 +202,105 @@ export default function MemberMessagesPage() {
             </div>
           )}
 
-          {(childConversations.length > 0 || childGroups.length > 0) && (
+          {(childConversations.length > 0 || childGroups.length > 0 || linkedChildren.length > 0) && (
             <div>
-              <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
-                Messages for your athletes
-              </h2>
-              <p className="text-[11px] text-stone-400 mb-3">
-                Threads sent to or from your linked children. Each row is tagged with the child it belongs to.
-              </p>
-              <div className="space-y-2">
-                {childGroups.map((g) => (
-                  <Link
-                    key={`${g.id}:${g.forMember.id}`}
-                    href={`/member/messages/group/${g.id}?for=${g.forMember.id}&forName=${encodeURIComponent(g.forMember.firstName)}`}
-                    className="block bg-white rounded-xl border border-stone-200 border-l-[5px] border-l-lime-500 p-4 hover:shadow-sm hover:border-l-lime-600 transition"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                        <h3 className="text-sm font-semibold text-stone-900 truncate">{g.name}</h3>
-                        <ChildBadge name={g.forMember.firstName} />
-                      </div>
-                      {g.lastMessage && (
-                        <span className="text-[11px] text-stone-400 flex-shrink-0 tabular-nums">{relTime(g.lastMessage.createdAt)}</span>
-                      )}
-                    </div>
-                    {g.lastMessage ? (
-                      <p className="text-sm text-stone-600 line-clamp-1">
-                        {g.lastMessage.sender && (
-                          <span className="font-medium text-stone-700">{g.lastMessage.sender.firstName}: </span>
-                        )}
-                        {g.lastMessage.body}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-stone-400">No messages yet · {g.memberCount} members</p>
-                    )}
-                  </Link>
-                ))}
-                {childConversations.map((c) => (
-                  <Link
-                    key={`${c.forMember?.id}:${c.user.id}`}
-                    href={
-                      c.forMember
-                        ? `/member/messages/dm/${c.user.id}?for=${c.forMember.id}&forName=${encodeURIComponent(c.forMember.firstName)}`
-                        : `/member/messages/dm/${c.user.id}`
-                    }
-                    className="block bg-white rounded-xl border border-stone-200 border-l-[5px] border-l-lime-500 p-4 hover:shadow-sm hover:border-l-lime-600 transition"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-9 h-9 rounded-full bg-stone-200 flex items-center justify-center text-xs font-bold text-stone-700 flex-shrink-0">
-                          {c.user.firstName[0]}{c.user.lastName[0]}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-semibold text-stone-900 truncate">
-                              {c.user.firstName} {c.user.lastName}
-                            </p>
-                            {c.forMember && <ChildBadge name={c.forMember.firstName} />}
-                          </div>
-                          <p className="text-[11px] text-stone-400">
-                            {c.user.role === "OWNER" ? "Owner" : c.user.role === "STAFF" ? "Staff" : "Member"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {c.unread > 0 && (
-                          <span className="text-[10px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
-                            {c.unread}
-                          </span>
-                        )}
-                        <span className="text-[11px] text-stone-400 tabular-nums">{relTime(c.lastMessage.createdAt)}</span>
-                      </div>
-                    </div>
-                    <p className="text-sm text-stone-600 line-clamp-1">{c.lastMessage.body}</p>
-                  </Link>
-                ))}
+              <div className="flex items-center gap-2 mb-2">
+                <UsersIcon size={14} strokeWidth={2.25} style={{ color: LIME_TEXT }} />
+                <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium">
+                  Messages for your athletes
+                </h2>
               </div>
+              <p className="text-[11px] text-stone-400 mb-3">
+                Threads sent to or from your linked children. Each row has a lime stripe and a "For {linkedChildren[0]?.firstName || "child"}" pill so you always know which kid the message is about.
+              </p>
+              {childConversations.length === 0 && childGroups.length === 0 ? (
+                <div
+                  className="rounded-xl p-4 text-xs text-stone-500 flex items-start gap-2"
+                  style={{ background: LIME_BG, border: `1px solid ${LIME_BORDER}` }}
+                >
+                  <MailIcon size={14} strokeWidth={2} style={{ color: LIME_TEXT, marginTop: 1 }} />
+                  <div>
+                    <p className="font-medium text-stone-700 mb-0.5">No messages for your athletes yet</p>
+                    <p>
+                      When your club messages {linkedChildren.map((c) => c.firstName).join(", ") || "your athlete"}, you'll see it here with a lime stripe so you can spot it instantly.
+                      {linkedChildren.some((c) => !c.hasOwnLogin) && (
+                        <span> Some of your athletes don&apos;t have their own member login yet — only kids with their own account can receive DMs from coaches.</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {childGroups.map((g) => (
+                    <Link
+                      key={`${g.id}:${g.forMember.id}`}
+                      href={`/member/messages/group/${g.id}?for=${g.forMember.id}&forName=${encodeURIComponent(g.forMember.firstName)}`}
+                      className="block bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
+                      style={{ borderLeft: `5px solid ${LIME}` }}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          <h3 className="text-sm font-semibold text-stone-900 truncate">{g.name}</h3>
+                          <ChildBadge name={g.forMember.firstName} />
+                        </div>
+                        {g.lastMessage && (
+                          <span className="text-[11px] text-stone-400 flex-shrink-0 tabular-nums">{relTime(g.lastMessage.createdAt)}</span>
+                        )}
+                      </div>
+                      {g.lastMessage ? (
+                        <p className="text-sm text-stone-600 line-clamp-1">
+                          {g.lastMessage.sender && (
+                            <span className="font-medium text-stone-700">{g.lastMessage.sender.firstName}: </span>
+                          )}
+                          {g.lastMessage.body}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-stone-400">No messages yet · {g.memberCount} members</p>
+                      )}
+                    </Link>
+                  ))}
+                  {childConversations.map((c) => (
+                    <Link
+                      key={`${c.forMember?.id}:${c.user.id}`}
+                      href={
+                        c.forMember
+                          ? `/member/messages/dm/${c.user.id}?for=${c.forMember.id}&forName=${encodeURIComponent(c.forMember.firstName)}`
+                          : `/member/messages/dm/${c.user.id}`
+                      }
+                      className="block bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
+                      style={{ borderLeft: `5px solid ${LIME}` }}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-stone-200 flex items-center justify-center text-xs font-bold text-stone-700 flex-shrink-0">
+                            {c.user.firstName[0]}{c.user.lastName[0]}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-stone-900 truncate">
+                                {c.user.firstName} {c.user.lastName}
+                              </p>
+                              {c.forMember && <ChildBadge name={c.forMember.firstName} />}
+                            </div>
+                            <p className="text-[11px] text-stone-400">
+                              {c.user.role === "OWNER" ? "Owner" : c.user.role === "STAFF" ? "Staff" : "Member"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {c.unread > 0 && (
+                            <span className="text-[10px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
+                              {c.unread}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-stone-400 tabular-nums">{relTime(c.lastMessage.createdAt)}</span>
+                        </div>
+                      </div>
+                      <p className="text-sm text-stone-600 line-clamp-1">{c.lastMessage.body}</p>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

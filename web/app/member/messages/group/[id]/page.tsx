@@ -127,7 +127,14 @@ function MemberGroupThreadInner() {
               </span>
             )}
             {forName && (
-              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-lime-100 text-lime-800 border border-lime-300">
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  background: "rgba(163, 230, 53, 0.18)",
+                  color: "#3F6212",
+                  border: "1px solid rgba(163, 230, 53, 0.55)",
+                }}
+              >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                   <circle cx="12" cy="7" r="4" />
