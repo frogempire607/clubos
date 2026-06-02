@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 
 const schema = z.object({
   clubSlug: z.string().min(1),
@@ -22,6 +23,12 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  // 10 member signups per 10 minutes per IP. A family signing up
+  // multiple kids in a row is realistic; bot-scripted account creation
+  // gets blocked.
+  const rl = rateLimit({ key: `auth:member-signup:${ipFromRequest(req)}`, limit: 10, windowMs: 10 * 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many signups from this device. Try again in a few minutes.");
+
   try {
     const data = schema.parse(await req.json());
 

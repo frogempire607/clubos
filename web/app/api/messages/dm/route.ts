@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures } from "@/lib/tier";
 import { sendMemberMessage } from "@/lib/memberMessaging";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 
 async function requireGrowth(clubId: string) {
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });
@@ -58,28 +60,43 @@ export async function GET() {
   return NextResponse.json(conversations);
 }
 
+const dmBodySchema = z.object({
+  memberId: z.string().min(1, "memberId is required"),
+  body: z.string().trim().min(1, "Message body is required.").max(5000, "Message too long (max 5000 chars)."),
+});
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Rate limit: 30 messages per minute per sender (owner/staff). Keeps a
+  // runaway script from spamming the entire club roster.
+  const rl = rateLimit({
+    key: `messages:owner-dm:${session.user.id}`,
+    limit: 30,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Slow down — too many messages sent. Try again in a moment.");
+
   const gate = await requireGrowth(session.user.clubId);
   if (gate) return gate;
 
-  const body = await req.json().catch(() => ({}));
-  const memberId = typeof body.memberId === "string" ? body.memberId : "";
-  const messageBody = typeof body.body === "string" ? body.body.trim() : "";
-
-  if (!memberId || !messageBody) {
-    return NextResponse.json({ error: "Member and message are required." }, { status: 400 });
+  const raw = await req.json().catch(() => ({}));
+  const parsed = dmBodySchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.errors[0]?.message || "Invalid request body." },
+      { status: 400 }
+    );
   }
 
   const result = await sendMemberMessage({
     clubId: session.user.clubId,
     senderId: session.user.id,
-    memberId,
-    body: messageBody,
+    memberId: parsed.data.memberId,
+    body: parsed.data.body,
   });
 
   if (!result.ok) {

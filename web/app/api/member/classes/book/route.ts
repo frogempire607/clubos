@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
@@ -29,6 +30,11 @@ export async function POST(req: Request) {
   if (!session || session.user.role !== "MEMBER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // 20 booking attempts per minute per member. Stops accidental
+  // double-tap, runaway loops, and Stripe-checkout-spam.
+  const rl = rateLimit({ key: `book:class:${session.user.id}`, limit: 20, windowMs: 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many booking attempts. Try again in a moment.");
 
   try {
     const { classSessionId, memberId } = schema.parse(await req.json().catch(() => ({})));

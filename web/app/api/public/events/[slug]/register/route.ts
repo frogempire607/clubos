@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -17,6 +18,12 @@ const schema = z.object({
 // or ESTIMATED variable cost), returns a Stripe Checkout URL on the club's
 // connected account. Otherwise the registration is immediately confirmed.
 export async function POST(req: Request, context: { params: Promise<{ slug: string }> }) {
+  // 10 public registrations per 10 minutes per IP. Public event pages
+  // are unauthenticated — without a per-IP limit, a script can fill
+  // every event's registration table.
+  const rl = rateLimit({ key: `book:public:${ipFromRequest(req)}`, limit: 10, windowMs: 10 * 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many registration attempts. Try again in a few minutes.");
+
   const params = await context.params;
   let body: z.infer<typeof schema>;
   try {

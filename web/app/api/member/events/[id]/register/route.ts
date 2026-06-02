@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
@@ -81,9 +82,18 @@ async function resolveBookingMember(args: {
 // Member self-registers. Free path if active sub matches an accepted membership.
 // Otherwise opens Stripe Checkout for the chosen price (defaults to MEMBER).
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
+  // Note: rate limit applied AFTER session resolution below so the key
+  // can be tied to the user. The session check happens 2 statements
+  // down — we let it execute then gate the limit on session.user.id.
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // 20 event-registration attempts per minute per user. Same rationale
+  // as the class-booking limiter: prevents accidental double-tap +
+  // Stripe-checkout-spam.
+  const rl = rateLimit({ key: `book:event:${session.user.id}`, limit: 20, windowMs: 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many registration attempts. Try again in a moment.");
 
   try {
     const { pricingType, memberId } = schema.parse(await req.json().catch(() => ({})));
