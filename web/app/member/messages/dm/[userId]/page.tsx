@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 
@@ -24,7 +24,21 @@ function fmtDate(iso: string) {
 }
 
 export default function MemberDmThreadPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-8 text-stone-400 text-sm">Loading…</div>}>
+      <MemberDmThreadInner />
+    </Suspense>
+  );
+}
+
+function MemberDmThreadInner() {
   const { userId } = useParams<{ userId: string }>();
+  const searchParams = useSearchParams();
+  // `forName` is plumbed from the messages list when this thread
+  // belongs to a linked child. Used purely for the header pill so a
+  // parent never loses context about which kid the conversation is
+  // for. Decoded explicitly because Next can hand back raw strings.
+  const forName = searchParams.get("forName");
   const { data: session } = useSession();
   const myId = session?.user?.id;
 
@@ -102,9 +116,23 @@ export default function MemberDmThreadPage() {
         <div className="w-9 h-9 rounded-full bg-stone-200 flex items-center justify-center text-sm font-bold text-stone-700">
           {other.firstName[0]}{other.lastName[0]}
         </div>
-        <div>
-          <h1 className="text-base font-semibold text-stone-900">{other.firstName} {other.lastName}</h1>
-          <p className="text-xs text-stone-500">{other.role === "OWNER" ? "Owner" : other.role === "STAFF" ? "Staff" : "Member"}</p>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-base font-semibold text-stone-900 truncate">{other.firstName} {other.lastName}</h1>
+            {forName && (
+              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-lime-100 text-lime-800 border border-lime-300">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                For {forName}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-stone-500">
+            {other.role === "OWNER" ? "Owner" : other.role === "STAFF" ? "Staff" : "Member"}
+            {forName && <span className="ml-1">· This thread is about {forName}</span>}
+          </p>
         </div>
       </div>
 

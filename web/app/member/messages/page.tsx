@@ -28,6 +28,22 @@ type ChildGroup = {
   memberCount: number;
 };
 
+// Shared pill used on the list page (and matched in the thread page
+// headers) so parents see a consistent visual marker for "this thread
+// is for <kid>". Lime accent matches the athletic feel and reads at a
+// glance — the older amber-100 version blended into the card background.
+function ChildBadge({ name }: { name: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-lime-100 text-lime-800 border border-lime-300 flex-shrink-0">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+      For {name}
+    </span>
+  );
+}
+
 function relTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -143,25 +159,23 @@ export default function MemberMessagesPage() {
               <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
                 Messages for your athletes
               </h2>
-              <p className="text-[11px] text-stone-400 mb-2">
+              <p className="text-[11px] text-stone-400 mb-3">
                 Threads sent to or from your linked children. Each row is tagged with the child it belongs to.
               </p>
               <div className="space-y-2">
                 {childGroups.map((g) => (
                   <Link
                     key={`${g.id}:${g.forMember.id}`}
-                    href={`/member/messages/group/${g.id}`}
-                    className="block bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
+                    href={`/member/messages/group/${g.id}?for=${g.forMember.id}&forName=${encodeURIComponent(g.forMember.firstName)}`}
+                    className="block bg-white rounded-xl border border-stone-200 border-l-[5px] border-l-lime-500 p-4 hover:shadow-sm hover:border-l-lime-600 transition"
                   >
-                    <div className="flex items-start justify-between gap-3 mb-1">
-                      <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
                         <h3 className="text-sm font-semibold text-stone-900 truncate">{g.name}</h3>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium flex-shrink-0">
-                          For {g.forMember.firstName}
-                        </span>
+                        <ChildBadge name={g.forMember.firstName} />
                       </div>
                       {g.lastMessage && (
-                        <span className="text-[11px] text-stone-400 flex-shrink-0">{relTime(g.lastMessage.createdAt)}</span>
+                        <span className="text-[11px] text-stone-400 flex-shrink-0 tabular-nums">{relTime(g.lastMessage.createdAt)}</span>
                       )}
                     </div>
                     {g.lastMessage ? (
@@ -177,24 +191,27 @@ export default function MemberMessagesPage() {
                   </Link>
                 ))}
                 {childConversations.map((c) => (
-                  <div
+                  <Link
                     key={`${c.forMember?.id}:${c.user.id}`}
-                    className="block bg-white rounded-xl border border-stone-200 p-4"
+                    href={
+                      c.forMember
+                        ? `/member/messages/dm/${c.user.id}?for=${c.forMember.id}&forName=${encodeURIComponent(c.forMember.firstName)}`
+                        : `/member/messages/dm/${c.user.id}`
+                    }
+                    className="block bg-white rounded-xl border border-stone-200 border-l-[5px] border-l-lime-500 p-4 hover:shadow-sm hover:border-l-lime-600 transition"
                   >
-                    <div className="flex items-start justify-between gap-3 mb-1">
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs font-bold text-stone-700 flex-shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-stone-200 flex items-center justify-center text-xs font-bold text-stone-700 flex-shrink-0">
                           {c.user.firstName[0]}{c.user.lastName[0]}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-stone-900 truncate">
-                            {c.user.firstName} {c.user.lastName}
-                            {c.forMember && (
-                              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                                For {c.forMember.firstName}
-                              </span>
-                            )}
-                          </p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold text-stone-900 truncate">
+                              {c.user.firstName} {c.user.lastName}
+                            </p>
+                            {c.forMember && <ChildBadge name={c.forMember.firstName} />}
+                          </div>
                           <p className="text-[11px] text-stone-400">
                             {c.user.role === "OWNER" ? "Owner" : c.user.role === "STAFF" ? "Staff" : "Member"}
                           </p>
@@ -202,15 +219,15 @@ export default function MemberMessagesPage() {
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {c.unread > 0 && (
-                          <span className="text-[10px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold">
+                          <span className="text-[10px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
                             {c.unread}
                           </span>
                         )}
-                        <span className="text-[11px] text-stone-400">{relTime(c.lastMessage.createdAt)}</span>
+                        <span className="text-[11px] text-stone-400 tabular-nums">{relTime(c.lastMessage.createdAt)}</span>
                       </div>
                     </div>
                     <p className="text-sm text-stone-600 line-clamp-1">{c.lastMessage.body}</p>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </div>
