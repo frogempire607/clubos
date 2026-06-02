@@ -337,8 +337,8 @@ export default function DashboardPage() {
         );
       case "upcomingEventsList":
         return (
-          <div key={key} className="bg-surface rounded-xl border border-app-border">
-            <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
               <h2 className="text-sm font-semibold text-text-primary">Upcoming events</h2>
               <Link href="/dashboard/events" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
             </div>
@@ -354,16 +354,18 @@ export default function DashboardPage() {
                   const typeBg = e.customEventType?.color || "var(--color-bg)";
                   const typeFg = e.customEventType?.textColor || "var(--color-muted)";
                   return (
-                    <div key={e.id} className="flex items-center gap-3 px-5 py-3">
-                      <div className="w-10 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
-                        <div className="text-[9px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short" })}</div>
-                        <div className="text-base font-semibold text-text-primary leading-tight">{start.getDate()}</div>
+                    <div key={e.id} className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5">
+                      <div className="w-12 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
+                        <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short" })}</div>
+                        <div className="text-lg font-bold text-text-primary leading-tight tabular-nums">{start.getDate()}</div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-text-primary truncate">{e.name}</div>
-                        <div className="text-xs text-text-muted">{start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+                        <div className="text-sm font-semibold text-text-primary line-clamp-2 leading-snug">{e.name}</div>
+                        <div className="text-xs text-text-muted mt-0.5 tabular-nums">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
+                        {/* On mobile, badge sits below the name. On desktop it floats to the right. */}
+                        <span className="sm:hidden mt-1.5 inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
                       </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
+                      <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide flex-shrink-0" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
                     </div>
                   );
                 })}
@@ -373,8 +375,8 @@ export default function DashboardPage() {
         );
       case "upcomingClassesList":
         return (
-          <div key={key} className="bg-surface rounded-xl border border-app-border">
-            <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
               <h2 className="text-sm font-semibold text-text-primary">Upcoming classes</h2>
               <Link href="/dashboard/classes" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
             </div>
@@ -387,14 +389,14 @@ export default function DashboardPage() {
                 {summary.upcomingClasses.map((c) => {
                   const start = new Date(c.startsAt);
                   return (
-                    <div key={c.id} className="flex items-center gap-3 px-5 py-3">
-                      <div className="w-10 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
-                        <div className="text-[9px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short", timeZone: "UTC" })}</div>
-                        <div className="text-base font-semibold text-text-primary leading-tight">{start.getUTCDate()}</div>
+                    <div key={c.id} className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5">
+                      <div className="w-12 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
+                        <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short", timeZone: "UTC" })}</div>
+                        <div className="text-lg font-bold text-text-primary leading-tight tabular-nums">{start.getUTCDate()}</div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-text-primary truncate">{c.name}</div>
-                        <div className="text-xs text-text-muted">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "UTC" })}</div>
+                        <div className="text-sm font-semibold text-text-primary line-clamp-2 leading-snug">{c.name}</div>
+                        <div className="text-xs text-text-muted mt-0.5 tabular-nums">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "UTC" })}</div>
                       </div>
                     </div>
                   );
