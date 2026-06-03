@@ -266,7 +266,7 @@ export default function DashboardPage() {
             </div>
             <div className="grid grid-cols-7 gap-1">
               {cells.map((day, i) => {
-                if (!day) return <div key={i} className="aspect-square" />;
+                if (!day) return <div key={i} className="min-h-[36px] aspect-square" />;
                 const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
                 const hasEvents = eventDays.has(day);
                 const isSelected = selectedDay === day;
@@ -274,7 +274,13 @@ export default function DashboardPage() {
                   <button
                     key={i}
                     onClick={() => setSelectedDay(isSelected ? null : day)}
-                    className={`relative aspect-square min-w-0 flex flex-col items-center justify-center rounded-md text-xs sm:text-sm tabular-nums transition ${isSelected ? "bg-brand text-white font-semibold" : isToday ? "bg-app-bg text-text-primary font-semibold ring-1 ring-app-border" : "text-text-primary hover:bg-app-bg"}`}
+                    // min-h-[36px] floor — when the calendar widget lives in a
+                    // squeezed grid cell (e.g. iPad-landscape section
+                    // grid), aspect-square + min-w-0 can collapse to <10px
+                    // and the day numbers stack on top of each other. The
+                    // explicit min-height keeps the cell readable even if
+                    // the column gets narrow.
+                    className={`relative aspect-square min-h-[36px] flex flex-col items-center justify-center rounded-md text-xs sm:text-sm tabular-nums transition ${isSelected ? "bg-brand text-white font-semibold" : isToday ? "bg-app-bg text-text-primary font-semibold ring-1 ring-app-border" : "text-text-primary hover:bg-app-bg"}`}
                   >
                     {day}
                     {hasEvents && !isSelected && (
@@ -591,7 +597,13 @@ export default function DashboardPage() {
   const visibleSections = visible.filter((k) => !isStat(k));
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+    // w-full + min-w-0 — without them, the dashboard can size to its
+    // intrinsic content width on iOS WebKit, which lets a wide child
+    // (the CTA bar's horizontal scroll, or a grid track that overflowed
+    // before its min-w-0 wrapper kicked in) push the whole page wider
+    // than the viewport. The user-reported "widgets overlapping
+    // horizontally" symptom on mobile maps to that.
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl w-full min-w-0">
       {/* Greeting + Customize. Stacks on mobile; row on sm+. */}
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -636,20 +648,27 @@ export default function DashboardPage() {
       </div>
 
       {visibleStats.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 w-full">
           {visibleStats.map((k) => statWidget(k))}
         </div>
       )}
 
       {visibleSections.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        // xl:grid-cols-2 (1280px+) instead of lg:grid-cols-2 (1024px+).
+        // At 1024-1279px the dashboard main area is only viewport - 248px
+        // (sidebar). That left 2-column cards ~370px wide each, which
+        // squeezes both the mini-calendar's 7-day grid and any 2-up card
+        // rows — exact symptom users hit on iPad-landscape and on
+        // <1280px Mac windows. xl: pushes the threshold up so each
+        // card gets ~500px before we split into 2 columns.
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 xl:gap-6 w-full">
           {visibleSections.map((k) => (
             // min-w-0 prevents grid items from blowing out their column on
             // iOS Safari. Without it, a child with long unbroken content
             // (event names, table rows) defaults to min-width: auto and
             // overflows the column track, causing adjacent widgets to
             // visually overlap and the page to gain horizontal scroll.
-            <div key={k} className={`${SECTION_SPAN[k] ?? "col-span-1"} min-w-0`}>
+            <div key={k} className={`${SECTION_SPAN[k] ?? "col-span-1"} min-w-0 w-full`}>
               {sectionWidget(k)}
             </div>
           ))}

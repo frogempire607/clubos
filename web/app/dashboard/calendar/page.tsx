@@ -292,8 +292,15 @@ export default function CalendarPage() {
           </button>
         </div>
 
-        {/* ── Desktop / tablet: week grid ──────────────────────────────────── */}
-        <div className="hidden md:block">
+        {/* ── Desktop only: week grid ───────────────────────────────────────
+            Threshold is lg (1024px), not md. Reason: the dashboard
+            sidebar takes 248px starting at md, so an iPad-portrait
+            (~768px viewport) browser leaves only ~520px of main width.
+            7 columns at 520px = ~74px per cell, which crushes the
+            event chips and was the user-reported "crushed 7-column
+            grid" on mobile. Day-list is the better read at those
+            widths.                                                        */}
+        <div className="hidden lg:block">
           {/* Day headers */}
           <div className="grid grid-cols-7 border-b border-app-border">
             {DAYS.map((d) => (
@@ -381,8 +388,8 @@ export default function CalendarPage() {
           )}
         </div>
 
-        {/* ── Mobile: vertical day-list (only days with items, plus today) ── */}
-        <div className="md:hidden">
+        {/* ── Mobile + tablet: vertical day-list (only days with items, plus today) ── */}
+        <div className="lg:hidden">
           {loading ? (
             <div className="p-4 space-y-3">
               {Array.from({ length: 4 }).map((_, i) => (
