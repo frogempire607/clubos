@@ -7,7 +7,7 @@ import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfi
 type Booking = {
   id: string;
   status: string;
-  kind?: "event" | "class";
+  kind?: "event" | "class" | "private";
   coach?: string | null;
   event: {
     id: string;
@@ -44,6 +44,67 @@ type RawAttendanceRecord = {
     } | null;
   } | null;
 };
+
+type RawPrivateBooking = {
+  id: string;
+  status: string;
+  createdAt: string;
+  confirmedStartAt: string | null;
+  confirmedEndAt: string | null;
+  requestedSlots: unknown;
+  lessonType: { id: string; title: string; durationMin: number } | null;
+  coach: { id: string; firstName: string; lastName: string } | null;
+};
+
+// Pull the earliest requested slot date+time from the JSON column. Returns a
+// best-effort ISO string for display purposes; falls back to createdAt if the
+// slot data is malformed so the booking still appears in the list.
+function firstRequestedSlotAt(raw: unknown, fallback: string): string {
+  if (!Array.isArray(raw) || raw.length === 0) return fallback;
+  const sorted = (raw as Array<{ date?: string; startTime?: string }>)
+    .filter((s) => typeof s?.date === "string" && typeof s?.startTime === "string")
+    .sort((a, b) => `${a.date}T${a.startTime}`.localeCompare(`${b.date}T${b.startTime}`));
+  const first = sorted[0];
+  if (!first?.date || !first?.startTime) return fallback;
+  // Strings are stored as "YYYY-MM-DD" + "HH:mm" in the request payload.
+  // new Date("YYYY-MM-DDTHH:mm") parses as local time, which matches how
+  // the member entered their preferred slot.
+  const iso = new Date(`${first.date}T${first.startTime}`);
+  return Number.isNaN(iso.getTime()) ? fallback : iso.toISOString();
+}
+
+function privateBookingsToBookings(records: RawPrivateBooking[] | undefined): Booking[] {
+  if (!records) return [];
+  return records
+    .filter((r) => r.lessonType)
+    .map((r) => {
+      const startsAt =
+        r.confirmedStartAt ?? firstRequestedSlotAt(r.requestedSlots, r.createdAt);
+      const endsAt =
+        r.confirmedEndAt ??
+        new Date(
+          new Date(startsAt).getTime() + (r.lessonType!.durationMin || 60) * 60_000,
+        ).toISOString();
+      const coachName = r.coach
+        ? `${r.coach.firstName} ${r.coach.lastName}`.trim() || null
+        : null;
+      return {
+        id: `private:${r.id}`,
+        status: r.status,
+        kind: "private" as const,
+        coach: coachName,
+        event: {
+          id: r.id,
+          name: r.lessonType!.title,
+          type: "PRIVATE",
+          startsAt,
+          endsAt,
+          capacity: null,
+          customEventType: null,
+        },
+      };
+    });
+}
 
 function classAttendanceToBookings(
   records: RawAttendanceRecord[] | undefined,
@@ -94,6 +155,12 @@ const statusBadge: Record<string, { bg: string; fg: string; label: string }> = {
   CANCELED: { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Canceled" },
   ATTENDED: { bg: "var(--color-primary)", fg: "#fff", label: "Attended" },
   NO_SHOW: { bg: "#FCE4E0", fg: "#7B2415", label: "No show" },
+  // PrivateBooking states. REQUESTED + PENDING_COACH are pre-confirmation —
+  // the athlete is waiting on the coach to accept / propose a time.
+  REQUESTED: { bg: "var(--color-warning)", fg: "#fff", label: "Requested" },
+  PENDING_COACH: { bg: "var(--color-warning)", fg: "#fff", label: "Pending coach" },
+  COMPLETED: { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Completed" },
+  DECLINED: { bg: "#FCE4E0", fg: "#7B2415", label: "Declined" },
 };
 
 function getEventColor(b: Booking) {
@@ -149,6 +216,7 @@ export default function MemberBookingsPage() {
           bookings: [
             ...((m.bookings ?? []) as Booking[]).map((b) => ({ ...b, kind: "event" as const })),
             ...classAttendanceToBookings(m.attendanceRecords, staffById),
+            ...privateBookingsToBookings(m.privateBookings),
           ],
         });
       }
@@ -161,6 +229,7 @@ export default function MemberBookingsPage() {
           bookings: [
             ...((g.member.bookings ?? []) as Booking[]).map((b) => ({ ...b, kind: "event" as const })),
             ...classAttendanceToBookings(g.member.attendanceRecords, staffById),
+            ...privateBookingsToBookings(g.member.privateBookings),
           ],
         });
       }
@@ -176,11 +245,15 @@ export default function MemberBookingsPage() {
   const active = useMemo(() => members.find((m) => m.id === activeId), [members, activeId]);
 
   const now = new Date();
+  // Terminal statuses never appear in "upcoming" regardless of time, since
+  // they're no longer actionable. DECLINED/COMPLETED come from privates;
+  // CANCELED applies to events and classes.
+  const TERMINAL = new Set(["CANCELED", "DECLINED", "COMPLETED"]);
   const filtered = (active?.bookings ?? [])
     .filter((b) => {
       const start = new Date(b.event.startsAt);
-      if (filter === "upcoming") return start >= now && b.status !== "CANCELED";
-      if (filter === "past") return start < now || b.status === "CANCELED";
+      if (filter === "upcoming") return start >= now && !TERMINAL.has(b.status);
+      if (filter === "past") return start < now || TERMINAL.has(b.status);
       return true;
     })
     .sort((a, b) => new Date(a.event.startsAt).getTime() - new Date(b.event.startsAt).getTime());
@@ -189,7 +262,9 @@ export default function MemberBookingsPage() {
     <>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-stone-900 mb-1">My Bookings</h1>
-        <p className="text-sm text-stone-500">All your upcoming classes and event registrations.</p>
+        <p className="text-sm text-stone-500">
+          Classes, events, and private lessons — all in one place.
+        </p>
       </div>
 
       {/* Profile selection is handled account-wide by the ProfileSwitcher in
