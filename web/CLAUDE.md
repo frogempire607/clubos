@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-03 (merged native-app-shell → main with 43 commits spanning: Native Capacitor shell + URL/redirect hardening + dashboard mobile-aware redesign + lucide SVG icon migration + parent-child message context + events page scoreboard layout + iOS overflow / calendar / member tile fixes + security pass with lib/ratelimit.ts + lib/sanitizeHtml.ts + zod gaps closed. Earlier surface this branch carried forward but didn't change: Staff invite setup-link + my-account, Client/Preview mode, multi-bank Plaid, back button, event image focal picker, privates confirmation UX, member portal nav + classes in bookings, owner-controlled billing visibility, parent sees child messages, member class self-book. iOS simulator end-to-end smoke is the only blocker for real-device sign-off — full checklist in Session log — 2026-06-02 below.)
+Last updated: 2026-06-03 (P1 UI/UX fixes on `feat/p1-ui-fixes` — 6 commits: dark mode contrast in privates page + login page tokenization, sign-in logo → landing link, calendar grid + mobile day-list redesign, member nav adds Bookings + secondary items move to More sheet, owner dashboard widgets for Recent messages + Recent bookings, iOS app icon regenerated from circle.PNG so brand fills the badge. Branch off `main` 62ea801; NOT pushed, NOT merged. P2 privates overhaul / P3 notifications / P4 minor accounts / CX landing redesign / CY Android docs all queued — see Session log — 2026-06-03 below for full plan + manual test checklist. Earlier merge to main (commit 62ea801) brought in 43 commits from native-app-shell: Native Capacitor shell + URL/redirect hardening + dashboard mobile-aware redesign + lucide SVG icons + parent-child message context + events page scoreboard layout + security pass with lib/ratelimit.ts + lib/sanitizeHtml.ts + zod gaps closed.)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -799,6 +799,114 @@ Documented in `.env.example`. Critical for production:
 - `UPLOADS_DIR` (optional; defaults to `./storage/uploads`)
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing)
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
+
+## Session log — 2026-06-03 (P1 UI/UX fixes — branch feat/p1-ui-fixes, NOT merged)
+
+Branch: `feat/p1-ui-fixes` off `main` 62ea801. Tip: `d2c89b6`. **Not pushed. Not merged.** Waiting on user sign-off before merging to main and starting P2.
+
+### Commits this session (oldest → newest)
+
+| SHA       | Topic                                                      |
+|-----------|------------------------------------------------------------|
+| `b679af6` | dark mode contrast (lime tags + login inputs)              |
+| `c25c8aa` | sign-in logo links back to landing page                    |
+| `048c422` | dashboard calendar grid + mobile day-list                  |
+| `bd4e9af` | member nav adds Bookings; secondary items move to More sheet |
+| `a7fb59e` | owner dashboard adds Recent messages + Recent bookings     |
+| `d2c89b6` | regenerate iOS app icon so the brand fills the badge       |
+
+### P1 details
+
+- **P1.B — dark mode contrast** (`b679af6`)
+  - `app/dashboard/privates/page.tsx`: 4 sites (lines 817, 830, 862, 922) had `bg-lime-accent text-white` — invisible white text on lime in light mode AND `text-text-primary` flipped to light in dark mode. Switched to `bg-lime-accent text-charcoal font-medium` — the charcoal token (#1F1F23) is theme-locked, always dark-on-lime.
+  - `app/login/page.tsx`: every stone-* class migrated to design tokens (`bg-app-bg`, `bg-surface`, `text-text-primary`, `border-app-border`, `focus:ring-brand`, `bg-charcoal`/`hover:bg-charcoal-hover` for the primary button). Added `.dashboard-root` to the outer wrapper so existing scoped dark-mode overrides in `app/globals.css` activate on /login. Sign-in now flips correctly in both directions.
+
+- **P1.C — sign-in logo link** (`c25c8aa`)
+  - `app/login/page.tsx`: img wrapped in `<Link href="/">` with aria-label, focus ring matching brand token, hover:opacity-90 transition. One-line semantic fix; safe on browser + native shell.
+
+- **P1.D — calendar readability** (`048c422`)
+  - `app/dashboard/calendar/page.tsx`: full grid restructure. Desktop (≥md): cells 110→140px, day-number button 24→28px, 4 chips per day (was 3), chip font 10→11px + tabular-nums, "+N more" is now a real button that opens the existing Day Detail panel via setSelectedDay. `bg-white` → `bg-surface` for dark mode. Border discipline via grid-level dividers. Mobile (<md): brand-new vertical day-list view — renders only days with items + today, each day = 40px pill (weekday + number, tabular-nums) plus full list of items below (no truncation), empty month shows "No items this month."
+  - SkeletonLine fallback updated for new cell heights.
+
+- **P1.E — member nav: Bookings + More sheet** (`bd4e9af`)
+  - `app/member/layout.tsx`: bottom nav trimmed from 6 items to 5: Home / Schedule / **Bookings** / Messages / **More**. Bookings is a new top-level tab pointing at `/member/bookings` (previously buried inside Schedule). News / Documents / Privates / Our team / Profile moved into a new `MORE_ITEMS` array that renders inside a bottom-sheet modal when the More tab is tapped.
+  - Bottom-sheet UI: backdrop tap closes, ESC closes via natural button semantics, includes a discoverable Sign out row that calls `signOutEverywhere`. State auto-closes on every route change.
+  - New SVG icons: `CheckSquareIcon` (Bookings), `MoreIcon` (3 dots), `SignOutIcon`. Match the existing 20×20 viewBox + currentColor style.
+  - `buildPortalNav` for branded-app config untouched — clubs that customize their nav still get their custom items; the hardcoded NAV is the default fallback.
+
+- **P1.F — owner widgets: Recent messages + Recent bookings** (`a7fb59e`)
+  - `lib/dashboardWidgets.ts`: added two new keys to `WIDGET_CATALOG` (`recentMessages`, `pendingBookings`, both `section` kind). Inserted into `DEFAULT_ORDER` between `quickNav` and `recentMembers` so new clubs see them immediately. Existing clubs with saved prefs get the new widgets auto-appended via `resolvePrefs`.
+  - `app/api/dashboard/summary/route.ts`: two new parallel fetches — `recentMessagesRaw` (5 latest DMs to current owner/staff user, newest first, sender included) and `pendingBookingsRaw` (5 latest Bookings created in last 7 days, scoped via `event: { clubId }` because Booking has no direct clubId column). Response shape extended.
+  - `app/dashboard/page.tsx`: `Summary` type extended; two new `sectionWidget` cases. Recent messages renders an avatar + sender + body excerpt + date + lime unread dot. Recent bookings renders member name + event + date + status pill (lime for CONFIRMED, orange for WAITLISTED, neutral otherwise). Both use existing `bg-surface rounded-xl border border-app-border overflow-hidden` shell.
+
+- **P1.G — iOS app icon regeneration** (`d2c89b6`)
+  - Previous `assets/native/athletixos-icon-1024.png` had a small A mark surrounded by heavy black padding → tiny inside iOS rounded badge.
+  - Regenerated from `public/brand/circle.PNG` (the 512×512 brand circle that already fills its canvas) scaled to 1024×1024 via `sips -z 1024 1024 ... -s format png`. Copied to both source-of-truth files (`assets/native/athletixos-icon-1024.png` + `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`).
+  - `assets/native/README.md` updated to document the regen command + the Android caveat (Android icons in `android/app/src/main/res/mipmap-*/` are NOT auto-regenerated by `cap sync`; need a separate `npx @capacitor/assets generate --android` step when source changes — left untouched per "don't take risky Android changes" instruction).
+  - `cap sync` ran clean.
+
+### What's queued for tomorrow + beyond
+
+User explicitly held P2 / P3 / P4 / landing / Android docs until P1 is merged and signed off. Approved plan from this session's audit (full details in this CLAUDE.md and earlier session-log discussion):
+
+**P2 — Private lessons overhaul** (after audit by Explore agent `a035e592e050080d9` 2026-06-03):
+- C8: `lib/email.ts` add `sendPartnerInviteEmail` + `sendPrivateLessonRequestedEmail`; wire into `activatePartnersOnAccept` in `/api/private-lessons/bookings/[id]/route.ts:79` so OUTSIDE partners actually receive their invite token URL by email (currently tokens are generated and never sent). Wire to `/api/member/privates/route.ts` POST so coach gets email + in-app DM on new request.
+- C9: `app/member/privates/page.tsx` inline warning + submit gate when member picks coach+tier combo that fails the `optionCoachIds()` cascade.
+- C10: better time selection UX in member request flow — calendar mini grid + suggested time chips from `StaffAvailability`.
+- C11: `app/member/bookings/page.tsx` extend `Booking.kind` from `"event" | "class"` to `+"private"`; fetch + render PrivateBookings. Add to `app/member/page.tsx` Upcoming Bookings widget.
+- **MIGRATION M1**: `PrivatePackage.publishedToMembers Boolean @default(false)` — ISOLATED COMMIT. Rollback risk: LOW (additive, default false). Hand-written SQL per CLAUDE.md pattern.
+- C12: member-facing package shop at `app/member/shop/packages/page.tsx` + `app/api/member/private-packages/route.ts` GET + `/buy/route.ts` POST (Stripe Checkout). Webhook handler in `app/api/stripe/webhook/route.ts` `checkout.session.completed` creates `PrivateCreditLedger` row on success. MED risk (Stripe path).
+
+**P3 — Notifications foundation** (after audit by Explore agent `ad8fbfd5e3bd8b9ef` 2026-06-03):
+- **MIGRATION M2**: new `Notification` model. Rollback risk: LOW (isolated table, no FKs out). Schema: `{ id, clubId, userId, type, title, body?, link?, payload?, readAt?, createdAt }` + index on `(userId, readAt, createdAt)`.
+- C13: `lib/notifications.ts` with `createNotification()`; new endpoints `/api/notifications` GET + `/api/notifications/[id]/read` POST + `/api/notifications/read-all` POST + `/api/notifications/unread-count` GET.
+- C14: wire `createNotification` at 10 event source POST handlers (member messages DM + groups, classes book, events register, privates request, privates accept/decline, announcements, manual-payment, Stripe webhook checkout completed + invoice payment_failed). Each call wrapped in try/catch — never blocks the parent operation. MED risk (10 routes touched).
+- C15: `components/NotificationBell.tsx` + add to `app/dashboard/layout.tsx` topbar + `app/member/layout.tsx` desktop header / mobile More slot.
+
+**P4 — Minor accounts + parental controls** (after audit by Explore agent `a2bad139b5996a785` 2026-06-03):
+- **MIGRATION M3**: `Member.birthdayLockedAt DateTime?`, `Member.parentControls Json?` (`{ requirePaymentApproval, monitoredMessaging, allowPackagePurchase, dailySpendLimit? }`), new `PendingApproval` model (`{ id, clubId, memberId, kind, payload, amount?, status (PENDING|APPROVED|DECLINED|EXPIRED), requestedAt, respondedAt?, respondedById? }`). Rollback risk: LOW (additive). Default state = no controls = existing behavior unchanged.
+- C16: wire gates into `app/api/member/classes/book/route.ts`, `events/[id]/register/route.ts`, `privates/route.ts` — when `member.isMinor && parentControls.requirePaymentApproval && amount > 0` return 403 with `code: "PARENT_APPROVAL_REQUIRED"` and create PendingApproval row. Update DM POST to fire notifications for guardians when `monitoredMessaging`. PATCH `/api/members/[id]/route.ts` rejects DOB change from MEMBER role when `birthdayLockedAt` set.
+- C17: birthday lock UI — disable DOB field on `app/member/profile/page.tsx` when locked; warning on owner-side `app/dashboard/members/page.tsx` Edit form.
+- C18: per-child controls page at `app/member/family/[memberId]/page.tsx` + `/api/member/family/[memberId]/controls/route.ts` PATCH (parent-only).
+
+**CX — Landing page redesign** (deferred — after P1–P4 are stable):
+- Brainstorm aesthetic with `superpowers:brainstorming` skill before any code.
+- Use Magic MCP for component inspiration.
+- Targets: `app/page.tsx` (currently 463 lines, uses unicode glyph features + purple `#534AB7` brand color, cream `#F5F3EE` background, Inter font). Replace glyphs with lucide, recolor to lime/charcoal/athletic, new hero + conversion CTA. `app/pricing/page.tsx` polish.
+
+**CY — Android verification docs** (no code, just instructions):
+- Audit complete (Explore agent `a9926950a9bcbc3d9` 2026-06-03). Capacitor 8.3.4, Gradle 8.14.3, SDK 36 / min 24, single Activity (portrait, singleTask), INTERNET-only permission. **No keystore** — must be added before release builds (not blocking dev/test). `npm run cap:android` opens Android Studio.
+- Instructions to write: how to test locally on emulator + device, how to set up keystore for release.
+
+### Risk callouts (carried from approved plan)
+
+| Commit | Risk |
+|---|---|
+| M1 / M2 / M3 | All additive; rollback SQL kept in commit body. Hand-written per CLAUDE.md migration pattern (shadow DB broken locally). |
+| C8 (email send) | Real side effect; reuses nodemailer transport. |
+| C12 (Stripe path) | New checkout flow + webhook handler; idempotent via `StripeWebhookEvent` dedupe. |
+| C14 (notification wiring) | 10 routes; every `createNotification` wrapped in try/catch. |
+| C16 (parental controls gates) | Default state = no controls; opt-in only. |
+
+### Manual testing checklist user runs after merging P1 to main
+
+| Item | Verification |
+|---|---|
+| Dark mode contrast | Toggle theme on dashboard; verify lime "Confirm" buttons in /dashboard/privates + login inputs legible in both modes |
+| Sign-in logo navigation | On /login, click/tap logo → must land on / |
+| Calendar — desktop | /dashboard/calendar shows 4 chips/day; "+N more" opens Day Detail panel |
+| Calendar — mobile (375px) | Vertical day-list view; only days with items + today; full chip list per day |
+| Member nav — Bookings | On /member at mobile, bottom nav has Bookings; tap → /member/bookings |
+| Member nav — More sheet | Tap More in bottom nav → sheet appears with News / Docs / Privates / Our team / Profile / Sign out; backdrop tap closes |
+| Owner widgets | /dashboard shows Recent messages + Recent bookings; Customize modal toggles visibility; reload persists |
+| App icon | `npm run cap:ios`, build on simulator, check Springboard — AthletixOS brand circle fills the rounded badge |
+| Android icons | NOT updated by this branch. Run `npx @capacitor/assets generate --android` from source when ready |
+
+### Architectural notes for tomorrow's session
+
+- The widget system in `lib/dashboardWidgets.ts` auto-merges new keys via `resolvePrefs` — adding more widgets in P2/P3/P4 is just: add to `WIDGET_CATALOG`, optionally add to `DEFAULT_ORDER`, add a `case` in `sectionWidget` on the dashboard page.
+- Login page now lives inside `.dashboard-root` scope. Future auth-adjacent pages (`/signup`, `/forgot-password`, `/reset-password`) should follow the same pattern — set `.dashboard-root` on the outer wrapper and use design tokens, not stone-* / white hardcodes.
+- The member layout MoreSheet pattern (bottom-anchored modal with backdrop) is a reusable template for any future mobile-only secondary menus.
 
 ## Session log — 2026-06-02 (visual sweep + iOS layout hardening + security pass)
 
