@@ -40,6 +40,10 @@ type PartnerDraft = {
   kind: PartnerKind | null;
   memberId?: string;
   memberName?: string;
+  // OUTSIDE-only — collected up front (optional) so the system can email
+  // the partner their invite link directly once the coach accepts.
+  outsideName?: string;
+  outsideEmail?: string;
 };
 
 type BookingPartner = {
@@ -366,6 +370,17 @@ export default function MemberPrivatesPage() {
           .map((p) => ({
             kind: p.kind,
             memberId: p.kind === "MEMBER" ? p.memberId : null,
+            // Only forward the optional outside-partner contact for
+            // OUTSIDE rows; the server schema treats these as nullable
+            // so empty strings collapse to null.
+            outsideName:
+              p.kind === "OUTSIDE" && p.outsideName?.trim()
+                ? p.outsideName.trim()
+                : null,
+            outsideEmail:
+              p.kind === "OUTSIDE" && p.outsideEmail?.trim()
+                ? p.outsideEmail.trim()
+                : null,
           })),
       }),
     });
@@ -984,10 +999,41 @@ function PartnerPicker({
       )}
 
       {value.kind === "OUTSIDE" && (
-        <p className="text-xs text-stone-500">
-          Once your coach approves, we&apos;ll generate a shareable link you can send to your partner.
-          They&apos;ll fill in their info there.
-        </p>
+        <div className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-0.5">
+                Partner name <span className="text-stone-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={value.outsideName || ""}
+                onChange={(e) => onChange({ outsideName: e.target.value })}
+                placeholder="First Last"
+                maxLength={100}
+                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-0.5">
+                Partner email <span className="text-stone-400">(optional)</span>
+              </label>
+              <input
+                type="email"
+                value={value.outsideEmail || ""}
+                onChange={(e) => onChange({ outsideEmail: e.target.value })}
+                placeholder="partner@example.com"
+                maxLength={200}
+                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-stone-500">
+            If you add their email, we&apos;ll send the invite link directly to your partner
+            once your coach approves. Otherwise you&apos;ll get a shareable link to send them
+            yourself.
+          </p>
+        </div>
       )}
 
       {value.kind === "NEEDS_HELP" && (

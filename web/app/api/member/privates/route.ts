@@ -135,6 +135,12 @@ const slotSchema = z.object({
 const partnerSchema = z.object({
   kind: z.enum(["MEMBER", "OUTSIDE", "NEEDS_HELP"]),
   memberId: z.string().optional().nullable(),
+  // OUTSIDE-kind partners can optionally provide their partner's name +
+  // email at request time. When present, the coach-accept flow emails
+  // the OUTSIDE partner their invite link directly instead of relying
+  // on the booker to forward it manually.
+  outsideName: z.string().trim().min(1).max(100).optional().nullable(),
+  outsideEmail: z.string().trim().email().max(200).optional().nullable(),
 });
 
 const schema = z.object({
@@ -309,6 +315,12 @@ export async function POST(req: Request) {
                 clubId,
                 kind: p.kind,
                 memberId: p.kind === "MEMBER" ? p.memberId || null : null,
+                // Keep outside name/email empty for MEMBER + NEEDS_HELP rows.
+                // For OUTSIDE rows, persist what the booker entered so the
+                // accept-flow can email the partner directly. Schema column
+                // is already nullable.
+                outsideName: p.kind === "OUTSIDE" ? p.outsideName || null : null,
+                outsideEmail: p.kind === "OUTSIDE" ? p.outsideEmail || null : null,
               })),
             }
           : undefined,

@@ -1,5 +1,7 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { sendPartnerInviteEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 export type PartnerKind = "MEMBER" | "OUTSIDE" | "NEEDS_HELP";
 export type PartnerStatus = "PENDING_COACH" | "INVITED" | "CONFIRMED" | "DECLINED";
@@ -19,10 +21,22 @@ export async function activatePartnersOnAccept(params: {
   lessonTitle: string;
   bookerName: string;
 }) {
-  const partners = await prisma.privateBookingPartner.findMany({
-    where: { bookingId: params.bookingId, clubId: params.clubId },
-    include: { member: { select: { id: true, firstName: true, lastName: true, userId: true } } },
-  });
+  const [partners, booking, club] = await Promise.all([
+    prisma.privateBookingPartner.findMany({
+      where: { bookingId: params.bookingId, clubId: params.clubId },
+      include: { member: { select: { id: true, firstName: true, lastName: true, userId: true } } },
+    }),
+    // confirmedStartAt + lesson title are useful for the invite email,
+    // but we already have the title on params; only need the start time.
+    prisma.privateBooking.findUnique({
+      where: { id: params.bookingId },
+      select: { confirmedStartAt: true },
+    }),
+    prisma.club.findUnique({
+      where: { id: params.clubId },
+      select: { name: true, emailFromName: true, emailReplyTo: true },
+    }),
+  ]);
 
   for (const p of partners) {
     if (p.status !== "PENDING_COACH") continue;
@@ -35,6 +49,29 @@ export async function activatePartnersOnAccept(params: {
         where: { id: p.id },
         data: { status: "INVITED", inviteToken: token, inviteTokenExpiresAt: expires },
       });
+
+      // Send the invite link directly to the outside partner when the
+      // booker provided an email at request time. Best-effort: a
+      // transport failure logs but doesn't break the accept flow. If
+      // no email was collected, the booker still gets the shareable
+      // link from their own portal (existing behaviour).
+      if (p.outsideEmail && club) {
+        try {
+          await sendPartnerInviteEmail({
+            to: p.outsideEmail,
+            partnerName: p.outsideName || null,
+            bookerName: params.bookerName,
+            clubName: club.name,
+            lessonTitle: params.lessonTitle,
+            confirmedStartAt: booking?.confirmedStartAt ?? null,
+            inviteUrl: `${getAppBaseUrl()}/privates/partner/${token}`,
+            fromName: club.emailFromName || club.name,
+            replyTo: club.emailReplyTo || null,
+          });
+        } catch (err) {
+          console.error("[partner-invite] email failed", err);
+        }
+      }
     } else if (p.kind === "MEMBER" && p.memberId) {
       await prisma.privateBookingPartner.update({
         where: { id: p.id },
