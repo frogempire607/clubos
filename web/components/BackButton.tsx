@@ -18,6 +18,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ArrowLeft } from "lucide-react";
 
 export default function BackButton({
   fallbackHref,
@@ -67,7 +68,7 @@ export default function BackButton({
       onClick={handleClick}
       className={`inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary transition ${className}`}
     >
-      <span aria-hidden>←</span>
+      <ArrowLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
       <span>{label || "Back"}</span>
     </button>
   );

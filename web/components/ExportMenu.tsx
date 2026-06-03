@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 type Props = {
   baseUrl: string;
@@ -67,7 +68,7 @@ export default function ExportMenu({ baseUrl, label = "Export" }: Props) {
         className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg flex items-center gap-1 disabled:opacity-50"
       >
         {busy ? "Exporting…" : label}
-        <span className="text-text-muted">▾</span>
+        <ChevronDown className="h-3 w-3 text-text-muted" strokeWidth={2} />
       </button>
       {open && (
         <div className="absolute right-0 mt-1 w-44 bg-white border border-app-border rounded-lg shadow-lg z-30 overflow-hidden">

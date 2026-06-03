@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { Users, FileText } from "lucide-react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
 import ExportMenu from "@/components/ExportMenu";
@@ -375,7 +376,9 @@ export default function MembersPage() {
           <SkeletonList rows={6} />
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
-            <div className="text-4xl mb-2">◉</div>
+            <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+              <Users className="h-7 w-7" strokeWidth={2} />
+            </div>
             <h3 className="text-lg font-medium text-text-primary mb-1">No members yet</h3>
             <p className="text-sm text-text-muted mb-4">Add your first member or import from a CSV file.</p>
             <div className="flex gap-2 justify-center">
@@ -827,8 +830,8 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
                   <p className="text-xs font-medium text-text-primary mb-2">Existing athletes under this guardian:</p>
                   <div className="space-y-1">
                     {siblings.map((s) => (
-                      <div key={s.id} className="text-xs text-text-primary flex items-center gap-1">
-                        <span className="text-orange-accent">◉</span>
+                      <div key={s.id} className="text-xs text-text-primary flex items-center gap-1.5">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-accent" aria-hidden />
                         {s.firstName} {s.lastName}
                       </div>
                     ))}
@@ -1282,7 +1285,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
           {step === "upload" && (
             <div className="text-center">
               <div className="border-2 border-dashed border-app-border rounded-xl p-10 hover:border-app-border transition cursor-pointer" onClick={() => fileRef.current?.click()}>
-                <div className="text-4xl mb-3">📄</div>
+                <FileText className="h-10 w-10 mx-auto mb-3 text-text-muted" strokeWidth={1.5} />
                 <p className="text-sm font-medium text-text-primary mb-1">Drop a CSV file here or click to browse</p>
                 <p className="text-xs text-text-muted">Supports up to 500 members per import</p>
                 <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />

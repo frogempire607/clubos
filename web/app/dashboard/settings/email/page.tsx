@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 
 type Data = {
   configured: boolean;
@@ -79,8 +80,8 @@ export default function EmailSettingsPage() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-2">
-        <Link href="/dashboard/settings" className="text-sm text-text-muted hover:text-text-primary">
-          ← Settings
+        <Link href="/dashboard/settings" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Settings
         </Link>
       </div>
       <h1 className="text-2xl font-semibold text-text-primary mb-1">Email</h1>
@@ -153,10 +154,10 @@ export default function EmailSettingsPage() {
               environment variables on the server:
             </p>
             <ul className="font-mono text-xs bg-charcoal text-stone-100 rounded-lg p-3 space-y-0.5">
-              <li>SMTP_HOST{d.missingVars.includes("SMTP_HOST") ? "   ← missing" : ""}</li>
-              <li>SMTP_PORT{d.missingVars.includes("SMTP_PORT") ? "   ← missing" : ""}</li>
-              <li>SMTP_USER{d.missingVars.includes("SMTP_USER") ? "   ← missing" : ""}</li>
-              <li>SMTP_PASS{d.missingVars.includes("SMTP_PASS") ? "   ← missing" : ""}</li>
+              <li>SMTP_HOST{d.missingVars.includes("SMTP_HOST") ? "   (missing)" : ""}</li>
+              <li>SMTP_PORT{d.missingVars.includes("SMTP_PORT") ? "   (missing)" : ""}</li>
+              <li>SMTP_USER{d.missingVars.includes("SMTP_USER") ? "   (missing)" : ""}</li>
+              <li>SMTP_PASS{d.missingVars.includes("SMTP_PASS") ? "   (missing)" : ""}</li>
               <li>EMAIL_FROM   (e.g. AthletixOS &lt;no-reply@yourdomain.com&gt;)</li>
               <li>SMTP_SECURE  (true for port 465, otherwise false)</li>
             </ul>

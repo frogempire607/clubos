@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileText } from "lucide-react";
+import { FileText, List, Eraser } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
@@ -411,18 +411,20 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
         <button
           type="button"
           onMouseDown={(e) => { e.preventDefault(); document.execCommand("insertUnorderedList", false); sync(); }}
-          className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border text-xs"
+          className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border"
           title="Bullet list"
+          aria-label="Bullet list"
         >
-          ≡
+          <List className="h-3.5 w-3.5" strokeWidth={2} />
         </button>
         <button
           type="button"
           onMouseDown={(e) => { e.preventDefault(); document.execCommand("removeFormat", false); sync(); }}
-          className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border text-xs"
+          className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border"
           title="Clear formatting"
+          aria-label="Clear formatting"
         >
-          ✕
+          <Eraser className="h-3.5 w-3.5" strokeWidth={2} />
         </button>
       </div>
 

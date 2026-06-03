@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Megaphone, Smartphone, Mail, Bell, type LucideIcon } from "lucide-react";
 
 type Announcement = {
   id: string;
@@ -51,10 +52,10 @@ const statusStyle: Record<Status, { bg: string; fg: string; label: string }> = {
   EXPIRED:   { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Expired" },
 };
 
-const CHANNELS = [
-  { id: "app",   label: "In-App",  icon: "◉" },
-  { id: "email", label: "Email",   icon: "✉" },
-  { id: "push",  label: "Push",    icon: "🔔" },
+const CHANNELS: { id: string; label: string; Icon: LucideIcon }[] = [
+  { id: "app",   label: "In-App",  Icon: Smartphone },
+  { id: "email", label: "Email",   Icon: Mail },
+  { id: "push",  label: "Push",    Icon: Bell },
 ];
 
 const FILTER_OPTIONS: Array<{ value: "ALL" | Status; label: string }> = [
@@ -133,7 +134,9 @@ export default function AnnouncementsPage() {
         <div className="text-center py-16 text-text-muted text-sm">Loading…</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-app-border">
-          <div className="text-4xl mb-3">📢</div>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <Megaphone className="h-7 w-7" strokeWidth={2} />
+          </div>
           <h3 className="text-lg font-medium text-text-primary mb-1">
             {filter === "ALL" ? "No announcements yet" : `No ${filter.toLowerCase()} announcements`}
           </h3>
@@ -166,8 +169,8 @@ export default function AnnouncementsPage() {
                       </span>
                       <div className="flex gap-1">
                         {CHANNELS.filter((c) => channelList.includes(c.id)).map((c) => (
-                          <span key={c.id} className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
-                            {c.icon} {c.label}
+                          <span key={c.id} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
+                            <c.Icon className="h-3 w-3" strokeWidth={2} /> {c.label}
                           </span>
                         ))}
                       </div>
@@ -450,7 +453,7 @@ function AnnouncementModal({
                       : "border-app-border text-text-muted hover:bg-app-bg"
                   }`}
                 >
-                  {c.icon} {c.label}
+                  <c.Icon className="h-4 w-4" strokeWidth={2} /> {c.label}
                 </button>
               ))}
             </div>

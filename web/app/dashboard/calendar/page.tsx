@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { fmtTime, kindIsWallClockUTC, sameMonth } from "@/lib/datetime";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonLine } from "@/components/LoadingSkeleton";
@@ -272,9 +273,9 @@ export default function CalendarPage() {
           <button
             onClick={prevMonth}
             aria-label="Previous month"
-            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted text-lg"
+            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
           >
-            ‹
+            <ChevronLeft className="h-5 w-5" strokeWidth={2} />
           </button>
           <h2 className="text-base sm:text-lg font-semibold text-text-primary tabular-nums">
             {MONTHS[month]} {year}
@@ -285,9 +286,9 @@ export default function CalendarPage() {
           <button
             onClick={nextMonth}
             aria-label="Next month"
-            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted text-lg"
+            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
           >
-            ›
+            <ChevronRight className="h-5 w-5" strokeWidth={2} />
           </button>
         </div>
 

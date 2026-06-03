@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CheckSquare } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Booking = {
@@ -225,7 +226,9 @@ export default function MemberBookingsPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <p className="text-3xl mb-2 text-stone-200">◷</p>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <CheckSquare className="h-7 w-7" strokeWidth={2} />
+          </div>
           <p className="text-base font-medium text-stone-900 mb-1">No bookings found</p>
           <p className="text-sm text-stone-500">
             {filter === "upcoming"

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { MessageSquare, Mail } from "lucide-react";
 
 type Announcement = {
   id: string;
@@ -149,7 +150,9 @@ function AnnouncementsTab() {
         <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : announcements.length === 0 ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2 text-text-muted">✉</div>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <Mail className="h-7 w-7" strokeWidth={2} />
+          </div>
           <h3 className="text-lg font-medium text-text-primary mb-1">No announcements yet</h3>
           <p className="text-sm text-text-muted mb-4">Post updates to keep your members informed.</p>
           <button
@@ -347,7 +350,9 @@ function GroupsTab() {
         <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : groups.length === 0 ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2 text-text-muted">💬</div>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <MessageSquare className="h-7 w-7" strokeWidth={2} />
+          </div>
           <h3 className="text-lg font-medium text-text-primary mb-1">No groups yet</h3>
           <p className="text-sm text-text-muted mb-4">Create a group to message a specific team, class, or set of members.</p>
           <button onClick={() => setShowCreate(true)}
@@ -403,7 +408,7 @@ function GroupsTab() {
               {!activeGroup ? (
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
-                    <div className="text-3xl text-text-muted mb-2">💬</div>
+                    <MessageSquare className="h-7 w-7 text-text-muted mx-auto mb-2" strokeWidth={2} />
                     <p className="text-sm text-text-muted">Select a group to view messages</p>
                   </div>
                 </div>
@@ -888,7 +893,7 @@ function DMsTab() {
           {!activeUser ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <div className="text-3xl text-text-muted mb-2">💬</div>
+                <MessageSquare className="h-7 w-7 text-text-muted mx-auto mb-2" strokeWidth={2} />
                 <p className="text-sm text-text-muted">Select a conversation or start a new one</p>
               </div>
             </div>

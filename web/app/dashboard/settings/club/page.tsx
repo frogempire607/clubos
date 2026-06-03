@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 
 const SPORTS = [
@@ -156,8 +157,8 @@ export default function ClubSettingsPage() {
   return (
     <div className="p-8 max-w-2xl">
       <div className="mb-6">
-        <Link href="/dashboard/settings" className="text-sm text-text-muted hover:text-text-primary">
-          ← Settings
+        <Link href="/dashboard/settings" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Settings
         </Link>
       </div>
 
@@ -245,7 +246,6 @@ export default function ClubSettingsPage() {
             value={logoUrl || null}
             onChange={setLogoUrl}
             shape="square"
-            placeholder="◉"
           />
 
           <ImageUpload
@@ -253,7 +253,6 @@ export default function ClubSettingsPage() {
             value={coverImageUrl || null}
             onChange={setCoverImageUrl}
             shape="square"
-            placeholder="◌"
           />
 
           <div>

@@ -416,7 +416,7 @@ function MinorAthleteView({ data }: { data: PortalData }) {
     <>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-stone-900">
-          Hey {data.user.firstName}! 👋
+          Hey {data.user.firstName}!
         </h1>
         <p className="text-sm text-stone-500">{data.club.name}</p>
       </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import {
   ALWAYS_ON_FIELDS,
   DEFAULT_MEMBER_FORM_CONFIG,
@@ -68,7 +69,9 @@ export default function MemberFormSettingsPage() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-6">
-        <Link href="/dashboard/members" className="text-xs text-text-muted hover:text-text-primary">‹ Back to Members</Link>
+        <Link href="/dashboard/members" className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary">
+          <ArrowLeft className="h-3 w-3" strokeWidth={2} /> Back to Members
+        </Link>
         <h1 className="text-3xl font-semibold text-text-primary mt-1 mb-1">Member intake form</h1>
         <p className="text-sm text-text-muted">
           Choose which fields appear when you add a new member or import a CSV. Athlete name and email are always

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { AlertOctagon, MapPin, CheckCircle2, PartyPopper, ArrowRight } from "lucide-react";
 
 type FormField = {
   id: string;
@@ -106,8 +107,8 @@ export default function PublicEventPage() {
     return (
       <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6">
         <div className="bg-white rounded-xl border border-stone-200 p-8 max-w-md text-center">
-          <p className="text-2xl mb-2">🚫</p>
-          <h1 className="text-lg font-semibold text-stone-900 mb-1">Can't open this event</h1>
+          <AlertOctagon className="h-10 w-10 mx-auto mb-2 text-stone-400" strokeWidth={1.5} />
+          <h1 className="text-lg font-semibold text-stone-900 mb-1">Can&apos;t open this event</h1>
           <p className="text-sm text-stone-500">{error}</p>
         </div>
       </div>
@@ -175,8 +176,9 @@ export default function PublicEventPage() {
             {new Date(event.endsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
           </p>
           {event.location && (
-            <p className="text-sm text-stone-500 mt-0.5">
-              📍 {event.location.name}{event.location.address ? ` · ${event.location.address}` : ""}
+            <p className="text-sm text-stone-500 mt-0.5 inline-flex items-center gap-1">
+              <MapPin className="h-4 w-4 inline" strokeWidth={2} />
+              {event.location.name}{event.location.address ? ` · ${event.location.address}` : ""}
               {event.location.latitude != null && event.location.longitude != null && (
                 <>
                   {" · "}
@@ -206,8 +208,8 @@ export default function PublicEventPage() {
           {session?.user?.role === "MEMBER" ? (
             <div className="mt-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 flex items-center justify-between gap-2">
               <span>You&apos;re signed in. Register from your member portal to use member pricing or your active membership.</span>
-              <Link href="/member/events" className="underline whitespace-nowrap" style={{ color: accent }}>
-                Open portal →
+              <Link href="/member/events" className="inline-flex items-center gap-1 underline whitespace-nowrap" style={{ color: accent }}>
+                Open portal <ArrowRight className="h-3 w-3" strokeWidth={2.5} />
               </Link>
             </div>
           ) : !session?.user ? (
@@ -227,8 +229,9 @@ export default function PublicEventPage() {
 
         {/* Status banners */}
         {(justRegistered || justPaid) && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4 text-sm text-green-800">
-            ✓ Payment received — you're registered. A confirmation has been emailed to you.
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4 text-sm text-green-800 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0" strokeWidth={2} />
+            <span>Payment received — you&apos;re registered. A confirmation has been emailed to you.</span>
           </div>
         )}
         {wasCanceled && (
@@ -239,7 +242,7 @@ export default function PublicEventPage() {
 
         {done ? (
           <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">
-            <p className="text-3xl mb-2">🎉</p>
+            <PartyPopper className="h-10 w-10 mx-auto mb-2 text-stone-700" strokeWidth={1.5} />
             <h2 className="text-lg font-semibold text-stone-900 mb-1">{done.message}</h2>
             <p className="text-sm text-stone-500">A confirmation has been sent to {email}.</p>
           </div>

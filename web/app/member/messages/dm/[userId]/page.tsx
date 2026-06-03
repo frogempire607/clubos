@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { ArrowLeft } from "lucide-react";
 
 type Msg = {
   id: string;
@@ -112,7 +113,9 @@ function MemberDmThreadInner() {
   return (
     <div className="flex flex-col h-[calc(100vh-12rem)] md:h-[calc(100vh-9rem)]">
       <div className="flex items-center gap-3 mb-3 flex-shrink-0">
-        <Link href="/member/messages" className="text-stone-500 hover:text-stone-900 text-lg leading-none">‹</Link>
+        <Link href="/member/messages" aria-label="Back to messages" className="text-stone-500 hover:text-stone-900 inline-flex items-center">
+          <ArrowLeft className="h-5 w-5" strokeWidth={2} />
+        </Link>
         <div className="w-9 h-9 rounded-full bg-stone-200 flex items-center justify-center text-sm font-bold text-stone-700">
           {other.firstName[0]}{other.lastName[0]}
         </div>

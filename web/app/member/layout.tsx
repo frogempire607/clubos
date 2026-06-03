@@ -349,7 +349,16 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       <div className="text-sm font-medium text-stone-900">{it.label}</div>
                       <div className="text-xs text-stone-500">{it.desc}</div>
                     </div>
-                    <span className="text-stone-300 text-lg">›</span>
+                    <svg
+                      className="text-stone-300 flex-shrink-0"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      aria-hidden
+                    >
+                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
                   </Link>
                 );
               })}
@@ -494,7 +503,7 @@ function ProfileIcon({ size }: { size: number }) {
 function buildPortalNav(config: BrandedAppConfig | null | undefined) {
   if (!config) return NAV;
   const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean }> = {
-    book: { href: "/member/shop", icon: HomeIcon, exact: false },
+    book: { href: "/member/shop", icon: BookNowIcon, exact: false },
     schedule: { href: "/member/schedule", icon: BookingIcon, exact: false },
     store: { href: "/member/products", icon: StoreIcon, exact: false },
     videos: { href: "/member/shop", icon: VideoIcon, exact: false },
@@ -504,6 +513,16 @@ function buildPortalNav(config: BrandedAppConfig | null | undefined) {
     .filter((item) => item.enabled && item.key !== "videos")
     .map((item) => ({ ...byKey[item.key], label: item.label || item.key }));
   return items.length ? items : NAV;
+}
+
+function BookNowIcon({ size }: { size: number }) {
+  // Calendar with a plus inside — distinct from the schedule icon, signals
+  // "book / add" rather than "view existing schedule".
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+      <path fillRule="evenodd" d="M6 2a1 1 0 011 1v1h6V3a1 1 0 112 0v1h1a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 011-1zm-2 6v8h12V8H4zm6 2a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1H8a1 1 0 110-2h1v-1a1 1 0 011-1z" clipRule="evenodd" />
+    </svg>
+  );
 }
 
 function StoreIcon({ size }: { size: number }) {

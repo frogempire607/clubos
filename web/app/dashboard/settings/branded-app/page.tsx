@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { CalendarPlus, CalendarDays, ShoppingBag, Play, MoreHorizontal, type LucideIcon } from "lucide-react";
 import {
   type BrandedAppConfig,
   type BrandedNavKey,
@@ -791,12 +792,15 @@ function BookPreview({ cfg, clubName }: { cfg: BrandedAppConfig; clubName: strin
         ))}
       </div>
       <div className="grid border-t border-stone-200" style={{ gridTemplateColumns: `repeat(${Math.max(enabledNav.length, 1)}, minmax(0, 1fr))`, background: cfg.navigation.backgroundColor }}>
-        {enabledNav.map((item, i) => (
-          <div key={item.key} className="py-2 flex flex-col items-center gap-1" style={{ color: i === 0 ? cfg.navigation.activeIconColor : cfg.navigation.inactiveIconColor }}>
-            <span className="text-base">{navIcon(item.key)}</span>
-            <span className="text-[9px] font-medium leading-none">{item.label}</span>
-          </div>
-        ))}
+        {enabledNav.map((item, i) => {
+          const Icon = navIcon(item.key);
+          return (
+            <div key={item.key} className="py-2 flex flex-col items-center gap-1" style={{ color: i === 0 ? cfg.navigation.activeIconColor : cfg.navigation.inactiveIconColor }}>
+              <Icon size={16} strokeWidth={2} />
+              <span className="text-[9px] font-medium leading-none">{item.label}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -984,10 +988,10 @@ function bookCardStyle(cfg: BrandedAppConfig): React.CSSProperties {
   return { ...base, background: cfg.bookNow.cardBackground, borderColor: "#E7E5E4" };
 }
 
-function navIcon(key: BrandedNavKey) {
-  if (key === "book") return "+";
-  if (key === "schedule") return "□";
-  if (key === "store") return "$";
-  if (key === "videos") return "▶";
-  return "...";
+function navIcon(key: BrandedNavKey): LucideIcon {
+  if (key === "book") return CalendarPlus;
+  if (key === "schedule") return CalendarDays;
+  if (key === "store") return ShoppingBag;
+  if (key === "videos") return Play;
+  return MoreHorizontal;
 }

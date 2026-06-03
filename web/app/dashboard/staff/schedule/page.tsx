@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type Availability = { userId: string; dayOfWeek: number; startTime: string; endTime: string };
 type Exception = { id: string; date: string; type: string; startTime: string | null; endTime: string | null; note: string | null };
@@ -100,9 +101,13 @@ export default function StaffSchedulePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => shiftWeek(-7)} className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">← Prev</button>
+          <button onClick={() => shiftWeek(-7)} className="inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">
+            <ChevronLeft className="h-3 w-3" strokeWidth={2} /> Prev
+          </button>
           <button onClick={() => setWeekStart(startOfWeek(new Date()))} className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">This week</button>
-          <button onClick={() => shiftWeek(7)} className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Next →</button>
+          <button onClick={() => shiftWeek(7)} className="inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">
+            Next <ChevronRight className="h-3 w-3" strokeWidth={2} />
+          </button>
         </div>
       </div>
 

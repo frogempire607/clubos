@@ -157,9 +157,11 @@ export default function MemberMessagesPage() {
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
       ) : isEmpty ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <p className="text-3xl mb-2 text-stone-200">✉</p>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <MailIcon className="h-7 w-7" strokeWidth={2} />
+          </div>
           <p className="text-base font-medium text-stone-900 mb-1">No messages yet</p>
-          <p className="text-sm text-stone-500">When your club sends you a message, it'll show up here.</p>
+          <p className="text-sm text-stone-500">When your club sends you a message, it&apos;ll show up here.</p>
         </div>
       ) : (
         <div className="space-y-4">

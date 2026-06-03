@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { FileText } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Signature = {
@@ -145,9 +146,11 @@ export default function MemberDocumentsPage() {
 
       {docs.length === 0 ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <p className="text-3xl mb-2 text-stone-200">▤</p>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <FileText className="h-7 w-7" strokeWidth={2} />
+          </div>
           <p className="text-base font-medium text-stone-900 mb-1">No documents yet</p>
-          <p className="text-sm text-stone-500">Your club hasn't posted any documents.</p>
+          <p className="text-sm text-stone-500">Your club hasn&apos;t posted any documents.</p>
         </div>
       ) : (
         <>

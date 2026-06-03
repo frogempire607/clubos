@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
 
 // Avatar dropdown that lives in the dashboard topbar. Replaces sidebar
@@ -53,7 +54,7 @@ export default function UserMenu({
         <span className="hidden sm:block text-sm text-text-primary font-medium max-w-[140px] truncate">
           {name || email || "Account"}
         </span>
-        <span className="hidden sm:block text-text-muted text-[10px]">▾</span>
+        <ChevronDown className="hidden sm:block h-3 w-3 text-text-muted" strokeWidth={2} />
       </button>
 
       {open && (

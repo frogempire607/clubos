@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Search } from "lucide-react";
 
 type Hit = { id: string; label: string; sub?: string; href: string };
 type Group = { type: string; label: string; items: Hit[] };
@@ -98,7 +99,7 @@ export default function GlobalSearch() {
   return (
     <div ref={wrapRef} className="relative w-full max-w-xl">
       <div className="flex items-center gap-2 bg-surface border border-app-border rounded-lg px-3 h-9">
-        <span className="text-text-muted text-sm select-none">⌕</span>
+        <Search className="h-4 w-4 text-text-muted shrink-0" strokeWidth={2} />
         <input
           ref={inputRef}
           value={q}
@@ -108,7 +109,7 @@ export default function GlobalSearch() {
           className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
         />
         <kbd className="hidden sm:inline text-[10px] text-text-muted border border-app-border rounded px-1.5 py-0.5">
-          ⌘K
+          Ctrl K
         </kbd>
       </div>
 

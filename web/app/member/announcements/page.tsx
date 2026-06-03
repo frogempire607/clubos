@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Megaphone } from "lucide-react";
 
 type Announcement = {
   id: string;
@@ -74,9 +75,11 @@ export default function MemberAnnouncementsPage() {
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
       ) : items.length === 0 ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <p className="text-3xl mb-2 text-stone-200">◇</p>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <Megaphone className="h-7 w-7" strokeWidth={2} />
+          </div>
           <p className="text-base font-medium text-stone-900 mb-1">No announcements yet</p>
-          <p className="text-sm text-stone-500">When your club posts updates, they'll appear here.</p>
+          <p className="text-sm text-stone-500">When your club posts updates, they&apos;ll appear here.</p>
         </div>
       ) : (
         <div className="space-y-3">
