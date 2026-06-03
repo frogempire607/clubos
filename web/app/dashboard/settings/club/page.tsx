@@ -298,7 +298,7 @@ export default function ClubSettingsPage() {
         {/* Contact info */}
         <div className="bg-white rounded-xl border border-app-border p-6 space-y-4">
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Contact</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Public email</label>
               <input

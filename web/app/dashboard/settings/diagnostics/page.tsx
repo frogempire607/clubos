@@ -137,7 +137,7 @@ export default function StripeDiagnosticsPage() {
           <div className="text-center py-8">
             <p className="text-sm text-text-muted mb-2">No webhook events received yet.</p>
             <p className="text-[11px] text-text-muted">
-              To test locally, run <code className="bg-app-bg px-1.5 py-0.5 rounded">stripe listen --forward-to localhost:3001/api/stripe/webhook</code>
+              To test locally, run <code className="bg-app-bg px-1.5 py-0.5 rounded">stripe listen --forward-to localhost:3000/api/stripe/webhook</code>
             </p>
           </div>
         ) : (

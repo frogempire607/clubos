@@ -352,8 +352,8 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">Edit subscription</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -362,7 +362,7 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
           <p className="text-xs text-text-muted">
             Adjusts the AthletixOS record only. Stripe's billing cycle is unchanged — use the Stripe portal for that.
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-primary mb-1">Start date</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
@@ -374,7 +374,7 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-primary mb-1">Status</label>
               <select value={status} onChange={(e) => setStatus(e.target.value)}
@@ -461,8 +461,8 @@ function AddRelationshipModal({ memberId, onClose, onSaved }: { memberId: string
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">Link a member</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

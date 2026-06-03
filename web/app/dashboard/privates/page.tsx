@@ -287,7 +287,7 @@ function LessonTypeModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
           <h2 className="font-semibold text-text-primary">{lt ? "Edit lesson type" : "New lesson type"}</h2>
@@ -308,7 +308,7 @@ function LessonTypeModal({
               value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Duration</label>
               <select className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
@@ -330,7 +330,7 @@ function LessonTypeModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Coach tier label</label>
               <input className="w-full border border-app-border rounded-md px-3 py-2 text-sm" placeholder="e.g. Black Belt"
@@ -514,7 +514,7 @@ function PackageModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       {/* max-h + overflow on the OUTER card so the modal stays inside the
           viewport and the Save button at the bottom is always reachable
           on laptop screens. */}
@@ -573,7 +573,7 @@ function PackageModal({
               value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Lessons included *</label>
               <input type="number" min={1} required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
@@ -747,7 +747,7 @@ function BookingModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
           <h2 className="font-semibold text-text-primary">Booking — {booking.member.firstName} {booking.member.lastName}</h2>
@@ -903,7 +903,7 @@ function BookingModal({
           {action === "confirm" && (
             <div className="space-y-3">
               <p className="text-sm font-medium text-text-primary">Confirm time</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-text-muted mb-1">Start</label>
                   <input type="datetime-local" className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
@@ -1203,7 +1203,7 @@ function NewBookingModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
           <h2 className="font-semibold text-text-primary">New booking</h2>
@@ -1264,7 +1264,7 @@ function NewBookingModal({
               value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Start time *</label>
               <input type="time" required className="w-full border border-app-border rounded-md px-3 py-2 text-sm"
@@ -1396,7 +1396,7 @@ function AssignPackageModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-text-primary">Assign lesson package</h2>
@@ -1657,7 +1657,7 @@ export default function PrivatesPage() {
               {bookings.length === 0 ? (
                 <div className="text-center py-16 text-text-muted">No bookings found</div>
               ) : (
-                <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+                <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-app-bg border-b border-app-border">
                       <tr>
@@ -1683,7 +1683,7 @@ export default function PrivatesPage() {
               {lessonTypes.length === 0 ? (
                 <div className="text-center py-16 text-text-muted">No lesson types yet</div>
               ) : (
-                <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+                <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-app-bg border-b border-app-border">
                       <tr>
@@ -1726,7 +1726,7 @@ export default function PrivatesPage() {
               {packages.length === 0 ? (
                 <div className="text-center py-16 text-text-muted">No packages yet</div>
               ) : (
-                <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+                <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-app-bg border-b border-app-border">
                       <tr>

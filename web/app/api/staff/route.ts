@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { resolvePermissions } from "@/lib/permissions";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
     // also return the setupUrl in the response when applicable so the owner
     // can copy the link from the dashboard even if SMTP is unset or the
     // email lands in spam.
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+    const baseUrl = getAppBaseUrl();
     const club = await prisma.club.findUnique({
       where: { id: session.user.clubId },
       select: { name: true, slug: true },

@@ -3,23 +3,55 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import {
+  Users,
+  Calendar,
+  CalendarRange,
+  Ticket,
+  UserCheck,
+  Package,
+  CalendarDays,
+  MessageSquare,
+  DollarSign,
+  FileText,
+  Settings,
+  UserPlus,
+  Send,
+  Eye,
+  type LucideIcon,
+} from "lucide-react";
 import type { WidgetDef, WidgetPrefs } from "@/lib/dashboardWidgets";
 import { fmtTime, kindIsWallClockUTC, dayNumber, sameMonth } from "@/lib/datetime";
 
 type CalItem = { kind: string; id: string; name: string; startsAt: string };
 
-const sections = [
-  { label: "Members", icon: "◉", href: "/dashboard/members", desc: "Manage your club roster" },
-  { label: "Classes", icon: "◈", href: "/dashboard/classes", desc: "Recurring weekly programming" },
-  { label: "Events", icon: "◈", href: "/dashboard/events", desc: "Clinics, camps, tournaments" },
-  { label: "Memberships", icon: "◇", href: "/dashboard/purchase-options/memberships", desc: "Plans and billing options" },
-  { label: "Privates", icon: "◎", href: "/dashboard/purchase-options/privates", desc: "Lessons and credit packages" },
-  { label: "Products", icon: "□", href: "/dashboard/purchase-options/products", desc: "Gear, services, rentals" },
-  { label: "Calendar", icon: "▦", href: "/dashboard/calendar", desc: "Monthly event view" },
-  { label: "Messages", icon: "✉", href: "/dashboard/messages", desc: "Announce to your members" },
-  { label: "Financials", icon: "$", href: "/dashboard/financials", desc: "Revenue and transactions" },
-  { label: "Documents", icon: "□", href: "/dashboard/documents", desc: "Waivers and forms" },
-  { label: "Settings", icon: "⚙", href: "/dashboard/settings", desc: "Billing, Stripe, club info" },
+type SectionLink = { label: string; icon: LucideIcon; href: string; desc: string };
+
+const sections: SectionLink[] = [
+  { label: "Members", icon: Users, href: "/dashboard/members", desc: "Manage your club roster" },
+  { label: "Classes", icon: Calendar, href: "/dashboard/classes", desc: "Recurring weekly programming" },
+  { label: "Events", icon: CalendarRange, href: "/dashboard/events", desc: "Clinics, camps, tournaments" },
+  { label: "Memberships", icon: Ticket, href: "/dashboard/purchase-options/memberships", desc: "Plans and billing options" },
+  { label: "Privates", icon: UserCheck, href: "/dashboard/purchase-options/privates", desc: "Lessons and credit packages" },
+  { label: "Products", icon: Package, href: "/dashboard/purchase-options/products", desc: "Gear, services, rentals" },
+  { label: "Calendar", icon: CalendarDays, href: "/dashboard/calendar", desc: "Monthly event view" },
+  { label: "Messages", icon: MessageSquare, href: "/dashboard/messages", desc: "Announce to your members" },
+  { label: "Financials", icon: DollarSign, href: "/dashboard/financials", desc: "Revenue and transactions" },
+  { label: "Documents", icon: FileText, href: "/dashboard/documents", desc: "Waivers and forms" },
+  { label: "Settings", icon: Settings, href: "/dashboard/settings", desc: "Billing, Stripe, club info" },
+];
+
+// Primary daily actions — rendered as a persistent CTA bar above the
+// stats grid. Order matters: most common (Add member, New class) first.
+// Secondary actions stay in the widget grid via the `quickActions`
+// widget for owners who want them.
+type QuickAction = { label: string; href: string; icon: LucideIcon; primary: boolean };
+const PRIMARY_QUICK_ACTIONS: QuickAction[] = [
+  { label: "Add member", href: "/dashboard/members", icon: UserPlus, primary: true },
+  { label: "New class", href: "/dashboard/classes", icon: Calendar, primary: false },
+  { label: "New event", href: "/dashboard/events", icon: CalendarRange, primary: false },
+  { label: "Send message", href: "/dashboard/messages", icon: Send, primary: false },
+  { label: "Client view", href: "/dashboard/preview", icon: Eye, primary: false },
 ];
 
 const QUICK_ACTIONS = [
@@ -197,26 +229,38 @@ export default function DashboardPage() {
     switch (key) {
       case "calendar":
         return (
-          <div key={key} className="bg-surface rounded-xl border border-app-border p-4">
+          // min-w-0 — see note on the section grid wrapper. Without it, an
+          // adjacent overflowing widget can squeeze this column to a few
+          // pixels wide and the 7-column day grid collapses into what reads
+          // like a vertical column of overlapping numbers.
+          <div key={key} className="bg-surface rounded-xl border border-app-border p-3 sm:p-4 min-w-0">
             <div className="flex items-center justify-between mb-3">
-              <button onClick={prevMonth} className="text-text-muted hover:text-text-primary w-6 h-6 flex items-center justify-center rounded hover:bg-app-bg">‹</button>
-              <span className="text-sm font-semibold text-text-primary">{MONTHS[month]} {year}</span>
-              <button onClick={nextMonth} className="text-text-muted hover:text-text-primary w-6 h-6 flex items-center justify-center rounded hover:bg-app-bg">›</button>
+              <button onClick={prevMonth} aria-label="Previous month" className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg">‹</button>
+              <span className="text-sm font-semibold text-text-primary tabular-nums">{MONTHS[month]} {year}</span>
+              <button onClick={nextMonth} aria-label="Next month" className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg">›</button>
             </div>
-            <div className="grid grid-cols-7 gap-0.5 mb-1">
-              {DAYS.map((d) => <div key={d} className="text-center text-[10px] font-medium text-text-muted py-0.5">{d}</div>)}
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {DAYS.map((d) => <div key={d} className="text-center text-[10px] font-semibold uppercase tracking-wider text-text-muted py-1">{d}</div>)}
             </div>
-            <div className="grid grid-cols-7 gap-0.5">
+            <div className="grid grid-cols-7 gap-1">
               {cells.map((day, i) => {
-                if (!day) return <div key={i} />;
+                if (!day) return <div key={i} className="aspect-square" />;
                 const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
                 const hasEvents = eventDays.has(day);
                 const isSelected = selectedDay === day;
                 return (
-                  <button key={i} onClick={() => setSelectedDay(isSelected ? null : day)}
-                    className={`relative flex flex-col items-center justify-center rounded text-xs py-1 transition ${isSelected ? "bg-brand text-white" : isToday ? "bg-app-bg text-text-primary font-semibold" : "text-text-primary hover:bg-app-bg"}`}>
+                  <button
+                    key={i}
+                    onClick={() => setSelectedDay(isSelected ? null : day)}
+                    className={`relative aspect-square min-w-0 flex flex-col items-center justify-center rounded-md text-xs sm:text-sm tabular-nums transition ${isSelected ? "bg-brand text-white font-semibold" : isToday ? "bg-app-bg text-text-primary font-semibold ring-1 ring-app-border" : "text-text-primary hover:bg-app-bg"}`}
+                  >
                     {day}
-                    {hasEvents && !isSelected && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-brand" />}
+                    {hasEvents && !isSelected && (
+                      <span
+                        className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                        style={{ background: "var(--color-lime-accent, #A3E635)" }}
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -242,14 +286,23 @@ export default function DashboardPage() {
         );
       case "quickNav":
         return (
-          <div key={key} className="grid grid-cols-4 gap-3 content-start">
-            {sections.map((sx) => (
-              <Link key={sx.href} href={sx.href} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition group">
-                <div className="text-xl mb-2 text-text-muted group-hover:text-text-primary transition">{sx.icon}</div>
-                <div className="text-sm font-semibold text-text-primary mb-0.5">{sx.label}</div>
-                <div className="text-xs text-text-muted">{sx.desc}</div>
-              </Link>
-            ))}
+          // Responsive — 2 cols on phone, 3 on tablet, 4 on desktop. On
+          // iOS Safari `grid-cols-4` rendered tiles ~80px wide and labels
+          // like "Purchase Options" wrapped 3+ lines, blowing card height
+          // and making the row visually overlap its neighbor.
+          <div key={key} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 content-start min-w-0">
+            {sections.map((sx) => {
+              const Icon = sx.icon;
+              return (
+                <Link key={sx.href} href={sx.href} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition group min-w-0">
+                  <div className="mb-2 text-text-muted group-hover:text-text-primary transition">
+                    <Icon size={20} strokeWidth={2} />
+                  </div>
+                  <div className="text-sm font-semibold text-text-primary mb-0.5 truncate">{sx.label}</div>
+                  <div className="text-xs text-text-muted line-clamp-2">{sx.desc}</div>
+                </Link>
+              );
+            })}
           </div>
         );
       case "quickActions":
@@ -300,8 +353,8 @@ export default function DashboardPage() {
         );
       case "upcomingEventsList":
         return (
-          <div key={key} className="bg-surface rounded-xl border border-app-border">
-            <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
               <h2 className="text-sm font-semibold text-text-primary">Upcoming events</h2>
               <Link href="/dashboard/events" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
             </div>
@@ -317,16 +370,18 @@ export default function DashboardPage() {
                   const typeBg = e.customEventType?.color || "var(--color-bg)";
                   const typeFg = e.customEventType?.textColor || "var(--color-muted)";
                   return (
-                    <div key={e.id} className="flex items-center gap-3 px-5 py-3">
-                      <div className="w-10 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
-                        <div className="text-[9px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short" })}</div>
-                        <div className="text-base font-semibold text-text-primary leading-tight">{start.getDate()}</div>
+                    <div key={e.id} className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5">
+                      <div className="w-12 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
+                        <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short" })}</div>
+                        <div className="text-lg font-bold text-text-primary leading-tight tabular-nums">{start.getDate()}</div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-text-primary truncate">{e.name}</div>
-                        <div className="text-xs text-text-muted">{start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+                        <div className="text-sm font-semibold text-text-primary line-clamp-2 leading-snug">{e.name}</div>
+                        <div className="text-xs text-text-muted mt-0.5 tabular-nums">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
+                        {/* On mobile, badge sits below the name. On desktop it floats to the right. */}
+                        <span className="sm:hidden mt-1.5 inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
                       </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
+                      <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide flex-shrink-0" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
                     </div>
                   );
                 })}
@@ -336,8 +391,8 @@ export default function DashboardPage() {
         );
       case "upcomingClassesList":
         return (
-          <div key={key} className="bg-surface rounded-xl border border-app-border">
-            <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
               <h2 className="text-sm font-semibold text-text-primary">Upcoming classes</h2>
               <Link href="/dashboard/classes" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
             </div>
@@ -350,14 +405,14 @@ export default function DashboardPage() {
                 {summary.upcomingClasses.map((c) => {
                   const start = new Date(c.startsAt);
                   return (
-                    <div key={c.id} className="flex items-center gap-3 px-5 py-3">
-                      <div className="w-10 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
-                        <div className="text-[9px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short", timeZone: "UTC" })}</div>
-                        <div className="text-base font-semibold text-text-primary leading-tight">{start.getUTCDate()}</div>
+                    <div key={c.id} className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5">
+                      <div className="w-12 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
+                        <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short", timeZone: "UTC" })}</div>
+                        <div className="text-lg font-bold text-text-primary leading-tight tabular-nums">{start.getUTCDate()}</div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-text-primary truncate">{c.name}</div>
-                        <div className="text-xs text-text-muted">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "UTC" })}</div>
+                        <div className="text-sm font-semibold text-text-primary line-clamp-2 leading-snug">{c.name}</div>
+                        <div className="text-xs text-text-muted mt-0.5 tabular-nums">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "UTC" })}</div>
                       </div>
                     </div>
                   );
@@ -404,30 +459,65 @@ export default function DashboardPage() {
   const visibleSections = visible.filter((k) => !isStat(k));
 
   return (
-    <div className="p-8 max-w-7xl">
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary">{greeting}{firstName ? `, ${firstName}` : ""}</h1>
-          <p className="text-sm text-text-muted mt-1">Here's what's happening at your club today.</p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+      {/* Greeting + Customize. Stacks on mobile; row on sm+. */}
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-text-primary leading-tight tracking-tight">
+            {greeting}{firstName ? `, ${firstName}` : ""}
+          </h1>
+          <p className="text-sm text-text-muted mt-1">
+            Here&apos;s what&apos;s happening at your club today.
+          </p>
         </div>
         <button
           onClick={() => setCustomizing(true)}
-          className="text-xs px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg transition flex-shrink-0"
+          className="text-xs px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg transition self-start sm:self-auto sm:flex-shrink-0"
         >
           Customize
         </button>
       </div>
 
+      {/* Primary quick-action bar — always rendered above the widget grid
+          so owners can hit the daily actions without scrolling, even if
+          they hid the quickActions widget. Horizontal scroll on mobile. */}
+      <div className="mb-6 -mx-4 sm:mx-0 overflow-x-auto px-4 sm:px-0">
+        <div className="flex items-stretch gap-2 sm:gap-3 sm:flex-wrap">
+          {PRIMARY_QUICK_ACTIONS.map((a) => {
+            const Icon = a.icon;
+            return (
+              <Link
+                key={a.href + a.label}
+                href={a.href}
+                className={
+                  a.primary
+                    ? "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap bg-brand text-white hover:bg-brand-hover transition shrink-0"
+                    : "flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-medium whitespace-nowrap bg-surface border border-app-border text-text-primary hover:bg-app-bg transition shrink-0"
+                }
+              >
+                <Icon size={16} strokeWidth={2} className="opacity-90" />
+                {a.label}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
       {visibleStats.length > 0 && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {visibleStats.map((k) => statWidget(k))}
         </div>
       )}
 
       {visibleSections.length > 0 && (
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
           {visibleSections.map((k) => (
-            <div key={k} className={SECTION_SPAN[k] ?? "col-span-1"}>
+            // min-w-0 prevents grid items from blowing out their column on
+            // iOS Safari. Without it, a child with long unbroken content
+            // (event names, table rows) defaults to min-width: auto and
+            // overflows the column track, causing adjacent widgets to
+            // visually overlap and the page to gain horizontal scroll.
+            <div key={k} className={`${SECTION_SPAN[k] ?? "col-span-1"} min-w-0`}>
               {sectionWidget(k)}
             </div>
           ))}
@@ -456,13 +546,13 @@ export default function DashboardPage() {
 
 function StatCard({ label, value, sub, href, accent }: { label: string; value: string; sub: string; href: string; accent: string }) {
   return (
-    <Link href={href} className="bg-surface rounded-xl border border-app-border p-5 hover:shadow-sm transition group">
-      <div className="flex items-start justify-between mb-3">
-        <div className="text-xs text-text-muted uppercase tracking-wider">{label}</div>
-        <div className="w-2 h-2 rounded-full mt-0.5" style={{ background: accent }} />
+    <Link href={href} className="bg-surface rounded-xl border border-app-border p-4 sm:p-5 hover:shadow-sm transition group min-w-0">
+      <div className="flex items-start justify-between mb-2 sm:mb-3 gap-2">
+        <div className="text-[10px] sm:text-xs text-text-muted uppercase tracking-wider truncate">{label}</div>
+        <div className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ background: accent }} />
       </div>
-      <div className="text-3xl font-semibold text-text-primary mb-1">{value}</div>
-      <div className="text-xs text-text-muted">{sub}</div>
+      <div className="text-2xl sm:text-3xl font-semibold text-text-primary mb-1 leading-tight truncate">{value}</div>
+      <div className="text-[11px] sm:text-xs text-text-muted truncate">{sub}</div>
     </Link>
   );
 }
@@ -508,8 +598,8 @@ function CustomizeModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Customize dashboard</h2>

@@ -58,6 +58,12 @@ async function fetchUser(userId: string) {
         include: {
           member: {
             include: {
+              // `user: { id }` lets the client tell whether a linked child
+              // has their own member login (which is required for the
+              // child to receive DMs from coaches). Used by the messages
+              // page to render an explanatory note when no child threads
+              // exist because the kids have no logins.
+              user: { select: { id: true } },
               bookings: {
                 where: { status: { in: ["CONFIRMED", "WAITLISTED"] } },
                 include: { event: { include: { customEventType: true } } },

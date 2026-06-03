@@ -2,6 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  CalendarDays,
+  CheckSquare,
+  MessageSquare,
+  Megaphone,
+  FileText,
+  UserCircle2,
+  Users as UsersIcon,
+  Mail,
+  Phone,
+  ExternalLink,
+  ChevronRight,
+  type LucideIcon,
+} from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Booking = {
@@ -101,7 +115,9 @@ function ClubBanner() {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={club.logoUrl} alt={club.name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
           ) : (
-            <div className="w-16 h-16 rounded-lg bg-stone-100 flex items-center justify-center text-2xl text-stone-300 flex-shrink-0">◉</div>
+            <div className="w-16 h-16 rounded-lg bg-stone-100 flex items-center justify-center text-stone-300 flex-shrink-0">
+              <UsersIcon size={28} strokeWidth={1.75} />
+            </div>
           )}
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold text-stone-900">{club.name}</h2>
@@ -129,15 +145,24 @@ function ClubBanner() {
             {(club.contactEmail || club.contactPhone || club.websiteUrl || socials.length > 0) && (
               <div>
                 <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1.5">Contact</p>
-                <div className="space-y-1 text-sm text-stone-700">
+                <div className="space-y-1.5 text-sm text-stone-700">
                   {club.contactEmail && (
-                    <div><a href={`mailto:${club.contactEmail}`} className="hover:underline">✉ {club.contactEmail}</a></div>
+                    <div className="flex items-center gap-2">
+                      <Mail size={14} strokeWidth={2} className="text-stone-400 flex-shrink-0" />
+                      <a href={`mailto:${club.contactEmail}`} className="hover:underline truncate">{club.contactEmail}</a>
+                    </div>
                   )}
                   {club.contactPhone && (
-                    <div><a href={`tel:${club.contactPhone.replace(/\D/g, "")}`} className="hover:underline">☎ {club.contactPhone}</a></div>
+                    <div className="flex items-center gap-2">
+                      <Phone size={14} strokeWidth={2} className="text-stone-400 flex-shrink-0" />
+                      <a href={`tel:${club.contactPhone.replace(/\D/g, "")}`} className="hover:underline">{club.contactPhone}</a>
+                    </div>
                   )}
                   {club.websiteUrl && (
-                    <div><a href={club.websiteUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">↗ {club.websiteUrl.replace(/^https?:\/\//, "")}</a></div>
+                    <div className="flex items-center gap-2">
+                      <ExternalLink size={14} strokeWidth={2} className="text-stone-400 flex-shrink-0" />
+                      <a href={club.websiteUrl} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">{club.websiteUrl.replace(/^https?:\/\//, "")}</a>
+                    </div>
                   )}
                   {socials.length > 0 && (
                     <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
@@ -171,6 +196,35 @@ function ClubBanner() {
         )}
       </div>
     </div>
+  );
+}
+
+// Shared tile used by both AdultAthleteView and ParentView. Renders a
+// lucide SVG icon (replaces the previous unicode glyphs ◷ ✓ ✉ 📣 ▤ ◎
+// which rendered as "?" tofu boxes on iOS WebKit because the system
+// fallback font doesn't carry those geometric characters).
+function TileLink({
+  href,
+  icon: Icon,
+  label,
+  desc,
+}: {
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  desc: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center min-w-0"
+    >
+      <div className="mx-auto mb-2 w-9 h-9 rounded-full bg-lime-100 text-lime-800 flex items-center justify-center">
+        <Icon size={18} strokeWidth={2} />
+      </div>
+      <p className="text-sm font-medium text-stone-900 truncate">{label}</p>
+      <p className="text-xs text-stone-500 line-clamp-2 mt-0.5">{desc}</p>
+    </Link>
   );
 }
 
@@ -292,46 +346,22 @@ function AdultAthleteView({ data }: { data: PortalData }) {
         href="/member/schedule"
         className="block mt-4 bg-stone-900 text-white rounded-xl p-5 hover:bg-stone-800 transition"
       >
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
             <p className="text-sm font-semibold mb-0.5">View the full schedule</p>
             <p className="text-xs text-stone-300">Classes · Events · Private lessons</p>
           </div>
-          <span className="text-2xl">›</span>
+          <ChevronRight size={24} strokeWidth={2} className="flex-shrink-0" />
         </div>
       </Link>
 
       <div className="grid grid-cols-2 gap-3 mt-4">
-        <Link href="/member/schedule" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">◷</p>
-          <p className="text-sm font-medium text-stone-900">Schedule</p>
-          <p className="text-xs text-stone-500">Browse all classes and events</p>
-        </Link>
-        <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">✓</p>
-          <p className="text-sm font-medium text-stone-900">My Bookings</p>
-          <p className="text-xs text-stone-500">Classes & events you&apos;re registered for</p>
-        </Link>
-        <Link href="/member/messages" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">✉</p>
-          <p className="text-sm font-medium text-stone-900">Messages</p>
-          <p className="text-xs text-stone-500">Conversations with your club</p>
-        </Link>
-        <Link href="/member/announcements" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">📣</p>
-          <p className="text-sm font-medium text-stone-900">Announcements</p>
-          <p className="text-xs text-stone-500">News and updates from your club</p>
-        </Link>
-        <Link href="/member/documents" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">▤</p>
-          <p className="text-sm font-medium text-stone-900">Documents</p>
-          <p className="text-xs text-stone-500">Waivers and forms</p>
-        </Link>
-        <Link href="/member/staff" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">◎</p>
-          <p className="text-sm font-medium text-stone-900">Our team</p>
-          <p className="text-xs text-stone-500">Coaches & staff bios</p>
-        </Link>
+        <TileLink href="/member/schedule"      icon={CalendarDays}  label="Schedule"      desc="Browse all classes and events" />
+        <TileLink href="/member/bookings"      icon={CheckSquare}   label="My Bookings"   desc="Classes &amp; events you’re registered for" />
+        <TileLink href="/member/messages"      icon={MessageSquare} label="Messages"      desc="Conversations with your club" />
+        <TileLink href="/member/announcements" icon={Megaphone}     label="Announcements" desc="News and updates from your club" />
+        <TileLink href="/member/documents"     icon={FileText}      label="Documents"     desc="Waivers and forms" />
+        <TileLink href="/member/staff"         icon={UsersIcon}     label="Our team"      desc="Coaches &amp; staff bios" />
       </div>
     </>
   );
@@ -451,7 +481,9 @@ function LinkChildModal({ onClose, onLinked }: { onClose: () => void; onLinked: 
     return (
       <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-xl w-full max-w-sm p-8 text-center">
-          <p className="text-3xl mb-2">✓</p>
+          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-lime-100 text-lime-700 flex items-center justify-center">
+            <CheckSquare size={22} strokeWidth={2.25} />
+          </div>
           <p className="text-base font-semibold text-stone-900">Child linked!</p>
         </div>
       </div>
@@ -565,7 +597,9 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
 
       {children.length === 0 && !self ? (
         <div className="bg-white rounded-xl border border-stone-200 p-8 text-center mb-4">
-          <p className="text-3xl mb-2">👨‍👧</p>
+          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-lime-100 text-lime-800 flex items-center justify-center">
+            <UsersIcon size={22} strokeWidth={2} />
+          </div>
           <h3 className="text-base font-medium text-stone-900 mb-1">No children linked yet</h3>
           <p className="text-sm text-stone-500 mb-4">
             Enter your child's email address to link their account.
@@ -612,36 +646,12 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
       )}
 
       <div className="grid grid-cols-2 gap-3 mt-4">
-        <Link href="/member/schedule" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">◷</p>
-          <p className="text-sm font-medium text-stone-900">Schedule</p>
-          <p className="text-xs text-stone-500">Browse classes and events</p>
-        </Link>
-        <Link href="/member/bookings" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">✓</p>
-          <p className="text-sm font-medium text-stone-900">My Bookings</p>
-          <p className="text-xs text-stone-500">Registered sessions</p>
-        </Link>
-        <Link href="/member/messages" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">✉</p>
-          <p className="text-sm font-medium text-stone-900">Messages</p>
-          <p className="text-xs text-stone-500">Conversations with your club</p>
-        </Link>
-        <Link href="/member/announcements" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">📣</p>
-          <p className="text-sm font-medium text-stone-900">Announcements</p>
-          <p className="text-xs text-stone-500">News from your club</p>
-        </Link>
-        <Link href="/member/documents" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">▤</p>
-          <p className="text-sm font-medium text-stone-900">Documents</p>
-          <p className="text-xs text-stone-500">Sign waivers and forms</p>
-        </Link>
-        <Link href="/member/profile" className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center">
-          <p className="text-2xl mb-1">◎</p>
-          <p className="text-sm font-medium text-stone-900">My Profile</p>
-          <p className="text-xs text-stone-500">Update your info</p>
-        </Link>
+        <TileLink href="/member/schedule"      icon={CalendarDays}  label="Schedule"      desc="Browse classes and events" />
+        <TileLink href="/member/bookings"      icon={CheckSquare}   label="My Bookings"   desc="Registered sessions" />
+        <TileLink href="/member/messages"      icon={MessageSquare} label="Messages"      desc="Conversations with your club" />
+        <TileLink href="/member/announcements" icon={Megaphone}     label="Announcements" desc="News from your club" />
+        <TileLink href="/member/documents"     icon={FileText}      label="Documents"     desc="Sign waivers and forms" />
+        <TileLink href="/member/profile"       icon={UserCircle2}   label="My Profile"    desc="Update your info" />
       </div>
 
       {showLinkChild && (

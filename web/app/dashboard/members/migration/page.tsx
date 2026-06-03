@@ -554,8 +554,8 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
   const pending = d?.approvalStatus === "PENDING_APPROVAL";
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[92vh] overflow-y-auto border border-app-border" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[92vh] overflow-y-auto border border-app-border" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <h2 className="text-base font-semibold text-text-primary">
             {pending ? "Review & approve" : "Set up migration"}{d ? ` · ${d.firstName} ${d.lastName}` : ""}
@@ -616,7 +616,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">
                     Price override ($)
@@ -650,7 +650,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">Next billing date</label>
                   <input type="date" value={anchor} onChange={(e) => setAnchor(e.target.value)} className="inp" />
@@ -857,8 +857,8 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <h2 className="text-lg font-semibold text-text-primary">Import / Migrate Members</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

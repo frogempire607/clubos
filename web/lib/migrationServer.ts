@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendMemberMigrationActivationEmail } from "@/lib/email";
 import { newActivationToken, MIGRATION_STATUS } from "@/lib/migration";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const TOKEN_TTL_DAYS = 30;
 
@@ -54,7 +55,7 @@ export async function sendActivation(
     token = newActivationToken();
   }
   const tokenExpires = new Date(Date.now() + TOKEN_TTL_DAYS * 86400000);
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const baseUrl = getAppBaseUrl();
   const activationUrl = `${baseUrl}/activate/${token}`;
 
   try {

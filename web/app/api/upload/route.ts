@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { randomBytes } from "crypto";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
@@ -24,9 +26,25 @@ function storageRoot(): string {
   return process.env.UPLOADS_DIR || join(process.cwd(), "storage", "uploads");
 }
 
+// FormData can't be validated by zod directly, but we can still validate
+// the unpacked primitives after the parse.
+const uploadFieldsSchema = z.object({
+  type: z.enum(["image", "document"]).default("image"),
+});
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Rate limit: 30 uploads per minute per user. File uploads are the
+  // most disk-expensive endpoint we expose; this stops a runaway client
+  // from filling /storage/uploads with junk.
+  const rl = rateLimit({
+    key: `upload:${session.user.id}`,
+    limit: 30,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many uploads. Wait a moment and try again.");
 
   let formData: FormData;
   try {
@@ -35,10 +53,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
 
-  const file = formData.get("file") as File | null;
-  const type = (formData.get("type") as string) || "image"; // "image" | "document"
+  const fieldsParsed = uploadFieldsSchema.safeParse({
+    type: formData.get("type") || undefined,
+  });
+  if (!fieldsParsed.success) {
+    return NextResponse.json(
+      { error: fieldsParsed.error.errors[0]?.message || "Invalid upload fields." },
+      { status: 400 }
+    );
+  }
+  const { type } = fieldsParsed.data;
 
-  if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  const file = formData.get("file");
+  if (!(file instanceof File)) return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  if (file.size <= 0) return NextResponse.json({ error: "Empty file" }, { status: 400 });
   if (file.size > MAX_SIZE) return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
 
   const allowed = type === "document" ? ALLOWED_DOC_TYPES : ALLOWED_IMAGE_TYPES;

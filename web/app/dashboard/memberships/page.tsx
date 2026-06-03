@@ -132,7 +132,7 @@ export default function MembershipsPage() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {memberships.map((m) => {
             let options: Option[] = [];
             try { options = JSON.parse(m.options || "[]"); } catch {}
@@ -329,8 +329,8 @@ function MembershipModal({ membership, onClose, onSaved }: { membership: Members
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit membership" : "Create membership"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -528,8 +528,8 @@ function DiscountModal({ discount, onClose, onSaved }: { discount: Discount | nu
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit discount" : "Create discount code"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -553,7 +553,7 @@ function DiscountModal({ discount, onClose, onSaved }: { discount: Discount | nu
             <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Summer promotion" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Discount type</label>
               <select value={type} onChange={(e) => setType(e.target.value as "PERCENT" | "FIXED")} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
@@ -570,7 +570,7 @@ function DiscountModal({ discount, onClose, onSaved }: { discount: Discount | nu
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Max uses (optional)</label>
               <input type="number" min="1" value={maxUses} onChange={(e) => setMaxUses(e.target.value)} placeholder="Unlimited" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />

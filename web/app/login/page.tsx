@@ -2,13 +2,12 @@
 
 import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Role = "staff" | "member";
 
 function LoginInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [role, setRole] = useState<Role>(
@@ -31,33 +30,50 @@ function LoginInner() {
     setNotice("");
     setLoading(true);
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      clubSlug,
-      redirect: false,
-    });
-
-    setLoading(false);
-
-    if (result?.error) {
-      setError("Invalid email, password, or club. Please try again.");
+    let result;
+    try {
+      result = await signIn("credentials", {
+        email,
+        password,
+        clubSlug,
+        redirect: false,
+      });
+    } catch {
+      setLoading(false);
+      setError("Could not reach the server. Check your connection and try again.");
       return;
     }
 
-    // Role-based redirect (the account's real role wins, regardless of tab).
-    const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
-    const session = await sessionRes.json();
-    const userRole = session?.user?.role;
-    if (userRole === "MEMBER") {
-      if (role === "staff") {
-        setNotice("That is a member account. Redirecting to the member portal...");
-      }
-      router.replace(role === "staff" ? "/member?from=staff-login" : "/member");
-    } else {
-      router.replace("/dashboard");
+    if (!result || result.error) {
+      setLoading(false);
+      // CredentialsSignin = authorize() returned null (bad email/password/club).
+      // Any other string = NextAuth/runtime config error worth surfacing.
+      setError(
+        !result?.error || result.error === "CredentialsSignin"
+          ? "Invalid email, password, or club. Please try again."
+          : `Sign-in error: ${result.error}`,
+      );
+      return;
     }
-    router.refresh();
+
+    // Hard-nav to a server-side post-login redirect. The server reads the
+    // JWT cookie (which was just written by /api/auth/callback/credentials)
+    // and 307s to /dashboard or /member based on the account's real role.
+    // This avoids any client-side session hydration race — important for
+    // Capacitor iOS WKWebView where next-auth/react's getSession() can race
+    // the cookie write and silently return null.
+    //
+    // Safari (desktop + iOS WebKit) sometimes hasn't fully committed the
+    // Set-Cookie from the signIn POST by the time we navigate. Yielding
+    // through a macrotask boundary forces the cookie write to flush before
+    // the next request fires. Chrome doesn't need this, but it's cheap.
+    await new Promise((r) => setTimeout(r, 0));
+
+    if (typeof window !== "undefined") {
+      const fromRole = role === "staff" ? "staff" : "member";
+      window.location.href = `/post-login?fromRole=${fromRole}`;
+    }
+    // Intentionally leave `loading` true — the page is unmounting.
   }
 
   const isStaff = role === "staff";
@@ -123,6 +139,16 @@ function LoginInner() {
                 onChange={(e) => setClubSlug(e.target.value)}
                 placeholder="apex-wrestling"
                 required
+                // iOS WKWebView's default keyboard would otherwise capitalize
+                // the first letter and run autocorrect, turning a valid slug
+                // like `apex-wrestling` into `Apex-wrestling` and 401'ing the
+                // login. Same reasoning for autoComplete="off" — Keychain
+                // would suggest "Username" autofill on a slug field.
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+                inputMode="text"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
               <p className="text-xs text-stone-400 mt-1">
@@ -139,6 +165,11 @@ function LoginInner() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="email"
+                inputMode="email"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
             </div>
@@ -150,6 +181,10 @@ function LoginInner() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="current-password"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
             </div>

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 // NO AUTH — token-gated public activation endpoint.
 
@@ -272,7 +273,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         { stripeAccount: club.stripeAccountId },
       );
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const baseUrl = getAppBaseUrl();
   const checkout = await stripe.checkout.sessions.create(
     {
       mode: "setup",

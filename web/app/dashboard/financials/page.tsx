@@ -13,6 +13,8 @@ import {
   TAX_SUMMARY_NOTE,
 } from "@/lib/financials";
 import { REPORT_TYPES, REPORT_LABELS, type ReportType } from "@/lib/financialReports";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
 type Money = {
@@ -106,13 +108,12 @@ export default function FinancialsPage() {
   const qs = `entity=${entity}&from=${from}&to=${to}&bank=${bank}`;
 
   return (
-    <div className="p-8 max-w-7xl">
-      <div className="flex items-start justify-between mb-2 gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Financials</h1>
-          <p className="text-sm text-text-muted">Track money in, money out, receipts, entities, and tax-ready summaries.</p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+      <PageHeader
+        title="Financials"
+        description="Track money in, money out, receipts, entities, and tax-ready summaries."
+        actions={
+          <div className="flex items-center gap-2 flex-wrap">
           <select
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
@@ -147,8 +148,9 @@ export default function FinancialsPage() {
           >
             {DATE_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       <p className="text-[11px] text-text-muted mb-5">{FINANCIAL_DISCLAIMER}</p>
 
@@ -224,7 +226,11 @@ function OverviewTab({ qs }: { qs: string }) {
       .then((d) => { setS(d); setLoading(false); });
   }, [qs]);
 
-  if (loading || !s) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
+  if (loading || !s) return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+    </div>
+  );
   const m = s.money;
 
   return (
@@ -333,11 +339,11 @@ function MoneyInTab({ qs, entity, entities }: { qs: string; entity: string; enti
         </button>
       </div>
       {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+        <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
       ) : !data?.transactions.length ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center text-sm text-text-muted">No payments in this period.</div>
       ) : (
-        <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+        <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
           <table className="w-full">
             <thead className="bg-app-bg border-b border-app-border">
               <tr><Th>Date</Th><Th>Source</Th><Th>Category</Th><Th>Method</Th><Th>Entity</Th><Th>Status</Th><Th>Amount</Th><Th></Th></tr>
@@ -405,12 +411,12 @@ function RecordPaymentModal({ entities, defaultEntity, onClose, onSaved }: { ent
   return (
     <Modal title="Record payment / invoice" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Amount ($)"><input type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className="inp" /></Field>
           <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="inp" /></Field>
         </div>
         <Field label="Who paid (source)"><input value={source} onChange={(e) => setSource(e.target.value)} placeholder="Member, sponsor, walk-in…" className="inp" /></Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Category">
             <select value={category} onChange={(e) => setCategory(e.target.value)} className="inp">
               {REVENUE_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
@@ -511,14 +517,14 @@ function MoneyOutTab({ entity, entities, bank, bankConnections }: { entity: stri
         <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">+ Add expense</button>
       </div>
       {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+        <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
       ) : expenses.length === 0 ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center">
           <p className="text-sm text-text-muted mb-4">Track rent, payroll, gear, software, and other costs — attach receipts for tax time.</p>
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">Add first expense</button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+        <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
           <table className="w-full">
             <thead className="bg-app-bg border-b border-app-border">
               <tr><Th>Date</Th><Th>Description</Th><Th>Vendor</Th><Th>Category</Th><Th>Entity</Th><Th>Receipt</Th><Th>Amount</Th><Th></Th></tr>
@@ -597,11 +603,11 @@ function ExpenseModal({ expense, entities, bankConnections, onClose, onSaved }: 
     <Modal title={isEdit ? "Edit expense" : "Add expense"} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <Field label="Description"><input required value={description} onChange={(e) => setDescription(e.target.value)} className="inp" placeholder="Monthly rent" /></Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Amount ($)"><input type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className="inp" /></Field>
           <Field label="Date"><input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="inp" /></Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Category">
             <select value={category} onChange={(e) => setCategory(e.target.value)} className="inp">
               {EXPENSE_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
@@ -635,7 +641,7 @@ function ExpenseModal({ expense, entities, bankConnections, onClose, onSaved }: 
             ))}
           </div>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Vendor"><input value={vendor} onChange={(e) => setVendor(e.target.value)} className="inp" placeholder="Who you paid" /></Field>
           <Field label="Legal entity">
             <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} className="inp">
@@ -701,13 +707,13 @@ function DonationsTab({ qs, entity, entities }: { qs: string; entity: string; en
         </div>
       </div>
       {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+        <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
       ) : !data?.donations.length ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center text-sm text-text-muted">
           No donations recorded. Track gifts, sponsorships, donor info, funds, and receipts for your nonprofit / foundation entity.
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+        <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
           <table className="w-full">
             <thead className="bg-app-bg border-b border-app-border">
               <tr><Th>Date</Th><Th>Donor</Th><Th>Fund</Th><Th>Type</Th><Th>Entity</Th><Th>Receipt</Th><Th>Amount</Th><Th></Th></tr>
@@ -776,15 +782,15 @@ function DonationModal({ donation, entities, defaultEntity, onClose, onSaved }: 
   return (
     <Modal title={isEdit ? "Edit donation" : "Record donation"} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Donor name"><input required value={donorName} onChange={(e) => setDonorName(e.target.value)} className="inp" /></Field>
           <Field label="Donor email"><input type="email" value={donorEmail} onChange={(e) => setDonorEmail(e.target.value)} className="inp" /></Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Amount ($)"><input type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className="inp" /></Field>
           <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="inp" /></Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Fund / purpose"><input value={fund} onChange={(e) => setFund(e.target.value)} placeholder="General, scholarship…" className="inp" /></Field>
           <Field label="Method">
             <select value={method} onChange={(e) => setMethod(e.target.value)} className="inp">
@@ -854,7 +860,7 @@ function TaxSummaryTab({ qs }: { qs: string }) {
           <h2 className="text-sm font-semibold text-text-primary">{report?.title || REPORT_LABELS[type]}</h2>
         </div>
         {loading ? (
-          <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+          <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
         ) : !report || report.rows.length === 0 ? (
           <div className="p-8 text-center text-text-muted text-sm">No data for this period.</div>
         ) : (
@@ -897,7 +903,7 @@ function StripeTab() {
       <div className="bg-white rounded-xl border border-app-border overflow-hidden">
         <div className="px-5 py-3 border-b border-app-border"><h2 className="text-sm font-semibold text-text-primary">Stripe transactions</h2></div>
         {loading ? (
-          <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+          <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
         ) : !data?.transactions.length ? (
           <div className="p-12 text-center text-sm text-text-muted">No transactions yet.</div>
         ) : (
@@ -1008,7 +1014,7 @@ function BankTab() {
     loadBankData(id);
   }
 
-  if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
+  if (loading) return <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>;
   if (!plaidConfigured) {
     return (
       <div className="bg-white rounded-xl border border-app-border p-8 text-center">
@@ -1179,8 +1185,8 @@ function Td({ children }: { children: React.ReactNode }) {
 }
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[92vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

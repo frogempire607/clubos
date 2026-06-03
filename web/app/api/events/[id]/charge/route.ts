@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const schema = z.object({
   memberId: z.string(),
@@ -62,7 +63,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         await prisma.booking.create({
           data: { eventId: event.id, memberId, status },
         });
-        const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+        const baseUrl = getAppBaseUrl();
 
         // Email: free membership-covered booking confirmation
         if (status === "CONFIRMED") {
@@ -182,7 +183,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
     const platformFee = calculatePlatformFee(priceCents, club.tier);
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
 
     const checkoutSession = await stripe.checkout.sessions.create(

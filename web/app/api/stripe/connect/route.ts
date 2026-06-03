@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 export async function POST() {
   const session = await getServerSession(authOptions);
@@ -35,7 +36,7 @@ export async function POST() {
       });
     }
 
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = getAppBaseUrl();
     const accountLink = await stripe.accountLinks.create({
       account: stripeAccountId,
       refresh_url: `${baseUrl}/dashboard/settings/billing?refresh=true`,

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 // GET /api/members/migration/[id]
 // Full migration detail for the Set-up / Review-&-approve drawer, including
@@ -31,7 +32,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   });
   if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const baseUrl = getAppBaseUrl();
   const activationUrl = m.activationToken ? `${baseUrl}/activate/${m.activationToken}` : null;
 
   return NextResponse.json({ member: m, activationUrl });

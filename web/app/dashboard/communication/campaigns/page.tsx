@@ -175,7 +175,7 @@ export default function CampaignsPage() {
                     {topSource ? `${topSource.count} leads from ${topSource.label}` : "No source data yet"}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {["Announcements", "Email", "SMS future", "Push future"].map((label) => (
                     <div key={label} className="rounded-lg border border-app-border p-3">
                       <p className="text-sm font-medium text-text-primary">{label}</p>

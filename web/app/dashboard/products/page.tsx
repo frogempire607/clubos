@@ -147,7 +147,7 @@ export default function ProductsPage() {
           </button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+        <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
           <table className="w-full">
             <thead className="bg-app-bg border-b border-app-border">
               <tr>
@@ -318,8 +318,8 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit product" : "Add product"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -369,7 +369,7 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
 
           <section className="space-y-3 border-t border-app-border pt-5">
             <p className="text-xs uppercase tracking-wide text-text-muted font-medium">Pricing</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Base price</label>
               <div className="relative">
@@ -394,7 +394,7 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
 
               {trackInventory && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-text-primary mb-1">Total stock quantity</label>
                       <input type="number" min="0" value={inventory} onChange={(e) => setInventory(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
@@ -557,7 +557,7 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
 
           <section className="space-y-3 border-t border-app-border pt-5">
             <p className="text-xs uppercase tracking-wide text-text-muted font-medium">Visibility</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-text-primary mb-1">Who can buy/view?</label>
                 <select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
@@ -669,8 +669,8 @@ function SellModal({ product, onClose, onSold }: { product: Product; onClose: ()
 
   if (done) {
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl w-full max-w-sm p-8 text-center">
+      <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-sm p-8 text-center">
           <div className="text-3xl mb-2">✓</div>
           <h3 className="text-lg font-semibold text-text-primary mb-1">Sale recorded</h3>
           <p className="text-sm text-text-muted mb-6">
@@ -683,8 +683,8 @@ function SellModal({ product, onClose, onSold }: { product: Product; onClose: ()
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Sell — {product.name}</h2>

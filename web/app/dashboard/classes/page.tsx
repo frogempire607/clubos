@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -270,8 +272,8 @@ function ClassModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="font-semibold text-text-primary">{editing ? "Edit Class" : "New Class"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
@@ -343,7 +345,7 @@ function ClassModal({
             <label className="block text-xs font-medium text-text-primary mb-1">
               Default times <span className="text-text-muted font-normal">(apply to every selected day unless overridden below)</span>
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
                 required
                 type="time"
@@ -442,7 +444,7 @@ function ClassModal({
           </div>
 
           {/* Recurrence */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-text-primary mb-1">Starts On *</label>
               <input
@@ -668,8 +670,8 @@ function SessionsModal({
   }, [cls.id]);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto shadow-xl">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-text-primary">{cls.name}</h2>
@@ -791,30 +793,31 @@ export default function ClassesPage() {
   );
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Classes &amp; Events</h1>
-          <p className="text-sm text-text-muted mt-1">Manage recurring classes and one-time events</p>
-        </div>
-        {tab === "classes" && (
-          <button
-            onClick={() => { setEditing(null); setShowModal(true); }}
-            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover"
-          >
-            + New Class
-          </button>
-        )}
-        {tab === "events" && (
-          <a
-            href="/dashboard/events"
-            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover"
-          >
-            + New Event
-          </a>
-        )}
-      </div>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+      <PageHeader
+        title="Classes & Events"
+        description="Manage recurring classes and one-time events"
+        actions={
+          <>
+            {tab === "classes" && (
+              <button
+                onClick={() => { setEditing(null); setShowModal(true); }}
+                className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover w-full sm:w-auto"
+              >
+                + New Class
+              </button>
+            )}
+            {tab === "events" && (
+              <a
+                href="/dashboard/events"
+                className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover w-full sm:w-auto"
+              >
+                + New Event
+              </a>
+            )}
+          </>
+        }
+      />
 
       {occurrenceSuccess && (
         <div className="mb-4 rounded-lg border border-lime-accent/40 bg-lime-accent/15 px-4 py-3 text-sm text-text-primary">
@@ -1131,7 +1134,7 @@ function SessionEditModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">
@@ -1145,7 +1148,7 @@ function SessionEditModal({
         </div>
 
         {loading ? (
-          <div className="p-6 text-sm text-text-muted">Loading…</div>
+          <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={3} /></div>
         ) : !s ? (
           <div className="p-6 text-sm text-red-600">Session not found.</div>
         ) : (
@@ -1157,7 +1160,7 @@ function SessionEditModal({
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-text-primary mb-1">Start</label>
                 <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}

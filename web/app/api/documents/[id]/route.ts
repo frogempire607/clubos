@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
 
 const updateSchema = z.object({
   title: z.string().min(1).optional(),
@@ -54,7 +55,11 @@ export async function PATCH(
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.type !== undefined && { type: data.type }),
-        ...(data.body !== undefined && { body: data.body }),
+        // Sanitized on write — see app/api/documents/route.ts POST for
+        // the same treatment on create.
+        ...(data.body !== undefined && {
+          body: data.body ? sanitizeRichHtml(data.body) : null,
+        }),
         ...(data.required !== undefined && { required: data.required }),
         ...(data.requiresGuardianSignature !== undefined && { requiresGuardianSignature: data.requiresGuardianSignature }),
         ...(data.deliveryTrigger !== undefined && { deliveryTrigger: data.deliveryTrigger }),

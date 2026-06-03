@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 // POST /api/member/classes/book
 // Member-self booking for a class session. The price tier (member / non-member
@@ -28,6 +30,11 @@ export async function POST(req: Request) {
   if (!session || session.user.role !== "MEMBER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // 20 booking attempts per minute per member. Stops accidental
+  // double-tap, runaway loops, and Stripe-checkout-spam.
+  const rl = rateLimit({ key: `book:class:${session.user.id}`, limit: 20, windowMs: 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many booking attempts. Try again in a moment.");
 
   try {
     const { classSessionId, memberId } = schema.parse(await req.json().catch(() => ({})));
@@ -113,7 +120,7 @@ export async function POST(req: Request) {
           ? (member.guardianEmail || member.email)
           : (member.email || member.guardianEmail);
         if (to) {
-          const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+          const baseUrl = getAppBaseUrl();
           sendBookingConfirmationEmail({
             to,
             firstName: member.firstName,
@@ -158,7 +165,7 @@ export async function POST(req: Request) {
 
     const priceCents = Math.round(priced.price * 100);
     const platformFee = calculatePlatformFee(priceCents, club.tier);
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+    const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
 
     const checkoutSession = await stripe.checkout.sessions.create(

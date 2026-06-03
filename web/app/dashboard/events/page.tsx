@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CalendarRange, Clock, MapPin, Users as UsersIcon, MoreVertical, X } from "lucide-react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
+import PageHeader from "@/components/PageHeader";
+import EmptyState from "@/components/EmptyState";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 
 type BuiltInType = "CLASS" | "PRIVATE" | "CLINIC" | "CAMP" | "TOURNAMENT" | "OTHER";
 
@@ -136,6 +140,7 @@ export default function EventsPage() {
   const [filter, setFilter] = useState<"upcoming" | "past" | "all">("upcoming");
   const [builtInOverrides, setBuiltInOverrides] = useState<BuiltInOverrides>(null);
   const [clubMeta, setClubMeta] = useState<{ name: string; slug: string } | null>(null);
+  const [actionMenuFor, setActionMenuFor] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -206,23 +211,23 @@ export default function EventsPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
       <StripeRequiredBanner feature="charge for events" />
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Events</h1>
-          <p className="text-sm text-text-muted">Classes, privates, clinics, camps, tournaments</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Manage event types
-          </button>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
-            + Add event
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Events"
+        description="Classes, privates, clinics, camps, tournaments"
+        actions={
+          <>
+            <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Manage event types
+            </button>
+            <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
+              + Add event
+            </button>
+          </>
+        }
+      />
 
       <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-4 w-fit">
         {(["upcoming", "past", "all"] as const).map((f) => (
@@ -233,91 +238,291 @@ export default function EventsPage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+        <SkeletonList rows={5} />
       ) : filtered.length === 0 ? (
-        <div className="bg-surface rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2">◈</div>
-          <h3 className="text-lg font-medium text-text-primary mb-1">No events</h3>
-          <p className="text-sm text-text-muted mb-4">{filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}</p>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
-            + Schedule your first event
-          </button>
-        </div>
+        <EmptyState
+          icon={<CalendarRange size={26} strokeWidth={1.75} />}
+          title="No events"
+          description={filter === "upcoming" ? "No upcoming events scheduled." : "Nothing to show here."}
+          action={{ label: "Schedule your first event", onClick: () => setShowAdd(true) }}
+          className="bg-surface rounded-xl border border-app-border"
+        />
       ) : (
         <div className="space-y-2">
           {filtered.map((e) => {
             const td = getTypeDisplay(e, builtInOverrides);
             const start = new Date(e.startsAt);
             const end = new Date(e.endsAt);
-            const isFull = e.capacity && e._count.bookings >= e.capacity;
+            const isFull = !!(e.capacity && e._count.bookings >= e.capacity);
             const pubStatus = getPublishStatus(e);
+            const pricing = getPricingBadge(e, memberships);
+            const acceptedMemberships = (e.pricingOptions || [])
+              .map((p) => memberships.find((m) => m.id === p.membershipId)?.name)
+              .filter(Boolean) as string[];
+            const capacityPct =
+              e.capacity && e.capacity > 0
+                ? Math.min(100, Math.round((e._count.bookings / e.capacity) * 100))
+                : null;
             return (
-              <div key={e.id} className="bg-surface rounded-xl border border-app-border p-4 hover:shadow-sm transition">
-                <div className="flex items-start gap-4">
-                  <div className="w-14 text-center bg-app-bg rounded-lg py-2 flex-shrink-0">
-                    <div className="text-[10px] uppercase font-medium text-text-muted">{start.toLocaleString("en-US", { month: "short" })}</div>
-                    <div className="text-xl font-semibold text-text-primary leading-tight">{start.getDate()}</div>
+              <div
+                key={e.id}
+                className="group bg-surface rounded-xl border border-app-border overflow-hidden hover:shadow-md hover:border-app-border transition relative"
+                style={{ borderLeft: `4px solid ${td.bg}` }}
+              >
+                <div className="flex items-start gap-3 sm:gap-4 p-4">
+                  {/* Date pill — jersey-number style */}
+                  <div className="w-14 sm:w-16 text-center bg-app-bg rounded-lg py-2 flex-shrink-0">
+                    <div className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">
+                      {start.toLocaleString("en-US", { month: "short" })}
+                    </div>
+                    <div className="text-2xl font-bold text-text-primary leading-tight tabular-nums">
+                      {start.getDate()}
+                    </div>
+                    <div className="text-[10px] uppercase font-medium text-text-muted tracking-wider mt-0.5">
+                      {start.toLocaleString("en-US", { weekday: "short" })}
+                    </div>
                   </div>
 
+                  {/* Main content */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h3 className="text-base font-semibold text-text-primary truncate">{e.name}</h3>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: td.bg, color: td.fg }}>{td.name}</span>
-                      {pubStatus && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: pubStatus.bg, color: pubStatus.fg }}>{pubStatus.label}</span>}
-                      {isFull && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand text-white">Full</span>}
-                      {e.visibility === "MEMBERS_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Members only</span>}
-                      {e.visibility === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand text-white">Staff only</span>}
-                      {e.purchaseAccess === "STAFF_ONLY" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-app-border text-text-muted">Staff books</span>}
-                      {(() => {
-                        const b = getPricingBadge(e, memberships);
-                        return <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: b.bg, color: b.fg }}>{b.label}</span>;
-                      })()}
-                    </div>
-                    <div className="text-xs text-text-muted flex items-center gap-3 flex-wrap">
-                      <span>
-                        {start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}
-                        {" – "}
-                        {end.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    <h3 className="text-base sm:text-lg font-semibold text-text-primary leading-snug line-clamp-2 mb-1.5">
+                      {e.name}
+                    </h3>
+
+                    {/* Time + location — primary meta line */}
+                    <div className="text-xs sm:text-[13px] text-text-muted flex items-center flex-wrap gap-x-3 gap-y-1 mb-2">
+                      <span className="inline-flex items-center gap-1">
+                        <Clock size={12} strokeWidth={2} className="text-text-muted flex-shrink-0" />
+                        <span className="tabular-nums">
+                          {start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}
+                          {" – "}
+                          {end.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        </span>
                       </span>
-                      {e.sessions.length > 1 && <span>· {e.sessions.length} sessions</span>}
-                      {e.location && <span>· {e.location.name}</span>}
-                      {e.memberPrice != null && <span>· Member ${Number(e.memberPrice).toFixed(2)}</span>}
-                      {e.nonMemberPrice != null && <span>· Non-mem ${Number(e.nonMemberPrice).toFixed(2)}</span>}
-                      {e.dropInFee != null && <span>· Drop-in ${Number(e.dropInFee).toFixed(2)}</span>}
-                      {(e.pricingOptions || []).map((p) => {
-                        const membership = memberships.find((m) => m.id === p.membershipId);
-                        return membership ? <span key={p.membershipId}>· {membership.name} accepted</span> : null;
-                      })}
-                      {e.staffAssignments && e.staffAssignments.length > 0 && (
-                        <span>· Staff: {e.staffAssignments.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(", ")}</span>
+                      {e.location && (
+                        <span className="inline-flex items-center gap-1 min-w-0">
+                          <MapPin size={12} strokeWidth={2} className="flex-shrink-0" />
+                          <span className="truncate">{e.location.name}</span>
+                        </span>
                       )}
-                      {e.capacity && <span>· {e._count.bookings}/{e.capacity}</span>}
-                      {!e.capacity && e._count.bookings > 0 && <span>· {e._count.bookings} booked</span>}
+                      {e.staffAssignments && e.staffAssignments.length > 0 && (
+                        <span className="inline-flex items-center gap-1 min-w-0">
+                          <UsersIcon size={12} strokeWidth={2} className="flex-shrink-0" />
+                          <span className="truncate">
+                            {e.staffAssignments.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(", ")}
+                          </span>
+                        </span>
+                      )}
+                      {e.sessions.length > 1 && (
+                        <span className="text-text-muted">{e.sessions.length} sessions</span>
+                      )}
                     </div>
-                    {/* Show sessions if multiple */}
+
+                    {/* Pricing line */}
+                    {(e.memberPrice != null || e.nonMemberPrice != null || e.dropInFee != null || acceptedMemberships.length > 0) && (
+                      <div className="text-[11px] text-text-muted flex items-center flex-wrap gap-x-2 gap-y-1 mb-2">
+                        {e.memberPrice != null && <span>Member ${Number(e.memberPrice).toFixed(2)}</span>}
+                        {e.nonMemberPrice != null && <span>· Non-mem ${Number(e.nonMemberPrice).toFixed(2)}</span>}
+                        {e.dropInFee != null && <span>· Drop-in ${Number(e.dropInFee).toFixed(2)}</span>}
+                        {acceptedMemberships.length > 0 && (
+                          <span>· {acceptedMemberships.join(" · ")} accepted</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Capacity bar — athletic energy when full */}
+                    {capacityPct !== null && (
+                      <div className="mb-2">
+                        <div className="flex items-center justify-between mb-1 text-[11px] text-text-muted">
+                          <span>Capacity</span>
+                          <span className="tabular-nums font-medium">
+                            {e._count.bookings}/{e.capacity}
+                          </span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-app-bg overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${capacityPct}%`,
+                              background: isFull
+                                ? "#FF6A00"
+                                : capacityPct >= 80
+                                ? "#FF6A00"
+                                : "#A3E635",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Status pills */}
+                    <div className="flex flex-wrap gap-1.5">
+                      <span
+                        className="text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide"
+                        style={{ background: td.bg, color: td.fg }}
+                      >
+                        {td.name}
+                      </span>
+                      {pubStatus && (
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide"
+                          style={{ background: pubStatus.bg, color: pubStatus.fg }}
+                        >
+                          {pubStatus.label}
+                        </span>
+                      )}
+                      {isFull && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide bg-[#FF6A00] text-white">
+                          Full
+                        </span>
+                      )}
+                      <span
+                        className="text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide"
+                        style={{ background: pricing.bg, color: pricing.fg }}
+                      >
+                        {pricing.label}
+                      </span>
+                      {e.visibility === "MEMBERS_ONLY" && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted font-medium">
+                          Members only
+                        </span>
+                      )}
+                      {e.visibility === "STAFF_ONLY" && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand text-white font-medium">
+                          Staff only
+                        </span>
+                      )}
+                      {e.purchaseAccess === "STAFF_ONLY" && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full border border-app-border text-text-muted font-medium">
+                          Staff books
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Sub-session list (only if multi-session) */}
                     {e.sessions.length > 1 && (
-                      <div className="mt-1.5 flex flex-wrap gap-2">
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
                         {e.sessions.map((s, i) => (
-                          <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-app-bg border border-app-border text-text-muted">
-                            {s.name || `Session ${i + 1}`}: {new Date(s.startsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}–{new Date(s.endsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}
+                          <span
+                            key={i}
+                            className="text-[10px] px-2 py-0.5 rounded bg-app-bg border border-app-border text-text-muted tabular-nums"
+                          >
+                            {s.name || `Session ${i + 1}`}: {new Date(s.startsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}–
+                            {new Date(s.endsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })}
                           </span>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  <div className="flex gap-1 flex-shrink-0">
+                  {/* Actions: desktop button row */}
+                  <div className="hidden sm:flex gap-1 flex-shrink-0">
                     {(e.publicRegistration || e.tournamentMode === "HOST" || (e._count.registrations ?? 0) > 0) && (
-                      <button onClick={() => setViewingRegistrations(e.id)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
+                      <button
+                        onClick={() => setViewingRegistrations(e.id)}
+                        className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                      >
                         Registrations{(e._count.registrations ?? 0) > 0 ? ` (${e._count.registrations})` : ""}
                       </button>
                     )}
-                    <button onClick={() => setViewingBookings(e.id)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Bookings</button>
-                    <button onClick={() => setEditing(e)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Edit</button>
-                    <button onClick={() => handleDuplicate(e.id)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Duplicate</button>
-                    <button onClick={() => handleDelete(e.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
+                    <button
+                      onClick={() => setViewingBookings(e.id)}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                    >
+                      Bookings
+                    </button>
+                    <button
+                      onClick={() => setEditing(e)}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDuplicate(e.id)}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      onClick={() => handleDelete(e.id)}
+                      className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded"
+                    >
+                      Delete
+                    </button>
                   </div>
+
+                  {/* Actions: mobile kebab — opens bottom sheet below */}
+                  <button
+                    type="button"
+                    onClick={() => setActionMenuFor(e.id)}
+                    aria-label="Actions"
+                    className="sm:hidden flex-shrink-0 w-9 h-9 rounded-lg hover:bg-app-bg flex items-center justify-center text-text-muted"
+                  >
+                    <MoreVertical size={18} strokeWidth={2} />
+                  </button>
                 </div>
+
+                {/* Mobile action sheet */}
+                {actionMenuFor === e.id && (
+                  <div
+                    className="sm:hidden fixed inset-0 z-50 bg-black/40 flex items-end justify-center"
+                    onClick={() => setActionMenuFor(null)}
+                  >
+                    <div
+                      className="w-full bg-surface rounded-t-2xl p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-2xl"
+                      onClick={(ev) => ev.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-app-border mb-1">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-text-primary truncate">{e.name}</div>
+                          <div className="text-[11px] text-text-muted tabular-nums">
+                            {start.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActionMenuFor(null)}
+                          aria-label="Close menu"
+                          className="text-text-muted hover:text-text-primary w-8 h-8 rounded-lg hover:bg-app-bg flex items-center justify-center"
+                        >
+                          <X size={18} strokeWidth={2} />
+                        </button>
+                      </div>
+                      {(e.publicRegistration || e.tournamentMode === "HOST" || (e._count.registrations ?? 0) > 0) && (
+                        <button
+                          onClick={() => { setActionMenuFor(null); setViewingRegistrations(e.id); }}
+                          className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                        >
+                          Registrations{(e._count.registrations ?? 0) > 0 ? ` (${e._count.registrations})` : ""}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setActionMenuFor(null); setViewingBookings(e.id); }}
+                        className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                      >
+                        Bookings
+                      </button>
+                      <button
+                        onClick={() => { setActionMenuFor(null); setEditing(e); }}
+                        className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => { setActionMenuFor(null); handleDuplicate(e.id); }}
+                        className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        onClick={() => { setActionMenuFor(null); handleDelete(e.id); }}
+                        className="block w-full text-left px-3 py-3 text-sm text-red-600 hover:bg-red-50 rounded-lg"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -567,8 +772,8 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit event" : "Create event"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -673,7 +878,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                           <span className="text-text-muted">Bill after the event, official split</span>
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-text-primary mb-1">
                             {varCostMode === "OFFICIAL" ? "Official total cost" : "Estimated total cost"}
@@ -869,7 +1074,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           </div>
 
           {/* Main time (used when no sessions) */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Starts</label>
               <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
@@ -926,7 +1131,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           {/* Pricing */}
           <div className="border-t border-app-border pt-4">
             <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Pricing</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium text-text-primary mb-1">Member price</label>
                 <input type="number" min="0" step="0.01" value={memberPrice} onChange={(e) => setMemberPrice(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
@@ -991,7 +1196,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           {/* Visibility & Access */}
           <div className="border-t border-app-border pt-4">
             <p className="text-xs uppercase tracking-wider text-text-muted mb-3 font-medium">Visibility & Access</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-text-primary mb-1">Who can see this event?</label>
                 <select value={visibility} onChange={(e) => setVisibility(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
@@ -1025,7 +1230,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                 <label className="block text-sm font-medium text-text-primary mb-1">Travel fee</label>
                 <input type="number" min="0" step="0.01" value={travelFee} onChange={(e) => setTravelFee(e.target.value)} placeholder="For tournaments / off-site events" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">Publish at</label>
                   <input type="datetime-local" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
@@ -1139,8 +1344,8 @@ function ManageTypesModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Manage event types</h2>
@@ -1398,8 +1603,8 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
   const acceptedMemberships = allMemberships.filter((m) => acceptedMembershipIds.includes(m.id));
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Bookings · {totalBookings}{event?.capacity && `/${event.capacity}`}</h2>
@@ -1415,7 +1620,7 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
         </div>
         <div className="p-6">
           {loading ? (
-            <div className="text-center text-sm text-text-muted py-4">Loading…</div>
+            <div className="py-2"><SkeletonList rows={2} /></div>
           ) : (
             <>
               <PricingBanner
@@ -1573,8 +1778,8 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Registrations</h2>
@@ -1584,7 +1789,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
         </div>
         <div className="p-6">
           {loading || !data ? (
-            <p className="text-sm text-text-muted text-center py-8">Loading…</p>
+            <div className="py-2"><SkeletonList rows={3} /></div>
           ) : (
             <>
               {isVariable && (

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import ImageUpload from "@/components/ImageUpload";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Club = {
   id: string;
@@ -149,18 +151,24 @@ export default function SettingsPage() {
     { id: "danger", label: "Danger Zone" },
   ] as const;
 
-  if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
+  if (loading) return (
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <SkeletonCard /><SkeletonCard />
+      </div>
+    </div>
+  );
 
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Settings</h1>
-        <p className="text-sm text-text-muted">Configure your club, plan, and preferences.</p>
-      </div>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl">
+      <PageHeader
+        title="Settings"
+        description="Configure your club, plan, and preferences."
+      />
 
-      <div className="flex gap-6">
-        {/* Sidebar nav */}
-        <div className="w-44 flex-shrink-0">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+        {/* Sidebar nav — collapses to horizontal scroll on mobile */}
+        <div className="w-full md:w-44 flex-shrink-0">
           <nav className="space-y-0.5 sticky top-4">
             {NAV.map((n) => (
               <button
@@ -303,7 +311,7 @@ function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) 
           <p className="text-xs text-text-muted mt-1">Members use this URL to find and join your club</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">Sport</label>
             <select value={sport} onChange={(e) => setSport(e.target.value)}
@@ -494,7 +502,7 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
       {/* Available plans */}
       <div className="bg-white rounded-xl border border-app-border p-6">
         <h3 className="text-sm font-semibold text-text-primary mb-4">All Plans</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {TIERS.map((tier) => {
             const isCurrent = tier.id === club.tier;
             return (
@@ -782,8 +790,8 @@ function LocationModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit location" : "Add location"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -988,7 +996,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
 
         <div className="border border-app-border rounded-lg p-4 bg-app-bg">
           <p className="text-xs font-semibold text-text-primary mb-2">How members install it</p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-xs font-medium text-text-muted mb-1">iPhone (Safari)</p>
               <ol className="text-[11px] text-text-muted space-y-0.5 list-decimal list-inside">
@@ -1009,7 +1017,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             </div>
           </div>
           <p className="text-[11px] text-text-muted mt-3">
-            Member portal URL: <span className="font-mono">localhost:3001/member</span>
+            Member portal URL: <span className="font-mono">localhost:3000/member</span>
             {" "}(replace with your production domain when you go live)
           </p>
         </div>
@@ -1055,7 +1063,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
           pulled in automatically — these settings layer on top.
         </p>
         <form onSubmit={handleSave} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Font</label>
               <select
@@ -1236,7 +1244,7 @@ function IdentitySection() {
         <p className="text-xs text-text-muted mb-5">
           Rename these nouns to match your sport. Members see these labels throughout the portal.
         </p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {(["termForMember","termForCoach","termForClass","termForEvent","termForMembership"] as const).map((field) => {
             const labels: Record<string, string> = {
               termForMember: "Member", termForCoach: "Coach", termForClass: "Class",
@@ -1564,8 +1572,8 @@ function EntityModal({ entity, onClose, onSaved }: { entity: LegalEntity | null;
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit entity" : "Add legal entity"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1665,8 +1673,8 @@ function DonationLinkModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit donation link" : "Add donation link"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

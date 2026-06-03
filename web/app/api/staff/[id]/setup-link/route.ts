@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 // POST /api/staff/[id]/setup-link — owner regenerates a one-time setup link
 // for a staff member. Useful when:
@@ -40,7 +41,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
     },
   });
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const baseUrl = getAppBaseUrl();
   const setupUrl = `${baseUrl}/setup?token=${resetToken}&club=${encodeURIComponent(staff.club.slug)}`;
 
   // Try to email it too. Failure is non-fatal — the owner has the URL.

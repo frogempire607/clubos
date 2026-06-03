@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fmtTime, kindIsWallClockUTC, sameMonth } from "@/lib/datetime";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonLine } from "@/components/LoadingSkeleton";
 
 type Kind = "event" | "class" | "private";
 
@@ -201,17 +203,17 @@ export default function CalendarPage() {
     day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
 
   return (
-    <div className="p-8 max-w-6xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Calendar</h1>
-          <p className="text-sm text-text-muted">All offerings — events, classes, and confirmed private lessons.</p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/dashboard/classes" className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg">+ Class</Link>
-          <Link href="/dashboard/events" className="px-3 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">+ Event</Link>
-        </div>
-      </div>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl">
+      <PageHeader
+        title="Calendar"
+        description="All offerings — events, classes, and confirmed private lessons."
+        actions={
+          <>
+            <Link href="/dashboard/classes" className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg">+ Class</Link>
+            <Link href="/dashboard/events" className="px-3 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">+ Event</Link>
+          </>
+        }
+      />
 
       {/* Filter bar */}
       <div className="bg-surface border border-app-border rounded-xl p-4 mb-4">
@@ -286,7 +288,13 @@ export default function CalendarPage() {
 
         {/* Grid */}
         {loading ? (
-          <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+          <div className="grid grid-cols-7 gap-px bg-app-border">
+            {Array.from({ length: 42 }).map((_, i) => (
+              <div key={i} className="bg-surface p-2 min-h-[80px]">
+                <SkeletonLine width={20} height={10} />
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="grid grid-cols-7">
             {cells.map((day, i) => {

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireOwner } from "@/lib/apiGuard";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 import {
   defaultBrandedAppConfig,
   mergeBrandedAppConfig,
@@ -34,7 +35,7 @@ export async function GET() {
 
   const config = mergeBrandedAppConfig(defaultBrandedAppConfig(club), club.brandedAppConfig);
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3001";
+  const baseUrl = getAppBaseUrl();
   return NextResponse.json({
     config,
     club: { name: club.name, slug: club.slug, tier: club.tier },

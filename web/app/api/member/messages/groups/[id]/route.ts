@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -74,6 +75,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // 60 group messages per minute per user. Same reasoning as DM.
+  const rl = rateLimit({ key: `messages:group:${session.user.id}`, limit: 60, windowMs: 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "You're messaging too quickly. Slow down and try again in a moment.");
 
   const group = await requireMembership(params.id, session.user.id, session.user.clubId);
   if (!group) return NextResponse.json({ error: "Not found" }, { status: 404 });

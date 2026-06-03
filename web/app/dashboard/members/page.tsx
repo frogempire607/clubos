@@ -5,6 +5,8 @@ import Link from "next/link";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
 import ExportMenu from "@/components/ExportMenu";
+import PageHeader from "@/components/PageHeader";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 import {
   DEFAULT_MEMBER_FORM_CONFIG,
   isFieldEnabled,
@@ -277,33 +279,33 @@ export default function MembersPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
       <StripeRequiredBanner feature="charge members for memberships" />
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Members</h1>
-          <p className="text-sm text-text-muted">{members.length} total</p>
-        </div>
-        <div className="flex gap-2">
-          <a href="/dashboard/settings/member-form" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Form settings
-          </a>
-          <a href="/dashboard/custom-fields" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Custom fields
-          </a>
-          <ExportMenu baseUrl="/api/export/members" label="Export" />
-          <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-            Import CSV
-          </button>
-          <Link href="/dashboard/members/migration" className="text-sm px-3 py-2 rounded-lg border border-brand text-brand hover:bg-brand/10">
-            Import / Migrate
-          </Link>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors">
-            + Add member
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Members"
+        description={`${members.length} total`}
+        actions={
+          <>
+            <a href="/dashboard/settings/member-form" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Form settings
+            </a>
+            <a href="/dashboard/custom-fields" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Custom fields
+            </a>
+            <ExportMenu baseUrl="/api/export/members" label="Export" />
+            <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Import CSV
+            </button>
+            <Link href="/dashboard/members/migration" className="text-sm px-3 py-2 rounded-lg border border-brand text-brand hover:bg-brand/10">
+              Import / Migrate
+            </Link>
+            <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors">
+              + Add member
+            </button>
+          </>
+        }
+      />
 
       <div className="flex items-center gap-3 mb-4">
         <div className="flex gap-1 bg-app-bg rounded-lg p-1">
@@ -370,7 +372,7 @@ export default function MembersPage() {
 
       <div className="bg-surface rounded-xl border border-app-border overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
+          <SkeletonList rows={6} />
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <div className="text-4xl mb-2">◉</div>
@@ -522,8 +524,8 @@ function BulkMessageModal({ memberIds, onClose, onSent }: { memberIds: string[];
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md border border-app-border">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">Message {memberIds.length} member{memberIds.length === 1 ? "" : "s"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -665,8 +667,8 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit member" : "Add member"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -709,7 +711,7 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
           )}
 
           {(fieldEnabled("phone") || fieldEnabled("gender")) && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {fieldEnabled("phone") && (
                 <div className={fieldEnabled("gender") ? "" : "col-span-2"}>
                   <label className="block text-sm font-medium text-text-primary mb-1">Phone {fieldRequired("phone") && <span className="text-red-500">*</span>}</label>
@@ -739,7 +741,7 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
           )}
 
           {(fieldEnabled("city") || fieldEnabled("state") || fieldEnabled("zipCode")) && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {fieldEnabled("city") && (
                 <div className="col-span-1">
                   <label className="block text-sm font-medium text-text-primary mb-1">City {fieldRequired("city") && <span className="text-red-500">*</span>}</label>
@@ -791,7 +793,7 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
           {isMinor && (
             <div className="space-y-3 p-4 bg-orange-accent/10 border border-orange-accent/30 rounded-lg">
               <p className="text-xs font-medium text-text-primary uppercase tracking-wider">Guardian / Parent Information</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className={fieldEnabled("guardianRelationship") ? "" : "col-span-2"}>
                   <label className="block text-xs font-medium text-text-primary mb-1">Guardian name</label>
                   <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="Full name" />
@@ -973,8 +975,8 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
   if (done) {
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-        <div className="bg-surface rounded-xl w-full max-w-sm p-8 text-center">
+      <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-sm p-8 text-center">
           <div className="text-3xl mb-2">✓</div>
           <h3 className="text-lg font-semibold text-text-primary mb-1">Membership assigned</h3>
           <p className="text-sm text-text-muted mb-6">{member.firstName} {member.lastName} is now enrolled in {currentMembership?.name}.</p>
@@ -985,8 +987,8 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">Assign membership</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1067,7 +1069,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
                   {showAdvanced && (
                     <div className="space-y-3 p-4 bg-app-bg border border-app-border rounded-lg">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-text-primary mb-1">Start date</label>
                           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
@@ -1254,8 +1256,8 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
   const preview = buildMembers().slice(0, 5);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">Import members from CSV</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const schema = z.object({
   memberId:      z.string(),
@@ -146,7 +147,7 @@ export async function POST(req: Request) {
       },
     });
 
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = getAppBaseUrl();
     const isRecurring = resolvedBillingType === "RECURRING" && stripeInterval !== null;
 
     const checkoutMode: "subscription" | "payment" = isRecurring ? "subscription" : "payment";

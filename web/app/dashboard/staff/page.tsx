@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Shield } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
+import PageHeader from "@/components/PageHeader";
+import EmptyState from "@/components/EmptyState";
+import { SkeletonList } from "@/components/LoadingSkeleton";
 import {
   PERMISSION_CATALOG,
   DEFAULT_PERMISSIONS,
@@ -67,38 +71,30 @@ export default function StaffPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Staff</h1>
-          <p className="text-sm text-text-muted">
-            Manage coaches and staff, set their roles and permissions.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
-        >
-          + Add staff
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
-      ) : staff.length === 0 ? (
-        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2 text-text-muted">◎</div>
-          <h3 className="text-lg font-medium text-text-primary mb-1">No staff yet</h3>
-          <p className="text-sm text-text-muted mb-4">
-            Add coaches and staff to give them access to the dashboard.
-          </p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl">
+      <PageHeader
+        title="Staff"
+        description="Manage coaches and staff, set their roles and permissions."
+        actions={
           <button
             onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover w-full sm:w-auto"
           >
-            Add your first staff member
+            + Add staff
           </button>
-        </div>
+        }
+      />
+
+      {loading ? (
+        <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
+      ) : staff.length === 0 ? (
+        <EmptyState
+          icon={<Shield size={26} strokeWidth={1.75} />}
+          title="No staff yet"
+          description="Add coaches and staff to give them access to the dashboard."
+          action={{ label: "Add your first staff member", onClick: () => setShowAdd(true) }}
+          className="bg-white rounded-xl border border-app-border"
+        />
       ) : (
         <div className="space-y-3">
           {staff.map((s) => {
@@ -280,8 +276,8 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   // the owner still has a way to deliver the link.
   if (createdSetupUrl) {
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl w-full max-w-lg p-6 space-y-4">
+      <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg p-6 space-y-4">
           <div>
             <h2 className="text-lg font-semibold text-text-primary mb-1">Staff member added</h2>
             <p className="text-sm text-text-muted">
@@ -317,15 +313,15 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">Add staff member</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">First name</label>
               <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required
@@ -483,8 +479,8 @@ function EditStaffModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">
             Edit — {staff.firstName} {staff.lastName}
@@ -495,7 +491,7 @@ function EditStaffModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Account — owner-editable. Password is intentionally NOT here; it
               is reset by the staff member via Forgot password. */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">First name</label>
               <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required
@@ -568,7 +564,7 @@ function EditStaffModal({
                     className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-y"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-text-primary mb-1">Public email</label>
                     <input type="email" value={publicEmail} onChange={(e) => setPublicEmail(e.target.value)}
@@ -1184,7 +1180,7 @@ function StaffDocsPanel({ staffUserId }: { staffUserId: string }) {
 
       {/* List */}
       {loading ? (
-        <p className="text-xs text-text-muted">Loading…</p>
+        <div className="py-2"><SkeletonList rows={2} /></div>
       ) : docs.length === 0 ? (
         <p className="text-xs text-text-muted">No documents yet.</p>
       ) : (

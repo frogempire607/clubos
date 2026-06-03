@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 
 const schema = z.object({
   currentPassword: z.string().min(1),
@@ -13,6 +14,11 @@ const schema = z.object({
 export async function PATCH(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // 5 attempts per 10 minutes per user. Stops a hijacked session from
+  // brute-forcing the current password to take over the account.
+  const rl = rateLimit({ key: `auth:change:${session.user.id}`, limit: 5, windowMs: 10 * 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many password-change attempts. Wait a few minutes and try again.");
 
   try {
     const { currentPassword, newPassword } = schema.parse(await req.json());

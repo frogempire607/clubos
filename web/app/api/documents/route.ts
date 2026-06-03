@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -40,7 +41,9 @@ export async function POST(req: Request) {
         clubId: session.user.clubId,
         title: data.title,
         type: data.type,
-        body: data.body || null,
+        // Sanitized on write — rendered via dangerouslySetInnerHTML on
+        // both /dashboard/documents (owner) and /member/documents (member).
+        body: data.body ? sanitizeRichHtml(data.body) : null,
         required: data.required,
         requiresGuardianSignature: data.requiresGuardianSignature,
         deliveryTrigger: data.deliveryTrigger,

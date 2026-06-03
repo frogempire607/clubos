@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 
@@ -30,7 +30,20 @@ function fmtDate(iso: string) {
 }
 
 export default function MemberGroupThreadPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-8 text-stone-400 text-sm">Loading…</div>}>
+      <MemberGroupThreadInner />
+    </Suspense>
+  );
+}
+
+function MemberGroupThreadInner() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  // `forName` is plumbed from the messages list when this group thread
+  // belongs to a linked child. Used purely for the header pill so a
+  // parent never loses context about which kid the conversation is for.
+  const forName = searchParams.get("forName");
   const { data: session } = useSession();
   const myId = session?.user?.id;
 
@@ -105,16 +118,35 @@ export default function MemberGroupThreadPage() {
     <div className="flex flex-col h-[calc(100vh-12rem)] md:h-[calc(100vh-9rem)]">
       <div className="flex items-center gap-3 mb-3 flex-shrink-0">
         <Link href="/member/messages" className="text-stone-500 hover:text-stone-900 text-lg leading-none">‹</Link>
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold text-stone-900">{group.name}</h1>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-base font-semibold text-stone-900 truncate">{group.name}</h1>
             {isBroadcast && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium">
                 Read-only
               </span>
             )}
+            {forName && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  background: "rgba(163, 230, 53, 0.18)",
+                  color: "#3F6212",
+                  border: "1px solid rgba(163, 230, 53, 0.55)",
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                For {forName}
+              </span>
+            )}
           </div>
-          <p className="text-xs text-stone-500">{group.members.length} members</p>
+          <p className="text-xs text-stone-500">
+            {group.members.length} members
+            {forName && <span className="ml-1">· This group is about {forName}</span>}
+          </p>
         </div>
       </div>
 

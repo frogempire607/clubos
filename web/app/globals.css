@@ -112,10 +112,29 @@ body {
   color: var(--color-text);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
 }
 
 * {
   box-sizing: border-box;
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-area-content-bottom {
+  padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .safe-area-content-bottom {
+    padding-bottom: 2.5rem;
+  }
 }
 
 /* Fraunces for display headings */
