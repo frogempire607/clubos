@@ -116,6 +116,12 @@ export default function MemberPrivatesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  // Captures what was just silently cleared by the coach/tier cascade
+  // useEffect so we can render a visible warning. Without this, picking a
+  // pricing option that's incompatible with the current coach (or vice
+  // versa) silently wipes the other selection and the user is left
+  // staring at a disabled submit button with no explanation.
+  const [conflictNotice, setConflictNotice] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -191,9 +197,29 @@ export default function MemberPrivatesPage() {
 
   useEffect(() => {
     if (!type) return;
-    if (coachId && !coachIdsForLesson(type).includes(coachId)) setCoachId("");
-    if (option && coachId && !optionCoachIds(option, type).includes(coachId)) setOptionId("");
-    if (option && !availableOptions.some((o) => o.id === option.id)) setOptionId("");
+    // Auto-clear incompatible selections so the rendered grids never
+    // show a "selected" state for an item that's no longer in
+    // availableCoaches / availableOptions. We also record what was
+    // cleared so the warning banner can explain why.
+    if (coachId && !coachIdsForLesson(type).includes(coachId)) {
+      const c = coaches.find((x) => x.id === coachId);
+      const who = c ? `${c.firstName} ${c.lastName}` : "Your previous coach";
+      setConflictNotice(`${who} doesn't teach ${type.title}. Pick another coach.`);
+      setCoachId("");
+      return;
+    }
+    if (option && coachId && !optionCoachIds(option, type).includes(coachId)) {
+      const c = coaches.find((x) => x.id === coachId);
+      const who = c ? `${c.firstName} ${c.lastName}` : "Your previous coach";
+      setConflictNotice(`${who} isn't available for the "${option.label}" pricing option. Choose a different option, or change coaches.`);
+      setOptionId("");
+      return;
+    }
+    if (option && !availableOptions.some((o) => o.id === option.id)) {
+      setConflictNotice(`The "${option.label}" pricing option isn't available for the current selection. Pick another option.`);
+      setOptionId("");
+      return;
+    }
   }, [typeId, coachId, optionId, types, coaches]);
 
   function setSlot(i: number, patch: Partial<Slot>) {
@@ -296,6 +322,18 @@ export default function MemberPrivatesPage() {
           {error}
         </div>
       )}
+      {conflictNotice && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800 mb-4 flex items-start gap-2 justify-between">
+          <p className="flex-1">{conflictNotice}</p>
+          <button
+            onClick={() => setConflictNotice(null)}
+            className="text-amber-700 hover:text-amber-900 text-lg leading-none flex-shrink-0"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Incoming partner invitations */}
       {invites.length > 0 && (
@@ -352,7 +390,12 @@ export default function MemberPrivatesPage() {
               {types.map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => { setTypeId(t.id); setOptionId(""); setCoachId(""); }}
+                  onClick={() => {
+                    setTypeId(t.id);
+                    setOptionId("");
+                    setCoachId("");
+                    setConflictNotice(null);
+                  }}
                   className={`text-left p-3 rounded-lg border transition ${
                     typeId === t.id
                       ? "border-stone-900 bg-stone-50"
@@ -388,7 +431,7 @@ export default function MemberPrivatesPage() {
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => setCoachId("")}
+                  onClick={() => { setCoachId(""); setConflictNotice(null); }}
                   className={`px-3 py-1.5 rounded-full text-sm border transition ${
                     coachId === ""
                       ? "border-stone-900 bg-stone-900 text-white"
@@ -402,6 +445,7 @@ export default function MemberPrivatesPage() {
                     key={c.id}
                     onClick={() => {
                       setCoachId(c.id);
+                      setConflictNotice(null);
                       if (option && type && !optionCoachIds(option, type).includes(c.id)) setOptionId("");
                     }}
                     className={`px-3 py-1.5 rounded-full text-sm border transition ${
@@ -432,6 +476,7 @@ export default function MemberPrivatesPage() {
                     key={o.id}
                     onClick={() => {
                       setOptionId(o.id);
+                      setConflictNotice(null);
                       if (type && coachId && !optionCoachIds(o, type).includes(coachId)) setCoachId("");
                     }}
                     className={`text-left p-3 rounded-lg border transition ${
@@ -446,7 +491,12 @@ export default function MemberPrivatesPage() {
                 ))}
               </div>
               {availableOptions.length === 0 && (
-                <p className="text-sm text-stone-500">No pricing options are assigned to that coach.</p>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800">
+                  <p className="font-medium">No pricing options match that coach.</p>
+                  <p className="text-xs mt-0.5">
+                    Pick a different coach above, or clear the coach selection to see all options.
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -552,6 +602,23 @@ export default function MemberPrivatesPage() {
                 />
               </div>
             </div>
+          )}
+
+          {/* Explain WHY submit is disabled — without this, a user who's
+              filled most of the form but missed one field stares at a
+              greyed-out button with no hint about what's missing. */}
+          {type && !canSubmit && !saving && (
+            <p className="text-xs text-stone-500 -mt-2">
+              {options.length > 0 && !option
+                ? "Pick a pricing option to continue."
+                : coachId && !availableCoachIds.includes(coachId)
+                  ? "The selected coach isn't available for this pricing option. Pick a different coach or option."
+                  : validSlots.length === 0
+                    ? "Add at least one date and time you'd like."
+                    : !partnersComplete
+                      ? "Tell us about each partner before submitting."
+                      : "Some required info is missing."}
+            </p>
           )}
 
           <div className="flex items-center justify-between border-t border-stone-100 pt-4">
