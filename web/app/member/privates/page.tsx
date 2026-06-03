@@ -18,6 +18,14 @@ type LessonType = {
 };
 type Coach = { id: string; firstName: string; lastName: string };
 type Slot = { date: string; startTime: string };
+// One recurring weekly availability window per row. Matches the
+// StaffAvailability shape returned by /api/member/privates.
+type CoachAvailability = {
+  userId: string;
+  dayOfWeek: number; // 0=Sun … 6=Sat
+  startTime: string; // "HH:mm" 24h
+  endTime: string;   // "HH:mm" 24h
+};
 type Credit = {
   id: string;
   packageTitle: string | null;
@@ -98,12 +106,104 @@ function partnerLabel(p: BookingPartner): string {
   return "Partner";
 }
 
+// ── Time helpers for the slot picker ─────────────────────────────────────────
+
+// Parse "YYYY-MM-DD" into a local Date at midnight. Avoids the UTC parsing
+// trap of `new Date("YYYY-MM-DD")` which lands a day off for negative
+// timezones.
+function parseLocalDate(date: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  return new Date(Number(y), Number(mo) - 1, Number(d));
+}
+
+// "HH:mm" → minutes since midnight.
+function timeToMinutes(time: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
+function minutesToTime(min: number): string {
+  const hh = Math.floor(min / 60).toString().padStart(2, "0");
+  const mm = (min % 60).toString().padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+// "14:30" → "2:30 PM". Doesn't rely on locale formatting so it matches the
+// rest of the form's display style consistently.
+function format12h(time: string): string {
+  const total = timeToMinutes(time);
+  if (total == null) return time;
+  let h = Math.floor(total / 60);
+  const m = total % 60;
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${m.toString().padStart(2, "0")} ${period}`;
+}
+
+// Build suggested start-time chips for a given coach + date pair. We sample
+// the coach's recurring weekly availability window for that weekday and
+// emit chips at 30-minute intervals, leaving room at the end of the window
+// for the lesson's full duration (so a 60-minute lesson never gets a
+// 4:30 PM chip when the window closes at 5:00 PM).
+function suggestedTimesFor(
+  availability: CoachAvailability[],
+  coachId: string,
+  dateStr: string,
+  durationMin: number,
+): string[] {
+  if (!coachId || !dateStr) return [];
+  const d = parseLocalDate(dateStr);
+  if (!d) return [];
+  const dow = d.getDay();
+  const windows = availability.filter(
+    (a) => a.userId === coachId && a.dayOfWeek === dow,
+  );
+  if (windows.length === 0) return [];
+  const STEP = 30; // minutes
+  const out = new Set<string>();
+  for (const w of windows) {
+    const start = timeToMinutes(w.startTime);
+    const end = timeToMinutes(w.endTime);
+    if (start == null || end == null || end <= start) continue;
+    // Latest valid start = end - durationMin, snapped down to the previous
+    // STEP boundary.
+    const latest = end - durationMin;
+    for (let t = start; t <= latest; t += STEP) {
+      out.add(minutesToTime(t));
+    }
+  }
+  return Array.from(out).sort();
+}
+
+// "Thu, Jun 15" — readable label for the date the user picked.
+function formatSlotDate(dateStr: string): string {
+  const d = parseLocalDate(dateStr);
+  if (!d) return "";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+// "2:30 PM – 3:30 PM" — preview range for the slot.
+function formatSlotRange(dateStr: string, startTime: string, durationMin: number): string {
+  const startMin = timeToMinutes(startTime);
+  if (!dateStr || startMin == null) return "";
+  const endMin = startMin + durationMin;
+  return `${format12h(startTime)} – ${format12h(minutesToTime(endMin))}`;
+}
+
 export default function MemberPrivatesPage() {
   const [types, setTypes] = useState<LessonType[]>([]);
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [credits, setCredits] = useState<Credit[]>([]);
+  const [availability, setAvailability] = useState<CoachAvailability[]>([]);
   const [hasProfile, setHasProfile] = useState(true);
   const [loading, setLoading] = useState(true);
 
@@ -134,6 +234,7 @@ export default function MemberPrivatesPage() {
         setCoaches(d.coaches || []);
         setBookings(d.bookings || []);
         setCredits(d.credits || []);
+        setAvailability(Array.isArray(d.availability) ? d.availability : []);
         setHasProfile(d.hasMemberProfile);
       }
       setInvites(Array.isArray(inv) ? inv : []);
@@ -542,42 +643,110 @@ export default function MemberPrivatesPage() {
                     {usableCredit.packageTitle ? ` from ${usableCredit.packageTitle}` : ""}. Add one date/time per lesson you want to request.
                   </p>
                 )}
-                {slots.map((s, i) => (
-                  <div key={i} className="flex flex-wrap items-end gap-2">
-                    <div>
-                      <label className="block text-[11px] text-stone-500 mb-0.5">Date</label>
-                      <input
-                        type="date"
-                        value={s.date}
-                        onChange={(e) => setSlot(i, { date: e.target.value })}
-                        className="px-3 py-2 border border-stone-300 rounded-lg text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-stone-500 mb-0.5">From</label>
-                      <input
-                        type="time"
-                        value={s.startTime}
-                        onChange={(e) => setSlot(i, { startTime: e.target.value })}
-                        className="px-3 py-2 border border-stone-300 rounded-lg text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-stone-500 mb-0.5">Duration</label>
-                      <div className="px-3 py-2 border border-stone-200 rounded-lg text-sm text-stone-500 bg-stone-50">
-                        {type ? privateDurationLabel(type.durationMin) : "Select a lesson"}
+                {slots.map((s, i) => {
+                  const suggestions = type
+                    ? suggestedTimesFor(availability, coachId, s.date, type.durationMin)
+                    : [];
+                  const previewRange =
+                    type && s.date && s.startTime
+                      ? formatSlotRange(s.date, s.startTime, type.durationMin)
+                      : "";
+                  const previewDate = s.date ? formatSlotDate(s.date) : "";
+                  return (
+                    <div
+                      key={i}
+                      className="border border-stone-200 rounded-lg p-3 bg-stone-50/50"
+                    >
+                      {/* Inputs — stack on mobile, row on sm+. The native
+                          date + time inputs handle keyboard / picker UI
+                          properly; we just give them more breathing room
+                          than the old flex-wrap. */}
+                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end">
+                        <div>
+                          <label className="block text-[11px] text-stone-500 mb-0.5">Date</label>
+                          <input
+                            type="date"
+                            value={s.date}
+                            onChange={(e) => setSlot(i, { date: e.target.value })}
+                            className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-stone-500 mb-0.5">Start time</label>
+                          <input
+                            type="time"
+                            value={s.startTime}
+                            onChange={(e) => setSlot(i, { startTime: e.target.value })}
+                            className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-stone-500 mb-0.5">Duration</label>
+                          <div className="px-3 py-2 border border-stone-200 rounded-lg text-sm text-stone-500 bg-white whitespace-nowrap">
+                            {privateDurationLabel(type.durationMin)}
+                          </div>
+                        </div>
+                        {slots.length > 1 && (
+                          <button
+                            onClick={() => removeSlot(i)}
+                            className="px-2 py-2 text-stone-500 hover:text-red-600 text-sm justify-self-start sm:justify-self-end"
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
+
+                      {/* Suggested time chips — only when a coach is picked
+                          and their recurring availability covers this
+                          weekday. Each chip fills both inputs and the
+                          preview row at once. */}
+                      {coachId && s.date && suggestions.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-[11px] text-stone-500 mb-1">
+                            Coach typically available:
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {suggestions.map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => setSlot(i, { startTime: t })}
+                                className={`px-2 py-1 rounded-md text-[11px] border transition ${
+                                  s.startTime === t
+                                    ? "border-stone-900 bg-stone-900 text-white"
+                                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-100"
+                                }`}
+                              >
+                                {format12h(t)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* No-availability hint — only fires when a coach IS
+                          picked but their recurring availability doesn't
+                          cover this date. Avoids creating false
+                          impressions of "any time works" when in fact
+                          we have no signal. */}
+                      {coachId && s.date && suggestions.length === 0 && (
+                        <p className="mt-3 text-[11px] text-stone-500">
+                          No recurring availability on file for that day — the coach
+                          will confirm or propose another time.
+                        </p>
+                      )}
+
+                      {/* Friendly preview row — confirms what the inputs
+                          will be submitted as, in a human-readable form. */}
+                      {previewRange && (
+                        <p className="mt-3 text-xs text-stone-700">
+                          <span className="font-medium">{previewDate}</span>{" "}
+                          <span className="text-stone-500">·</span>{" "}
+                          <span className="tabular-nums">{previewRange}</span>
+                        </p>
+                      )}
                     </div>
-                    {slots.length > 1 && (
-                      <button
-                        onClick={() => removeSlot(i)}
-                        className="px-2 py-2 text-stone-400 hover:text-red-600 text-sm"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               {slots.length < maxSlotCount && (
                 <button

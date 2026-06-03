@@ -29,7 +29,7 @@ export async function GET() {
     ? await findOrAutoLinkMember(session.user.id, clubId, user.email)
     : null;
 
-  const [types, staff, bookings, credits] = await Promise.all([
+  const [types, staff, bookings, credits, availability] = await Promise.all([
     prisma.privateLessonType.findMany({
       where: { clubId, deletedAt: null, active: true },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -81,6 +81,21 @@ export async function GET() {
           orderBy: { createdAt: "asc" },
         })
       : Promise.resolve([]),
+    // Per-coach weekly recurring availability windows. The member request
+    // form uses these to render "suggested" time chips once a coach +
+    // date are picked, so athletes pick a slot the coach is actually
+    // around to take. We deliberately fetch ALL staff availability here
+    // rather than gating on a specific coach, because the form lets the
+    // user change coach without a refetch.
+    prisma.staffAvailability.findMany({
+      where: { clubId, active: true },
+      select: {
+        userId: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+      },
+    }),
   ]);
 
   return NextResponse.json({
@@ -105,6 +120,7 @@ export async function GET() {
         remaining: c.creditsGranted - c.creditsUsed,
         expiresAt: c.expiresAt,
       })),
+    availability,
   });
 }
 
