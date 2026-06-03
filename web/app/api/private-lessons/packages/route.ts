@@ -31,6 +31,10 @@ const schema = z
     price:            z.number().nonnegative(),
     expiresAfterDays: z.number().int().positive().optional().nullable(),
     active:           z.boolean().default(true),
+    // Owner toggle for the member-facing package shop. Defaults to false
+    // so existing packages stay owner-only until the owner publishes
+    // each one explicitly.
+    publishedToMembers: z.boolean().default(false),
   })
   .refine(
     (d) => d.pricingMode === "FLAT" || (d.discountValue != null && d.discountValue > 0),

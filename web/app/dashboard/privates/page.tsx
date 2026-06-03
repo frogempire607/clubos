@@ -43,6 +43,7 @@ type Package = {
   price: number;
   expiresAfterDays: number | null;
   active: boolean;
+  publishedToMembers: boolean;
 };
 
 type Partner = {
@@ -469,6 +470,10 @@ function PackageModal({
     price:            String(pkg?.price ?? ""),
     expiresAfterDays: String(pkg?.expiresAfterDays ?? ""),
     active:           pkg?.active ?? true,
+    // Owner opt-in for the member-facing package shop. Defaults to false
+    // on new packages so nothing gets exposed publicly without an
+    // explicit toggle.
+    publishedToMembers: pkg?.publishedToMembers ?? false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
@@ -502,6 +507,7 @@ function PackageModal({
         price:            parseFloat(form.price) || 0,
         expiresAfterDays: form.expiresAfterDays ? parseInt(form.expiresAfterDays) : null,
         active:           form.active,
+        publishedToMembers: form.publishedToMembers,
       };
       const url    = pkg ? `/api/private-lessons/packages/${pkg.id}` : "/api/private-lessons/packages";
       const method = pkg ? "PATCH" : "POST";
@@ -696,6 +702,28 @@ function PackageModal({
             <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
             Active (available for purchase)
           </label>
+
+          {/* Member-shop publish toggle. Owner-only gate that controls
+              whether this package appears in /member/shop/packages.
+              Defaults off so packages never publish silently. */}
+          <div className="border border-app-border rounded-md p-3 bg-app-bg/40">
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={form.publishedToMembers}
+                onChange={(e) => setForm({ ...form, publishedToMembers: e.target.checked })}
+              />
+              <span>
+                <span className="font-medium text-text-primary">Publish to member shop</span>
+                <span className="block text-xs text-text-muted mt-0.5">
+                  Members can buy this package directly through the portal.
+                  Leave off to keep it owner-only (assigned by hand from
+                  the member edit screen).
+                </span>
+              </span>
+            </label>
+          </div>
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Cancel</button>
