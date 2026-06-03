@@ -814,7 +814,7 @@ function BookingModal({
                           if (endIso) setConfirmedEnd(endIso);
                           setAction("confirm");
                         }}
-                        className="text-xs px-2 py-1 bg-lime-accent text-white rounded-md hover:opacity-90 flex-shrink-0"
+                        className="text-xs px-2 py-1 bg-lime-accent text-charcoal font-medium rounded-md hover:opacity-90 flex-shrink-0"
                       >
                         Accept this time
                       </button>
@@ -827,7 +827,7 @@ function BookingModal({
 
           {/* Confirmed time (if any) */}
           {booking.confirmedStartAt && (
-            <div className="text-sm bg-lime-accent px-3 py-2 rounded">
+            <div className="text-sm bg-lime-accent text-charcoal font-medium px-3 py-2 rounded">
               Confirmed: {fmt(booking.confirmedStartAt)} – {booking.confirmedEndAt ? fmt(booking.confirmedEndAt) : ""}
             </div>
           )}
@@ -859,7 +859,7 @@ function BookingModal({
                     }
                     setAction("confirm");
                   }}
-                  className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:opacity-90"
+                  className="px-3 py-1.5 text-sm bg-lime-accent text-charcoal font-medium rounded-md hover:opacity-90"
                 >
                   Confirm or change time
                 </button>
@@ -919,7 +919,7 @@ function BookingModal({
                 <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Back</button>
                 <button onClick={() => send({ action: "ACCEPT", confirmedStartAt: confirmedStart, confirmedEndAt: confirmedEnd })}
                   disabled={saving || !confirmedStart || !confirmedEnd}
-                  className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:bg-lime-accent disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-lime-accent text-charcoal font-medium rounded-md hover:bg-lime-accent disabled:opacity-50">
                   {saving ? "Confirming…" : "Confirm"}
                 </button>
               </div>
