@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-05-30 (Phase 1 native shell URL/redirect hardening, Phase 2A mobile-aware dashboard shell, Phase 2B mobile-responsive dashboard overview, Phase 2C primitives + full section sweep across all 10 section pages, Phase 2D mobile polish sweep (bottom-sheet modals, scroll tables, stacked form grids across 22 files), Phase 2E code-level regression done (lint/tsc/build/cap-sync clean + outside review agent dispatched). End-to-end browser + simulator smoke is the only remaining item — full test checklist in Session log — 2026-05-30 below.)
+Last updated: 2026-06-02 (Visual sweep: glyphs → lucide-react SVG icons across owner + member surfaces, parent-child message context with lime indicator + "For <kid>" pill carried into thread headers, events page card redesigned as athletic scoreboard layout, dashboard schedule widget polish. iOS hardening: dashboard horizontal-overflow + calendar squeeze fixed via min-w-0 / overflow-x-hidden + responsive quickNav, member portal home tile icons replaced. Security pass: lib/ratelimit.ts in-memory token bucket applied to auth/messaging/booking/upload routes, lib/sanitizeHtml.ts via isomorphic-dompurify on document body writes, zod added to the 2 routes that lacked it. Full test checklist + remaining iOS smoke items in Session log — 2026-06-02 below.)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -799,6 +799,116 @@ Documented in `.env.example`. Critical for production:
 - `UPLOADS_DIR` (optional; defaults to `./storage/uploads`)
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing)
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
+
+## Session log — 2026-06-02 (visual sweep + iOS layout hardening + security pass)
+
+Branch: `native-app-shell` (pushed: NO, merged: NO). Commits in order, oldest first:
+
+| SHA       | Topic                                                     |
+|-----------|-----------------------------------------------------------|
+| `0e47830` | replace unicode glyph icons with lucide SVG               |
+| `a80eb25` | surface child name on every parent-facing message thread  |
+| `2c783ff` | redesign events page card — athletic scoreboard layout    |
+| `ad5eab4` | polish dashboard schedule widgets — bigger pills/spacing  |
+| `0f9a0ca` | fix iOS dashboard/calendar/member icon layout regressions |
+| `1dc5cb4` | fix parent/child message context on native shell          |
+| `cd1adcf` | API validation, sanitization, rate limiting               |
+
+### Visual sweep (commits `0e47830`, `a80eb25`, `2c783ff`, `ad5eab4`)
+
+- **`0e47830`** — replaced every unicode glyph icon (⌂ ◉ ◎ ◇ ◈ ✉ ✓ $ ▦ □ ⚙ ≡ ▤ ◐ ?) on the owner side with lucide-react SVG components. Touched `lib/dashboardNav.ts` (icon field type changed to `LucideIcon`), `components/DashboardSidebar.tsx`, `components/DashboardBottomNav.tsx`, `app/dashboard/page.tsx` (`sections` + `PRIMARY_QUICK_ACTIONS`), and all 6 `EmptyState` callers. `components/EmptyState.tsx` icon wrapper grew from 48px / app-bg / muted text to 56px / lime-tint background / dark-lime stroke. **New dep**: `lucide-react ^0.469.0`.
+- **`a80eb25`** — child threads on `/member/messages` got a lime left border + lime `For <kid>` pill via shared `ChildBadge`. Child-thread links carry `?for=<id>&forName=<first>` to the DM and group thread pages. DM thread + group thread pages render the same pill in the header.
+- **`2c783ff`** — `/dashboard/events` card rebuilt as a 4-row scoreboard: type-colored left stripe (jersey stripe), big tabular-nums date pill, name w/ `line-clamp-2`, lucide-icon meta row (Clock / MapPin / Users), lime/orange capacity progress bar, status pill row, multi-session sub-row. Desktop keeps the action button row; mobile uses a single kebab → bottom-sheet action menu. State `actionMenuFor`.
+- **`ad5eab4`** — dashboard `upcomingEventsList` and `upcomingClassesList`: date pill widened to 48px with bold tabular-nums, names switched to `line-clamp-2`, type badge stacks under name on mobile / floats right on desktop, weekday + time gain `tabular-nums`.
+
+### iOS hardening (commit `0f9a0ca`)
+
+- **Dashboard horizontal overflow** (Upcoming events overlapping Recent members on iOS). Root cause: CSS Grid items default to `min-width: auto` which is the intrinsic min-content width of their children. Long unbroken content blew out the column track, causing adjacent widgets to visually overlap and the page to gain horizontal scroll. Fix: `min-w-0` on every grid wrapper around section widgets in `app/dashboard/page.tsx`; `overflow-x-hidden` added to `<main>` in `app/dashboard/layout.tsx` as a safety net.
+- **Calendar widget squeezed / day numbers overlapping**. Same root cause + quickNav widget used `grid-cols-4` unconditionally for 11 tiles, blowing out the row width on phone widths and crushing the calendar column. Fix: calendar card gets `min-w-0`, cells get `aspect-square` and `gap-1` for guaranteed clickable space, `tabular-nums` on dates, lime event-day dots. quickNav widget responsive: `grid-cols-2 sm:grid-cols-3 lg:grid-cols-4`, tiles get `truncate` / `line-clamp-2` / `min-w-0`.
+- **Member dashboard tiles still showing tofu/? boxes on iOS** — Phase 2C migration covered owner dashboard but NOT the member portal home page. `app/member/page.tsx` still used unicode glyphs `◷ ✓ ✉ 📣 ▤ ◎ ◉` for tiles and `✉ ☎ ↗` for ClubBanner contact lines. Fixed via new `TileLink` component (lime-tinted circle holding a lucide icon: CalendarDays / CheckSquare / MessageSquare / Megaphone / FileText / UserCircle2 / Users), used in both AdultAthleteView and ParentView tile grids. ClubBanner placeholder + contact rows + "View the full schedule" CTA chevron + LinkChild success state + "No children linked yet" empty state all migrated. Member portal bottom nav already used local SVG icon components (HomeIcon / BookingIcon / MessageIcon / etc. in `app/member/layout.tsx`) — untouched.
+
+### Parent/child message context on native shell (commit `1dc5cb4`)
+
+The previous implementation in `a80eb25` used Tailwind arbitrary values (`border-l-[5px] border-l-lime-500`, `bg-lime-100 text-lime-800 border-lime-300`). On Tailwind v4, lime-palette JIT + arbitrary-value compilation depend on content scanning + theme inclusion — not guaranteed to be in the iOS bundle's first-paint CSS after install. The lime classes silently no-op'd and the indicators rendered as bare 1px stone-200 default.
+
+Fix:
+- `app/member/messages/page.tsx` — top-of-file LIME / LIME_BG / LIME_BORDER / LIME_TEXT constants. ChildBadge and child-thread card backgrounds + 5px left border now use inline `style={{}}` instead of Tailwind classes. Bulletproof against any compile race.
+- "Messages for your athletes" section always renders for any parent with linked children (pulled from `/api/member/portal` `guardianOf`), not only when child threads exist. Empty-state lime-tinted info card explains where child messages will appear + flags any linked kid without their own member login (a precondition for receiving coach DMs).
+- DM thread page and group thread page lime "For <kid>" pill switched to the same inline-style approach.
+- `app/api/member/portal/route.ts` — `guardianOf.member` include now also pulls `user: { id }` so the client can derive `hasOwnLogin` per linked child without an extra request.
+
+### Security pass (commit `cd1adcf`)
+
+**New helpers:**
+
+- **`lib/ratelimit.ts`** — in-memory token-bucket rate limiter. Exports `rateLimit({ key, limit, windowMs })` → `RateLimitResult`, `rateLimitedResponse(rl, message?)` → `NextResponse` with `retry-after` + `x-ratelimit-reset` headers, `ipFromRequest(req)` → first IP in `x-forwarded-for` / `x-real-ip` / "unknown". Periodic janitor sweeps stale buckets every 5 min (interval is `.unref()`'d so it doesn't keep `next dev` alive). Test-only `_resetRateLimitForTests()` export.
+- **CAVEAT**: in-memory state is per-process. On long-running Node servers (npm run dev, self-hosted prod) limits are global. On horizontally-scaled serverless deployments (Vercel) each warm instance has its own bucket → effective limit is `limit × warm_instances`. Acceptable best-effort throttling for AthletixOS scale; swap for `@upstash/ratelimit` + Redis if we ever need per-cluster limits.
+- **`lib/sanitizeHtml.ts`** — wraps `isomorphic-dompurify` with an allowlist of safe rich-text tags (no `<script>`, no `<iframe>`, no `on*` event handlers, no `javascript:` URLs). Used at WRITE time so stored values are trustworthy on render. **New dep**: `isomorphic-dompurify ^2.36.0`.
+
+**Validation gaps closed** (only 2 of 14 audited routes lacked zod):
+
+- `app/api/messages/dm/route.ts` POST (owner → member DM): replaced manual `typeof` checks with `dmBodySchema` (memberId required, body trimmed, body ≤5000 chars).
+- `app/api/upload/route.ts` POST (file upload): added `uploadFieldsSchema` for the `type` enum + explicit `File` instanceof check + empty-file rejection. Pre-existing size + MIME checks kept.
+
+**XSS sanitization wired:**
+
+- `app/api/documents/route.ts` POST and `app/api/documents/[id]/route.ts` PATCH now run `sanitizeRichHtml()` on `body` before storage. `Document.body` is the only field rendered via `dangerouslySetInnerHTML` (in both `/dashboard/documents` and `/member/documents`) — caps the blast radius even if a staff member with `documents:edit` permission tries to ship JS.
+
+**Rate limits applied:**
+
+| Endpoint | Limit | Window |
+|---|---|---|
+| `auth/forgot-password` (per IP) | 5 | 10 min |
+| `auth/reset-password` (per IP) | 10 | 10 min |
+| `auth/change-password` (per session) | 5 | 10 min |
+| `auth/signup` (per IP) | 5 | 10 min |
+| `member/signup` (per IP) | 10 | 10 min |
+| `messages/dm` owner→member (per session) | 30 | 1 min |
+| `member/messages/dm/[userId]` (per session) | 60 | 1 min |
+| `member/messages/groups/[id]` (per session) | 60 | 1 min |
+| `member/classes/book` (per session) | 20 | 1 min |
+| `member/events/[id]/register` (per session) | 20 | 1 min |
+| `public/events/[slug]/register` (per IP) | 10 | 10 min |
+| `upload` (per session) | 30 | 1 min |
+
+Each 429 returns a clean message + `retry-after` header + `x-ratelimit-reset` timestamp.
+
+### Files touched this session
+
+- New: `lib/ratelimit.ts`, `lib/sanitizeHtml.ts`, `components/EmptyState.tsx` (already existed; restyled in `0e47830`), `app/member/page.tsx::TileLink` (inline component).
+- Modified visual: `lib/dashboardNav.ts`, `components/DashboardSidebar.tsx`, `components/DashboardBottomNav.tsx`, `components/EmptyState.tsx`, `app/dashboard/page.tsx`, `app/dashboard/layout.tsx`, `app/dashboard/events/page.tsx`, `app/dashboard/reports/page.tsx`, `app/dashboard/staff/page.tsx`, `app/dashboard/documents/page.tsx`, `app/member/page.tsx`, `app/member/messages/page.tsx`, `app/member/messages/dm/[userId]/page.tsx`, `app/member/messages/group/[id]/page.tsx`, `app/api/member/portal/route.ts`.
+- Modified security: `app/api/messages/dm/route.ts`, `app/api/upload/route.ts`, `app/api/auth/{forgot-password,reset-password,change-password,signup}/route.ts`, `app/api/member/signup/route.ts`, `app/api/member/messages/dm/[userId]/route.ts`, `app/api/member/messages/groups/[id]/route.ts`, `app/api/member/classes/book/route.ts`, `app/api/member/events/[id]/register/route.ts`, `app/api/public/events/[slug]/register/route.ts`, `app/api/documents/route.ts`, `app/api/documents/[id]/route.ts`.
+- New deps in `package.json`: `lucide-react ^0.469.0`, `isomorphic-dompurify ^2.36.0`.
+
+### What's left when you return
+
+1. **iOS simulator smoke** — the only blocker between this branch and merge. From the user's last check session:
+   - Login works on Chrome + Safari + native shell ✓
+   - Native simulator wouldn't open a window for the full manual sweep — re-run `npm run cap:ios`, ensure the App scheme + an iOS simulator device are selected in Xcode, hit ▶. Walk:
+     - Dashboard home shows NO horizontal scroll, "Upcoming events" and "Recent members" do NOT overlap, calendar widget renders 7 columns × 5-6 rows with readable day numbers.
+     - Member portal home — every tile (Schedule / My Bookings / Messages / Announcements / Documents / Our team or My Profile) shows a lucide icon in a lime circle. **No ? boxes anywhere.**
+     - As a parent: `/member/messages` shows "Messages for your athletes" section always (even with zero child messages) + an explanatory lime info card. With actual child threads: each row shows a lime left stripe + "For <kid>" pill. Tap into a child thread — header shows the same pill + "This thread is about <kid>" subtitle.
+
+2. **Untested 429 paths** — code-level clean but no E2E smoke. Quick browser check: 6× rapid "Forgot password" submissions → 6th gets a friendly 429 with a `Retry-After` header.
+
+3. **Document sanitization smoke** — paste `<script>alert(1)</script>hello` into a document body in `/dashboard/documents`. Save. View on `/member/documents` — `<script>` should be gone; "hello" still renders.
+
+4. **Routes NOT audited for zod** (carried over): the parallel audit covered 14 of 26 routes. The 12 not yet read:
+   - `app/api/club/update`, `app/api/club/locations`
+   - `app/api/transactions`, `app/api/expenses`, `app/api/financials/manual-payment`
+   - All STAFF/OWNER-only — limited abuse surface, but should still get a zod-coverage check next pass.
+
+5. **Phase 1 + 2 simulator end-to-end smoke** (carried over from earlier sessions): same checklist in the 2026-05-30 session log below — most items still apply, but the iOS-specific fixes from `0f9a0ca` and `1dc5cb4` need fresh verification.
+
+6. **Pre-existing cleanup still open** (carried over): `lib/auth.ts` pre-existing `as any` casts on session/JWT, unused `allEvents` in `app/dashboard/page.tsx`, unescaped quotes in `app/dashboard/settings/page.tsx`, orphan `/dashboard/schedule/page.tsx`. Low priority.
+
+### Architectural notes for future-me
+
+- **Tailwind v4 arbitrary values are not bulletproof** on iOS WebKit's first paint after install. When a visual indicator MUST render correctly (e.g. a lime border distinguishing parent vs child threads), use inline `style={{}}` with CSS variables or hardcoded hex. This is what the `LIME` / `LIME_BG` / `LIME_BORDER` / `LIME_TEXT` constants in `app/member/messages/page.tsx` exist for.
+- **CSS Grid items default to `min-width: auto`** which is the intrinsic min-content width. ALWAYS add `min-w-0` to grid item wrappers if their content includes long unbroken strings (event names, table rows, member names). The default is a footgun that surfaces as iOS-specific layout regressions.
+- **lucide-react is now the standard for icons** across owner + member surfaces. No unicode glyphs in user-facing labels. Emojis (👋, ×, ✓ on small buttons) are still OK because the iOS system font carries those; but if in doubt, prefer the SVG.
+- **Rate limit conventions**: keys are `${category}:${ip-or-userid}` (e.g. `messages:dm:${userId}`, `auth:signup:${ip}`). 1-minute windows for messaging/booking (operational), 10-minute windows for auth (anti-brute-force). Public routes use IP; authenticated routes use session.user.id.
+- **HTML sanitization on WRITE not READ**: the `dangerouslySetInnerHTML` call sites trust their source (they HAVE to — the renderer doesn't get to revalidate). `sanitizeRichHtml()` is invoked once at WRITE time so every read is implicitly trusted.
 
 ## Session log — 2026-05-30 (Phase 1 native URL hardening + Phase 2A/B/C dashboard redesign foundation)
 
