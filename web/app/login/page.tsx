@@ -82,8 +82,14 @@ function LoginInner() {
     <div className="dashboard-root min-h-screen flex items-center justify-center bg-app-bg px-4 py-10">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-6">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/circle.PNG" alt="AthletixOS" className="w-24 h-24 rounded-full" />
+          <Link
+            href="/"
+            aria-label="AthletixOS — back to home"
+            className="rounded-full focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/circle.PNG" alt="AthletixOS" className="w-24 h-24 rounded-full hover:opacity-90 transition" />
+          </Link>
         </div>
 
         <div className="bg-surface rounded-xl shadow-sm border border-app-border p-8">
