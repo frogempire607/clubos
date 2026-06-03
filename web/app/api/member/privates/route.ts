@@ -5,6 +5,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
+import { sendPrivateLessonRequestedEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
 
@@ -316,6 +318,7 @@ export async function POST(req: Request) {
 
   // Notify the assigned coach (if any) so they can approve/decline.
   if (data.coachId) {
+    // In-app DM — fast surface inside the dashboard.
     try {
       await prisma.message.create({
         data: {
@@ -327,6 +330,39 @@ export async function POST(req: Request) {
       });
     } catch {
       /* messaging is best-effort */
+    }
+
+    // Coach pre-notification email — catches coaches who don't watch the
+    // dashboard for new DMs. Best-effort; a transport failure must not
+    // break the request flow.
+    try {
+      const [coachUser, clubRow] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: data.coachId },
+          select: { email: true, firstName: true },
+        }),
+        prisma.club.findUnique({
+          where: { id: clubId },
+          select: { name: true, emailFromName: true, emailReplyTo: true },
+        }),
+      ]);
+      if (coachUser?.email && clubRow) {
+        await sendPrivateLessonRequestedEmail({
+          to: coachUser.email,
+          coachFirstName: coachUser.firstName,
+          clubName: clubRow.name,
+          memberFirstName: member.firstName,
+          memberLastName: member.lastName,
+          lessonTitle: lessonType.title,
+          requestedSlots: normalizedSlots,
+          notes: data.notes,
+          dashboardUrl: `${getAppBaseUrl()}/dashboard/privates`,
+          fromName: clubRow.emailFromName || clubRow.name,
+          replyTo: clubRow.emailReplyTo || null,
+        });
+      }
+    } catch (err) {
+      console.error("[private-request] coach email failed", err);
     }
   }
 

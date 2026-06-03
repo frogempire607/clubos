@@ -406,3 +406,139 @@ export async function sendMemberMigrationActivationEmail({
 
   await sendEmail({ to, subject, html, fromName, replyTo });
 }
+
+// Coach pre-notification: fires when a member submits a private lesson
+// request that assigns this coach. Pairs with the in-app DM so coaches
+// notice the request even if they don't open the portal regularly.
+// Best-effort: caller wraps in try/catch so a transport failure never
+// breaks the booking-create flow.
+export async function sendPrivateLessonRequestedEmail({
+  to,
+  coachFirstName,
+  clubName,
+  memberFirstName,
+  memberLastName,
+  lessonTitle,
+  requestedSlots,
+  notes,
+  dashboardUrl,
+  fromName,
+  replyTo,
+}: {
+  to: string;
+  coachFirstName: string;
+  clubName: string;
+  memberFirstName: string;
+  memberLastName: string;
+  lessonTitle: string;
+  // [{ date: "YYYY-MM-DD", startTime: "HH:mm", endTime: "HH:mm" }, ...]
+  requestedSlots: { date: string; startTime: string; endTime: string }[];
+  notes?: string | null;
+  dashboardUrl: string;
+  fromName?: string | null;
+  replyTo?: string | null;
+}) {
+  // Render requested slots in the same "Thu, Jun 15 · 2:30 PM – 3:30 PM"
+  // shape the athlete sees in the portal — coaches and athletes refer to
+  // the same times in messages.
+  const fmtSlot = (s: { date: string; startTime: string; endTime: string }) => {
+    const d = new Date(`${s.date}T${s.startTime || "00:00"}`);
+    if (Number.isNaN(d.getTime())) return `${s.date} ${s.startTime} – ${s.endTime}`;
+    const dateLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const startLabel = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const endDate = new Date(`${s.date}T${s.endTime || "00:00"}`);
+    const endLabel = Number.isNaN(endDate.getTime())
+      ? s.endTime
+      : endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} · ${startLabel} – ${endLabel}`;
+  };
+
+  const slotItems = requestedSlots
+    .map((s) => `<li style="color:#57534e;font-size:14px;margin:0 0 4px">${fmtSlot(s)}</li>`)
+    .join("");
+
+  await sendEmail({
+    to,
+    subject: `New private lesson request — ${lessonTitle}`,
+    fromName,
+    replyTo,
+    html: baseLayout(`
+      <h2 style="color:#1c1917;margin:0 0 8px">New private request, ${coachFirstName}</h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        <strong>${memberFirstName} ${memberLastName}</strong> has requested a private lesson
+        at ${clubName}.
+      </p>
+      <div style="background:#F5F3EE;border-radius:8px;padding:16px;margin:0 0 16px">
+        <p style="color:#1c1917;margin:0 0 6px;font-weight:600">${lessonTitle}</p>
+        <p style="color:#a8a29e;margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">Requested times</p>
+        <ul style="margin:0;padding:0 0 0 18px">${slotItems}</ul>
+        ${notes ? `<p style="color:#57534e;margin:10px 0 0;font-size:13px"><em>Note from athlete:</em> ${notes.replace(/[<>]/g, "")}</p>` : ""}
+      </div>
+      <a href="${dashboardUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        Review request
+      </a>
+      <p style="color:#a8a29e;font-size:12px;margin:18px 0 0">
+        You'll also see this in your private lessons dashboard. Approve to confirm a time
+        or propose a different slot.
+      </p>
+    `),
+  });
+}
+
+// OUTSIDE partner invite — fires when a coach accepts a multi-athlete
+// private lesson and the booker provided their outside partner's email
+// at request time. The link points to the public partner-token page
+// where the partner fills in their info to confirm participation.
+// Best-effort: caller wraps in try/catch; if no email was collected
+// at booking time, no email is sent (the booker shares the link
+// manually as before).
+export async function sendPartnerInviteEmail({
+  to,
+  partnerName,
+  bookerName,
+  clubName,
+  lessonTitle,
+  confirmedStartAt,
+  inviteUrl,
+  fromName,
+  replyTo,
+}: {
+  to: string;
+  partnerName: string | null; // may be unknown if booker only typed an email
+  bookerName: string;
+  clubName: string;
+  lessonTitle: string;
+  confirmedStartAt: Date | null;
+  inviteUrl: string;
+  fromName?: string | null;
+  replyTo?: string | null;
+}) {
+  const whenLabel = confirmedStartAt
+    ? `${confirmedStartAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at ${confirmedStartAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+    : null;
+  const greeting = partnerName ? `Hi ${partnerName}` : "Hi there";
+
+  await sendEmail({
+    to,
+    subject: `${bookerName} invited you to a private lesson at ${clubName}`,
+    fromName,
+    replyTo,
+    html: baseLayout(`
+      <h2 style="color:#1c1917;margin:0 0 8px">${greeting},</h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        <strong>${bookerName}</strong> has invited you to join a private lesson at ${clubName}.
+      </p>
+      <div style="background:#F5F3EE;border-radius:8px;padding:16px;margin:0 0 16px">
+        <p style="color:#1c1917;margin:0 0 4px;font-weight:600">${lessonTitle}</p>
+        ${whenLabel ? `<p style="color:#57534e;margin:0;font-size:14px">${whenLabel}</p>` : `<p style="color:#a8a29e;margin:0;font-size:13px">Time will be confirmed once you accept.</p>`}
+      </div>
+      <a href="${inviteUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        Confirm and add your info
+      </a>
+      <p style="color:#a8a29e;font-size:12px;margin:18px 0 0">
+        We'll ask for a few details (name, phone, waiver acknowledgement) so the club has what
+        they need on the day.
+      </p>
+    `),
+  });
+}
