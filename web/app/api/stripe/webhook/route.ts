@@ -115,6 +115,7 @@ export async function POST(req: Request) {
         const saleId    = session.metadata?.saleId; // product sale
         const eventRegistrationId = session.metadata?.eventRegistrationId; // public/non-member event signup
         const clubOsPlan = session.metadata?.clubOsPlan; // ClubOS-own subscription tier
+        const privatePackageId = session.metadata?.privatePackageId; // member-shop private package purchase
 
         // ── ClubOS platform subscription checkout ────────────────────────────
         // Club owner upgraded their AthletixOS plan. Persist tier + Stripe ids
@@ -411,6 +412,77 @@ export async function POST(req: Request) {
               where: { id: sale.productId },
               data: { inventory: { decrement: sale.quantity } },
             });
+          }
+        }
+
+        // ── Member-shop private package purchase ────────────────────────────
+        // Granted credits = pkg.credits + pkg.bonusCredits, scoped to the
+        // package's lesson type(s) (validated server-side at booking time
+        // via packageAllowsLessonType). We deliberately CREATE the ledger
+        // row here for the first time — pre-creating a pending row would
+        // surface credits to the member before payment landed.
+        //
+        // Idempotency: scoped by stripeCheckoutSessionId so a duplicate
+        // webhook delivery doesn't double-grant. The webhook itself
+        // also dedupes by stripeEventId upstream, but this is a cheap
+        // belt-and-braces guard against any future replay path.
+        if (privatePackageId && memberId && clubId) {
+          const existing = await prisma.privateCreditLedger.findFirst({
+            where: { stripeCheckoutSessionId: session.id },
+            select: { id: true },
+          });
+          if (!existing) {
+            const pkg = await prisma.privatePackage.findFirst({
+              where: { id: privatePackageId, clubId, deletedAt: null },
+              select: {
+                id: true,
+                title: true,
+                credits: true,
+                bonusCredits: true,
+                lessonTypeId: true,
+                expiresAfterDays: true,
+              },
+            });
+            if (pkg) {
+              const grants = pkg.credits + (pkg.bonusCredits ?? 0);
+              const expiresAt = pkg.expiresAfterDays
+                ? new Date(Date.now() + pkg.expiresAfterDays * 24 * 60 * 60 * 1000)
+                : null;
+              const amount = (session.amount_total || 0) / 100;
+              await prisma.privateCreditLedger.create({
+                data: {
+                  clubId,
+                  memberId,
+                  packageId: pkg.id,
+                  lessonTypeId: pkg.lessonTypeId,
+                  creditsGranted: grants,
+                  creditsUsed: 0,
+                  purchaseType: "PACKAGE",
+                  status: "active",
+                  expiresAt,
+                  stripeCheckoutSessionId: session.id,
+                  stripePaymentIntentId: session.payment_intent as string | undefined,
+                  pricePaid: amount,
+                },
+              });
+              // Record the transaction so the package purchase appears in
+              // financials/reports alongside membership + event payments.
+              if (amount > 0) {
+                await prisma.transaction.create({
+                  data: {
+                    clubId,
+                    memberId,
+                    amount,
+                    status: "SUCCEEDED",
+                    stripePaymentIntentId: session.payment_intent as string | undefined,
+                    description: `Private package: ${pkg.title}`,
+                    type: "PRIVATE",
+                    category: "private_lessons",
+                    paymentMethod: "STRIPE",
+                  },
+                });
+              }
+            }
           }
         }
 
