@@ -19,6 +19,8 @@ export async function GET() {
   const todayEnd = new Date(todayStart.getTime() + 86400000);
   const in14Days = new Date(todayStart.getTime() + 14 * 86400000);
 
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000);
+
   const [
     totalMembers,
     activeMembers,
@@ -36,6 +38,8 @@ export async function GET() {
     club,
     membershipCount,
     eventCount,
+    recentMessagesRaw,
+    pendingBookingsRaw,
   ] = await Promise.all([
     prisma.member.count({ where: { clubId, deletedAt: null } }),
     prisma.member.count({ where: { clubId, deletedAt: null, status: "ACTIVE" } }),
@@ -88,6 +92,26 @@ export async function GET() {
     }),
     prisma.membership.count({ where: { clubId } }),
     prisma.event.count({ where: { clubId, deletedAt: null } }),
+    // Recent direct messages sent to this owner/staff user — last 5,
+    // newest first. Includes the sender's name so the widget can render
+    // without an extra fetch.
+    prisma.message.findMany({
+      where: { clubId, recipientId: session.user.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: { sender: { select: { id: true, firstName: true, lastName: true, role: true } } },
+    }),
+    // Recent bookings — last 7 days, newest first. Booking has no
+    // direct clubId column, so we scope through the event relation.
+    prisma.booking.findMany({
+      where: { event: { clubId }, createdAt: { gte: sevenDaysAgo } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: {
+        event: { select: { id: true, name: true, startsAt: true } },
+        member: { select: { id: true, firstName: true, lastName: true } },
+      },
+    }),
   ]);
 
   const revenue = Number(revenueAgg._sum.amount ?? 0);
@@ -135,6 +159,25 @@ export async function GET() {
       id: s.id,
       name: s.recurringClass?.name ?? "Class",
       startsAt: s.startsAt,
+    })),
+    recentMessages: recentMessagesRaw.map((m) => ({
+      id: m.id,
+      body: m.body,
+      createdAt: m.createdAt,
+      readAt: m.readAt,
+      sender: {
+        id: m.sender.id,
+        firstName: m.sender.firstName,
+        lastName: m.sender.lastName,
+        role: m.sender.role,
+      },
+    })),
+    pendingBookings: pendingBookingsRaw.map((b) => ({
+      id: b.id,
+      status: b.status,
+      createdAt: b.createdAt,
+      member: b.member ? { id: b.member.id, firstName: b.member.firstName, lastName: b.member.lastName } : null,
+      event: b.event ? { id: b.event.id, name: b.event.name, startsAt: b.event.startsAt } : null,
     })),
     setup: { items: setupItems, done: setupDone, total: setupItems.length },
   });

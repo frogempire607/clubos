@@ -80,6 +80,20 @@ type Summary = {
   upcomingEvents: number;
   todayEvents: number;
   upcomingClasses: { id: string; name: string; startsAt: string }[];
+  recentMessages?: {
+    id: string;
+    body: string;
+    createdAt: string;
+    readAt: string | null;
+    sender: { id: string; firstName: string; lastName: string; role: string };
+  }[];
+  pendingBookings?: {
+    id: string;
+    status: string;
+    createdAt: string;
+    member: { id: string; firstName: string; lastName: string } | null;
+    event: { id: string; name: string; startsAt: string } | null;
+  }[];
   setup: { items: { key: string; label: string; done: boolean }[]; done: number; total: number };
 };
 
@@ -421,6 +435,116 @@ export default function DashboardPage() {
             )}
           </div>
         );
+      case "recentMessages": {
+        const msgs = summary?.recentMessages ?? [];
+        return (
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text-primary">Recent messages</h2>
+              <Link href="/dashboard/messages" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
+            </div>
+            {loading ? (
+              <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
+            ) : msgs.length === 0 ? (
+              <div className="p-6 text-sm text-text-muted text-center">No messages yet.</div>
+            ) : (
+              <div className="divide-y divide-app-border">
+                {msgs.map((m) => {
+                  const isUnread = !m.readAt;
+                  const sent = new Date(m.createdAt);
+                  return (
+                    <Link
+                      key={m.id}
+                      href={`/dashboard/messages?with=${m.sender.id}`}
+                      className="flex items-start gap-3 px-4 sm:px-5 py-3 hover:bg-app-bg transition"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-app-bg text-text-primary font-semibold text-xs flex items-center justify-center flex-shrink-0">
+                        {m.sender.firstName[0]}{m.sender.lastName[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className={`text-sm truncate ${isUnread ? "font-semibold text-text-primary" : "text-text-primary"}`}>
+                            {m.sender.firstName} {m.sender.lastName}
+                          </p>
+                          <span className="text-[11px] text-text-muted shrink-0 tabular-nums">
+                            {sent.toLocaleString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        </div>
+                        <p className={`text-xs line-clamp-1 mt-0.5 ${isUnread ? "text-text-primary" : "text-text-muted"}`}>
+                          {m.body}
+                        </p>
+                      </div>
+                      {isUnread && (
+                        <span
+                          className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                          style={{ background: "var(--color-lime-accent, #A3E635)" }}
+                          aria-label="Unread"
+                        />
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+      case "pendingBookings": {
+        const items = summary?.pendingBookings ?? [];
+        return (
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text-primary">Recent bookings</h2>
+              <Link href="/dashboard/events" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
+            </div>
+            {loading ? (
+              <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
+            ) : items.length === 0 ? (
+              <div className="p-6 text-sm text-text-muted text-center">No bookings in the last 7 days.</div>
+            ) : (
+              <div className="divide-y divide-app-border">
+                {items.map((b) => {
+                  const created = new Date(b.createdAt);
+                  const startDate = b.event ? new Date(b.event.startsAt) : null;
+                  return (
+                    <Link
+                      key={b.id}
+                      href={b.event ? `/dashboard/events?event=${b.event.id}` : "/dashboard/events"}
+                      className="flex items-start gap-3 px-4 sm:px-5 py-3 hover:bg-app-bg transition"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-text-primary truncate">
+                          {b.member ? `${b.member.firstName} ${b.member.lastName}` : "Member"}
+                        </p>
+                        <p className="text-xs text-text-muted truncate mt-0.5">
+                          {b.event?.name ?? "—"}
+                          {startDate && ` · ${startDate.toLocaleString("en-US", { month: "short", day: "numeric" })}`}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span
+                          className={`text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full ${
+                            b.status === "CONFIRMED"
+                              ? "bg-lime-accent text-charcoal"
+                              : b.status === "WAITLISTED"
+                                ? "bg-orange-accent text-white"
+                                : "bg-app-bg text-text-muted"
+                          }`}
+                        >
+                          {b.status}
+                        </span>
+                        <span className="text-[11px] text-text-muted tabular-nums">
+                          {created.toLocaleString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
       case "setupProgress": {
         const setup = summary?.setup;
         const pct = setup ? Math.round((setup.done / setup.total) * 100) : 0;
