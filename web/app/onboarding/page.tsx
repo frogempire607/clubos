@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { ArrowLeft } from "lucide-react";
 
 const SPORTS = [
   "American Football",
@@ -247,9 +248,9 @@ export default function OnboardingPage() {
             <button
               onClick={() => setStep(Math.max(0, step - 1))}
               disabled={step === 0}
-              className="text-sm text-stone-600 hover:text-stone-900 disabled:opacity-30"
+              className="inline-flex items-center gap-1 text-sm text-stone-600 hover:text-stone-900 disabled:opacity-30"
             >
-              ← Back
+              <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Back
             </button>
 
             {step < 3 ? (
@@ -267,7 +268,7 @@ export default function OnboardingPage() {
                 className="px-6 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
                 style={{ background: primaryColor }}
               >
-                {loading ? "Launching…" : "Launch club ✦"}
+                {loading ? "Launching…" : "Launch club"}
               </button>
             )}
           </div>

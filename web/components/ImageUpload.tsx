@@ -1,16 +1,18 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { ImageIcon } from "lucide-react";
 
 interface Props {
   value: string | null;
   onChange: (url: string) => void;
   label?: string;
   shape?: "square" | "circle";
-  placeholder?: string;
+  placeholder?: ReactNode;
 }
 
-export default function ImageUpload({ value, onChange, label, shape = "square", placeholder = "◉" }: Props) {
+export default function ImageUpload({ value, onChange, label, shape = "square", placeholder }: Props) {
+  const placeholderNode = placeholder ?? <ImageIcon size={26} strokeWidth={1.5} />;
   const inputRef   = useRef<HTMLInputElement>(null);
   const [busy, setBusy]   = useState(false);
   const [err,  setErr]    = useState("");
@@ -75,7 +77,9 @@ export default function ImageUpload({ value, onChange, label, shape = "square", 
             // eslint-disable-next-line @next/next/no-img-element
             <img src={value} alt="Preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
-            <span style={{ color: "var(--color-muted)", fontSize: 26 }}>{placeholder}</span>
+            <span style={{ color: "var(--color-muted)", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+              {placeholderNode}
+            </span>
           )}
         </div>
 

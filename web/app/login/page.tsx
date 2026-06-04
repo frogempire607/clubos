@@ -79,14 +79,20 @@ function LoginInner() {
   const isStaff = role === "staff";
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4 py-10">
+    <div className="dashboard-root min-h-screen flex items-center justify-center bg-app-bg px-4 py-10">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-6">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/circle.PNG" alt="AthletixOS" className="w-24 h-24 rounded-full" />
+          <Link
+            href="/"
+            aria-label="AthletixOS — back to home"
+            className="rounded-full focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/circle.PNG" alt="AthletixOS" className="w-24 h-24 rounded-full hover:opacity-90 transition" />
+          </Link>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-8">
+        <div className="bg-surface rounded-xl shadow-sm border border-app-border p-8">
           {/* Role selector — makes it obvious which kind of account you're using */}
           <div className="grid grid-cols-2 gap-2 mb-6">
             <button
@@ -94,12 +100,12 @@ function LoginInner() {
               onClick={() => setRole("staff")}
               className={`rounded-lg border px-3 py-3 text-left transition ${
                 isStaff
-                  ? "border-stone-900 bg-stone-900 text-white"
-                  : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
+                  ? "border-charcoal bg-charcoal text-white"
+                  : "border-app-border bg-surface text-text-muted hover:border-text-muted"
               }`}
             >
               <div className="text-sm font-semibold">Club / Staff</div>
-              <div className={`text-xs mt-0.5 ${isStaff ? "text-white/70" : "text-stone-500"}`}>
+              <div className={`text-xs mt-0.5 ${isStaff ? "text-white/70" : "text-text-muted"}`}>
                 Owners &amp; coaches
               </div>
             </button>
@@ -108,22 +114,22 @@ function LoginInner() {
               onClick={() => setRole("member")}
               className={`rounded-lg border px-3 py-3 text-left transition ${
                 !isStaff
-                  ? "border-stone-900 bg-stone-900 text-white"
-                  : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
+                  ? "border-charcoal bg-charcoal text-white"
+                  : "border-app-border bg-surface text-text-muted hover:border-text-muted"
               }`}
             >
               <div className="text-sm font-semibold">Member / Parent</div>
-              <div className={`text-xs mt-0.5 ${!isStaff ? "text-white/70" : "text-stone-500"}`}>
+              <div className={`text-xs mt-0.5 ${!isStaff ? "text-white/70" : "text-text-muted"}`}>
                 Athletes &amp; guardians
               </div>
             </button>
           </div>
 
           <div className="mb-6">
-            <h1 className="text-2xl font-semibold text-stone-900 mb-1">
+            <h1 className="text-2xl font-semibold text-text-primary mb-1">
               {isStaff ? "Club sign in" : "Member sign in"}
             </h1>
-            <p className="text-sm text-stone-500">
+            <p className="text-sm text-text-muted">
               {isStaff
                 ? "Access your club dashboard"
                 : "View your schedule, documents, and bookings"}
@@ -132,7 +138,7 @@ function LoginInner() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Club</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Club</label>
               <input
                 type="text"
                 value={clubSlug}
@@ -149,9 +155,9 @@ function LoginInner() {
                 spellCheck={false}
                 autoComplete="off"
                 inputMode="text"
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-brand"
               />
-              <p className="text-xs text-stone-400 mt-1">
+              <p className="text-xs text-text-muted mt-1">
                 {isStaff
                   ? "Your club's URL code"
                   : "The club code your coach gave you"}
@@ -159,7 +165,7 @@ function LoginInner() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Email</label>
               <input
                 type="email"
                 value={email}
@@ -170,12 +176,12 @@ function LoginInner() {
                 spellCheck={false}
                 autoComplete="email"
                 inputMode="email"
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Password</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Password</label>
               <input
                 type="password"
                 value={password}
@@ -185,7 +191,7 @@ function LoginInner() {
                 autoCorrect="off"
                 spellCheck={false}
                 autoComplete="current-password"
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
 
@@ -195,7 +201,7 @@ function LoginInner() {
               </div>
             )}
             {notice && (
-              <div className="text-sm text-stone-700 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+              <div className="text-sm text-text-primary bg-app-bg border border-app-border rounded-lg px-3 py-2">
                 {notice}
               </div>
             )}
@@ -203,32 +209,32 @@ function LoginInner() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+              className="w-full py-2.5 bg-charcoal text-white rounded-lg text-sm font-medium hover:bg-charcoal-hover disabled:opacity-50"
             >
               {loading ? "Signing in…" : isStaff ? "Sign in to dashboard" : "Sign in to portal"}
             </button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-stone-100">
+          <div className="mt-6 pt-5 border-t border-app-border">
             <Link
               href="/forgot-password"
-              className="block text-sm text-center text-stone-600 hover:text-stone-900 mb-3"
+              className="block text-sm text-center text-text-muted hover:text-text-primary mb-3"
             >
               Forgot password?
             </Link>
             {isStaff ? (
-              <p className="text-sm text-center text-stone-500">
+              <p className="text-sm text-center text-text-muted">
                 New to AthletixOS?{" "}
-                <Link href="/signup" className="text-stone-900 font-medium hover:underline">
+                <Link href="/signup" className="text-text-primary font-medium hover:underline">
                   Open a club
                 </Link>
               </p>
             ) : (
-              <p className="text-sm text-center text-stone-500">
+              <p className="text-sm text-center text-text-muted">
                 Joining a club?{" "}
                 <Link
                   href="/member/signup"
-                  className="text-stone-900 font-medium hover:underline"
+                  className="text-text-primary font-medium hover:underline"
                 >
                   Create a member account
                 </Link>
@@ -245,7 +251,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-stone-50 text-sm text-stone-400">
+        <div className="dashboard-root min-h-screen flex items-center justify-center bg-app-bg text-sm text-text-muted">
           Loading…
         </div>
       }

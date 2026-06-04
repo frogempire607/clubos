@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CalendarDays } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 
@@ -859,7 +860,9 @@ export default function ClassesPage() {
             <div className="text-sm text-text-muted py-16 text-center">Loading classes…</div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-20 border border-dashed border-app-border rounded-xl">
-              <div className="text-text-muted text-4xl mb-3">◈</div>
+              <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+                <CalendarDays className="h-7 w-7" strokeWidth={2} />
+              </div>
               <p className="text-text-muted font-medium mb-1">
                 {search ? "No classes match your search" : "No classes yet"}
               </p>
@@ -976,7 +979,9 @@ export default function ClassesPage() {
       {/* Events Tab — redirects to existing events page */}
       {tab === "events" && (
         <div className="text-center py-20">
-          <div className="text-text-muted text-4xl mb-3">◈</div>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <CalendarDays className="h-7 w-7" strokeWidth={2} />
+          </div>
           <p className="text-text-muted font-medium mb-1">Events are managed separately</p>
           <p className="text-text-muted text-sm mb-5">
             Events include clinics, camps, tournaments, seminars, and special programs.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Sun, Moon } from "lucide-react";
 
 type Theme = "light" | "dark";
 const STORAGE_KEY = "athletixos-theme";
@@ -66,7 +67,7 @@ export default function ThemeToggle() {
         (e.currentTarget as HTMLElement).style.color = "rgba(229,231,235,0.72)";
       }}
     >
-      <span style={{ fontSize: 14, lineHeight: 1 }}>{theme === "dark" ? "☀" : "☾"}</span>
+      {theme === "dark" ? <Sun size={14} strokeWidth={2} /> : <Moon size={14} strokeWidth={2} />}
       {theme === "dark" ? "Light mode" : "Dark mode"}
     </button>
   );

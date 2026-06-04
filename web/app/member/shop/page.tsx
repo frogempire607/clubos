@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Ticket, CalendarRange, UserCheck, Package, type LucideIcon } from "lucide-react";
 
 type Counts = {
   memberships: number;
@@ -10,7 +11,15 @@ type Counts = {
 };
 
 export default function MemberShopPage() {
-  const [counts, setCounts] = useState<Counts>({ memberships: 0, events: 0, products: 0 });
+  // Lesson packages no longer surface as a separate shop card — they're
+  // an inline offer inside /member/privates, so members discover them
+  // while booking the lesson they apply to (not as a disconnected
+  // shop). The Counts type and fetch chain are scoped accordingly.
+  const [counts, setCounts] = useState<Counts>({
+    memberships: 0,
+    events: 0,
+    products: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,14 +37,21 @@ export default function MemberShopPage() {
     });
   }, []);
 
-  const cards = [
+  const cards: {
+    href: string;
+    title: string;
+    desc: string;
+    count: number;
+    countLabel: string;
+    Icon: LucideIcon;
+  }[] = [
     {
       href: "/member/memberships",
       title: "Memberships",
       desc: "Join a plan or upgrade your current one.",
       count: counts.memberships,
       countLabel: "available",
-      icon: "◇",
+      Icon: Ticket,
     },
     {
       href: "/member/events",
@@ -43,15 +59,15 @@ export default function MemberShopPage() {
       desc: "Clinics, camps, tournaments, and special programs.",
       count: counts.events,
       countLabel: "upcoming",
-      icon: "◈",
+      Icon: CalendarRange,
     },
     {
       href: "/member/privates",
       title: "Private lessons",
-      desc: "Book 1-on-1 time — pick a coach and request times.",
+      desc: "Book 1-on-1 time — pick a coach and request times. Lesson packs available inside.",
       count: 0,
       countLabel: "",
-      icon: "◎",
+      Icon: UserCheck,
     },
     {
       href: "/member/products",
@@ -59,7 +75,7 @@ export default function MemberShopPage() {
       desc: "Gear, apparel, and other items from your club.",
       count: counts.products,
       countLabel: "in stock",
-      icon: "▤",
+      Icon: Package,
     },
   ];
 
@@ -77,7 +93,9 @@ export default function MemberShopPage() {
             href={c.href}
             className="bg-white rounded-xl border border-stone-200 p-5 hover:shadow-sm transition flex flex-col"
           >
-            <div className="text-3xl text-stone-300 mb-2">{c.icon}</div>
+            <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+              <c.Icon className="h-6 w-6" strokeWidth={2} />
+            </div>
             <h3 className="text-base font-semibold text-stone-900">{c.title}</h3>
             <p className="text-sm text-stone-500 mt-1 flex-1">{c.desc}</p>
             <p className="text-xs text-stone-400 mt-3">

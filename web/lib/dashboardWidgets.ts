@@ -30,6 +30,8 @@ export const WIDGET_CATALOG: WidgetDef[] = [
   { key: "recentMembers", label: "Recent members", kind: "section", description: "Latest people who joined" },
   { key: "upcomingEventsList", label: "Upcoming events list", kind: "section", description: "Next events at a glance" },
   { key: "upcomingClassesList", label: "Upcoming classes", kind: "section", description: "Next class sessions" },
+  { key: "recentMessages", label: "Recent messages", kind: "section", description: "Latest direct messages to you" },
+  { key: "pendingBookings", label: "Recent bookings", kind: "section", description: "Latest event registrations and class bookings" },
   { key: "setupProgress", label: "Setup progress", kind: "section", description: "Onboarding / migration checklist" },
 ];
 
@@ -44,6 +46,8 @@ export const DEFAULT_ORDER: string[] = [
   "upcomingEvents",
   "calendar",
   "quickNav",
+  "recentMessages",
+  "pendingBookings",
   "recentMembers",
   "upcomingEventsList",
 ];

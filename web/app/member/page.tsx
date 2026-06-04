@@ -21,6 +21,7 @@ import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfi
 type Booking = {
   id: string;
   status: string;
+  kind?: "event" | "private";
   event: {
     id: string;
     name: string;
@@ -29,6 +30,17 @@ type Booking = {
     endsAt: string;
     customEventType: { name: string; color: string; textColor: string } | null;
   };
+};
+
+type RawPrivateBooking = {
+  id: string;
+  status: string;
+  createdAt: string;
+  confirmedStartAt: string | null;
+  confirmedEndAt: string | null;
+  requestedSlots: unknown;
+  lessonType: { id: string; title: string; durationMin: number } | null;
+  coach: { id: string; firstName: string; lastName: string } | null;
 };
 
 type MemberProfile = {
@@ -41,6 +53,7 @@ type MemberProfile = {
   guardianName: string | null;
   guardianEmail: string | null;
   bookings: Booking[];
+  privateBookings?: RawPrivateBooking[];
   membership: { name: string } | null;
   subscriptions: { status: string; membership: { name: string } }[];
 };
@@ -51,6 +64,7 @@ type GuardianOf = {
     firstName: string;
     lastName: string;
     bookings: Booking[];
+    privateBookings?: RawPrivateBooking[];
     status: string;
   };
 };
@@ -228,8 +242,67 @@ function TileLink({
   );
 }
 
+// Convert each PrivateBooking row from /api/member/portal into the unified
+// Booking shape used everywhere else on this page. Mirrors the same logic
+// in /member/bookings/page.tsx so the home widget and the full bookings
+// list stay aligned.
+function firstRequestedSlotAt(raw: unknown, fallback: string): string {
+  if (!Array.isArray(raw) || raw.length === 0) return fallback;
+  const sorted = (raw as Array<{ date?: string; startTime?: string }>)
+    .filter((s) => typeof s?.date === "string" && typeof s?.startTime === "string")
+    .sort((a, b) => `${a.date}T${a.startTime}`.localeCompare(`${b.date}T${b.startTime}`));
+  const first = sorted[0];
+  if (!first?.date || !first?.startTime) return fallback;
+  const iso = new Date(`${first.date}T${first.startTime}`);
+  return Number.isNaN(iso.getTime()) ? fallback : iso.toISOString();
+}
+
+function privateBookingsToBookings(records: RawPrivateBooking[] | undefined): Booking[] {
+  if (!records) return [];
+  return records
+    .filter((r) => r.lessonType)
+    .map((r) => {
+      const startsAt =
+        r.confirmedStartAt ?? firstRequestedSlotAt(r.requestedSlots, r.createdAt);
+      const endsAt =
+        r.confirmedEndAt ??
+        new Date(
+          new Date(startsAt).getTime() + (r.lessonType!.durationMin || 60) * 60_000,
+        ).toISOString();
+      return {
+        id: `private:${r.id}`,
+        status: r.status,
+        kind: "private" as const,
+        event: {
+          id: r.id,
+          name: r.lessonType!.title,
+          type: "PRIVATE",
+          startsAt,
+          endsAt,
+          customEventType: null,
+        },
+      };
+    });
+}
+
+// Merge events + private bookings into one chronologically-sorted list
+// that the home page surfaces through UpcomingBookings + the count tile.
+function mergeUpcoming(
+  events: Booking[] | undefined,
+  privates: RawPrivateBooking[] | undefined,
+): Booking[] {
+  const merged = [
+    ...((events ?? []).map((b) => ({ ...b, kind: b.kind ?? ("event" as const) }))),
+    ...privateBookingsToBookings(privates),
+  ];
+  return merged.sort(
+    (a, b) => new Date(a.event.startsAt).getTime() - new Date(b.event.startsAt).getTime(),
+  );
+}
+
 function getEventLabel(b: Booking): string {
   if (b.event.customEventType) return b.event.customEventType.name;
+  if (b.kind === "private") return "Private";
   return b.event.type.charAt(0) + b.event.type.slice(1).toLowerCase();
 }
 
@@ -248,20 +321,29 @@ function getEventColor(b: Booking): { bg: string; fg: string } {
   return map[b.event.type] || map.OTHER;
 }
 
+// Statuses that count as "upcoming" for the home widget. Includes
+// REQUESTED/PENDING_COACH so a private lesson request the athlete just
+// submitted shows up immediately, before the coach has accepted.
+const UPCOMING_STATUSES = new Set([
+  "CONFIRMED",
+  "WAITLISTED",
+  "REQUESTED",
+  "PENDING_COACH",
+]);
+
 function UpcomingBookings({ bookings, label }: { bookings: Booking[]; label?: string }) {
-  const upcoming = bookings.filter(
-    (b) => b.status === "CONFIRMED" || b.status === "WAITLISTED"
-  );
+  const upcoming = bookings.filter((b) => UPCOMING_STATUSES.has(b.status));
 
   return (
     <div className="bg-white rounded-xl border border-stone-200 p-5">
-      <h3 className="text-sm font-semibold text-stone-900 mb-3">{label || "Upcoming Events"}</h3>
+      <h3 className="text-sm font-semibold text-stone-900 mb-3">{label || "Upcoming Bookings"}</h3>
       {upcoming.length === 0 ? (
         <p className="text-sm text-stone-400">No upcoming bookings.</p>
       ) : (
         <div className="space-y-2">
           {upcoming.slice(0, 5).map((b) => {
             const c = getEventColor(b);
+            const isPending = b.status === "REQUESTED" || b.status === "PENDING_COACH";
             return (
               <div key={b.id} className="flex items-center gap-3 py-2 border-b border-stone-100 last:border-0">
                 <div className="flex-shrink-0 w-2 h-2 rounded-full" style={{ background: c.fg }} />
@@ -285,6 +367,11 @@ function UpcomingBookings({ bookings, label }: { bookings: Booking[]; label?: st
                     Waitlist
                   </span>
                 )}
+                {isPending && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium flex-shrink-0">
+                    Pending
+                  </span>
+                )}
               </div>
             );
           })}
@@ -298,6 +385,10 @@ function UpcomingBookings({ bookings, label }: { bookings: Booking[]; label?: st
 function AdultAthleteView({ data }: { data: PortalData }) {
   const member = data.user.memberProfile;
   const activeSub = member?.subscriptions?.find((s) => s.status === "active");
+  // Merge events + privates once at the top so the stat tile and the
+  // UpcomingBookings widget agree on the count + ordering.
+  const allBookings = mergeUpcoming(member?.bookings, member?.privateBookings);
+  const upcomingCount = allBookings.filter((b) => UPCOMING_STATUSES.has(b.status)).length;
 
   return (
     <>
@@ -329,14 +420,12 @@ function AdultAthleteView({ data }: { data: PortalData }) {
         <div className="bg-white rounded-xl border border-stone-200 p-4">
           <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Bookings</p>
           <p className="text-sm font-semibold text-stone-900">
-            {member?.bookings.filter((b) => b.status === "CONFIRMED").length || 0} upcoming
+            {upcomingCount} upcoming
           </p>
         </div>
       </div>
 
-      {member?.bookings && (
-        <UpcomingBookings bookings={member.bookings} />
-      )}
+      {member && <UpcomingBookings bookings={allBookings} />}
 
       <div className="mt-4">
         <RecentAnnouncements />
@@ -411,12 +500,13 @@ function RecentAnnouncements() {
 /* ─── Minor Athlete View ─── */
 function MinorAthleteView({ data }: { data: PortalData }) {
   const member = data.user.memberProfile;
+  const minorAllBookings = mergeUpcoming(member?.bookings, member?.privateBookings);
 
   return (
     <>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-stone-900">
-          Hey {data.user.firstName}! 👋
+          Hey {data.user.firstName}!
         </h1>
         <p className="text-sm text-stone-500">{data.club.name}</p>
       </div>
@@ -439,15 +529,15 @@ function MinorAthleteView({ data }: { data: PortalData }) {
           </p>
         </div>
         <div className="bg-white rounded-xl border border-stone-200 p-4">
-          <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Upcoming Classes</p>
+          <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Upcoming</p>
           <p className="text-sm font-semibold text-stone-900">
-            {member?.bookings.filter((b) => b.status === "CONFIRMED").length || 0}
+            {minorAllBookings.filter((b) => UPCOMING_STATUSES.has(b.status)).length}
           </p>
         </div>
       </div>
 
-      {member?.bookings && (
-        <UpcomingBookings bookings={member.bookings} label="My Schedule" />
+      {member && (
+        <UpcomingBookings bookings={minorAllBookings} label="My Schedule" />
       )}
     </>
   );
@@ -554,7 +644,9 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
             lastName: self.lastName,
             status: self.status,
             kind: "self" as const,
-            bookings: self.bookings ?? [],
+            // Merge events + privates so a parent who is also a member sees
+            // their own private lesson requests on the parent dashboard.
+            bookings: mergeUpcoming(self.bookings, self.privateBookings),
           },
         ]
       : []),
@@ -564,7 +656,8 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
       lastName: c.member.lastName,
       status: c.member.status,
       kind: "child" as const,
-      bookings: c.member.bookings ?? [],
+      // Each linked child contributes their own merged event + private list.
+      bookings: mergeUpcoming(c.member.bookings, c.member.privateBookings),
     })),
   ];
 

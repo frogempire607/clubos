@@ -18,6 +18,9 @@ const schema = z.object({
   price:            z.number().nonnegative().optional(),
   expiresAfterDays: z.number().int().positive().optional().nullable(),
   active:           z.boolean().optional(),
+  // Owner toggle for the member-facing package shop. Patchable so the
+  // owner can publish / unpublish without touching other fields.
+  publishedToMembers: z.boolean().optional(),
 });
 
 async function requirePackage(id: string, clubId: string) {

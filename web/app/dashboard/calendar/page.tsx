@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { fmtTime, kindIsWallClockUTC, sameMonth } from "@/lib/datetime";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonLine } from "@/components/LoadingSkeleton";
@@ -266,92 +267,202 @@ export default function CalendarPage() {
         )}
       </div>
 
-      <div className="bg-white rounded-xl border border-app-border overflow-hidden">
+      <div className="bg-surface rounded-xl border border-app-border overflow-hidden">
         {/* Month nav */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
-          <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted">‹</button>
-          <h2 className="text-base font-semibold text-text-primary">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-app-border">
+          <button
+            onClick={prevMonth}
+            aria-label="Previous month"
+            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
+          >
+            <ChevronLeft className="h-5 w-5" strokeWidth={2} />
+          </button>
+          <h2 className="text-base sm:text-lg font-semibold text-text-primary tabular-nums">
             {MONTHS[month]} {year}
             <span className="ml-2 text-xs text-text-muted font-normal">
               {itemsThisMonth.length} item{itemsThisMonth.length === 1 ? "" : "s"}
             </span>
           </h2>
-          <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted">›</button>
+          <button
+            onClick={nextMonth}
+            aria-label="Next month"
+            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
+          >
+            <ChevronRight className="h-5 w-5" strokeWidth={2} />
+          </button>
         </div>
 
-        {/* Day headers */}
-        <div className="grid grid-cols-7 border-b border-app-border">
-          {DAYS.map((d) => (
-            <div key={d} className="py-2 text-center text-xs font-medium text-text-muted uppercase tracking-wide">{d}</div>
-          ))}
-        </div>
-
-        {/* Grid */}
-        {loading ? (
-          <div className="grid grid-cols-7 gap-px bg-app-border">
-            {Array.from({ length: 42 }).map((_, i) => (
-              <div key={i} className="bg-surface p-2 min-h-[80px]">
-                <SkeletonLine width={20} height={10} />
-              </div>
+        {/* ── Desktop only: week grid ───────────────────────────────────────
+            Threshold is lg (1024px), not md. Reason: the dashboard
+            sidebar takes 248px starting at md, so an iPad-portrait
+            (~768px viewport) browser leaves only ~520px of main width.
+            7 columns at 520px = ~74px per cell, which crushes the
+            event chips and was the user-reported "crushed 7-column
+            grid" on mobile. Day-list is the better read at those
+            widths.                                                        */}
+        <div className="hidden lg:block">
+          {/* Day headers */}
+          <div className="grid grid-cols-7 border-b border-app-border">
+            {DAYS.map((d) => (
+              <div key={d} className="py-2 text-center text-xs font-semibold text-text-muted uppercase tracking-wider">{d}</div>
             ))}
           </div>
-        ) : (
-          <div className="grid grid-cols-7">
-            {cells.map((day, i) => {
-              const dayItems = day ? itemsOnDay(day) : [];
-              return (
-                <div
-                  key={i}
-                  className={`min-h-[110px] p-1.5 border-b border-r border-app-border ${!day ? "bg-app-bg/50" : ""}`}
-                >
-                  {day && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedDay(day);
-                          setSelected(null);
-                        }}
-                        title="Show every item on this day"
-                        className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full transition ${
-                          isToday(day)
-                            ? "bg-brand text-white"
-                            : selectedDay === day
-                              ? "bg-text-primary text-white"
-                              : "text-text-primary hover:bg-app-bg"
-                        }`}
-                      >
-                        {day}
-                      </button>
-                      <div className="space-y-0.5">
-                        {dayItems.slice(0, 3).map((it) => {
-                          const c = colorFor(it);
-                          return (
+
+          {/* Grid */}
+          {loading ? (
+            <div className="grid grid-cols-7 gap-px bg-app-border">
+              {Array.from({ length: 42 }).map((_, i) => (
+                <div key={i} className="bg-surface p-2 min-h-[120px]">
+                  <SkeletonLine width={20} height={10} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-7">
+              {cells.map((day, i) => {
+                const dayItems = day ? itemsOnDay(day) : [];
+                // Show 4 chips per cell on desktop; the rest collapse into a clickable +N pill.
+                const VISIBLE = 4;
+                const remaining = dayItems.length - VISIBLE;
+                return (
+                  <div
+                    key={i}
+                    className={`min-h-[140px] p-2 border-b border-r border-app-border ${!day ? "bg-app-bg/40" : ""}`}
+                  >
+                    {day && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedDay(day);
+                            setSelected(null);
+                          }}
+                          title="Show every item on this day"
+                          className={`text-sm font-semibold mb-1.5 w-7 h-7 flex items-center justify-center rounded-full transition tabular-nums ${
+                            isToday(day)
+                              ? "bg-brand text-white"
+                              : selectedDay === day
+                                ? "bg-text-primary text-white"
+                                : "text-text-primary hover:bg-app-bg"
+                          }`}
+                        >
+                          {day}
+                        </button>
+                        <div className="space-y-1">
+                          {dayItems.slice(0, VISIBLE).map((it) => {
+                            const c = colorFor(it);
+                            return (
+                              <button
+                                key={`${it.kind}-${it.id}`}
+                                onClick={() => setSelected(selected?.id === it.id && selected.kind === it.kind ? null : it)}
+                                className="w-full text-left text-[11px] leading-tight px-1.5 py-1 rounded font-medium truncate hover:opacity-90"
+                                style={{ background: c.bg, color: c.fg }}
+                                title={it.name}
+                              >
+                                <span className="opacity-80 mr-0.5 tabular-nums">
+                                  {fmtTime(it.startsAt, { utc: kindIsWallClockUTC(it.kind) })}
+                                </span>
+                                {it.name}
+                              </button>
+                            );
+                          })}
+                          {remaining > 0 && (
                             <button
-                              key={`${it.kind}-${it.id}`}
-                              onClick={() => setSelected(selected?.id === it.id && selected.kind === it.kind ? null : it)}
-                              className="w-full text-left text-[10px] px-1.5 py-0.5 rounded font-medium truncate"
-                              style={{ background: c.bg, color: c.fg }}
-                              title={it.name}
+                              type="button"
+                              onClick={() => {
+                                setSelectedDay(day);
+                                setSelected(null);
+                              }}
+                              className="block text-[11px] font-medium text-text-muted hover:text-text-primary px-1 underline-offset-2 hover:underline"
                             >
-                              <span className="opacity-70 mr-0.5">
-                                {fmtTime(it.startsAt, { utc: kindIsWallClockUTC(it.kind) })}
-                              </span>
-                              {it.name}
+                              +{remaining} more
                             </button>
-                          );
-                        })}
-                        {dayItems.length > 3 && (
-                          <div className="text-[10px] text-text-muted px-1">+{dayItems.length - 3} more</div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Mobile + tablet: vertical day-list (only days with items, plus today) ── */}
+        <div className="lg:hidden">
+          {loading ? (
+            <div className="p-4 space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonLine key={i} width="100%" height={60} />
+              ))}
+            </div>
+          ) : (
+            (() => {
+              const daysWithContent: { day: number; items: typeof items }[] = [];
+              for (let d = 1; d <= daysInMonth; d++) {
+                const dayItems = itemsOnDay(d);
+                if (dayItems.length > 0 || isToday(d)) {
+                  daysWithContent.push({ day: d, items: dayItems });
+                }
+              }
+              if (daysWithContent.length === 0) {
+                return (
+                  <div className="p-8 text-center text-sm text-text-muted">
+                    No items this month.
+                  </div>
+                );
+              }
+              return (
+                <div className="divide-y divide-app-border">
+                  {daysWithContent.map(({ day, items: dayItems }) => {
+                    const date = new Date(year, month, day);
+                    const weekday = DAYS[date.getDay()];
+                    return (
+                      <div key={day} className="px-4 py-3">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div
+                            className={`w-10 h-10 rounded-lg flex flex-col items-center justify-center text-center flex-shrink-0 tabular-nums ${
+                              isToday(day) ? "bg-brand text-white" : "bg-app-bg text-text-primary"
+                            }`}
+                          >
+                            <div className="text-[9px] font-semibold uppercase tracking-wider opacity-80 leading-none">{weekday}</div>
+                            <div className="text-sm font-bold leading-none mt-0.5">{day}</div>
+                          </div>
+                          <div className="text-xs text-text-muted">
+                            {dayItems.length} item{dayItems.length === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        {dayItems.length === 0 ? (
+                          <p className="text-xs text-text-muted ml-13 pl-0">Nothing scheduled.</p>
+                        ) : (
+                          <div className="space-y-1.5 ml-13">
+                            {dayItems.map((it) => {
+                              const c = colorFor(it);
+                              return (
+                                <button
+                                  key={`${it.kind}-${it.id}`}
+                                  onClick={() => setSelected(selected?.id === it.id && selected.kind === it.kind ? null : it)}
+                                  className="w-full text-left text-xs px-2.5 py-1.5 rounded-md font-medium hover:opacity-90 flex items-center gap-2"
+                                  style={{ background: c.bg, color: c.fg }}
+                                  title={it.name}
+                                >
+                                  <span className="opacity-80 tabular-nums flex-shrink-0">
+                                    {fmtTime(it.startsAt, { utc: kindIsWallClockUTC(it.kind) })}
+                                  </span>
+                                  <span className="truncate">{it.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
-                    </>
-                  )}
+                    );
+                  })}
                 </div>
               );
-            })}
-          </div>
-        )}
+            })()
+          )}
+        </div>
       </div>
 
       {/* Selected detail */}

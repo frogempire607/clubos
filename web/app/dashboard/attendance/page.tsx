@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList } from "@/components/LoadingSkeleton";
@@ -292,8 +293,8 @@ function QuickAddForm({
       <form onSubmit={createAndCheckIn} className="space-y-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-text-primary">New Member (Quick Add)</span>
-          <button type="button" onClick={() => setStep("search")} className="text-xs text-text-muted hover:text-text-muted">
-            ← Back
+          <button type="button" onClick={() => setStep("search")} className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-muted">
+            <ArrowLeft className="h-3 w-3" strokeWidth={2} /> Back
           </button>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -849,9 +850,10 @@ function AttendancePageInner() {
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => setDate(addDays(date, -1))}
+            aria-label="Previous day"
             className="p-2 border border-app-border rounded-lg hover:bg-app-bg text-text-muted"
           >
-            ‹
+            <ChevronLeft className="h-4 w-4" strokeWidth={2} />
           </button>
           <div className="flex-1 text-center">
             <div className="font-semibold text-text-primary">{fmtDateHeader(date)}</div>
@@ -861,9 +863,10 @@ function AttendancePageInner() {
           </div>
           <button
             onClick={() => setDate(addDays(date, 1))}
+            aria-label="Next day"
             className="p-2 border border-app-border rounded-lg hover:bg-app-bg text-text-muted"
           >
-            ›
+            <ChevronRight className="h-4 w-4" strokeWidth={2} />
           </button>
           {!isToday && (
             <button

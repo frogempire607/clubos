@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Ticket } from "lucide-react";
 
 type BillingPeriod = "WEEKLY" | "MONTHLY" | "QUADRIMESTRAL" | "QUARTERLY" | "SEMI_ANNUAL" | "ANNUAL" | "ONE_TIME";
 
@@ -124,7 +125,9 @@ export default function MembershipsPage() {
         <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : memberships.length === 0 ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2">◇</div>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <Ticket className="h-7 w-7" strokeWidth={2} />
+          </div>
           <h3 className="text-lg font-medium text-text-primary mb-1">No memberships yet</h3>
           <p className="text-sm text-text-muted mb-4">Create your first plan — any name, any price, any time period.</p>
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">

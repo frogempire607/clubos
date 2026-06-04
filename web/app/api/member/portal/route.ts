@@ -26,6 +26,23 @@ async function fetchUser(userId: string) {
       },
     },
   };
+  // Private lessons live in PrivateBooking. Surface them per accessible
+  // member so the bookings page + home widget can merge them with events +
+  // classes. We include REQUESTED / PENDING_COACH so the athlete sees
+  // their pending requests, not only fully-confirmed lessons.
+  const privateWhere = {
+    status: { in: ["REQUESTED", "PENDING_COACH", "CONFIRMED"] },
+  };
+  const privateSelect = {
+    id: true,
+    status: true,
+    createdAt: true,
+    confirmedStartAt: true,
+    confirmedEndAt: true,
+    requestedSlots: true,
+    lessonType: { select: { id: true, title: true, durationMin: true } },
+    coach: { select: { id: true, firstName: true, lastName: true } },
+  };
   return prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -46,6 +63,12 @@ async function fetchUser(userId: string) {
             where: classWhere,
             include: classInclude,
             orderBy: { classSession: { startsAt: "asc" } },
+            take: 20,
+          },
+          privateBookings: {
+            where: privateWhere,
+            select: privateSelect,
+            orderBy: { createdAt: "desc" },
             take: 20,
           },
           guardianLinks: {
@@ -74,6 +97,12 @@ async function fetchUser(userId: string) {
                 where: classWhere,
                 include: classInclude,
                 orderBy: { classSession: { startsAt: "asc" } },
+                take: 20,
+              },
+              privateBookings: {
+                where: privateWhere,
+                select: privateSelect,
+                orderBy: { createdAt: "desc" },
                 take: 20,
               },
             },

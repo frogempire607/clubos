@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { UserCircle2, Eye, HelpCircle, LogOut, type LucideIcon } from "lucide-react";
+import { UserCircle2, Eye, HelpCircle, LogOut, ChevronRight, type LucideIcon } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { canAccessPath } from "@/lib/permissions";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
@@ -220,17 +220,16 @@ export default function DashboardSidebar({
                   <Icon size={18} strokeWidth={2} style={{ flexShrink: 0, opacity: groupActive ? 1 : 0.85 }} />
                   {item.label}
                 </span>
-                <span
+                <ChevronRight
+                  size={14}
+                  strokeWidth={2}
                   style={{
-                    fontSize: 12,
-                    color: "rgba(255,255,255,0.3)",
+                    color: "rgba(255,255,255,0.4)",
                     transform: open ? "rotate(90deg)" : "none",
-                    display: "inline-block",
                     transition: "transform 0.15s",
+                    flexShrink: 0,
                   }}
-                >
-                  ›
-                </span>
+                />
               </button>
 
               {open && (

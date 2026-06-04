@@ -5,6 +5,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
+import { sendPrivateLessonRequestedEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
 
@@ -29,7 +31,7 @@ export async function GET() {
     ? await findOrAutoLinkMember(session.user.id, clubId, user.email)
     : null;
 
-  const [types, staff, bookings, credits] = await Promise.all([
+  const [types, staff, bookings, credits, availability] = await Promise.all([
     prisma.privateLessonType.findMany({
       where: { clubId, deletedAt: null, active: true },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -81,6 +83,21 @@ export async function GET() {
           orderBy: { createdAt: "asc" },
         })
       : Promise.resolve([]),
+    // Per-coach weekly recurring availability windows. The member request
+    // form uses these to render "suggested" time chips once a coach +
+    // date are picked, so athletes pick a slot the coach is actually
+    // around to take. We deliberately fetch ALL staff availability here
+    // rather than gating on a specific coach, because the form lets the
+    // user change coach without a refetch.
+    prisma.staffAvailability.findMany({
+      where: { clubId, active: true },
+      select: {
+        userId: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+      },
+    }),
   ]);
 
   return NextResponse.json({
@@ -105,6 +122,7 @@ export async function GET() {
         remaining: c.creditsGranted - c.creditsUsed,
         expiresAt: c.expiresAt,
       })),
+    availability,
   });
 }
 
@@ -117,6 +135,12 @@ const slotSchema = z.object({
 const partnerSchema = z.object({
   kind: z.enum(["MEMBER", "OUTSIDE", "NEEDS_HELP"]),
   memberId: z.string().optional().nullable(),
+  // OUTSIDE-kind partners can optionally provide their partner's name +
+  // email at request time. When present, the coach-accept flow emails
+  // the OUTSIDE partner their invite link directly instead of relying
+  // on the booker to forward it manually.
+  outsideName: z.string().trim().min(1).max(100).optional().nullable(),
+  outsideEmail: z.string().trim().email().max(200).optional().nullable(),
 });
 
 const schema = z.object({
@@ -291,6 +315,12 @@ export async function POST(req: Request) {
                 clubId,
                 kind: p.kind,
                 memberId: p.kind === "MEMBER" ? p.memberId || null : null,
+                // Keep outside name/email empty for MEMBER + NEEDS_HELP rows.
+                // For OUTSIDE rows, persist what the booker entered so the
+                // accept-flow can email the partner directly. Schema column
+                // is already nullable.
+                outsideName: p.kind === "OUTSIDE" ? p.outsideName || null : null,
+                outsideEmail: p.kind === "OUTSIDE" ? p.outsideEmail || null : null,
               })),
             }
           : undefined,
@@ -300,6 +330,7 @@ export async function POST(req: Request) {
 
   // Notify the assigned coach (if any) so they can approve/decline.
   if (data.coachId) {
+    // In-app DM — fast surface inside the dashboard.
     try {
       await prisma.message.create({
         data: {
@@ -311,6 +342,47 @@ export async function POST(req: Request) {
       });
     } catch {
       /* messaging is best-effort */
+    }
+
+    // Coach pre-notification email — catches coaches who don't watch the
+    // dashboard for new DMs. Best-effort; a transport failure must not
+    // break the request flow.
+    try {
+      const [coachUser, clubRow] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: data.coachId },
+          select: { email: true, firstName: true },
+        }),
+        prisma.club.findUnique({
+          where: { id: clubId },
+          select: {
+            name: true,
+            logoUrl: true,
+            primaryColor: true,
+            emailFromName: true,
+            emailReplyTo: true,
+          },
+        }),
+      ]);
+      if (coachUser?.email && clubRow) {
+        await sendPrivateLessonRequestedEmail({
+          to: coachUser.email,
+          coachFirstName: coachUser.firstName,
+          clubName: clubRow.name,
+          clubLogoUrl: clubRow.logoUrl,
+          clubPrimaryColor: clubRow.primaryColor,
+          memberFirstName: member.firstName,
+          memberLastName: member.lastName,
+          lessonTitle: lessonType.title,
+          requestedSlots: normalizedSlots,
+          notes: data.notes,
+          dashboardUrl: `${getAppBaseUrl()}/dashboard/privates`,
+          fromName: clubRow.emailFromName || clubRow.name,
+          replyTo: clubRow.emailReplyTo || null,
+        });
+      }
+    } catch (err) {
+      console.error("[private-request] coach email failed", err);
     }
   }
 

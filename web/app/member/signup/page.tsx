@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
+import { User, Baby, Users, type LucideIcon } from "lucide-react";
 
 type AccountType = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "PARENT";
 
@@ -113,24 +114,24 @@ export default function MemberSignupPage() {
     }
   }
 
-  const ACCOUNT_TYPES = [
+  const ACCOUNT_TYPES: { id: AccountType; label: string; desc: string; Icon: LucideIcon }[] = [
     {
-      id: "ADULT_ATHLETE" as AccountType,
+      id: "ADULT_ATHLETE",
       label: "Adult Athlete",
       desc: "I'm joining as an athlete (18+)",
-      icon: "🏋️",
+      Icon: User,
     },
     {
-      id: "MINOR_ATHLETE" as AccountType,
+      id: "MINOR_ATHLETE",
       label: "Young Athlete",
       desc: "I'm under 18 — a parent or guardian will also sign up",
-      icon: "🧒",
+      Icon: Baby,
     },
     {
-      id: "PARENT" as AccountType,
+      id: "PARENT",
       label: "Parent / Guardian",
       desc: "I'm managing my child's account",
-      icon: "👨‍👧",
+      Icon: Users,
     },
   ];
 
@@ -200,7 +201,10 @@ export default function MemberSignupPage() {
                           className="mt-0.5 accent-stone-900"
                         />
                         <div>
-                          <p className="text-sm font-medium text-stone-900">{type.icon} {type.label}</p>
+                          <p className="text-sm font-medium text-stone-900 inline-flex items-center gap-2">
+                            <type.Icon className="h-4 w-4 text-stone-700" strokeWidth={2} />
+                            {type.label}
+                          </p>
                           <p className="text-xs text-stone-500">{type.desc}</p>
                         </div>
                       </label>
@@ -340,7 +344,9 @@ export default function MemberSignupPage() {
 
                 {accountType === "ADULT_ATHLETE" && (
                   <div className="py-4 text-center">
-                    <div className="text-3xl mb-2">🏋️</div>
+                    <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-stone-100 text-stone-700">
+                      <User className="h-6 w-6" strokeWidth={2} />
+                    </div>
                     <p className="text-sm text-stone-700 font-medium">Ready to create your account!</p>
                     <p className="text-xs text-stone-500 mt-1">
                       Signing up as <strong>{firstName} {lastName}</strong> at <strong>clubos.app/{clubSlug}</strong>

@@ -65,6 +65,7 @@ const TYPE_TO_CATEGORY: Record<string, RevenueCategoryKey> = {
   EVENT: "events",
   PRODUCT: "products",
   DONATION: "donations",
+  PRIVATE: "private_lessons",
 };
 
 // Resolve a transaction's effective revenue category. Returns null when it

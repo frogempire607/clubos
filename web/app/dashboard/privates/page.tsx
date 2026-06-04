@@ -43,6 +43,7 @@ type Package = {
   price: number;
   expiresAfterDays: number | null;
   active: boolean;
+  publishedToMembers: boolean;
 };
 
 type Partner = {
@@ -469,6 +470,10 @@ function PackageModal({
     price:            String(pkg?.price ?? ""),
     expiresAfterDays: String(pkg?.expiresAfterDays ?? ""),
     active:           pkg?.active ?? true,
+    // Owner opt-in for the member-facing package shop. Defaults to true
+    // on NEW packages so members see them immediately (the common case);
+    // existing packages keep whatever the owner already set.
+    publishedToMembers: pkg?.publishedToMembers ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
@@ -502,6 +507,7 @@ function PackageModal({
         price:            parseFloat(form.price) || 0,
         expiresAfterDays: form.expiresAfterDays ? parseInt(form.expiresAfterDays) : null,
         active:           form.active,
+        publishedToMembers: form.publishedToMembers,
       };
       const url    = pkg ? `/api/private-lessons/packages/${pkg.id}` : "/api/private-lessons/packages";
       const method = pkg ? "PATCH" : "POST";
@@ -697,6 +703,28 @@ function PackageModal({
             Active (available for purchase)
           </label>
 
+          {/* Member-shop publish toggle. Owner-only gate that controls
+              whether this package appears in /member/shop/packages.
+              Defaults off so packages never publish silently. */}
+          <div className="border border-app-border rounded-md p-3 bg-app-bg/40">
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={form.publishedToMembers}
+                onChange={(e) => setForm({ ...form, publishedToMembers: e.target.checked })}
+              />
+              <span>
+                <span className="font-medium text-text-primary">Publish to member shop</span>
+                <span className="block text-xs text-text-muted mt-0.5">
+                  Members can buy this package directly through the portal.
+                  Leave off to keep it owner-only (assigned by hand from
+                  the member edit screen).
+                </span>
+              </span>
+            </label>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Cancel</button>
             <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
@@ -814,7 +842,7 @@ function BookingModal({
                           if (endIso) setConfirmedEnd(endIso);
                           setAction("confirm");
                         }}
-                        className="text-xs px-2 py-1 bg-lime-accent text-white rounded-md hover:opacity-90 flex-shrink-0"
+                        className="text-xs px-2 py-1 bg-lime-accent text-charcoal font-medium rounded-md hover:opacity-90 flex-shrink-0"
                       >
                         Accept this time
                       </button>
@@ -827,7 +855,7 @@ function BookingModal({
 
           {/* Confirmed time (if any) */}
           {booking.confirmedStartAt && (
-            <div className="text-sm bg-lime-accent px-3 py-2 rounded">
+            <div className="text-sm bg-lime-accent text-charcoal font-medium px-3 py-2 rounded">
               Confirmed: {fmt(booking.confirmedStartAt)} – {booking.confirmedEndAt ? fmt(booking.confirmedEndAt) : ""}
             </div>
           )}
@@ -859,7 +887,7 @@ function BookingModal({
                     }
                     setAction("confirm");
                   }}
-                  className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:opacity-90"
+                  className="px-3 py-1.5 text-sm bg-lime-accent text-charcoal font-medium rounded-md hover:opacity-90"
                 >
                   Confirm or change time
                 </button>
@@ -919,7 +947,7 @@ function BookingModal({
                 <button onClick={() => setAction(null)} className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">Back</button>
                 <button onClick={() => send({ action: "ACCEPT", confirmedStartAt: confirmedStart, confirmedEndAt: confirmedEnd })}
                   disabled={saving || !confirmedStart || !confirmedEnd}
-                  className="px-3 py-1.5 text-sm bg-lime-accent text-white rounded-md hover:bg-lime-accent disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-lime-accent text-charcoal font-medium rounded-md hover:bg-lime-accent disabled:opacity-50">
                   {saving ? "Confirming…" : "Confirm"}
                 </button>
               </div>

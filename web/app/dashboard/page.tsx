@@ -18,6 +18,10 @@ import {
   UserPlus,
   Send,
   Eye,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import type { WidgetDef, WidgetPrefs } from "@/lib/dashboardWidgets";
@@ -80,13 +84,27 @@ type Summary = {
   upcomingEvents: number;
   todayEvents: number;
   upcomingClasses: { id: string; name: string; startsAt: string }[];
+  recentMessages?: {
+    id: string;
+    body: string;
+    createdAt: string;
+    readAt: string | null;
+    sender: { id: string; firstName: string; lastName: string; role: string };
+  }[];
+  pendingBookings?: {
+    id: string;
+    status: string;
+    createdAt: string;
+    member: { id: string; firstName: string; lastName: string } | null;
+    event: { id: string; name: string; startsAt: string } | null;
+  }[];
   setup: { items: { key: string; label: string; done: boolean }[]; done: number; total: number };
 };
 
-const SECTION_SPAN: Record<string, string> = {
-  quickNav: "col-span-2",
-  setupProgress: "col-span-2",
-};
+// SECTION_SPAN used to apply col-span-2 to wide widgets when the parent
+// grid had xl:grid-cols-2. The grid is now single-column at every
+// breakpoint, so col-span is irrelevant — every widget is full width.
+// Kept as a comment for context if 2-column comes back later.
 
 export default function DashboardPage() {
   const { data: session } = useSession();
@@ -227,63 +245,178 @@ export default function DashboardPage() {
 
   function sectionWidget(key: string): React.ReactNode {
     switch (key) {
-      case "calendar":
+      case "calendar": {
+        // Sorted list of items in the current month, used by the mobile
+        // upcoming-items view (replaces the 7-col grid below sm:). 7
+        // square cells inside a half-width widget on a 390px phone is
+        // ~25px each — readable for a single digit but useless for
+        // anything else.
+        const monthItems = calItems
+          .filter((e) => sameMonth(e.startsAt, year, month, kindIsWallClockUTC(e.kind)))
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+          );
+        const upcomingItems = monthItems.filter((e) => {
+          const d = new Date(e.startsAt);
+          // Mobile preview shows today + future items only; past
+          // items move to the full calendar page.
+          const now = new Date();
+          return d >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        });
+
         return (
-          // min-w-0 — see note on the section grid wrapper. Without it, an
-          // adjacent overflowing widget can squeeze this column to a few
-          // pixels wide and the 7-column day grid collapses into what reads
-          // like a vertical column of overlapping numbers.
-          <div key={key} className="bg-surface rounded-xl border border-app-border p-3 sm:p-4 min-w-0">
+          <div
+            key={key}
+            className="bg-surface rounded-xl border border-app-border p-4 min-w-0 w-full max-w-full overflow-hidden"
+          >
             <div className="flex items-center justify-between mb-3">
-              <button onClick={prevMonth} aria-label="Previous month" className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg">‹</button>
-              <span className="text-sm font-semibold text-text-primary tabular-nums">{MONTHS[month]} {year}</span>
-              <button onClick={nextMonth} aria-label="Next month" className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg">›</button>
+              <button
+                onClick={prevMonth}
+                aria-label="Previous month"
+                className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg"
+              >
+                <ChevronLeft className="h-4 w-4" strokeWidth={2} />
+              </button>
+              <span className="text-sm font-semibold text-text-primary tabular-nums">
+                {MONTHS[month]} {year}
+              </span>
+              <button
+                onClick={nextMonth}
+                aria-label="Next month"
+                className="text-text-muted hover:text-text-primary w-8 h-8 flex items-center justify-center rounded hover:bg-app-bg"
+              >
+                <ChevronRight className="h-4 w-4" strokeWidth={2} />
+              </button>
             </div>
-            <div className="grid grid-cols-7 gap-1 mb-1">
-              {DAYS.map((d) => <div key={d} className="text-center text-[10px] font-semibold uppercase tracking-wider text-text-muted py-1">{d}</div>)}
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {cells.map((day, i) => {
-                if (!day) return <div key={i} className="aspect-square" />;
-                const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-                const hasEvents = eventDays.has(day);
-                const isSelected = selectedDay === day;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setSelectedDay(isSelected ? null : day)}
-                    className={`relative aspect-square min-w-0 flex flex-col items-center justify-center rounded-md text-xs sm:text-sm tabular-nums transition ${isSelected ? "bg-brand text-white font-semibold" : isToday ? "bg-app-bg text-text-primary font-semibold ring-1 ring-app-border" : "text-text-primary hover:bg-app-bg"}`}
-                  >
-                    {day}
-                    {hasEvents && !isSelected && (
-                      <span
-                        className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
-                        style={{ background: "var(--color-lime-accent, #A3E635)" }}
-                      />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {selectedDay && (
-              <div className="mt-3 border-t border-app-border pt-3">
-                {selectedDayEvents.length === 0 ? (
-                  <p className="text-xs text-text-muted text-center">No events on {MONTHS[month]} {selectedDay}</p>
-                ) : (
-                  <div className="space-y-1">
-                    {selectedDayEvents.map((e) => (
-                      <div key={e.id} className="text-xs text-text-primary flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-brand flex-shrink-0" />
-                        <span className="truncate">{e.name}</span>
-                        <span className="text-text-muted flex-shrink-0 ml-auto">{fmtTime(e.startsAt, { utc: kindIsWallClockUTC(e.kind) })}</span>
+
+            {/* ── Mobile: compact upcoming-items list ──────────────────────
+                A 7-col aspect-square grid is hopeless on a half-width
+                widget inside a single-column section grid at 390px CSS;
+                cells round to ~25px and the day numbers stack on top of
+                each other. Below lg we replace it with a vertical list
+                of the next handful of items, which is what owners
+                actually want from this widget anyway. */}
+            <div className="lg:hidden">
+              {upcomingItems.length === 0 ? (
+                <p className="text-xs text-text-muted text-center py-4">
+                  No items this month.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {upcomingItems.slice(0, 6).map((e) => {
+                    const d = new Date(e.startsAt);
+                    const useUTC = kindIsWallClockUTC(e.kind);
+                    return (
+                      <div
+                        key={e.id}
+                        className="flex items-center gap-3 py-1.5 border-b border-app-border last:border-0"
+                      >
+                        <div className="w-9 text-center bg-app-bg rounded-md py-1 flex-shrink-0">
+                          <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider tabular-nums">
+                            {d.toLocaleString("en-US", {
+                              month: "short",
+                              ...(useUTC ? { timeZone: "UTC" as const } : {}),
+                            })}
+                          </div>
+                          <div className="text-sm font-bold text-text-primary leading-tight tabular-nums">
+                            {useUTC ? d.getUTCDate() : d.getDate()}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-text-primary truncate">
+                            {e.name}
+                          </p>
+                          <p className="text-[11px] text-text-muted tabular-nums">
+                            {fmtTime(e.startsAt, { utc: useUTC })}
+                          </p>
+                        </div>
                       </div>
-                    ))}
+                    );
+                  })}
+                  <Link
+                    href="/dashboard/calendar"
+                    className="block text-center text-xs text-text-muted hover:text-text-primary pt-2"
+                  >
+                    Open full calendar →
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* ── Desktop: 7-col grid (lg+ only) ────────────────────────── */}
+            <div className="hidden lg:block">
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {DAYS.map((d) => (
+                  <div
+                    key={d}
+                    className="text-center text-[10px] font-semibold uppercase tracking-wider text-text-muted py-1"
+                  >
+                    {d}
                   </div>
-                )}
+                ))}
               </div>
-            )}
+              <div className="grid grid-cols-7 gap-1">
+                {cells.map((day, i) => {
+                  if (!day) return <div key={i} className="min-h-[36px] aspect-square" />;
+                  const isToday =
+                    day === today.getDate() &&
+                    month === today.getMonth() &&
+                    year === today.getFullYear();
+                  const hasEvents = eventDays.has(day);
+                  const isSelected = selectedDay === day;
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setSelectedDay(isSelected ? null : day)}
+                      className={`relative aspect-square min-h-[36px] flex flex-col items-center justify-center rounded-md text-xs sm:text-sm tabular-nums transition ${
+                        isSelected
+                          ? "bg-brand text-white font-semibold"
+                          : isToday
+                            ? "bg-app-bg text-text-primary font-semibold ring-1 ring-app-border"
+                            : "text-text-primary hover:bg-app-bg"
+                      }`}
+                    >
+                      {day}
+                      {hasEvents && !isSelected && (
+                        <span
+                          className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                          style={{ background: "var(--color-lime-accent, #A3E635)" }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedDay && (
+                <div className="mt-3 border-t border-app-border pt-3">
+                  {selectedDayEvents.length === 0 ? (
+                    <p className="text-xs text-text-muted text-center">
+                      No events on {MONTHS[month]} {selectedDay}
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {selectedDayEvents.map((e) => (
+                        <div
+                          key={e.id}
+                          className="text-xs text-text-primary flex items-center gap-1.5"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-brand flex-shrink-0" />
+                          <span className="truncate">{e.name}</span>
+                          <span className="text-text-muted flex-shrink-0 ml-auto">
+                            {fmtTime(e.startsAt, { utc: kindIsWallClockUTC(e.kind) })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         );
+      }
       case "quickNav":
         return (
           // Responsive — 2 cols on phone, 3 on tablet, 4 on desktop. On
@@ -421,6 +554,116 @@ export default function DashboardPage() {
             )}
           </div>
         );
+      case "recentMessages": {
+        const msgs = summary?.recentMessages ?? [];
+        return (
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text-primary">Recent messages</h2>
+              <Link href="/dashboard/messages" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
+            </div>
+            {loading ? (
+              <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
+            ) : msgs.length === 0 ? (
+              <div className="p-6 text-sm text-text-muted text-center">No messages yet.</div>
+            ) : (
+              <div className="divide-y divide-app-border">
+                {msgs.map((m) => {
+                  const isUnread = !m.readAt;
+                  const sent = new Date(m.createdAt);
+                  return (
+                    <Link
+                      key={m.id}
+                      href={`/dashboard/messages?with=${m.sender.id}`}
+                      className="flex items-start gap-3 px-4 sm:px-5 py-3 hover:bg-app-bg transition"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-app-bg text-text-primary font-semibold text-xs flex items-center justify-center flex-shrink-0">
+                        {m.sender.firstName[0]}{m.sender.lastName[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className={`text-sm truncate ${isUnread ? "font-semibold text-text-primary" : "text-text-primary"}`}>
+                            {m.sender.firstName} {m.sender.lastName}
+                          </p>
+                          <span className="text-[11px] text-text-muted shrink-0 tabular-nums">
+                            {sent.toLocaleString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        </div>
+                        <p className={`text-xs line-clamp-1 mt-0.5 ${isUnread ? "text-text-primary" : "text-text-muted"}`}>
+                          {m.body}
+                        </p>
+                      </div>
+                      {isUnread && (
+                        <span
+                          className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                          style={{ background: "var(--color-lime-accent, #A3E635)" }}
+                          aria-label="Unread"
+                        />
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+      case "pendingBookings": {
+        const items = summary?.pendingBookings ?? [];
+        return (
+          <div key={key} className="bg-surface rounded-xl border border-app-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-app-border flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text-primary">Recent bookings</h2>
+              <Link href="/dashboard/events" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
+            </div>
+            {loading ? (
+              <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
+            ) : items.length === 0 ? (
+              <div className="p-6 text-sm text-text-muted text-center">No bookings in the last 7 days.</div>
+            ) : (
+              <div className="divide-y divide-app-border">
+                {items.map((b) => {
+                  const created = new Date(b.createdAt);
+                  const startDate = b.event ? new Date(b.event.startsAt) : null;
+                  return (
+                    <Link
+                      key={b.id}
+                      href={b.event ? `/dashboard/events?event=${b.event.id}` : "/dashboard/events"}
+                      className="flex items-start gap-3 px-4 sm:px-5 py-3 hover:bg-app-bg transition"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-text-primary truncate">
+                          {b.member ? `${b.member.firstName} ${b.member.lastName}` : "Member"}
+                        </p>
+                        <p className="text-xs text-text-muted truncate mt-0.5">
+                          {b.event?.name ?? "—"}
+                          {startDate && ` · ${startDate.toLocaleString("en-US", { month: "short", day: "numeric" })}`}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span
+                          className={`text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full ${
+                            b.status === "CONFIRMED"
+                              ? "bg-lime-accent text-charcoal"
+                              : b.status === "WAITLISTED"
+                                ? "bg-orange-accent text-white"
+                                : "bg-app-bg text-text-muted"
+                          }`}
+                        >
+                          {b.status}
+                        </span>
+                        <span className="text-[11px] text-text-muted tabular-nums">
+                          {created.toLocaleString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
       case "setupProgress": {
         const setup = summary?.setup;
         const pct = setup ? Math.round((setup.done / setup.total) * 100) : 0;
@@ -459,7 +702,14 @@ export default function DashboardPage() {
   const visibleSections = visible.filter((k) => !isStat(k));
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+    // Aggressive mobile-first wrapper. WKWebView regularly diverges from
+    // desktop Chrome on flex/grid intrinsic sizing — w-full forces the
+    // box to its parent's available width, max-w-full caps it so a wide
+    // child can't push the page beyond the viewport, min-w-0 lets it
+    // shrink, overflow-hidden clips any descendant that misbehaves. All
+    // four together are what the user-reported "overlapping widgets on
+    // native iOS shell" needed.
+    <div className="p-4 sm:p-6 lg:p-8 w-full max-w-full min-w-0 overflow-hidden">
       {/* Greeting + Customize. Stacks on mobile; row on sm+. */}
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -478,11 +728,13 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* Primary quick-action bar — always rendered above the widget grid
-          so owners can hit the daily actions without scrolling, even if
-          they hid the quickActions widget. Horizontal scroll on mobile. */}
-      <div className="mb-6 -mx-4 sm:mx-0 overflow-x-auto px-4 sm:px-0">
-        <div className="flex items-stretch gap-2 sm:gap-3 sm:flex-wrap">
+      {/* Primary quick-action bar. Previously used a `-mx-4 ... overflow-x-auto`
+          trick to bleed the scroll track to the screen edges; that pattern
+          leaks intrinsic width into the page wrapper on WKWebView. Switched
+          to a plain horizontal-scroll container with no negative margins, so
+          the bar stays inside its padding box and never widens its parent. */}
+      <div className="mb-6 -mx-1 overflow-x-auto px-1 w-full max-w-full">
+        <div className="flex items-stretch gap-2 sm:gap-3 sm:flex-wrap min-w-0">
           {PRIMARY_QUICK_ACTIONS.map((a) => {
             const Icon = a.icon;
             return (
@@ -503,21 +755,36 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Stat tiles. Skip the sm:grid-cols-3 middle ground — at exactly
+          640-1023px the 3-col layout regularly squeezed long values like
+          "$12,345" past their truncate boundary. 2-up at mobile/tablet,
+          4-up at desktop, with min-w-0 + overflow-hidden on every cell
+          via StatCard's own classes. */}
       {visibleStats.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 w-full">
           {visibleStats.map((k) => statWidget(k))}
         </div>
       )}
 
+      {/* Section widgets. Single column at every viewport — owners see one
+          widget per row stacked vertically. The earlier xl:grid-cols-2 was
+          dropped after iOS WKWebView consistently rendered widgets at half
+          width even at sub-xl viewports (Tailwind responsive class compile
+          quirk + WebView intrinsic-sizing edge case). Stacked is also how
+          modern dashboards (Stripe, Linear, Notion) do it — desktop owners
+          get a clean vertical scroll instead of two cramped columns.
+          At xl+ (1280px) we go to 2 columns, but only when the main
+          content has enough room (viewport - 248px sidebar = ~1032px,
+          comfortable for 2 ~500px cards). Every wrapper also gets
+          overflow-hidden so a misbehaving descendant can't push the
+          page wider than the viewport. */}
       {visibleSections.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 gap-4 w-full">
           {visibleSections.map((k) => (
-            // min-w-0 prevents grid items from blowing out their column on
-            // iOS Safari. Without it, a child with long unbroken content
-            // (event names, table rows) defaults to min-width: auto and
-            // overflows the column track, causing adjacent widgets to
-            // visually overlap and the page to gain horizontal scroll.
-            <div key={k} className={`${SECTION_SPAN[k] ?? "col-span-1"} min-w-0`}>
+            <div
+              key={k}
+              className="min-w-0 w-full max-w-full overflow-hidden"
+            >
               {sectionWidget(k)}
             </div>
           ))}
@@ -615,8 +882,12 @@ function CustomizeModal({
             return (
               <div key={k} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${isHidden ? "border-app-border bg-app-bg/50" : "border-app-border bg-surface"}`}>
                 <div className="flex flex-col">
-                  <button onClick={() => move(idx, -1)} disabled={idx === 0} className="text-text-muted hover:text-text-primary disabled:opacity-30 leading-none text-xs">▲</button>
-                  <button onClick={() => move(idx, 1)} disabled={idx === list.length - 1} className="text-text-muted hover:text-text-primary disabled:opacity-30 leading-none text-xs">▼</button>
+                  <button onClick={() => move(idx, -1)} disabled={idx === 0} aria-label="Move up" className="text-text-muted hover:text-text-primary disabled:opacity-30 leading-none">
+                    <ChevronUp className="h-3 w-3" strokeWidth={2.5} />
+                  </button>
+                  <button onClick={() => move(idx, 1)} disabled={idx === list.length - 1} aria-label="Move down" className="text-text-muted hover:text-text-primary disabled:opacity-30 leading-none">
+                    <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
+                  </button>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-text-primary">

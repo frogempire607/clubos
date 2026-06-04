@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
+import { Menu } from "lucide-react";
 import GlobalSearch from "@/components/GlobalSearch";
 import BackButton from "@/components/BackButton";
 import UserMenu from "@/components/UserMenu";
@@ -126,7 +127,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             aria-label="Open menu"
             className="w-10 h-10 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10"
           >
-            <span className="text-xl leading-none">≡</span>
+            <Menu className="h-5 w-5" strokeWidth={2} />
           </button>
           <div className="flex-1 flex items-center gap-2 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}

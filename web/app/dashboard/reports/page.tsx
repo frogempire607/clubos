@@ -142,7 +142,7 @@ export default function ReportsPage() {
               value={formatMoney(data.revenue.current)}
               hint={
                 data.revenue.deltaPercent !== null
-                  ? `${data.revenue.deltaPercent >= 0 ? "▲" : "▼"} ${Math.abs(data.revenue.deltaPercent).toFixed(0)}% vs previous`
+                  ? `${data.revenue.deltaPercent >= 0 ? "+" : "−"}${Math.abs(data.revenue.deltaPercent).toFixed(0)}% vs previous`
                   : "No prior period"
               }
               hintColor={data.revenue.deltaPercent !== null && data.revenue.deltaPercent < 0 ? "text-red-600" : "text-green-700"}

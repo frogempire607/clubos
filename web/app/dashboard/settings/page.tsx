@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { MapPin } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonCard } from "@/components/LoadingSkeleton";
@@ -346,7 +347,6 @@ function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) 
             value={logoUrl || null}
             onChange={(v) => setLogoUrl(v || "")}
             shape="square"
-            placeholder="◉"
           />
           <p className="text-xs text-text-muted mt-1">
             Used as your club&apos;s logo everywhere — dashboard, member portal,
@@ -711,9 +711,9 @@ function LocationsSection({ locations, onSaved }: { locations: Location[]; onSav
                     href={mapsUrl(loc.latitude, loc.longitude)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-brand hover:underline"
+                    className="inline-flex items-center gap-1 text-xs text-brand hover:underline"
                   >
-                    📍 Open in Maps
+                    <MapPin className="h-3 w-3" strokeWidth={2} /> Open in Maps
                   </a>
                 )}
               </div>
@@ -1011,7 +1011,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               <ol className="text-[11px] text-text-muted space-y-0.5 list-decimal list-inside">
                 <li>Open member portal in Chrome</li>
                 <li>Tap the "Install app" banner</li>
-                <li>Or tap ⋮ → "Add to Home Screen"</li>
+                <li>Or tap the three-dot menu → "Add to Home Screen"</li>
                 <li>Tap "Install"</li>
               </ol>
             </div>
@@ -1036,7 +1036,6 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             value={logoUrl || null}
             onChange={(v) => setLogoUrl(v || "")}
             shape="square"
-            placeholder="◉"
           />
           <div>
             <p className="text-[11px] text-text-muted mt-1">

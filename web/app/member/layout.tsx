@@ -9,13 +9,27 @@ import BackButton from "@/components/BackButton";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
 import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 
+// Primary bottom-nav tabs — 5 slots. Bookings is now a top-level tab
+// (previously buried inside Schedule); News / Docs / Profile / Privates
+// live in the More sheet so they stay one tap away without crowding the
+// bottom bar.
 const NAV = [
-  { href: "/member",              label: "Home",      icon: HomeIcon,         exact: true  },
-  { href: "/member/schedule",     label: "Schedule",  icon: BookingIcon,      exact: false },
-  { href: "/member/messages",     label: "Messages",  icon: MessageIcon,      exact: false },
-  { href: "/member/announcements", label: "News",     icon: AnnouncementIcon, exact: false },
-  { href: "/member/documents",    label: "Docs",      icon: DocumentIcon,     exact: false },
-  { href: "/member/profile",      label: "Profile",   icon: ProfileIcon,      exact: false },
+  { href: "/member",              label: "Home",      icon: HomeIcon,           exact: true,  kind: "link" as const },
+  { href: "/member/schedule",     label: "Schedule",  icon: BookingIcon,        exact: false, kind: "link" as const },
+  { href: "/member/bookings",     label: "Bookings",  icon: CheckSquareIcon,    exact: false, kind: "link" as const },
+  { href: "/member/messages",     label: "Messages",  icon: MessageIcon,        exact: false, kind: "link" as const },
+  { href: "#more",                label: "More",      icon: MoreIcon,           exact: false, kind: "more" as const },
+];
+
+// Items inside the More bottom-sheet. Hit the same routes that used to
+// live in the main bottom nav, plus a few extras the user could only
+// reach by typing URLs (privates, staff).
+const MORE_ITEMS = [
+  { href: "/member/announcements", label: "News",       desc: "Club updates",         icon: AnnouncementIcon },
+  { href: "/member/documents",     label: "Documents",  desc: "Waivers &amp; forms",     icon: DocumentIcon },
+  { href: "/member/privates",      label: "Privates",   desc: "Book a coach 1:1",     icon: BookingIcon },
+  { href: "/member/staff",         label: "Our team",   desc: "Coach &amp; staff bios",  icon: ProfileIcon },
+  { href: "/member/profile",       label: "Profile",    desc: "Account settings",     icon: ProfileIcon },
 ];
 
 type ClubInfo = {
@@ -40,6 +54,13 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const [installed, setInstalled] = useState(false);
   const [club, setClub] = useState<ClubInfo | null>(null);
   const [previewMode, setPreviewMode] = useState<"member" | "public" | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // Close the More sheet whenever the route changes so the overlay
+  // doesn't linger across navigation.
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     fetch("/api/preview").then((r) => (r.ok ? r.json() : { mode: null })).then((d) => setPreviewMode(d?.mode ?? null)).catch(() => {});
@@ -242,15 +263,10 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-stone-200 md:hidden safe-area-bottom" style={{ background: navBg }}>
         <div className="grid" style={{ height: "60px", gridTemplateColumns: `repeat(${portalNav.length}, minmax(0, 1fr))` }}>
           {portalNav.map((item) => {
-            const active = isActive(item);
+            const active = "kind" in item && item.kind === "more" ? moreOpen : isActive(item);
             const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex flex-col items-center justify-center gap-0.5 transition-colors"
-                style={{ color: active ? activeNav : inactiveNav }}
-              >
+            const inner = (
+              <>
                 <span
                   className="flex items-center justify-center rounded-xl transition-all"
                   style={active ? { background: `${activeNav}18`, padding: "5px 10px", borderRadius: branded?.style.borderRadius } : { padding: "5px 10px" }}
@@ -258,11 +274,111 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                   <Icon size={20} />
                 </span>
                 <span className="text-[10px] font-medium leading-none">{item.label}</span>
+              </>
+            );
+            if ("kind" in item && item.kind === "more") {
+              return (
+                <button
+                  key="more"
+                  type="button"
+                  onClick={() => setMoreOpen(true)}
+                  aria-label="Open more menu"
+                  aria-expanded={moreOpen}
+                  className="flex flex-col items-center justify-center gap-0.5 transition-colors bg-transparent border-none"
+                  style={{ color: active ? activeNav : inactiveNav }}
+                >
+                  {inner}
+                </button>
+              );
+            }
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex flex-col items-center justify-center gap-0.5 transition-colors"
+                style={{ color: active ? activeNav : inactiveNav }}
+              >
+                {inner}
               </Link>
             );
           })}
         </div>
       </nav>
+
+      {/* ── More bottom sheet (mobile only) ── */}
+      {moreOpen && (
+        <div
+          className="fixed inset-0 z-50 md:hidden flex items-end"
+          onClick={() => setMoreOpen(false)}
+        >
+          <div className="absolute inset-0 bg-black/40" aria-hidden />
+          <div
+            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="More"
+          >
+            <div className="flex items-center justify-between px-5 pt-4 pb-2">
+              <h2 className="text-base font-semibold text-stone-900">More</h2>
+              <button
+                type="button"
+                onClick={() => setMoreOpen(false)}
+                aria-label="Close more menu"
+                className="text-stone-400 hover:text-stone-700 w-9 h-9 flex items-center justify-center rounded-lg hover:bg-stone-100"
+              >
+                ×
+              </button>
+            </div>
+            <div className="divide-y divide-stone-100">
+              {MORE_ITEMS.map((it) => {
+                const Icon = it.icon;
+                return (
+                  <Link
+                    key={it.href}
+                    href={it.href}
+                    className="flex items-center gap-3 px-5 py-3 hover:bg-stone-50 transition"
+                  >
+                    <span
+                      className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ background: `${accent}18`, color: accent }}
+                    >
+                      <Icon size={18} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-stone-900">{it.label}</div>
+                      <div className="text-xs text-stone-500">{it.desc}</div>
+                    </div>
+                    <svg
+                      className="text-stone-300 flex-shrink-0"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      aria-hidden
+                    >
+                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                  </Link>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => { setMoreOpen(false); signOutEverywhere({ callbackUrl: "/login" }); }}
+                className="w-full flex items-center gap-3 px-5 py-3 hover:bg-stone-50 transition text-left"
+              >
+                <span className="w-9 h-9 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center flex-shrink-0">
+                  <SignOutIcon size={18} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-stone-900">Sign out</div>
+                  <div className="text-xs text-stone-500">End your session on this device</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -353,6 +469,29 @@ function DocumentIcon({ size }: { size: number }) {
     </svg>
   );
 }
+function CheckSquareIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M16 4a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h12zm-1.293 5.293a1 1 0 00-1.414-1.414L9 12.172 7.707 10.879a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z" clipRule="evenodd" />
+    </svg>
+  );
+}
+function MoreIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <circle cx="4.5" cy="10" r="1.5" />
+      <circle cx="10" cy="10" r="1.5" />
+      <circle cx="15.5" cy="10" r="1.5" />
+    </svg>
+  );
+}
+function SignOutIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M3 4a1 1 0 011-1h8a1 1 0 110 2H5v10h7a1 1 0 110 2H4a1 1 0 01-1-1V4zm12.293 4.293a1 1 0 011.414 0l2 2a1 1 0 010 1.414l-2 2a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-.293-.293a1 1 0 010-1.414z" clipRule="evenodd" />
+    </svg>
+  );
+}
 function ProfileIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
@@ -364,7 +503,7 @@ function ProfileIcon({ size }: { size: number }) {
 function buildPortalNav(config: BrandedAppConfig | null | undefined) {
   if (!config) return NAV;
   const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean }> = {
-    book: { href: "/member/shop", icon: HomeIcon, exact: false },
+    book: { href: "/member/shop", icon: BookNowIcon, exact: false },
     schedule: { href: "/member/schedule", icon: BookingIcon, exact: false },
     store: { href: "/member/products", icon: StoreIcon, exact: false },
     videos: { href: "/member/shop", icon: VideoIcon, exact: false },
@@ -374,6 +513,16 @@ function buildPortalNav(config: BrandedAppConfig | null | undefined) {
     .filter((item) => item.enabled && item.key !== "videos")
     .map((item) => ({ ...byKey[item.key], label: item.label || item.key }));
   return items.length ? items : NAV;
+}
+
+function BookNowIcon({ size }: { size: number }) {
+  // Calendar with a plus inside — distinct from the schedule icon, signals
+  // "book / add" rather than "view existing schedule".
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+      <path fillRule="evenodd" d="M6 2a1 1 0 011 1v1h6V3a1 1 0 112 0v1h1a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 011-1zm-2 6v8h12V8H4zm6 2a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1H8a1 1 0 110-2h1v-1a1 1 0 011-1z" clipRule="evenodd" />
+    </svg>
+  );
 }
 
 function StoreIcon({ size }: { size: number }) {

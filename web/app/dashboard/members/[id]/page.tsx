@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 
 type Sub = {
   id: string;
@@ -92,7 +93,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <Link href="/dashboard/members" className="text-sm text-text-muted hover:text-text-primary">← Back to members</Link>
+      <Link href="/dashboard/members" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
+        <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Back to members
+      </Link>
 
       {/* Header */}
       <div className="mt-3 mb-6 flex items-start gap-4">

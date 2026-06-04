@@ -1458,6 +1458,10 @@ model PrivatePackage {
   price            Decimal   @db.Decimal(10, 2)
   expiresAfterDays Int? // days after purchase; null = no expiry
   active           Boolean   @default(true)
+  // Owner gate for the member-facing package shop. Defaults to false so
+  // existing packages stay owner-only until each one is explicitly
+  // published — no surprise public exposure on deploy.
+  publishedToMembers Boolean @default(false)
   deletedAt        DateTime?
 
   createdAt DateTime @default(now())

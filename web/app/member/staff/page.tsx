@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Users, Mail, Phone } from "lucide-react";
 
 type StaffMember = {
   id: string;
@@ -37,9 +38,11 @@ export default function MemberStaffPage() {
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
       ) : staff.length === 0 ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <p className="text-3xl mb-2 text-stone-200">◎</p>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <Users className="h-7 w-7" strokeWidth={2} />
+          </div>
           <p className="text-base font-medium text-stone-900 mb-1">No staff profiles yet</p>
-          <p className="text-sm text-stone-500">When your club adds team bios, they'll show here.</p>
+          <p className="text-sm text-stone-500">When your club adds team bios, they&apos;ll show here.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -65,13 +68,13 @@ export default function MemberStaffPage() {
                     )}
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-stone-500">
                       {profile?.publicEmail && (
-                        <a href={`mailto:${profile.publicEmail}`} className="hover:text-stone-900">
-                          ✉ {profile.publicEmail}
+                        <a href={`mailto:${profile.publicEmail}`} className="inline-flex items-center gap-1 hover:text-stone-900">
+                          <Mail className="h-3 w-3" strokeWidth={2} /> {profile.publicEmail}
                         </a>
                       )}
                       {profile?.publicPhone && (
-                        <a href={`tel:${profile.publicPhone.replace(/\D/g, "")}`} className="hover:text-stone-900">
-                          ☎ {profile.publicPhone}
+                        <a href={`tel:${profile.publicPhone.replace(/\D/g, "")}`} className="inline-flex items-center gap-1 hover:text-stone-900">
+                          <Phone className="h-3 w-3" strokeWidth={2} /> {profile.publicPhone}
                         </a>
                       )}
                     </div>

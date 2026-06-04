@@ -1,33 +1,42 @@
 import Link from "next/link";
+import {
+  Users,
+  CalendarDays,
+  CreditCard,
+  CheckCircle2,
+  MessageSquare,
+  BarChart3,
+  type LucideIcon,
+} from "lucide-react";
 
-const features = [
+const features: { Icon: LucideIcon; title: string; desc: string }[] = [
   {
-    icon: "◉",
+    Icon: Users,
     title: "Members & Families",
     desc: "Full roster management with guardian accounts for minors, sibling linking, custom fields, tags, and CSV import.",
   },
   {
-    icon: "◈",
+    Icon: CalendarDays,
     title: "Classes & Events",
     desc: "Recurring class schedules with auto-generated sessions. One-off clinics, camps, and tournaments with per-session pricing.",
   },
   {
-    icon: "◇",
+    Icon: CreditCard,
     title: "Memberships & Billing",
     desc: "Flexible membership plans with multiple pricing options. Stripe Connect sends payments directly to your bank.",
   },
   {
-    icon: "✓",
+    Icon: CheckCircle2,
     title: "Attendance Tracking",
     desc: "Check in members by session. Track present, absent, late, trial, and drop-in. Full attendance history per member.",
   },
   {
-    icon: "✉",
+    Icon: MessageSquare,
     title: "Messaging & Announcements",
     desc: "Direct messages, group threads, and broadcast announcements. Guardian auto-include for messages to minors.",
   },
   {
-    icon: "▦",
+    Icon: BarChart3,
     title: "Reports & Financials",
     desc: "Revenue by month, active subscriptions, transaction history, and CSV exports for every major data section.",
   },
@@ -289,11 +298,12 @@ export default function Home() {
                 style={{
                   width: 44, height: 44, borderRadius: 12,
                   background: "rgba(83,74,183,0.08)",
+                  color: "#534AB7",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 20, marginBottom: 16,
+                  marginBottom: 16,
                 }}
               >
-                {f.icon}
+                <f.Icon size={22} strokeWidth={2} />
               </div>
               <h3 style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>{f.title}</h3>
               <p style={{ color: "#78716C", fontSize: 14, lineHeight: 1.6 }}>{f.desc}</p>

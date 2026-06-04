@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { CalendarRange } from "lucide-react";
 
 type EventCard = {
   id: string;
@@ -136,9 +137,11 @@ export default function MemberEventsPage() {
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
       ) : events.length === 0 ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-          <p className="text-3xl mb-2 text-stone-200">◈</p>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <CalendarRange className="h-7 w-7" strokeWidth={2} />
+          </div>
           <p className="text-base font-medium text-stone-900 mb-1">No upcoming events</p>
-          <p className="text-sm text-stone-500">Check back soon — your club hasn't posted any events yet.</p>
+          <p className="text-sm text-stone-500">Check back soon — your club hasn&apos;t posted any events yet.</p>
         </div>
       ) : (
         <div className="space-y-3">

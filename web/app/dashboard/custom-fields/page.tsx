@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ListChecks, ArrowLeft } from "lucide-react";
 
 type CustomField = {
   id: string;
@@ -47,7 +48,9 @@ export default function CustomFieldsPage() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-6">
-        <a href="/dashboard/members" className="text-sm text-text-muted hover:text-text-primary">← Back to members</a>
+        <a href="/dashboard/members" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Back to members
+        </a>
       </div>
 
       <div className="flex items-center justify-between mb-6">
@@ -64,7 +67,9 @@ export default function CustomFieldsPage() {
         <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
       ) : fields.length === 0 ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center">
-          <div className="text-4xl mb-2">▤</div>
+          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
+            <ListChecks className="h-7 w-7" strokeWidth={2} />
+          </div>
           <h3 className="text-lg font-medium text-text-primary mb-1">No custom fields yet</h3>
           <p className="text-sm text-text-muted mb-4">Add fields like phone, address, t-shirt size, emergency contact — whatever you need.</p>
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
