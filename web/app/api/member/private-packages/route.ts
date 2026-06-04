@@ -7,10 +7,12 @@ import { prisma } from "@/lib/prisma";
 //
 // Returns the private-lesson packages a member can buy directly from the
 // portal shop. Filtered to: owner has flipped `publishedToMembers=true`
-// AND `active=true` AND `pricingMode === "FLAT"`. PERCENT/FIXED packages
-// stay owner-only for now because they require the buyer to pick a
-// lesson type + coach tier before the price is known; that UX is a
-// follow-up and isn't shipping with the first cut of the shop.
+// AND `active=true`. All pricing modes (FLAT, PERCENT, FIXED) are
+// surfaced — the inline display in /member/privates renders only after
+// the member picks a lesson type, and price/credits is consistent enough
+// across modes that the per-lesson cost shown is always sensible. The
+// pricingMode + discountValue are included in the response so the UI
+// can label tier-priced packages clearly if needed later.
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -24,7 +26,6 @@ export async function GET() {
       deletedAt: null,
       active: true,
       publishedToMembers: true,
-      pricingMode: "FLAT",
     },
     orderBy: { createdAt: "desc" },
     select: {
@@ -36,6 +37,8 @@ export async function GET() {
       credits: true,
       bonusCredits: true,
       price: true,
+      pricingMode: true,
+      discountValue: true,
       expiresAfterDays: true,
     },
   });
@@ -46,6 +49,7 @@ export async function GET() {
     packages: packages.map((p) => ({
       ...p,
       price: Number(p.price),
+      discountValue: p.discountValue == null ? null : Number(p.discountValue),
     })),
   });
 }

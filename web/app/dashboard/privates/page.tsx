@@ -470,10 +470,10 @@ function PackageModal({
     price:            String(pkg?.price ?? ""),
     expiresAfterDays: String(pkg?.expiresAfterDays ?? ""),
     active:           pkg?.active ?? true,
-    // Owner opt-in for the member-facing package shop. Defaults to false
-    // on new packages so nothing gets exposed publicly without an
-    // explicit toggle.
-    publishedToMembers: pkg?.publishedToMembers ?? false,
+    // Owner opt-in for the member-facing package shop. Defaults to true
+    // on NEW packages so members see them immediately (the common case);
+    // existing packages keep whatever the owner already set.
+    publishedToMembers: pkg?.publishedToMembers ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");

@@ -101,10 +101,10 @@ type Summary = {
   setup: { items: { key: string; label: string; done: boolean }[]; done: number; total: number };
 };
 
-const SECTION_SPAN: Record<string, string> = {
-  quickNav: "col-span-2",
-  setupProgress: "col-span-2",
-};
+// SECTION_SPAN used to apply col-span-2 to wide widgets when the parent
+// grid had xl:grid-cols-2. The grid is now single-column at every
+// breakpoint, so col-span is irrelevant — every widget is full width.
+// Kept as a comment for context if 2-column comes back later.
 
 export default function DashboardPage() {
   const { data: session } = useSession();
@@ -766,18 +766,24 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Section widgets. Single column at every viewport below xl.
+      {/* Section widgets. Single column at every viewport — owners see one
+          widget per row stacked vertically. The earlier xl:grid-cols-2 was
+          dropped after iOS WKWebView consistently rendered widgets at half
+          width even at sub-xl viewports (Tailwind responsive class compile
+          quirk + WebView intrinsic-sizing edge case). Stacked is also how
+          modern dashboards (Stripe, Linear, Notion) do it — desktop owners
+          get a clean vertical scroll instead of two cramped columns.
           At xl+ (1280px) we go to 2 columns, but only when the main
           content has enough room (viewport - 248px sidebar = ~1032px,
           comfortable for 2 ~500px cards). Every wrapper also gets
           overflow-hidden so a misbehaving descendant can't push the
           page wider than the viewport. */}
       {visibleSections.length > 0 && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 xl:gap-6 w-full">
+        <div className="grid grid-cols-1 gap-4 w-full">
           {visibleSections.map((k) => (
             <div
               key={k}
-              className={`${SECTION_SPAN[k] ?? "col-span-1"} min-w-0 w-full max-w-full overflow-hidden`}
+              className="min-w-0 w-full max-w-full overflow-hidden"
             >
               {sectionWidget(k)}
             </div>

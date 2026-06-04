@@ -31,10 +31,11 @@ const schema = z
     price:            z.number().nonnegative(),
     expiresAfterDays: z.number().int().positive().optional().nullable(),
     active:           z.boolean().default(true),
-    // Owner toggle for the member-facing package shop. Defaults to false
-    // so existing packages stay owner-only until the owner publishes
-    // each one explicitly.
-    publishedToMembers: z.boolean().default(false),
+    // Owner toggle for the member-facing package shop. Defaults to true
+    // so a newly-created package is immediately buyable by members — the
+    // common case. Owners who want a hidden/internal package can flip
+    // the "Publish to member shop" checkbox off in the editor.
+    publishedToMembers: z.boolean().default(true),
   })
   .refine(
     (d) => d.pricingMode === "FLAT" || (d.discountValue != null && d.discountValue > 0),
