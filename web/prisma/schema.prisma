@@ -171,6 +171,7 @@ model Club {
   memberRelationships         MemberRelationship[]
   staffCompensations          StaffCompensation[]
   plaidConnections            PlaidConnection[]
+  pendingApprovals            PendingApproval[]
 
   @@index([slug])
   @@map("clubs")
@@ -202,6 +203,44 @@ model PlaidConnection {
 
   @@index([clubId])
   @@map("plaid_connections")
+}
+
+// Per-action gate for minors with parentControls.requirePaymentApproval.
+// When a minor tries to book a paid class / event / private / package, we
+// don't charge or hold capacity — we write one of these rows + notify the
+// guardian. Approval flips status to APPROVED and the booking flow replays
+// the original payload. Decline or 7-day expiry closes it. The actual
+// booking/charge logic lives in the booking endpoints; this table just
+// stores the intent + the replay payload.
+model PendingApproval {
+  id            String   @id @default(cuid())
+  clubId        String
+  memberId      String
+  // CLASS_BOOK | EVENT_REGISTER | PRIVATE_REQUEST | PACKAGE_BUY | OTHER
+  kind          String
+  // Replay payload — shape varies by kind:
+  //   CLASS_BOOK     -> { classSessionId }
+  //   EVENT_REGISTER -> { eventId, sessionId? }
+  //   PRIVATE_REQUEST-> { lessonTypeId, coachId?, requestedSlots[] }
+  //   PACKAGE_BUY    -> { packageId }
+  payload       Json
+  // Optional dollar amount captured at request time. Powers the
+  // dailySpendLimit cap check + the parent-side summary. Null for free
+  // or amount-unknown actions.
+  amount        Decimal? @db.Decimal(10, 2)
+  // PENDING | APPROVED | DECLINED | EXPIRED
+  status        String   @default("PENDING")
+  requestedAt   DateTime @default(now())
+  respondedAt   DateTime?
+  // Which guardian User responded. Null until status changes from PENDING.
+  respondedById String?
+
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@index([memberId, status])
+  @@map("pending_approvals")
 }
 
 model Location {
@@ -367,6 +406,22 @@ model Member {
   guardianEmail        String?
   guardianPhone        String?
   guardianRelationship String?
+
+  // ── Parental controls (P4) ─────────────────────────────────────────────
+  // When non-null, the member's date of birth is read-only — only an owner
+  // or guardian can change it via a server-side action that clears this
+  // field first. Prevents minors from editing their DOB to bypass age gates.
+  birthdayLockedAt     DateTime?
+  // Per-minor parent controls. Shape:
+  //   {
+  //     requirePaymentApproval: boolean,  // gate paid bookings on guardian approval
+  //     monitoredMessaging:     boolean,  // notify guardian on every DM
+  //     allowPackagePurchase:   boolean,  // false = pkg buy hits approval queue
+  //     dailySpendLimit?:       number    // dollars/day before approval kicks in
+  //   }
+  // Null = no controls = existing behavior. Stored as JSON so we can extend
+  // without a migration each time.
+  parentControls       Json?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   deletedAt            DateTime?
@@ -445,6 +500,7 @@ model Member {
   campaignAttributions CampaignAttribution[]
   relationshipsFrom  MemberRelationship[] @relation("RelationshipFrom")
   relationshipsTo    MemberRelationship[] @relation("RelationshipTo")
+  pendingApprovals   PendingApproval[]
 
   @@index([clubId])
   @@index([status])
