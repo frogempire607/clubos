@@ -220,12 +220,6 @@ export default function MemberPrivatesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
-  // Captures what was just silently cleared by the coach/tier cascade
-  // useEffect so we can render a visible warning. Without this, picking a
-  // pricing option that's incompatible with the current coach (or vice
-  // versa) silently wipes the other selection and the user is left
-  // staring at a disabled submit button with no explanation.
-  const [conflictNotice, setConflictNotice] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -251,16 +245,50 @@ export default function MemberPrivatesPage() {
   const options = type?.priceOptions ?? [];
   const option = options.find((o) => o.id === optionId) || null;
 
+  // Defensive: API casts priceOptions as Opt[] but the JSON column can
+  // hold legacy rows where coachIds is null / missing. Normalize to []
+  // so .length never throws and "no restriction" always falls through
+  // to the fallbacks below.
+  function normCoachIds(o: Opt | null | undefined): string[] {
+    return Array.isArray(o?.coachIds) ? o!.coachIds.filter(Boolean) : [];
+  }
+
   function optionCoachIds(o: Opt, lesson: LessonType): string[] {
-    if (o.coachIds.length > 0) return o.coachIds;
-    if (lesson.eligibleCoachIds.length > 0) return lesson.eligibleCoachIds;
+    const explicit = normCoachIds(o);
+    // Owner explicitly assigned this pricing option to specific coaches:
+    // use those, period. (e.g. Starter is for Julian only.)
+    if (explicit.length > 0) return explicit;
+    // The owner left this option's coach list empty. Two interpretations:
+    //
+    // 1. If ANY sibling option in the same lesson has an explicit coach
+    //    list, the owner started using per-option restrictions. Treat
+    //    this empty list as "no specific coach" so when an athlete
+    //    picks a coach, this option doesn't quietly slip past the
+    //    filter alongside the actual coach-specific options. Matches
+    //    the owner's mental model: "Julian = Starter only" should
+    //    HIDE All-American + Varsity when Julian is picked, not show
+    //    them because their coach lists are blank.
+    //
+    // 2. If NO siblings have restrictions, the owner hasn't started
+    //    using per-option restrictions at all. Fall through to the
+    //    lesson-level eligible list, then to all coaches.
+    const opts = Array.isArray(lesson.priceOptions) ? lesson.priceOptions : [];
+    const siblingsHaveRestrictions = opts.some(
+      (sibling) => normCoachIds(sibling).length > 0,
+    );
+    if (siblingsHaveRestrictions) return [];
+    const lessonEligible = Array.isArray(lesson.eligibleCoachIds)
+      ? lesson.eligibleCoachIds.filter(Boolean)
+      : [];
+    if (lessonEligible.length > 0) return lessonEligible;
     return coaches.map((c) => c.id);
   }
 
   function coachIdsForLesson(lesson: LessonType): string[] {
     const ids = new Set<string>();
-    if (lesson.priceOptions.length > 0) {
-      for (const o of lesson.priceOptions) optionCoachIds(o, lesson).forEach((id) => ids.add(id));
+    const opts = Array.isArray(lesson.priceOptions) ? lesson.priceOptions : [];
+    if (opts.length > 0) {
+      for (const o of opts) optionCoachIds(o, lesson).forEach((id) => ids.add(id));
     } else if (lesson.eligibleCoachIds.length > 0) {
       lesson.eligibleCoachIds.forEach((id) => ids.add(id));
     } else {
@@ -300,28 +328,23 @@ export default function MemberPrivatesPage() {
     : null;
   const maxSlotCount = usableCredit ? Math.min(usableCredit.remaining, 16) : 3;
 
+  // Silent auto-clear: keep selections consistent with the rendered grids
+  // (incompatible items never render, so a held selection that's no longer
+  // in availableCoaches / availableOptions silently clears). No banner,
+  // no warning text — the user wanted filtering as the primary UX, and
+  // the filter already removes incompatible items before they can be
+  // picked. The clears just clean up state when the OTHER axis changes.
   useEffect(() => {
     if (!type) return;
-    // Auto-clear incompatible selections so the rendered grids never
-    // show a "selected" state for an item that's no longer in
-    // availableCoaches / availableOptions. We also record what was
-    // cleared so the warning banner can explain why.
     if (coachId && !coachIdsForLesson(type).includes(coachId)) {
-      const c = coaches.find((x) => x.id === coachId);
-      const who = c ? `${c.firstName} ${c.lastName}` : "Your previous coach";
-      setConflictNotice(`${who} doesn't teach ${type.title}. Pick another coach.`);
       setCoachId("");
       return;
     }
     if (option && coachId && !optionCoachIds(option, type).includes(coachId)) {
-      const c = coaches.find((x) => x.id === coachId);
-      const who = c ? `${c.firstName} ${c.lastName}` : "Your previous coach";
-      setConflictNotice(`${who} isn't available for the "${option.label}" pricing option. Choose a different option, or change coaches.`);
       setOptionId("");
       return;
     }
     if (option && !availableOptions.some((o) => o.id === option.id)) {
-      setConflictNotice(`The "${option.label}" pricing option isn't available for the current selection. Pick another option.`);
       setOptionId("");
       return;
     }
@@ -438,18 +461,6 @@ export default function MemberPrivatesPage() {
           {error}
         </div>
       )}
-      {conflictNotice && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800 mb-4 flex items-start gap-2 justify-between">
-          <p className="flex-1">{conflictNotice}</p>
-          <button
-            onClick={() => setConflictNotice(null)}
-            className="text-amber-700 hover:text-amber-900 text-lg leading-none flex-shrink-0"
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
-        </div>
-      )}
 
       {/* Incoming partner invitations */}
       {invites.length > 0 && (
@@ -510,7 +521,6 @@ export default function MemberPrivatesPage() {
                     setTypeId(t.id);
                     setOptionId("");
                     setCoachId("");
-                    setConflictNotice(null);
                   }}
                   className={`text-left p-3 rounded-lg border transition ${
                     typeId === t.id
@@ -547,7 +557,7 @@ export default function MemberPrivatesPage() {
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => { setCoachId(""); setConflictNotice(null); }}
+                  onClick={() => { setCoachId(""); }}
                   className={`px-3 py-1.5 rounded-full text-sm border transition ${
                     coachId === ""
                       ? "border-stone-900 bg-stone-900 text-white"
@@ -561,8 +571,7 @@ export default function MemberPrivatesPage() {
                     key={c.id}
                     onClick={() => {
                       setCoachId(c.id);
-                      setConflictNotice(null);
-                      if (option && type && !optionCoachIds(option, type).includes(c.id)) setOptionId("");
+                        if (option && type && !optionCoachIds(option, type).includes(c.id)) setOptionId("");
                     }}
                     className={`px-3 py-1.5 rounded-full text-sm border transition ${
                       coachId === c.id
@@ -592,8 +601,7 @@ export default function MemberPrivatesPage() {
                     key={o.id}
                     onClick={() => {
                       setOptionId(o.id);
-                      setConflictNotice(null);
-                      if (type && coachId && !optionCoachIds(o, type).includes(coachId)) setCoachId("");
+                        if (type && coachId && !optionCoachIds(o, type).includes(coachId)) setCoachId("");
                     }}
                     className={`text-left p-3 rounded-lg border transition ${
                       optionId === o.id
@@ -607,12 +615,17 @@ export default function MemberPrivatesPage() {
                 ))}
               </div>
               {availableOptions.length === 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800">
-                  <p className="font-medium">No pricing options match that coach.</p>
-                  <p className="text-xs mt-0.5">
-                    Pick a different coach above, or clear the coach selection to see all options.
-                  </p>
-                </div>
+                <p className="text-xs text-stone-500">
+                  No pricing options match that coach. Tap{" "}
+                  <button
+                    type="button"
+                    onClick={() => setCoachId("")}
+                    className="underline hover:text-stone-700"
+                  >
+                    No preference
+                  </button>{" "}
+                  above to see all options.
+                </p>
               )}
             </div>
           )}
@@ -788,20 +801,13 @@ export default function MemberPrivatesPage() {
             </div>
           )}
 
-          {/* Explain WHY submit is disabled — without this, a user who's
-              filled most of the form but missed one field stares at a
-              greyed-out button with no hint about what's missing. */}
-          {type && !canSubmit && !saving && (
+          {/* Light hint above the submit row — only fires when the user
+              has picked a type but the price hint matters (no warnings
+              about coach mismatch since the filter hides those
+              automatically). */}
+          {type && options.length > 0 && !option && !saving && (
             <p className="text-xs text-stone-500 -mt-2">
-              {options.length > 0 && !option
-                ? "Pick a pricing option to continue."
-                : coachId && !availableCoachIds.includes(coachId)
-                  ? "The selected coach isn't available for this pricing option. Pick a different coach or option."
-                  : validSlots.length === 0
-                    ? "Add at least one date and time you'd like."
-                    : !partnersComplete
-                      ? "Tell us about each partner before submitting."
-                      : "Some required info is missing."}
+              Pick a pricing option to continue.
             </p>
           )}
 
