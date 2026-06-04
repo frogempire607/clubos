@@ -25,10 +25,14 @@
         user-select: none;
       }
       main { max-width: 320px; width: 100%; }
+      /* Reconnecting badge — bumped from 72px to 128px so the brand mark
+         actually reads on a phone. Border-radius:50% lets the source
+         circle blend with the dark page background without a visible
+         square edge. */
       .logo {
-        width: 72px; height: 72px;
-        border-radius: 18px;
-        margin: 0 auto 20px;
+        width: 128px; height: 128px;
+        border-radius: 50%;
+        margin: 0 auto 24px;
         display: block;
       }
       h1 {
