@@ -38,18 +38,44 @@ function serverHost(url: string) {
   }
 }
 
-// Hostnames the WebView is allowed to navigate to. Always include localhost +
-// 127.0.0.1 so the simulator can reach the dev server no matter which form
-// the URL takes, plus whatever the resolved server URL points at.
+// Hostnames the WebView is allowed to navigate to. Anything NOT in this list
+// gets bounced to Safari (Capacitor's external-link behavior). For a dev
+// build we err on the permissive side so a stray absolute URL during dev
+// (Next's error overlay, a misconfigured NEXTAUTH_URL, a Stripe sandbox
+// redirect) stays in-app where the error is visible — not in Safari, which
+// throws WebKit's "Not allowed to use restricted network port" page on
+// 0.0.0.0 and other bind-only addresses. Production HTTPS targets stay
+// tight because the wildcard only fires when the server URL itself is
+// cleartext http://.
+const isDevServer = nativeServerUrl.startsWith("http://");
+const baseAllowed = [
+  serverHost(nativeServerUrl),
+  "localhost:3000",
+  "127.0.0.1:3000",
+  "localhost",
+  "127.0.0.1",
+  // Defensive: Next dev's `-H 0.0.0.0` bind sometimes leaks into self-URLs
+  // (HMR sockets, error overlays). Listing 0.0.0.0 keeps the WebView in
+  // charge rather than letting Safari take the nav and hit its restricted-
+  // port wall.
+  "0.0.0.0",
+  "0.0.0.0:3000",
+].filter(Boolean);
+
+// In dev (cleartext http://), allow any host on the same /24 as the
+// configured server URL so a Mac LAN-IP nav can roam — same-network
+// devices only. Plus a wildcard for catch-all under cleartext.
 const allowedHosts = Array.from(
   new Set(
-    [
-      serverHost(nativeServerUrl),
-      "localhost:3000",
-      "127.0.0.1:3000",
-      "localhost",
-      "127.0.0.1",
-    ].filter(Boolean),
+    isDevServer
+      ? [
+          ...baseAllowed,
+          // Cleartext-only catch-all. Capacitor honors `*` here only when
+          // server.cleartext === true (which is gated below to dev URLs).
+          // In a production HTTPS build this list is irrelevant.
+          "*",
+        ]
+      : baseAllowed,
   ),
 );
 

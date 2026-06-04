@@ -11,21 +11,35 @@ This checklist covers the single AthletixOS iOS and Android app shell. Club-spec
 - Local development URL: `http://127.0.0.1:3000` (default if no env override; see table below)
 - Start route: `/member`
 
-### Which server URL does the WebView use?
+### Switching the native dev target (simulator ↔ real iPhone ↔ prod)
 
-Capacitor bakes `server.url` into `ios/App/App/capacitor.config.json` at `cap:sync` time. Pick the right one for the device you're testing on, then re-sync.
+Three things have to stay in lockstep for native login to work:
 
-| Target | URL the WebView loads | How to set it |
+1. **WebView URL** baked into `ios/App/App/capacitor.config.json` by `cap:sync`. This is what the iPhone actually loads.
+2. **`NEXTAUTH_URL`** read by the Next dev server. Determines the host that server-side absolute URLs use (Stripe redirects, password-reset links, partner-invite emails, NextAuth's CSRF check).
+3. **`window.NATIVE_SERVER_URL`** baked into `public/native-shell/server-config.js`. The reconnecting/offline page retries against this URL.
+
+If those three don't match, the WebView loads (say) `10.0.0.45:3000`, but a server route generates a redirect to `127.0.0.1:3000`. The iPhone WebView can't reach 127.0.0.1, Capacitor bounces the nav to Safari, and Safari shows WebKit's "Not allowed to use restricted network port" page on `0.0.0.0` (a common Next-dev self-URL leak from the `-H 0.0.0.0` bind).
+
+One command keeps them aligned:
+
+| Target | Command | Result |
 |---|---|---|
-| **iOS Simulator** | `http://127.0.0.1:3000` | Just run `npm run cap:sync` — that's the built-in fallback. The simulator shares the Mac's loopback. |
-| **Real iPhone on same Wi-Fi** | `http://<mac-lan-ip>:3000` | `CAPACITOR_SERVER_URL=http://<mac-lan-ip>:3000 npm run cap:sync` — bake the LAN IP in. Find your IP with `ipconfig getifaddr en0`. |
-| **Production** | `https://app.yourdomain.com` | `CAPACITOR_SERVER_URL=https://app.yourdomain.com npm run cap:sync` before archiving. HTTPS only. |
+| **iOS Simulator** | `npm run cap:dev:sim` | All three set to `http://127.0.0.1:3000`. |
+| **Real iPhone on same Wi-Fi** | `npm run cap:dev:iphone -- <mac-lan-ip>` | All three set to `http://<mac-lan-ip>:3000`. Example: `npm run cap:dev:iphone -- 10.0.0.45`. |
+| **Production** | `npm run cap:dev:prod -- https://app.yourdomain.com` | All three set to the HTTPS prod URL before archive/upload. |
+
+After running the script you'll see a hint to **restart `npm run dev`** so the dev server picks up the new `NEXTAUTH_URL`. Skipping that step is the #1 cause of "the WebView loads but every redirect bounces to Safari."
 
 Notes:
+- The script writes `NEXTAUTH_URL` to `.env.local` (gitignored, surgical replace — leaves DATABASE_URL, STRIPE_*, SMTP_* etc. untouched). `.env` stays whatever it is.
+- The script runs `cap:sync` for you with the right `CAPACITOR_SERVER_URL`, so both the WebView and the reconnect page line up.
+- `lib/baseUrl.ts` rejects `0.0.0.0` (and `::`) as NEXTAUTH hostnames and falls back to `127.0.0.1:3000` with a console warning. Belt-and-braces against `NEXTAUTH_URL=http://0.0.0.0:3000` ever shipping to a device.
+- `capacitor.config.ts` allows `0.0.0.0`, `0.0.0.0:3000`, plus `*` (only when `server.url` is cleartext http://, i.e. dev). Any stray absolute nav stays in the WebView where the error is visible, instead of escaping to Safari.
+- ATS in `Info.plist` already allows local-network HTTP (`NSAllowsLocalNetworking`), which covers both `127.0.0.1` (simulator) and any RFC1918 LAN address (`10.x`, `172.16-31.x`, `192.168.x`). No per-IP exception needed.
 - `localhost` is intentionally avoided in dev (`127.0.0.1` literal instead) because macOS resolves `localhost` to IPv6 `::1` first and Next.js dev binds IPv4 only — the WebView's connect fails silently and falls back to the reconnecting page. The literal IP bypasses DNS entirely.
 - Dev port is `3000`. WebKit added `3001` to its restricted-network-ports blocklist so the simulator can't reach it. The `npm run dev` script binds `0.0.0.0:3000` so the LAN IP path works for real devices.
-- The generated `ios/App/App/capacitor.config.json` and `public/native-shell/server-config.js` are both gitignored — setting your LAN IP via `CAPACITOR_SERVER_URL` won't pollute the repo.
-- ATS in `Info.plist` already allows local-network HTTP (`NSAllowsLocalNetworking`), which covers both `127.0.0.1` and any RFC1918 LAN address (`10.x`, `172.16-31.x`, `192.168.x`). No per-IP exception needed.
+- The generated `ios/App/App/capacitor.config.json` and `public/native-shell/server-config.js` are both gitignored.
 
 ## Local development — iOS simulator
 

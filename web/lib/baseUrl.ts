@@ -26,11 +26,34 @@ let warnedThisProcess = false;
 // are NOT supported by this helper — `.origin` drops the path. If you
 // ever need that, return new URL(raw).href.replace(/\/$/, "") instead
 // and audit every `${baseUrl}/...` call site for double-slashing.
+// Hostnames that are never reachable from a real device even when the dev
+// server binds to them. NEXTAUTH_URL pointing at any of these gets rejected
+// so we don't ship URLs that crash the iPhone WebView (`0.0.0.0` is on
+// WebKit's restricted-network-ports list — the WebView refuses to load it
+// and Capacitor escapes to Safari, which then shows the visible "Not
+// allowed to use restricted network port" error).
+const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
+
 export function getAppBaseUrl(): string {
   const raw = process.env.NEXTAUTH_URL;
   if (raw) {
     try {
-      return new URL(raw).origin;
+      const parsed = new URL(raw);
+      if (UNROUTABLE_HOSTS.has(parsed.hostname)) {
+        if (!warnedThisProcess) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[baseUrl] NEXTAUTH_URL host ${parsed.hostname} is a bind-only ` +
+              `address that the iPhone WebView can't reach (it's on WebKit's ` +
+              `restricted-network-port list). Falling back to ${DEV_FALLBACK}. ` +
+              `Set NEXTAUTH_URL to your Mac's LAN IP (e.g. http://10.0.0.45:3000) ` +
+              `for real-device dev, or 127.0.0.1:3000 for the simulator.`,
+          );
+          warnedThisProcess = true;
+        }
+        return DEV_FALLBACK;
+      }
+      return parsed.origin;
     } catch {
       // Always log, including in production. The point of this hardening
       // was to surface misconfig loudly — silencing prod buries the bug
