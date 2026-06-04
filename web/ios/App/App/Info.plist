@@ -44,14 +44,16 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<!-- App Transport Security exceptions.
-	     - NSAllowsLocalNetworking lets the WebView reach `localhost` and
-	       `127.0.0.1` for local Next.js dev (App Store safe; iOS 10+).
+	     - NSAllowsLocalNetworking lets the WebView reach `localhost`,
+	       `127.0.0.1`, and any RFC1918 / link-local LAN address. Covers
+	       the simulator (127.0.0.1:3000) AND a real iPhone hitting the
+	       Mac's LAN IP (e.g. 10.0.0.x:3000). App Store safe; iOS 10+.
 	     - NSAllowsArbitraryLoadsInWebContent keeps the rest of the app's
 	       HTTPS-only behavior intact but lets WKWebView load mixed/HTTP
 	       URLs you reach by following a link (useful for dev tunnels).
 	     For production builds, server.url should already be HTTPS, so
 	     these keys become no-ops — they're only relevant during local
-	     development against `http://localhost:3001`. -->
+	     development against `http://127.0.0.1:3000` or a LAN IP. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

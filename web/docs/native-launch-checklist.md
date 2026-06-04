@@ -8,8 +8,24 @@ This checklist covers the single AthletixOS iOS and Android app shell. Club-spec
 - iOS bundle ID: `com.athletixos.app`
 - Android package ID: `com.athletixos.app`
 - Capacitor server URL: set `CAPACITOR_SERVER_URL` to the production AthletixOS origin before syncing release builds.
-- Local development URL: `http://localhost:3001`
+- Local development URL: `http://127.0.0.1:3000` (default if no env override; see table below)
 - Start route: `/member`
+
+### Which server URL does the WebView use?
+
+Capacitor bakes `server.url` into `ios/App/App/capacitor.config.json` at `cap:sync` time. Pick the right one for the device you're testing on, then re-sync.
+
+| Target | URL the WebView loads | How to set it |
+|---|---|---|
+| **iOS Simulator** | `http://127.0.0.1:3000` | Just run `npm run cap:sync` — that's the built-in fallback. The simulator shares the Mac's loopback. |
+| **Real iPhone on same Wi-Fi** | `http://<mac-lan-ip>:3000` | `CAPACITOR_SERVER_URL=http://<mac-lan-ip>:3000 npm run cap:sync` — bake the LAN IP in. Find your IP with `ipconfig getifaddr en0`. |
+| **Production** | `https://app.yourdomain.com` | `CAPACITOR_SERVER_URL=https://app.yourdomain.com npm run cap:sync` before archiving. HTTPS only. |
+
+Notes:
+- `localhost` is intentionally avoided in dev (`127.0.0.1` literal instead) because macOS resolves `localhost` to IPv6 `::1` first and Next.js dev binds IPv4 only — the WebView's connect fails silently and falls back to the reconnecting page. The literal IP bypasses DNS entirely.
+- Dev port is `3000`. WebKit added `3001` to its restricted-network-ports blocklist so the simulator can't reach it. The `npm run dev` script binds `0.0.0.0:3000` so the LAN IP path works for real devices.
+- The generated `ios/App/App/capacitor.config.json` and `public/native-shell/server-config.js` are both gitignored — setting your LAN IP via `CAPACITOR_SERVER_URL` won't pollute the repo.
+- ATS in `Info.plist` already allows local-network HTTP (`NSAllowsLocalNetworking`), which covers both `127.0.0.1` and any RFC1918 LAN address (`10.x`, `172.16-31.x`, `192.168.x`). No per-IP exception needed.
 
 ## Local development — iOS simulator
 
@@ -33,7 +49,7 @@ cd web
 npm run dev
 ```
 
-Confirm `http://localhost:3001` loads in your desktop browser before continuing. The native shell loads this same URL.
+Confirm `http://127.0.0.1:3000` loads in your desktop browser before continuing. The native shell loads this same URL.
 
 **Terminal 2 — Capacitor / Xcode:**
 
@@ -47,16 +63,16 @@ In Xcode:
 
 1. Pick a simulator from the device dropdown (iPhone 15 or similar).
 2. Hit ▶ (Cmd+R). The simulator boots and the AthletixOS app launches.
-3. The WebView should load `http://localhost:3001/member`. Unauthenticated visitors are redirected by middleware to `/login` — sign in with your dev member credentials and you'll land back on `/member`.
+3. The WebView should load `http://127.0.0.1:3000/member`. Unauthenticated visitors are redirected by middleware to `/login` — sign in with your dev member credentials and you'll land back on `/member`.
 
 ### Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `ERROR: Unable to load /App.app/public//member` | Old config had `appStartPath: "/member"` which iOS interpreted as a local file path | Already fixed — server URL now bakes the path in (`http://localhost:3001/member`). If you still see it, run `npx cap sync ios` and **Product → Clean Build Folder** in Xcode (Shift+Cmd+K), then ▶. |
+| `ERROR: Unable to load /App.app/public//member` | Old config had `appStartPath: "/member"` which iOS interpreted as a local file path | Already fixed — server URL now bakes the path in (`http://127.0.0.1:3000/member`). If you still see it, run `npx cap sync ios` and **Product → Clean Build Folder** in Xcode (Shift+Cmd+K), then ▶. |
 | Black screen on launch | App Transport Security blocking HTTP | `ios/App/App/Info.plist` already has `NSAllowsLocalNetworking`. Re-run `npx cap sync ios` and rebuild. |
-| "Can't reach AthletixOS" page | Dev server not running, or wrong URL | Confirm `npm run dev` is up on port 3001. If you're on a real device, set `CAPACITOR_SERVER_URL=http://<mac-lan-ip>:3001` and re-sync. |
-| Login loop in the WebView | `NEXTAUTH_URL` doesn't match the URL the WebView loads | Set `NEXTAUTH_URL=http://localhost:3001` in `web/.env` and restart the dev server. Cookies are scoped to that exact host. |
+| "Can't reach AthletixOS" page | Dev server not running, or wrong URL | Confirm `npm run dev` is up on port 3000. If you're on a real device, set `CAPACITOR_SERVER_URL=http://<mac-lan-ip>:3000` and re-sync. Also check the macOS firewall isn't blocking inbound 3000 (System Settings → Network → Firewall). |
+| Login loop in the WebView | `NEXTAUTH_URL` doesn't match the URL the WebView loads | Set `NEXTAUTH_URL=http://127.0.0.1:3000` in `web/.env` and restart the dev server. Cookies are scoped to that exact host. |
 | Stale config after editing `capacitor.config.ts` | Capacitor caches the iOS bundle | `npx cap sync ios` regenerates `capacitor.config.json`, then in Xcode use **Clean Build Folder** (Shift+Cmd+K) before ▶. |
 | `UIScene` lifecycle warning | Capacitor 6 still uses the old AppDelegate launch path; harmless | No action — Apple is years out from making this an error. |
 | Stripe Checkout opens but never returns | External browser, not the WebView | Use `https://` URLs in production. On localhost, just verify the webhook fires server-side; the WebView won't bounce back. |
@@ -71,7 +87,7 @@ ipconfig getifaddr en0          # e.g. 192.168.1.42
 
 # 2. Re-sync with that IP
 cd web
-CAPACITOR_SERVER_URL="http://192.168.1.42:3001" npx cap sync ios
+CAPACITOR_SERVER_URL="http://192.168.1.42:3000" npx cap sync ios
 npm run cap:ios
 ```
 
@@ -79,12 +95,12 @@ Then pick your iPhone in Xcode's device picker (after enabling Developer Mode on
 
 ## Local development — Android emulator
 
-Same idea as iOS, with `cap:android` instead. The Android emulator can't talk to `localhost` directly — Capacitor's `server.androidScheme` defaults will use `http://10.0.2.2:3001` (the emulator's alias for the host machine). If you're hitting trouble, set `CAPACITOR_SERVER_URL=http://10.0.2.2:3001` and re-sync.
+Same idea as iOS, with `cap:android` instead. The Android emulator can't talk to `localhost` directly — Capacitor's `server.androidScheme` defaults will use `http://10.0.2.2:3000` (the emulator's alias for the host machine). If you're hitting trouble, set `CAPACITOR_SERVER_URL=http://10.0.2.2:3000` and re-sync.
 
 ```bash
 cd web
 npm run dev                              # Terminal 1
-CAPACITOR_SERVER_URL="http://10.0.2.2:3001" npx cap sync android  # Terminal 2
+CAPACITOR_SERVER_URL="http://10.0.2.2:3000" npx cap sync android  # Terminal 2
 npm run cap:android                      # opens Android Studio
 ```
 
