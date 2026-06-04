@@ -8,15 +8,17 @@ type Counts = {
   memberships: number;
   events: number;
   products: number;
-  privatePackages: number;
 };
 
 export default function MemberShopPage() {
+  // Lesson packages no longer surface as a separate shop card — they're
+  // an inline offer inside /member/privates, so members discover them
+  // while booking the lesson they apply to (not as a disconnected
+  // shop). The Counts type and fetch chain are scoped accordingly.
   const [counts, setCounts] = useState<Counts>({
     memberships: 0,
     events: 0,
     products: 0,
-    privatePackages: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -25,13 +27,11 @@ export default function MemberShopPage() {
       fetch("/api/member/memberships").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/member/events").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/member/products").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch("/api/member/private-packages").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    ]).then(([m, e, p, pk]) => {
+    ]).then(([m, e, p]) => {
       setCounts({
         memberships: m?.memberships?.length ?? 0,
         events: e?.events?.length ?? 0,
         products: p?.products?.length ?? 0,
-        privatePackages: pk?.packages?.length ?? 0,
       });
       setLoading(false);
     });
@@ -64,26 +64,11 @@ export default function MemberShopPage() {
     {
       href: "/member/privates",
       title: "Private lessons",
-      desc: "Book 1-on-1 time — pick a coach and request times.",
+      desc: "Book 1-on-1 time — pick a coach and request times. Lesson packs available inside.",
       count: 0,
       countLabel: "",
       Icon: UserCheck,
     },
-    // Only surface the packages card when there's something to buy.
-    // Owners who haven't published any packages don't see a dead-end
-    // card on the shop page.
-    ...(counts.privatePackages > 0
-      ? [
-          {
-            href: "/member/shop/packages",
-            title: "Lesson packages",
-            desc: "Prepaid packs that bundle private lessons at a lower per-lesson rate.",
-            count: counts.privatePackages,
-            countLabel: counts.privatePackages === 1 ? "available" : "available",
-            Icon: UserCheck,
-          },
-        ]
-      : []),
     {
       href: "/member/products",
       title: "Shop",

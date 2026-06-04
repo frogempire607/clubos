@@ -201,6 +201,21 @@ function formatSlotRange(dateStr: string, startTime: string, durationMin: number
   return `${format12h(startTime)} – ${format12h(minutesToTime(endMin))}`;
 }
 
+// Inline lesson package offer surfaced inside the private-request flow.
+// Same data shape as /api/member/private-packages GET; declared here so
+// the form's inline section stays self-contained.
+type ShopPackage = {
+  id: string;
+  title: string;
+  description: string | null;
+  lessonType: { title: string } | null;
+  lessonTypeIds: string[];
+  credits: number;
+  bonusCredits: number;
+  price: number;
+  expiresAfterDays: number | null;
+};
+
 export default function MemberPrivatesPage() {
   const [types, setTypes] = useState<LessonType[]>([]);
   const [coaches, setCoaches] = useState<Coach[]>([]);
@@ -208,6 +223,7 @@ export default function MemberPrivatesPage() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [credits, setCredits] = useState<Credit[]>([]);
   const [availability, setAvailability] = useState<CoachAvailability[]>([]);
+  const [packages, setPackages] = useState<ShopPackage[]>([]);
   const [hasProfile, setHasProfile] = useState(true);
   const [loading, setLoading] = useState(true);
 
@@ -218,15 +234,23 @@ export default function MemberPrivatesPage() {
   const [slots, setSlots] = useState<Slot[]>([{ date: "", startTime: "" }]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [buyingPackageId, setBuyingPackageId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  // Stripe-checkout redirect-back banner ("bought=1" / "canceled=1") —
+  // packages now redirect to /member/privates instead of a separate
+  // /member/shop/packages page, so we read the same query params here.
+  const [purchaseBanner, setPurchaseBanner] = useState<
+    { kind: "success" | "info"; text: string } | null
+  >(null);
 
   function load() {
     setLoading(true);
     Promise.all([
       fetch("/api/member/privates").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/member/privates/partner-response").then((r) => (r.ok ? r.json() : [])),
-    ]).then(([d, inv]) => {
+      fetch("/api/member/private-packages").then((r) => (r.ok ? r.json() : { packages: [] })),
+    ]).then(([d, inv, pk]) => {
       if (d) {
         setTypes(d.types || []);
         setCoaches(d.coaches || []);
@@ -236,10 +260,52 @@ export default function MemberPrivatesPage() {
         setHasProfile(d.hasMemberProfile);
       }
       setInvites(Array.isArray(inv) ? inv : []);
+      setPackages(Array.isArray(pk?.packages) ? pk.packages : []);
       setLoading(false);
     });
   }
   useEffect(() => { load(); }, []);
+
+  // Drop the bought/canceled query params from the URL so a refresh
+  // doesn't re-show the banner.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("bought") === "1") {
+      setPurchaseBanner({
+        kind: "success",
+        text:
+          "Payment received — your package credits will appear here in a moment. " +
+          "Refresh if you don't see them shortly.",
+      });
+    } else if (p.get("canceled") === "1") {
+      setPurchaseBanner({
+        kind: "info",
+        text: "Package checkout canceled — no payment was taken.",
+      });
+    }
+    if (p.has("bought") || p.has("canceled")) {
+      window.history.replaceState({}, "", "/member/privates");
+    }
+  }, []);
+
+  async function buyPackage(id: string) {
+    setBuyingPackageId(id);
+    setError("");
+    try {
+      const res = await fetch(`/api/member/private-packages/${id}/buy`, {
+        method: "POST",
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d?.url) {
+        setError(d?.error || "Couldn't open checkout. Try again.");
+        return;
+      }
+      window.location.href = d.url;
+    } finally {
+      setBuyingPackageId(null);
+    }
+  }
 
   const type = types.find((t) => t.id === typeId) || null;
   const options = type?.priceOptions ?? [];
@@ -461,6 +527,17 @@ export default function MemberPrivatesPage() {
           {error}
         </div>
       )}
+      {purchaseBanner && (
+        <div
+          className={`rounded-lg px-3 py-2 text-sm mb-4 border ${
+            purchaseBanner.kind === "success"
+              ? "bg-green-50 border-green-200 text-green-800"
+              : "bg-stone-50 border-stone-200 text-stone-700"
+          }`}
+        >
+          {purchaseBanner.text}
+        </div>
+      )}
 
       {/* Incoming partner invitations */}
       {invites.length > 0 && (
@@ -548,6 +625,81 @@ export default function MemberPrivatesPage() {
               ))}
             </div>
           </div>
+
+          {/* Inline lesson-package offers. Surfaced after the athlete
+              picks a lesson type so the relevant packages can be
+              pre-filtered (only show packages that cover this lesson
+              type, plus any whole-catalog packages). The athlete can
+              either keep going with the normal single-lesson request
+              below, OR pre-buy a pack now and come back to use the
+              credits. After purchase, Stripe redirects back to this
+              same page and the credits granted by the webhook appear
+              as a usable balance (see "Request package lesson dates"
+              section below). */}
+          {type && packages.length > 0 && (() => {
+            // packageAllowsLessonType handles the legacy lessonTypeId
+            // shape too; same matcher used server-side in the booking
+            // route, so the eligibility logic stays consistent.
+            const relevant = packages.filter((p) =>
+              packageAllowsLessonType(p.lessonTypeIds, null, type.id),
+            );
+            if (relevant.length === 0) return null;
+            return (
+              <div className="border border-stone-200 rounded-lg p-3 bg-stone-50/60">
+                <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">
+                  Bundle option (optional)
+                </p>
+                <p className="text-xs text-stone-500 mb-3">
+                  Your club offers prepaid lesson packs — buy a pack now to
+                  save on this lesson and the next few. Or skip this and
+                  request a single lesson below.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {relevant.map((p) => {
+                    const total = p.credits + (p.bonusCredits || 0);
+                    const perLesson = total > 0 ? p.price / total : p.price;
+                    return (
+                      <div
+                        key={p.id}
+                        className="bg-white rounded-lg border border-stone-200 p-3 flex flex-col"
+                      >
+                        <p className="text-sm font-semibold text-stone-900">{p.title}</p>
+                        {p.description && (
+                          <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">
+                            {p.description}
+                          </p>
+                        )}
+                        <p className="text-xs text-stone-600 mt-2 tabular-nums">
+                          <span className="font-medium">{p.credits} lessons</span>
+                          {p.bonusCredits > 0 && (
+                            <span className="text-stone-400"> + {p.bonusCredits} bonus</span>
+                          )}
+                          {" · "}
+                          <span className="font-medium">${p.price.toFixed(2)}</span>
+                        </p>
+                        {total > 0 && (
+                          <p className="text-[11px] text-stone-400 tabular-nums">
+                            About ${perLesson.toFixed(2)} per lesson
+                            {p.expiresAfterDays
+                              ? ` · expires ${p.expiresAfterDays} day${p.expiresAfterDays === 1 ? "" : "s"} after purchase`
+                              : ""}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => buyPackage(p.id)}
+                          disabled={buyingPackageId === p.id || !hasProfile}
+                          className="mt-3 w-full px-3 py-2 bg-stone-900 text-white rounded-md text-xs font-medium hover:bg-stone-700 disabled:opacity-50"
+                        >
+                          {buyingPackageId === p.id ? "Opening checkout…" : `Buy pack — $${p.price.toFixed(2)}`}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* 2. Coach */}
           {type && (

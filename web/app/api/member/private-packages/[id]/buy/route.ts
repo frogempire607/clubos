@@ -86,8 +86,11 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
         },
         ...(feeItem ? [feeItem] : []),
       ],
-      success_url: `${baseUrl}/member/shop/packages?bought=1`,
-      cancel_url: `${baseUrl}/member/shop/packages?canceled=1`,
+      // Packages are now an inline offer inside the private-request
+      // flow, not a separate shop. Redirect back to /member/privates
+      // so the athlete lands where the credits become usable.
+      success_url: `${baseUrl}/member/privates?bought=1`,
+      cancel_url: `${baseUrl}/member/privates?canceled=1`,
       payment_intent_data: {
         application_fee_amount: platformFee,
         metadata: {
