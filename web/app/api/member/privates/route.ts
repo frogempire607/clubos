@@ -355,7 +355,13 @@ export async function POST(req: Request) {
         }),
         prisma.club.findUnique({
           where: { id: clubId },
-          select: { name: true, emailFromName: true, emailReplyTo: true },
+          select: {
+            name: true,
+            logoUrl: true,
+            primaryColor: true,
+            emailFromName: true,
+            emailReplyTo: true,
+          },
         }),
       ]);
       if (coachUser?.email && clubRow) {
@@ -363,6 +369,8 @@ export async function POST(req: Request) {
           to: coachUser.email,
           coachFirstName: coachUser.firstName,
           clubName: clubRow.name,
+          clubLogoUrl: clubRow.logoUrl,
+          clubPrimaryColor: clubRow.primaryColor,
           memberFirstName: member.firstName,
           memberLastName: member.lastName,
           lessonTitle: lessonType.title,

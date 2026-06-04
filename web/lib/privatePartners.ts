@@ -34,7 +34,13 @@ export async function activatePartnersOnAccept(params: {
     }),
     prisma.club.findUnique({
       where: { id: params.clubId },
-      select: { name: true, emailFromName: true, emailReplyTo: true },
+      select: {
+        name: true,
+        logoUrl: true,
+        primaryColor: true,
+        emailFromName: true,
+        emailReplyTo: true,
+      },
     }),
   ]);
 
@@ -62,6 +68,8 @@ export async function activatePartnersOnAccept(params: {
             partnerName: p.outsideName || null,
             bookerName: params.bookerName,
             clubName: club.name,
+            clubLogoUrl: club.logoUrl,
+            clubPrimaryColor: club.primaryColor,
             lessonTitle: params.lessonTitle,
             confirmedStartAt: booking?.confirmedStartAt ?? null,
             inviteUrl: `${getAppBaseUrl()}/privates/partner/${token}`,
