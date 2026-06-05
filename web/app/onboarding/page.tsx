@@ -155,7 +155,7 @@ export default function OnboardingPage() {
               </p>
 
               <div className="flex items-center border border-stone-300 rounded-lg px-3 py-2.5 focus-within:ring-2 focus-within:ring-stone-900">
-                <span className="text-sm text-stone-400">clubos.app/</span>
+                <span className="text-sm text-stone-400">athletix-os.com/</span>
                 <input
                   type="text"
                   value={slug}
@@ -227,7 +227,7 @@ export default function OnboardingPage() {
 
               <div className="bg-stone-50 rounded-lg p-4 space-y-3 mb-4">
                 <Row label="Name" value={name} />
-                <Row label="URL" value={`clubos.app/${slug}`} />
+                <Row label="URL" value={`athletix-os.com/${slug}`} />
                 {sport && <Row label="Sport" value={sport} />}
                 {tagline && <Row label="Tagline" value={tagline} />}
                 <div className="flex items-center justify-between py-1 border-t border-stone-200 pt-3">

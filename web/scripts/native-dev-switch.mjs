@@ -18,12 +18,12 @@
 // Usage:
 //   node scripts/native-dev-switch.mjs sim
 //   node scripts/native-dev-switch.mjs iphone 10.0.0.45
-//   node scripts/native-dev-switch.mjs prod https://app.athletixos.com
+//   node scripts/native-dev-switch.mjs prod https://app.athletix-os.com
 //
 // Convenience npm scripts:
 //   npm run cap:dev:sim
 //   npm run cap:dev:iphone -- 10.0.0.45
-//   npm run cap:dev:prod -- https://app.athletixos.com
+//   npm run cap:dev:prod -- https://app.athletix-os.com
 //
 // The script edits .env.local in place — surgically — and runs cap:sync.
 // .env.local is gitignored (Next default), so this never pollutes the
@@ -64,7 +64,7 @@ if (mode === "sim") {
   }
   serverUrl = `http://${arg}:3000`;
 } else if (mode === "prod") {
-  if (!arg) die("prod mode needs the production URL (e.g. `prod https://app.athletixos.com`).");
+  if (!arg) die("prod mode needs the production URL (e.g. `prod https://app.athletix-os.com`).");
   if (!arg.startsWith("https://")) {
     die("prod URL must start with https://");
   }

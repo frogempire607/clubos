@@ -251,7 +251,7 @@ grep -r "storePassword\|keystore.properties" android/app/ ':(exclude)android/app
 
 ```bash
 # Ensure the web is built and synced first
-CAPACITOR_SERVER_URL=https://app.athletixos.app npm run cap:sync
+CAPACITOR_SERVER_URL=https://app.athletix-os.com npm run cap:sync
 
 cd android
 ./gradlew bundleRelease

@@ -48,7 +48,7 @@ export async function sendEmail({
     },
   });
 
-  const baseFrom = process.env.EMAIL_FROM || "AthletixOS <no-reply@clubos.app>";
+  const baseFrom = process.env.EMAIL_FROM || "AthletixOS <noreply@athletix-os.com>";
   let from = baseFrom;
   if (fromName) {
     const addr = baseFrom.match(/<([^>]+)>/)?.[1] || baseFrom;
@@ -75,7 +75,7 @@ function baseLayout(content: string): string {
       </div>
       <div style="padding:28px">${content}</div>
       <div style="padding:16px 28px;border-top:1px solid #E7E5E4;background:#F5F3EE">
-        <p style="color:#a8a29e;font-size:12px;margin:0">Sent via AthletixOS · <a href="https://clubos.app" style="color:#78716C">clubos.app</a></p>
+        <p style="color:#a8a29e;font-size:12px;margin:0">Sent via AthletixOS · <a href="https://athletix-os.com" style="color:#78716C">athletix-os.com</a></p>
       </div>
     </div>
   `;
@@ -399,7 +399,7 @@ export async function sendMemberMigrationActivationEmail({
       </div>
 
       <div style="padding:14px 28px;border-top:1px solid #E7E5E4;background:#fff;text-align:center">
-        <p style="color:#a8a29e;font-size:11px;margin:0">Powered by <strong style="color:#78716C">AthletixOS</strong> · <a href="https://clubos.app" style="color:#78716C;text-decoration:none">clubos.app</a></p>
+        <p style="color:#a8a29e;font-size:11px;margin:0">Powered by <strong style="color:#78716C">AthletixOS</strong> · <a href="https://athletix-os.com" style="color:#78716C;text-decoration:none">athletix-os.com</a></p>
       </div>
     </div>
   </div>`;

@@ -166,7 +166,7 @@ export default function MemberSignupPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Club URL</label>
                   <div className="flex items-center border border-stone-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-stone-900">
                     <span className="px-3 py-2 bg-stone-50 text-stone-400 text-sm border-r border-stone-300 flex-shrink-0">
-                      clubos.app/
+                      athletix-os.com/
                     </span>
                     <input
                       type="text"
@@ -349,7 +349,7 @@ export default function MemberSignupPage() {
                     </div>
                     <p className="text-sm text-stone-700 font-medium">Ready to create your account!</p>
                     <p className="text-xs text-stone-500 mt-1">
-                      Signing up as <strong>{firstName} {lastName}</strong> at <strong>clubos.app/{clubSlug}</strong>
+                      Signing up as <strong>{firstName} {lastName}</strong> at <strong>athletix-os.com/{clubSlug}</strong>
                     </p>
                   </div>
                 )}

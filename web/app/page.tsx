@@ -623,7 +623,7 @@ export default function Home() {
             <Link href="/pricing" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Pricing</Link>
             <Link href="/login" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Sign in</Link>
             <Link href="/signup" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Sign up</Link>
-            <a href="mailto:hello@athletixos.app" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Contact</a>
+            <a href="mailto:contact@athletix-os.com" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Contact</a>
           </div>
         </div>
       </footer>

@@ -7,7 +7,7 @@ import { Providers } from "./providers";
 const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-fraunces" });
 const inter    = Inter({ subsets: ["latin"], display: "swap" });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://athletixos.app";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://athletix-os.com";
 const SITE_NAME = "AthletixOS";
 const SITE_TAGLINE = "Sports Club Management Software";
 const SITE_DESCRIPTION =

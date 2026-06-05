@@ -48,7 +48,7 @@ const tiers = [
     tagline: "Powerful infrastructure for large-scale operations.",
     desc: "For large organizations and multi-location brands.",
     cta: "Contact sales",
-    href: "mailto:hello@athletixos.app",
+    href: "mailto:hello@athletix-os.com",
     featured: false,
     highlights: [
       "Everything in Pro",
@@ -322,7 +322,7 @@ export default function PricingPage() {
             }}
           >
             {[
-              { Icon: Mail,      title: "Email support included",        desc: "Every plan. Reach a real teammate at support@athletixos.app." },
+              { Icon: Mail,      title: "Email support included",        desc: "Every plan. Reach a real teammate at support@athletix-os.com." },
               { Icon: Clock,     title: "3–5 business day response",      desc: "Standard reply window — most messages get a same-day answer." },
               { Icon: PhoneCall, title: "Urgent? We'll get on a call",    desc: "Operational emergencies that block your club running classes or taking payments get phone escalation." },
             ].map((c) => (
@@ -479,6 +479,7 @@ export default function PricingPage() {
             <Link href="/" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Home</Link>
             <Link href="/pricing" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Pricing</Link>
             <Link href="/signup" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Sign up</Link>
+            <a href="mailto:contact@athletix-os.com" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Contact</a>
           </div>
         </div>
       </footer>

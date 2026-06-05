@@ -186,7 +186,7 @@ export default function ClubSettingsPage() {
             <label className="block text-sm font-medium text-text-primary mb-1">Club URL</label>
             <div className="flex items-center">
               <span className="px-3 py-2 bg-app-bg border border-r-0 border-app-border rounded-l-lg text-sm text-text-muted">
-                clubos.app/
+                athletix-os.com/
               </span>
               <input
                 type="text"

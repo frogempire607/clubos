@@ -304,7 +304,7 @@ function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) 
           <label className="block text-sm font-medium text-text-primary mb-1">Club URL</label>
           <div className="flex items-center border border-app-border rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-stone-900">
             <span className="px-3 py-2 bg-app-bg text-text-muted text-sm border-r border-app-border flex-shrink-0">
-              clubos.app/
+              athletix-os.com/
             </span>
             <input type="text" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} required
               className="flex-1 px-3 py-2 text-sm focus:outline-none" />

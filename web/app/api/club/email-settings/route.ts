@@ -29,7 +29,7 @@ export async function GET() {
   return NextResponse.json({
     configured: isEmailConfigured(),
     missingVars: smtpMissingVars(),
-    sendingAddress: process.env.EMAIL_FROM || "AthletixOS <no-reply@clubos.app>",
+    sendingAddress: process.env.EMAIL_FROM || "AthletixOS <no-reply@athletix-os.com>",
     fromName: club.emailFromName || club.name,
     replyTo: club.emailReplyTo || club.contactEmail || "",
     defaultFromName: club.name,

@@ -6,7 +6,7 @@
 // production builds talk to the real domain.
 //
 // Run automatically as part of `npm run cap:sync`. Safe to run by hand:
-//   CAPACITOR_SERVER_URL=https://app.athletixos.com node scripts/native-shell-config.mjs
+//   CAPACITOR_SERVER_URL=https://app.athletix-os.com node scripts/native-shell-config.mjs
 
 import fs from "node:fs";
 import path from "node:path";
