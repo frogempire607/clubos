@@ -4,6 +4,7 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Sparkles, Check } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -71,6 +72,22 @@ export default function SignupPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/circle.PNG" alt="AthletixOS" className="w-24 h-24 rounded-full" />
         </div>
+        {mode === "create" && (
+          <div className="mb-4 rounded-xl bg-gradient-to-br from-[#534AB7] to-[#1a1560] p-4 text-white">
+            <div className="flex items-center gap-2 text-xs font-semibold mb-2">
+              <Sparkles className="h-4 w-4" strokeWidth={2.5} />
+              YOUR 14-DAY FREE TRIAL STARTS NOW
+            </div>
+            <ul className="space-y-1.5 text-xs text-white/85">
+              {["No credit card required", "Full access to all Growth features", "Cancel anytime from settings"].map((b) => (
+                <li key={b} className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-lime-accent" strokeWidth={3} />
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-8">
           <div className="mb-5">
             <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-stone-500 bg-stone-100 rounded-full px-2.5 py-1 mb-3">
@@ -185,7 +202,7 @@ export default function SignupPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+              className="w-full py-2.5 bg-[#534AB7] text-white rounded-lg text-sm font-semibold hover:bg-[#3F389E] disabled:opacity-50 transition-colors"
             >
               {loading
                 ? "Creating account…"
