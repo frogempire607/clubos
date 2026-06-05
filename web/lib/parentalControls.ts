@@ -38,7 +38,9 @@ export type ApprovalKind =
   | "CLASS_BOOK"
   | "EVENT_REGISTER"
   | "PRIVATE_REQUEST"
-  | "PACKAGE_BUY";
+  | "PACKAGE_BUY"
+  | "MEMBERSHIP_SUBSCRIBE"
+  | "PRODUCT_BUY";
 
 export type GateInput = {
   member: {
@@ -191,6 +193,8 @@ const KIND_LABEL: Record<ApprovalKind, string> = {
   EVENT_REGISTER: "an event registration",
   PRIVATE_REQUEST: "a private lesson request",
   PACKAGE_BUY: "a lesson-package purchase",
+  MEMBERSHIP_SUBSCRIBE: "a membership subscription",
+  PRODUCT_BUY: "a product purchase",
 };
 
 async function notifyGuardians(memberId: string, kind: ApprovalKind, amount: number) {

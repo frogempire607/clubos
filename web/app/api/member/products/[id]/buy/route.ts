@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { applyParentalControls } from "@/lib/parentalControls";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
@@ -64,6 +65,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const totalAmount = unitPrice * quantity;
     const totalCents = Math.round(totalAmount * 100);
     const platformFee = calculatePlatformFee(totalCents, club.tier);
+
+    // P4 parental gate. Before the PENDING ProductSale row is created
+    // so a queued/declined buy doesn't leave a stale sale to clean up.
+    const gate = await applyParentalControls({
+      member: {
+        id: member.id,
+        clubId: club.id,
+        userId: member.userId,
+        isMinor: member.isMinor,
+        parentControls: member.parentControls,
+      },
+      bookerUserId: session.user.id,
+      kind: "PRODUCT_BUY",
+      amount: totalAmount,
+      payload: { productId: product.id, quantity },
+    });
+    if (gate.kind === "block") {
+      return NextResponse.json(gate.body, { status: gate.status });
+    }
+    if (gate.kind === "queue") {
+      return NextResponse.json(gate.response, { status: 202 });
+    }
 
     const sale = await prisma.productSale.create({
       data: {
