@@ -443,6 +443,11 @@ export default function MemberProfilePage() {
         );
       })()}
 
+      {/* Pending approvals — only renders for guardians of at least one
+          linked child (the API returns [] otherwise so the section
+          collapses naturally). */}
+      <PendingApprovalsCard />
+
       {/* Guardian info (for minors) */}
       {isMinor && (
         <div className="bg-amber-50 rounded-xl border border-amber-200 p-6 mb-4">
@@ -669,6 +674,108 @@ function ProfileRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-start gap-4">
       <dt className="text-xs font-medium text-stone-500 w-24 flex-shrink-0 pt-0.5">{label}</dt>
       <dd className="text-sm text-stone-900 whitespace-pre-line">{value}</dd>
+    </div>
+  );
+}
+
+// ─── Pending approvals card ───────────────────────────────────────────
+// Shown only when the guardian has at least one PENDING approval row
+// across their linked children. Empty list → component renders nothing.
+
+type ApprovalRow = {
+  id: string;
+  kind: "CLASS_BOOK" | "EVENT_REGISTER" | "PRIVATE_REQUEST" | "PACKAGE_BUY";
+  amount: number | null;
+  requestedAt: string;
+  member: { id: string; firstName: string; lastName: string };
+};
+
+const APPROVAL_KIND_LABEL: Record<ApprovalRow["kind"], string> = {
+  CLASS_BOOK: "Class booking",
+  EVENT_REGISTER: "Event registration",
+  PRIVATE_REQUEST: "Private lesson request",
+  PACKAGE_BUY: "Package purchase",
+};
+
+function PendingApprovalsCard() {
+  const [rows, setRows] = useState<ApprovalRow[]>([]);
+  const [acting, setActing] = useState<string | null>(null);
+
+  const load = () => {
+    fetch("/api/member/family/approvals")
+      .then((r) => (r.ok ? r.json() : { approvals: [] }))
+      .then((d) => setRows(Array.isArray(d.approvals) ? d.approvals : []))
+      .catch(() => setRows([]));
+  };
+  useEffect(load, []);
+
+  async function respond(id: string, action: "APPROVE" | "DECLINE") {
+    setActing(id);
+    const res = await fetch(`/api/member/family/approvals/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    setActing(null);
+    if (res.ok) {
+      // Remove the row locally — server has already updated status.
+      setRows((r) => r.filter((x) => x.id !== id));
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="bg-amber-50 rounded-xl border border-amber-200 p-5 mb-4">
+      <h2 className="text-sm font-semibold text-amber-900 mb-1">
+        Approvals waiting on you ({rows.length})
+      </h2>
+      <p className="text-xs text-amber-700 mb-3">
+        These bookings or purchases were paused until you approve. Decline if it
+        shouldn&apos;t happen.
+      </p>
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div
+            key={r.id}
+            className="bg-white border border-amber-200 rounded-lg p-3 flex items-center gap-3"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-stone-900 truncate">
+                <span className="font-medium">
+                  {r.member.firstName} {r.member.lastName}
+                </span>
+                {" — "}
+                {APPROVAL_KIND_LABEL[r.kind] || r.kind}
+                {r.amount && r.amount > 0 ? ` · $${r.amount.toFixed(2)}` : ""}
+              </p>
+              <p className="text-[11px] text-stone-500">
+                Requested {new Date(r.requestedAt).toLocaleString("en-US", {
+                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                })}
+              </p>
+            </div>
+            <div className="flex gap-1 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => respond(r.id, "DECLINE")}
+                disabled={acting === r.id}
+                className="text-xs px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+              >
+                Decline
+              </button>
+              <button
+                type="button"
+                onClick={() => respond(r.id, "APPROVE")}
+                disabled={acting === r.id}
+                className="text-xs px-3 py-1.5 rounded-lg bg-amber-900 text-amber-50 hover:bg-amber-800 disabled:opacity-50"
+              >
+                {acting === r.id ? "…" : "Approve"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

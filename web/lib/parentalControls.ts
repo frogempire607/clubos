@@ -24,6 +24,8 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sendEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 export type ParentControls = {
   requirePaymentApproval?: boolean;
@@ -136,6 +138,23 @@ export async function applyParentalControls(input: GateInput): Promise<GateResul
 
   if (!needsApproval) return { kind: "allow" };
 
+  // Replay path: if the guardian already approved this kind of action
+  // for this member in the last hour, let it through. The booking
+  // endpoints have their own idempotency checks (already-booked,
+  // already-registered, etc.) so a stale approval can't accidentally
+  // double-book — worst case the second attempt 409s on its own.
+  const replayWindowMs = 60 * 60 * 1000;
+  const existingApproved = await prisma.pendingApproval.findFirst({
+    where: {
+      memberId: member.id,
+      kind,
+      status: "APPROVED",
+      respondedAt: { gte: new Date(Date.now() - replayWindowMs) },
+    },
+    orderBy: { respondedAt: "desc" },
+  });
+  if (existingApproved) return { kind: "allow" };
+
   // Queue it.
   const approval = await prisma.pendingApproval.create({
     data: {
@@ -148,6 +167,13 @@ export async function applyParentalControls(input: GateInput): Promise<GateResul
     },
   });
 
+  // Notify every guardian of this child by email. Fire-and-forget — a
+  // failed SMTP send never blocks the gate response. If SMTP isn't
+  // configured the email helper console-logs and returns silently.
+  notifyGuardians(member.id, kind, amount).catch((e) =>
+    console.error("[parentalControls] guardian notify failed:", e),
+  );
+
   return {
     kind: "queue",
     approvalId: approval.id,
@@ -158,6 +184,75 @@ export async function applyParentalControls(input: GateInput): Promise<GateResul
         "Sent to your guardian for approval. You'll be notified when they respond.",
     },
   };
+}
+
+const KIND_LABEL: Record<ApprovalKind, string> = {
+  CLASS_BOOK: "a class booking",
+  EVENT_REGISTER: "an event registration",
+  PRIVATE_REQUEST: "a private lesson request",
+  PACKAGE_BUY: "a lesson-package purchase",
+};
+
+async function notifyGuardians(memberId: string, kind: ApprovalKind, amount: number) {
+  // Load the child name + every guardian's email in one shot.
+  const member = await prisma.member.findUnique({
+    where: { id: memberId },
+    select: {
+      firstName: true,
+      lastName: true,
+      guardianLinks: {
+        select: {
+          user: { select: { email: true, firstName: true } },
+        },
+      },
+      // Fall back to the inline guardianEmail field if there are no
+      // MemberGuardianUser links yet (member-only family, no portal
+      // logins on the guardian side).
+      guardianEmail: true,
+      guardianName: true,
+    },
+  });
+  if (!member) return;
+
+  const recipients = new Map<string, string | null>();
+  for (const link of member.guardianLinks) {
+    if (link.user?.email) {
+      recipients.set(link.user.email, link.user.firstName ?? null);
+    }
+  }
+  if (recipients.size === 0 && member.guardianEmail) {
+    recipients.set(member.guardianEmail, member.guardianName ?? null);
+  }
+  if (recipients.size === 0) return;
+
+  const childName = `${member.firstName} ${member.lastName}`.trim();
+  const action = KIND_LABEL[kind];
+  const amountText = amount > 0 ? `$${amount.toFixed(2)}` : "free";
+  const portalUrl = `${getAppBaseUrl()}/member/profile`;
+
+  await Promise.allSettled(
+    Array.from(recipients).map(([to, firstName]) =>
+      sendEmail({
+        to,
+        subject: `Approval needed: ${childName}'s ${action}`,
+        html: `
+          <p>Hi ${firstName ?? "there"},</p>
+          <p>
+            <strong>${childName}</strong> is asking for your approval before
+            completing ${action} (${amountText}).
+          </p>
+          <p>
+            Open your member portal to approve or decline:<br />
+            <a href="${portalUrl}">${portalUrl}</a>
+          </p>
+          <p style="color:#777;font-size:12px">
+            This message was sent because you have parental controls enabled
+            on ${childName}'s account in AthletixOS.
+          </p>
+        `,
+      }),
+    ),
+  );
 }
 
 /**
