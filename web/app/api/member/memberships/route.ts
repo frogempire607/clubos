@@ -24,6 +24,9 @@ export async function GET() {
       options: true,
       autoRenewDefault: true,
       contractMonths: true,
+      trialEnabled: true,
+      trialDays: true,
+      trialAppliesToReturning: true,
     },
   });
 
