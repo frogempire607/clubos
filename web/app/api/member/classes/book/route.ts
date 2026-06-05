@@ -9,6 +9,7 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { applyParentalControls } from "@/lib/parentalControls";
 
 // POST /api/member/classes/book
 // Member-self booking for a class session. The price tier (member / non-member
@@ -156,6 +157,30 @@ export async function POST(req: Request) {
         { error: "This class isn't available for self-booking. Contact your club." },
         { status: 400 },
       );
+    }
+
+    // P4 parental gate. Runs after price resolution + before Stripe.
+    // Allows by default; queues a guardian-approval row for controlled
+    // minors. Replay payload is the same { classSessionId, memberId }
+    // POST body that started this flow.
+    const gate = await applyParentalControls({
+      member: {
+        id: member.id,
+        clubId: session.user.clubId,
+        userId: member.userId,
+        isMinor: member.isMinor,
+        parentControls: member.parentControls,
+      },
+      bookerUserId: session.user.id,
+      kind: "CLASS_BOOK",
+      amount: priced.price,
+      payload: { classSessionId, memberId: member.id, pricingType: priced.pricingType },
+    });
+    if (gate.kind === "block") {
+      return NextResponse.json(gate.body, { status: gate.status });
+    }
+    if (gate.kind === "queue") {
+      return NextResponse.json(gate.response, { status: 202 });
     }
 
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });

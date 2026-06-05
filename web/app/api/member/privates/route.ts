@@ -7,6 +7,7 @@ import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 import { sendPrivateLessonRequestedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { applyParentalControls } from "@/lib/parentalControls";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
 
@@ -260,6 +261,41 @@ export async function POST(req: Request) {
     );
   }
   const price = chosen ? Number(chosen.price) : Number(lessonType.basePrice);
+
+  // P4 parental gate. Private requests don't take payment immediately
+  // (the booking sits UNPAID until the owner bills), but a controlled
+  // minor shouldn't be able to commit themselves to a paid lesson
+  // either. Skip the gate when the request is being paid from an
+  // existing package credit (creditLedger set — the parent already
+  // approved when the pack was bought).
+  if (!creditLedger) {
+    const gate = await applyParentalControls({
+      member: {
+        id: member.id,
+        clubId,
+        userId: member.userId,
+        isMinor: member.isMinor,
+        parentControls: member.parentControls,
+      },
+      bookerUserId: session.user.id,
+      kind: "PRIVATE_REQUEST",
+      amount: price,
+      payload: {
+        lessonTypeId: lessonType.id,
+        coachId: data.coachId ?? null,
+        priceOptionId: data.priceOptionId ?? null,
+        requestedSlots: data.requestedSlots,
+        partners: data.partners ?? [],
+        notes: data.notes ?? null,
+      },
+    });
+    if (gate.kind === "block") {
+      return NextResponse.json(gate.body, { status: gate.status });
+    }
+    if (gate.kind === "queue") {
+      return NextResponse.json(gate.response, { status: 202 });
+    }
+  }
 
   // Partner validation — only for multi-athlete lesson types.
   const partners = data.partners ?? [];
