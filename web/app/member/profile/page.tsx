@@ -371,7 +371,14 @@ export default function MemberProfilePage() {
             {member?.dateOfBirth && (
               <ProfileRow
                 label="Date of birth"
-                value={new Date(member.dateOfBirth).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                // timeZone:"UTC" — DOB is stored as UTC midnight (e.g.
+                // 2001-01-18T00:00:00Z). Without an explicit timeZone,
+                // toLocaleDateString uses the viewer's local zone, which
+                // in UTC-5 shifts the displayed day back to Jan 17. UTC
+                // lock makes the displayed day match what was saved.
+                value={new Date(member.dateOfBirth).toLocaleDateString("en-US", {
+                  month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+                })}
               />
             )}
             {member?.gender && <ProfileRow label="Gender" value={member.gender} />}
@@ -505,13 +512,17 @@ export default function MemberProfilePage() {
                               month: "short",
                               day: "numeric",
                               year: "numeric",
+                              timeZone: "UTC",
                             })}
                             {(() => {
+                              // Use UTC components for both sides so a viewer
+                              // west of UTC doesn't tick the age down a day
+                              // around the child's birthday.
                               const d = new Date(g.member.dateOfBirth);
                               const now = new Date();
-                              let age = now.getFullYear() - d.getFullYear();
-                              const m = now.getMonth() - d.getMonth();
-                              if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+                              let age = now.getUTCFullYear() - d.getUTCFullYear();
+                              const m = now.getUTCMonth() - d.getUTCMonth();
+                              if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) age -= 1;
                               return ` (age ${age})`;
                             })()}
                           </>
