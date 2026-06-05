@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import ImageUpload from "@/components/ImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "@/lib/activeProfile";
@@ -513,20 +514,33 @@ export default function MemberProfilePage() {
                         {g.member.isMinor ? " · Minor" : null}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveProfileId(g.member.id);
-                        setActiveProfileIdState(g.member.id);
-                      }}
-                      className={`text-xs px-3 py-1.5 rounded-lg border ${
-                        active
-                          ? "border-stone-900 bg-stone-900 text-white"
-                          : "border-stone-200 text-stone-600 hover:bg-stone-50"
-                      }`}
-                    >
-                      {active ? "Selected" : "Switch"}
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {/* Parental controls only make sense for linked
+                          children — guardians can't set controls on
+                          their own (self) profile. */}
+                      {g.kind === "child" && (
+                        <Link
+                          href={`/member/family/${g.member.id}`}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
+                        >
+                          Controls
+                        </Link>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveProfileId(g.member.id);
+                          setActiveProfileIdState(g.member.id);
+                        }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border ${
+                          active
+                            ? "border-stone-900 bg-stone-900 text-white"
+                            : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                        }`}
+                      >
+                        {active ? "Selected" : "Switch"}
+                      </button>
+                    </div>
                   </div>
                   {summary && (
                     <div className="mt-2 ml-11 grid grid-cols-3 gap-2 text-xs">
