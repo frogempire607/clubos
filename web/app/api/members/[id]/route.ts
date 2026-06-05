@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -26,6 +27,19 @@ const updateSchema = z.object({
   guardianPhone: z.string().optional().nullable(),
   guardianRelationship: z.string().optional().nullable(),
   profileImageUrl: z.string().optional().nullable(),
+  // Parental controls (P4). Boolean convenience for the lock: true =>
+  // birthdayLockedAt set to now, false/null => cleared. parentControls
+  // is the JSON toggle bag stored on Member as-is (null clears).
+  birthdayLocked: z.boolean().optional(),
+  parentControls: z
+    .object({
+      requirePaymentApproval: z.boolean().optional(),
+      monitoredMessaging:     z.boolean().optional(),
+      allowPackagePurchase:   z.boolean().optional(),
+      dailySpendLimit:        z.number().nonnegative().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 async function requireMember(memberId: string, clubId: string) {
@@ -160,18 +174,43 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       if (activeSub === 0) nextStatus = "PROSPECT";
     }
 
+    // Strip the parental-control fields from the generic spread — we
+    // translate them into prisma-shaped values below. Keeps the spread
+    // safe from accidentally writing `birthdayLocked` (the bool) as a
+    // column (which doesn't exist).
+    const { birthdayLocked, parentControls, ...rest } = data;
+
+    // Use UncheckedUpdateInput so we can write the FK column `guardianId`
+    // directly via guardianIdUpdate (the relations-checked variant would
+    // demand `guardian: { connect: ... }`). This was implicit before;
+    // making it explicit silences the TS overload pick error introduced
+    // by adding the JSON `parentControls` field.
+    const updateData: Prisma.MemberUncheckedUpdateInput = {
+      ...rest,
+      ...(nextStatus !== undefined ? { status: nextStatus } : {}),
+      ...guardianIdUpdate,
+      guardianEmail: data.guardianEmail !== undefined
+        ? (data.guardianEmail ? data.guardianEmail.toLowerCase() : null)
+        : undefined,
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth === null ? null : undefined,
+      customFieldValues: data.customFieldValues ? JSON.stringify(data.customFieldValues) : undefined,
+      // P4 parental controls. Owner sets/clears the lock; parentControls
+      // is stored as JSON so future toggles don't need a migration.
+      // Prisma.JsonNull is the literal-null sentinel for JSONB fields.
+      ...(birthdayLocked !== undefined
+        ? { birthdayLockedAt: birthdayLocked ? new Date() : null }
+        : {}),
+      ...(parentControls !== undefined
+        ? {
+            parentControls:
+              parentControls === null ? Prisma.JsonNull : (parentControls as Prisma.InputJsonValue),
+          }
+        : {}),
+    };
+
     const updated = await prisma.member.update({
       where: { id: params.id },
-      data: {
-        ...data,
-        ...(nextStatus !== undefined ? { status: nextStatus } : {}),
-        ...guardianIdUpdate,
-        guardianEmail: data.guardianEmail !== undefined
-          ? (data.guardianEmail ? data.guardianEmail.toLowerCase() : null)
-          : undefined,
-        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth === null ? null : undefined,
-        customFieldValues: data.customFieldValues ? JSON.stringify(data.customFieldValues) : undefined,
-      },
+      data: updateData,
     });
 
     return NextResponse.json(updated);
