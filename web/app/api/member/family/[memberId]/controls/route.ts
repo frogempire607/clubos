@@ -72,6 +72,7 @@ const patchSchema = z.object({
       requirePaymentApproval: z.boolean().optional(),
       monitoredMessaging:     z.boolean().optional(),
       allowPackagePurchase:   z.boolean().optional(),
+      allowOwnMessaging:      z.boolean().optional(),
       dailySpendLimit:        z.number().nonnegative().optional(),
     })
     .nullable()

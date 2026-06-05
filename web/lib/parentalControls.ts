@@ -32,6 +32,12 @@ export type ParentControls = {
   monitoredMessaging?: boolean;
   allowPackagePurchase?: boolean;
   dailySpendLimit?: number;
+  // When false, the controlled minor can't send DMs or group messages
+  // from their own login. GET endpoints also 403 with code so the
+  // member portal can render a "managed by your guardian" banner.
+  // Default true (unset is treated as allowed) so existing minors keep
+  // their messaging until the guardian explicitly disables it.
+  allowOwnMessaging?: boolean;
 };
 
 export type ApprovalKind =
@@ -270,3 +276,25 @@ export const GATE_MEMBER_SELECT = {
   isMinor: true,
   parentControls: true,
 } as const;
+
+/**
+ * Messaging gate for the member portal. Cheap helper — loads the
+ * caller's Member profile by userId and returns false when the member
+ * is a minor AND parentControls.allowOwnMessaging === false. Every
+ * other state allows.
+ *
+ * Use in both GET and POST handlers for /api/member/messages/*. POST
+ * blocks the send, GET returns the disabled state so the client can
+ * render the parent-managed banner instead of an empty list.
+ */
+export async function memberCanMessage(userId: string, clubId: string): Promise<boolean> {
+  const member = await prisma.member.findFirst({
+    where: { userId, clubId, deletedAt: null },
+    select: { isMinor: true, parentControls: true },
+  });
+  if (!member) return true; // No linked member = can't tell, default allow.
+  if (!member.isMinor) return true;
+  const controls = readControls(member.parentControls);
+  // Default to allowed when the toggle is unset.
+  return controls.allowOwnMessaging !== false;
+}

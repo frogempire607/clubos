@@ -90,6 +90,10 @@ export default function MemberMessagesPage() {
   const [linkedChildren, setLinkedChildren] = useState<LinkedChild[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // P4 — set by the API when the guardian has disabled messaging on
+  // this controlled minor's account. Renders a friendly banner in
+  // place of the conversations.
+  const [messagingDisabled, setMessagingDisabled] = useState(false);
 
   useEffect(() => {
     fetch("/api/member/messages")
@@ -103,6 +107,7 @@ export default function MemberMessagesPage() {
       })
       .then((d) => {
         if (d) {
+          if (d.messagingDisabled) setMessagingDisabled(true);
           setConversations(d.conversations || []);
           setGroups(d.groups || []);
           setChildConversations(d.childConversations || []);
@@ -155,6 +160,17 @@ export default function MemberMessagesPage() {
 
       {loading ? (
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
+      ) : messagingDisabled ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+          <p className="text-sm font-semibold text-amber-900 mb-1">
+            Messaging is managed by your guardian
+          </p>
+          <p className="text-xs text-amber-700">
+            Your guardian has disabled messaging on your account. Ask them
+            to enable it if you need to send a message — they can change
+            this in their parental controls.
+          </p>
+        </div>
       ) : isEmpty ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
           <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">

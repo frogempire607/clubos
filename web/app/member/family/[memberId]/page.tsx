@@ -12,6 +12,7 @@ type Controls = {
   requirePaymentApproval?: boolean;
   monitoredMessaging?: boolean;
   allowPackagePurchase?: boolean;
+  allowOwnMessaging?: boolean;
   dailySpendLimit?: number;
 };
 
@@ -39,6 +40,7 @@ export default function FamilyControlsPage() {
   const [requirePaymentApproval, setRequirePaymentApproval] = useState(false);
   const [monitoredMessaging, setMonitoredMessaging] = useState(false);
   const [allowPackagePurchase, setAllowPackagePurchase] = useState(true);
+  const [allowOwnMessaging, setAllowOwnMessaging] = useState(true);
   const [dailySpendLimit, setDailySpendLimit] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -58,6 +60,7 @@ export default function FamilyControlsPage() {
       setMonitoredMessaging(c.monitoredMessaging === true);
       // Default true (no restriction) when never set.
       setAllowPackagePurchase(c.allowPackagePurchase !== false);
+      setAllowOwnMessaging(c.allowOwnMessaging !== false);
       setDailySpendLimit(
         typeof c.dailySpendLimit === "number" ? String(c.dailySpendLimit) : "",
       );
@@ -74,6 +77,7 @@ export default function FamilyControlsPage() {
       requirePaymentApproval,
       monitoredMessaging,
       allowPackagePurchase,
+      allowOwnMessaging,
     };
     if (dailySpendLimit.trim() !== "") {
       const n = Number(dailySpendLimit);
@@ -217,6 +221,30 @@ export default function FamilyControlsPage() {
               <span className="block text-xs text-stone-500 mt-0.5">
                 Uncheck to block {data.member.firstName} from buying lesson packs
                 entirely (they still pause for approval if the toggle above is on).
+              </span>
+            </span>
+          </label>
+        </section>
+
+        {/* Own messaging */}
+        <section className="bg-white border border-stone-200 rounded-xl p-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allowOwnMessaging}
+              onChange={(e) => setAllowOwnMessaging(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              <span className="block text-sm font-medium text-stone-900">
+                Allow {data.member.firstName} to send and receive their own messages
+              </span>
+              <span className="block text-xs text-stone-500 mt-0.5">
+                When off, the Messages tab on {data.member.firstName}&apos;s
+                portal shows a "managed by your guardian" banner instead of
+                conversations, and they can&apos;t send DMs or group messages.
+                Coaches can still see threads addressed to them — you receive
+                those copies on your own Messages tab.
               </span>
             </span>
           </label>

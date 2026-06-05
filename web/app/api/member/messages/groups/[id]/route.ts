@@ -4,6 +4,13 @@ import { getServerSession } from "next-auth";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { memberCanMessage } from "@/lib/parentalControls";
+
+const MESSAGING_DISABLED = {
+  error:
+    "Messaging is managed by your guardian on this account. Ask them if you need to send a message.",
+  code: "MESSAGING_DISABLED",
+};
 
 async function requireMembership(groupId: string, userId: string, clubId: string) {
   const group = await prisma.messageGroup.findFirst({
@@ -24,6 +31,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // P4 — guardian-disabled messaging for a controlled minor.
+  if (!(await memberCanMessage(session.user.id, session.user.clubId))) {
+    return NextResponse.json(MESSAGING_DISABLED, { status: 403 });
+  }
 
   const group = await requireMembership(params.id, session.user.id, session.user.clubId);
   if (!group) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -75,6 +87,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // P4 — guardian-disabled messaging for a controlled minor.
+  if (!(await memberCanMessage(session.user.id, session.user.clubId))) {
+    return NextResponse.json(MESSAGING_DISABLED, { status: 403 });
+  }
 
   // 60 group messages per minute per user. Same reasoning as DM.
   const rl = rateLimit({ key: `messages:group:${session.user.id}`, limit: 60, windowMs: 60_000 });
