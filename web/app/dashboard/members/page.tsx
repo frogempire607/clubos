@@ -50,6 +50,15 @@ type Member = {
   guardian?: GuardianProfile | null;
   membership?: { name: string } | null;
   subscriptions?: { id: string; status: string; membership: { name: string }; optionLabel: string }[];
+  // P4 parental controls — present on Member after migration 20260610.
+  // Owners use these to lock a minor's DOB and (later) gate paid actions.
+  birthdayLockedAt?: string | null;
+  parentControls?: {
+    requirePaymentApproval?: boolean;
+    monitoredMessaging?: boolean;
+    allowPackagePurchase?: boolean;
+    dailySpendLimit?: number;
+  } | null;
 };
 
 type CustomField = { id: string; label: string; fieldType: string; required: boolean; options: string };
@@ -602,6 +611,9 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
   const [guardianPhone, setGuardianPhone] = useState(member?.guardianPhone || "");
   const [guardianRelationship, setGuardianRelationship] = useState(member?.guardianRelationship || "");
   const [profileImageUrl, setProfileImageUrl] = useState((member as any)?.profileImageUrl || "");
+  // Parental controls (P4). Lock the DOB so the minor can't self-edit
+  // from /member/profile. Defaults to whatever the server already has.
+  const [birthdayLocked, setBirthdayLocked] = useState<boolean>(!!member?.birthdayLockedAt);
   const [customValues, setCustomValues] = useState<Record<string, string>>(initialCustomValues);
   const [siblings, setSiblings] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [error, setError] = useState("");
@@ -658,6 +670,10 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
         guardianEmail: isMinor ? guardianEmail : undefined,
         guardianPhone: isMinor ? guardianPhone : undefined,
         guardianRelationship: isMinor ? guardianRelationship : undefined,
+        // Only send the lock flag on edits; create flow can leave it
+        // alone (members start unlocked). Sending it on create is also
+        // safe but adds noise in the audit log.
+        ...(isEdit ? { birthdayLocked } : {}),
       }),
     });
     setSaving(false);
@@ -782,6 +798,26 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Date of birth {fieldRequired("dateOfBirth") && <span className="text-red-500">*</span>}</label>
               <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} required={fieldRequired("dateOfBirth")} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+              {/* P4 — birthday lock. Only meaningful on edit (the lock
+                  field on Member is set when this saves). Showing the
+                  checkbox at create time would be cosmetic noise. */}
+              {isEdit && (
+                <label className="flex items-start gap-2 mt-2 text-xs text-text-muted cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={birthdayLocked}
+                    onChange={(e) => setBirthdayLocked(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium text-text-primary">Lock this date of birth</span>
+                    <span className="block">
+                      Prevents the member from editing their own DOB in the portal.
+                      Use this for minors whose age must not be self-changed.
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
           )}
 

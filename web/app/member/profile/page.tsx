@@ -25,6 +25,15 @@ type MeProfile = {
   profileImageUrl: string | null;
   status: string;
   stripeCustomerId: string | null;
+  // Parental controls (P4). Server enforces; UI uses these to disable
+  // the DOB input and explain why.
+  birthdayLockedAt?: string | null;
+  parentControls?: {
+    requirePaymentApproval?: boolean;
+    monitoredMessaging?: boolean;
+    allowPackagePurchase?: boolean;
+    dailySpendLimit?: number;
+  } | null;
 };
 
 type MeUser = {
@@ -298,9 +307,30 @@ export default function MemberProfilePage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Date of birth</label>
-                <input type="date" value={dob} onChange={(e) => setDob(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Date of birth
+                  {me?.memberProfile?.birthdayLockedAt && (
+                    <span className="ml-1 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
+                      Locked
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="date"
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                  disabled={!!me?.memberProfile?.birthdayLockedAt}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 ${
+                    me?.memberProfile?.birthdayLockedAt
+                      ? "bg-stone-100 border-stone-200 text-stone-500 cursor-not-allowed"
+                      : "border-stone-300"
+                  }`}
+                />
+                {me?.memberProfile?.birthdayLockedAt && (
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    Your guardian has locked your date of birth. Ask them to update it for you.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Gender</label>
