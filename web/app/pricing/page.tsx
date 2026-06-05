@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Check, Minus, Sparkles, Mail, PhoneCall, Clock } from "lucide-react";
 
 const tiers = [
   {
@@ -6,7 +7,7 @@ const tiers = [
     price: 50,
     tagline: "Everything you need to run your club.",
     desc: "Best for newer and single-location clubs.",
-    cta: "Start with Growth",
+    cta: "Start free trial",
     href: "/signup",
     featured: true,
     highlights: [
@@ -27,7 +28,7 @@ const tiers = [
     price: 99,
     tagline: "Built for growing, professional organizations.",
     desc: "For established clubs scaling operations.",
-    cta: "Start with Pro",
+    cta: "Start free trial",
     href: "/signup",
     featured: false,
     highlights: [
@@ -38,7 +39,7 @@ const tiers = [
       "Email + SMS messaging",
       "Branded iOS + Android app",
       "Advanced analytics",
-      "Priority support",
+      "Priority email support",
     ],
   },
   {
@@ -47,7 +48,7 @@ const tiers = [
     tagline: "Powerful infrastructure for large-scale operations.",
     desc: "For large organizations and multi-location brands.",
     cta: "Contact sales",
-    href: "mailto:hello@clubos.app",
+    href: "mailto:hello@athletixos.app",
     featured: false,
     highlights: [
       "Everything in Pro",
@@ -62,26 +63,36 @@ const tiers = [
   },
 ];
 
-const compareRows = [
-  { label: "Members",                values: ["200",       "Unlimited", "Unlimited"] },
-  { label: "Locations",              values: ["1",         "3",         "Unlimited"] },
-  { label: "AthletixOS platform fee",values: ["0%",        "0%",        "0%"] },
-  { label: "Stripe Connect payouts", values: ["✓",         "✓",         "✓"] },
-  { label: "Classes & events",       values: ["✓",         "✓",         "✓"] },
-  { label: "Memberships & billing",  values: ["✓",         "✓",         "✓"] },
-  { label: "Attendance tracking",    values: ["✓",         "✓",         "✓"] },
-  { label: "Messaging & announcements", values: ["✓",      "✓",         "✓"] },
-  { label: "Private lessons",        values: ["✓",         "✓",         "✓"] },
-  { label: "Reports & analytics",    values: ["✓",         "Advanced",  "Enterprise"] },
-  { label: "Plaid bank sync",        values: ["—",         "✓",         "✓"] },
-  { label: "Email + SMS",            values: ["—",         "✓",         "✓"] },
-  { label: "Branded mobile app",     values: ["—",         "✓",         "✓"] },
-  { label: "API access",             values: ["—",         "—",         "✓"] },
-  { label: "SSO + advanced permissions", values: ["—",     "—",         "✓"] },
-  { label: "Support",                values: ["Standard",  "Priority",  "Dedicated"] },
+const compareRows: { label: string; values: (string | boolean)[] }[] = [
+  { label: "Members",                    values: ["200",         "Unlimited", "Unlimited"] },
+  { label: "Locations",                  values: ["1",           "3",         "Unlimited"] },
+  { label: "AthletixOS platform fee",    values: ["0%",          "0%",        "0%"] },
+  { label: "14-day free trial",          values: [true,          true,        true] },
+  { label: "Stripe Connect payouts",     values: [true,          true,        true] },
+  { label: "Classes & events",           values: [true,          true,        true] },
+  { label: "Memberships & billing",      values: [true,          true,        true] },
+  { label: "Attendance tracking",        values: [true,          true,        true] },
+  { label: "Messaging & announcements",  values: [true,          true,        true] },
+  { label: "Private lessons",            values: [true,          true,        true] },
+  { label: "Reports & analytics",        values: ["Standard",    "Advanced",  "Enterprise"] },
+  { label: "Plaid bank sync",            values: [false,         true,        true] },
+  { label: "Email + SMS broadcasts",     values: [false,         true,        true] },
+  { label: "Branded mobile app",         values: [false,         true,        true] },
+  { label: "API access",                 values: [false,         false,       true] },
+  { label: "SSO + advanced permissions", values: [false,         false,       true] },
+  { label: "Email support",              values: [true,          true,        true] },
+  { label: "Dedicated account manager",  values: [false,         false,       true] },
 ];
 
 const faqs = [
+  {
+    q: "Is there really a 14-day free trial?",
+    a: "Yes. Every plan starts with a 14-day free trial — no credit card upcharge until day 15. Cancel from settings any time during the trial and you won't be billed.",
+  },
+  {
+    q: "What does support look like?",
+    a: "Every plan includes email support with a 3–5 business day response time. For urgent operational issues that affect your club running classes or taking payments, we'll escalate to a phone call. Pro and Enterprise customers get priority queues and a dedicated account manager respectively.",
+  },
   {
     q: "Are there any per-transaction fees from AthletixOS?",
     a: "No. AthletixOS charges 0% on every plan — your flat monthly subscription is all you pay us. Stripe charges its own standard processing fee (2.9% + $0.30) on each payment; you can optionally pass that fee to members at checkout from your settings, so the club nets the full amount.",
@@ -108,6 +119,18 @@ const faqs = [
   },
 ];
 
+export const metadata = {
+  title: "Pricing — AthletixOS | Sports Club Management Software",
+  description:
+    "Simple, honest pricing for wrestling, martial arts, gymnastics, and youth sports clubs. 14-day free trial. 0% platform fee on every plan. Cancel anytime.",
+  openGraph: {
+    title: "AthletixOS Pricing — 14-day Free Trial · 0% Platform Fee",
+    description:
+      "Plans from $50/mo. Members, classes, payments, messaging — all in one. 14-day free trial. Cancel anytime.",
+    type: "website",
+  },
+};
+
 export default function PricingPage() {
   return (
     <div style={{ fontFamily: "Inter, system-ui, sans-serif", background: "#F5F3EE", color: "#1C1917" }}>
@@ -129,22 +152,12 @@ export default function PricingPage() {
         >
           <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/brand/logo.PNG"
-              alt="AthletixOS"
-              style={{ height: 56, width: "auto", display: "block" }}
-            />
+            <img src="/brand/logo.PNG" alt="AthletixOS" style={{ height: 56, width: "auto", display: "block" }} />
           </Link>
           <nav style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Link href="/" style={{ color: "rgba(255,255,255,0.65)", fontSize: 14, padding: "6px 14px", textDecoration: "none" }}>
-              Home
-            </Link>
-            <Link href="/pricing" style={{ color: "#fff", fontSize: 14, padding: "6px 14px", textDecoration: "none" }}>
-              Pricing
-            </Link>
-            <Link href="/login" style={{ color: "rgba(255,255,255,0.65)", fontSize: 14, padding: "6px 14px", textDecoration: "none" }}>
-              Sign in
-            </Link>
+            <Link href="/" style={{ color: "rgba(255,255,255,0.65)", fontSize: 14, padding: "6px 14px", textDecoration: "none" }}>Home</Link>
+            <Link href="/pricing" style={{ color: "#fff", fontSize: 14, padding: "6px 14px", textDecoration: "none" }}>Pricing</Link>
+            <Link href="/login" style={{ color: "rgba(255,255,255,0.65)", fontSize: 14, padding: "6px 14px", textDecoration: "none" }}>Sign in</Link>
             <Link
               href="/signup"
               style={{
@@ -152,7 +165,7 @@ export default function PricingPage() {
                 padding: "7px 16px", borderRadius: 8, textDecoration: "none",
               }}
             >
-              Get started
+              Start free trial
             </Link>
           </nav>
         </div>
@@ -162,33 +175,47 @@ export default function PricingPage() {
       <section
         style={{
           background: "linear-gradient(135deg, #1C1917 0%, #292524 50%, #1a1560 100%)",
-          padding: "80px 24px 64px",
+          padding: "80px 24px 56px",
           textAlign: "center",
         }}
       >
-        <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <div style={{ maxWidth: 760, margin: "0 auto" }}>
+          <div
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              background: "rgba(163,230,53,0.15)",
+              border: "1px solid rgba(163,230,53,0.35)",
+              color: "#cdf18a",
+              fontSize: 13, fontWeight: 600,
+              padding: "5px 14px", borderRadius: 100,
+              marginBottom: 24,
+            }}
+          >
+            <Sparkles size={14} strokeWidth={2.5} />
+            Every plan includes a 14-day free trial
+          </div>
           <h1
             style={{
-              fontSize: "clamp(36px, 6vw, 56px)", fontWeight: 700, lineHeight: 1.1,
+              fontSize: "clamp(36px, 6vw, 56px)", fontWeight: 700, lineHeight: 1.05,
               color: "#fff", marginBottom: 16, letterSpacing: "-0.02em",
               fontFamily: "var(--font-fraunces, Georgia, serif)",
             }}
           >
             Pricing for every stage of your club
           </h1>
-          <p style={{ fontSize: 17, color: "rgba(255,255,255,0.65)", lineHeight: 1.6 }}>
-            One flat monthly price. 0% platform fee on every plan. No setup fees, no contracts, no surprise charges.
+          <p style={{ fontSize: 17, color: "rgba(255,255,255,0.7)", lineHeight: 1.6 }}>
+            One flat monthly price. 0% platform fee on every plan. No setup fees, no contracts, no surprises.
           </p>
         </div>
       </section>
 
       {/* ── Tier cards ── */}
-      <section style={{ padding: "48px 24px 96px" }}>
+      <section style={{ padding: "48px 24px 80px" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
               gap: 20,
               alignItems: "start",
             }}
@@ -202,33 +229,34 @@ export default function PricingPage() {
                   border: t.featured ? "2px solid #534AB7" : "1px solid #E7E5E4",
                   padding: "28px 24px",
                   position: "relative",
+                  boxShadow: t.featured ? "0 24px 60px rgba(83,74,183,0.25)" : "0 1px 2px rgba(0,0,0,0.04)",
                 }}
               >
                 {t.featured && (
                   <div
                     style={{
                       position: "absolute", top: -12, left: "50%", transform: "translateX(-50%)",
-                      background: "#534AB7", color: "#fff", fontSize: 11, fontWeight: 600,
-                      padding: "3px 12px", borderRadius: 100,
+                      background: "#534AB7", color: "#fff", fontSize: 11, fontWeight: 700,
+                      padding: "4px 12px", borderRadius: 100, letterSpacing: "0.04em",
                     }}
                   >
-                    Most popular
+                    MOST POPULAR
                   </div>
                 )}
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: t.featured ? "rgba(255,255,255,0.6)" : "#78716C", marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: t.featured ? "rgba(255,255,255,0.65)" : "#78716C", marginBottom: 6, letterSpacing: "0.04em", textTransform: "uppercase" }}>
                     {t.name}
                   </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 4 }}>
-                    <span style={{ fontSize: 38, fontWeight: 700, color: t.featured ? "#fff" : "#1C1917" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 6 }}>
+                    <span style={{ fontSize: 40, fontWeight: 800, color: t.featured ? "#fff" : "#1C1917", letterSpacing: "-0.02em" }}>
                       ${t.price}
                     </span>
-                    <span style={{ color: t.featured ? "rgba(255,255,255,0.4)" : "#78716C", fontSize: 14 }}>/mo</span>
+                    <span style={{ color: t.featured ? "rgba(255,255,255,0.45)" : "#78716C", fontSize: 14 }}>/mo</span>
                   </div>
-                  <div style={{ fontSize: 12, color: t.featured ? "rgba(255,255,255,0.45)" : "#78716C" }}>
-                    0% platform fee · cancel anytime
+                  <div style={{ fontSize: 12, color: t.featured ? "rgba(163,230,53,0.85)" : "#1D9E75", fontWeight: 600, marginBottom: 4 }}>
+                    14-day free trial · 0% platform fee
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: t.featured ? "#fff" : "#1C1917", marginTop: 10 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: t.featured ? "#fff" : "#1C1917", marginTop: 10 }}>
                     {t.tagline}
                   </div>
                   <div style={{ fontSize: 12, color: t.featured ? "rgba(255,255,255,0.55)" : "#78716C", marginTop: 4 }}>
@@ -241,25 +269,25 @@ export default function PricingPage() {
                   style={{
                     display: "block", textAlign: "center",
                     background: t.featured ? "#534AB7" : "#1C1917",
-                    color: "#fff", fontWeight: 500, fontSize: 14,
-                    padding: "10px 16px", borderRadius: 8,
+                    color: "#fff", fontWeight: 600, fontSize: 14,
+                    padding: "11px 16px", borderRadius: 10,
                     textDecoration: "none", marginBottom: 20,
                   }}
                 >
                   {t.cta}
                 </Link>
 
-                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
                   {t.highlights.map((h) => (
                     <li
                       key={h}
                       style={{
-                        display: "flex", alignItems: "flex-start", gap: 8,
-                        fontSize: 13, color: t.featured ? "rgba(255,255,255,0.7)" : "#57534e",
+                        display: "flex", alignItems: "flex-start", gap: 10,
+                        fontSize: 13, color: t.featured ? "rgba(255,255,255,0.78)" : "#57534e",
                       }}
                     >
-                      <span style={{ color: "#1D9E75", flexShrink: 0, marginTop: 1 }}>✓</span>
-                      {h}
+                      <Check size={16} strokeWidth={2.5} style={{ color: t.featured ? "#A3E635" : "#1D9E75", flexShrink: 0, marginTop: 1 }} />
+                      <span>{h}</span>
                     </li>
                   ))}
                 </ul>
@@ -269,8 +297,62 @@ export default function PricingPage() {
         </div>
       </section>
 
+      {/* ── Support promise ── */}
+      <section style={{ background: "#fff", padding: "64px 24px", borderTop: "1px solid #E7E5E4" }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <h2
+              style={{
+                fontSize: "clamp(22px, 3vw, 30px)", fontWeight: 700,
+                fontFamily: "var(--font-fraunces, Georgia, serif)", letterSpacing: "-0.02em",
+                marginBottom: 10,
+              }}
+            >
+              Real humans. Honest response times.
+            </h2>
+            <p style={{ color: "#78716C", fontSize: 15, maxWidth: 600, margin: "0 auto" }}>
+              We don't promise round-the-clock chat we can't deliver. Here's exactly what every plan gets.
+            </p>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: 16,
+            }}
+          >
+            {[
+              { Icon: Mail,      title: "Email support included",        desc: "Every plan. Reach a real teammate at support@athletixos.app." },
+              { Icon: Clock,     title: "3–5 business day response",      desc: "Standard reply window — most messages get a same-day answer." },
+              { Icon: PhoneCall, title: "Urgent? We'll get on a call",    desc: "Operational emergencies that block your club running classes or taking payments get phone escalation." },
+            ].map((c) => (
+              <div
+                key={c.title}
+                style={{
+                  background: "#FAFAF8", border: "1px solid #E7E5E4",
+                  borderRadius: 14, padding: "20px 20px",
+                }}
+              >
+                <div
+                  style={{
+                    width: 40, height: 40, borderRadius: 10,
+                    background: "rgba(83,74,183,0.08)", color: "#534AB7",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <c.Icon size={20} strokeWidth={2} />
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{c.title}</div>
+                <div style={{ color: "#78716C", fontSize: 13, lineHeight: 1.55 }}>{c.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── Comparison table ── */}
-      <section style={{ background: "#fff", padding: "80px 24px", borderTop: "1px solid #E7E5E4", borderBottom: "1px solid #E7E5E4" }}>
+      <section style={{ background: "#fff", padding: "64px 24px 80px", borderBottom: "1px solid #E7E5E4" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <h2
             style={{
@@ -279,17 +361,23 @@ export default function PricingPage() {
               textAlign: "center",
             }}
           >
-            Compare plans
+            Compare every plan
           </h2>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #E7E5E4" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #E7E5E4" }}>
-                  <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600, color: "#78716C", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <tr style={{ background: "#FAFAF8", borderBottom: "1px solid #E7E5E4" }}>
+                  <th style={{ textAlign: "left", padding: "14px 16px", fontWeight: 700, color: "#78716C", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                     Feature
                   </th>
                   {tiers.map((t) => (
-                    <th key={t.name} style={{ textAlign: "center", padding: "12px 16px", fontWeight: 600, color: "#1C1917" }}>
+                    <th
+                      key={t.name}
+                      style={{
+                        textAlign: "center", padding: "14px 16px", fontWeight: 700,
+                        color: t.featured ? "#534AB7" : "#1C1917", fontSize: 13,
+                      }}
+                    >
                       {t.name}
                     </th>
                   ))}
@@ -297,11 +385,17 @@ export default function PricingPage() {
               </thead>
               <tbody>
                 {compareRows.map((row, i) => (
-                  <tr key={row.label} style={{ borderBottom: "1px solid #F5F3EE", background: i % 2 === 0 ? "#FAFAF8" : "#fff" }}>
-                    <td style={{ padding: "14px 16px", color: "#1C1917", fontWeight: 500 }}>{row.label}</td>
+                  <tr key={row.label} style={{ borderBottom: "1px solid #F1EEE8", background: i % 2 === 0 ? "#fff" : "#FAFAF8" }}>
+                    <td style={{ padding: "13px 16px", color: "#1C1917", fontWeight: 500 }}>{row.label}</td>
                     {row.values.map((v, j) => (
-                      <td key={j} style={{ padding: "14px 16px", textAlign: "center", color: v === "—" ? "#A8A29E" : "#1C1917" }}>
-                        {v}
+                      <td key={j} style={{ padding: "13px 16px", textAlign: "center", color: "#1C1917" }}>
+                        {v === true ? (
+                          <Check size={16} strokeWidth={2.5} style={{ color: "#1D9E75", display: "inline-block", verticalAlign: "middle" }} />
+                        ) : v === false ? (
+                          <Minus size={16} strokeWidth={2.5} style={{ color: "#D6D3D1", display: "inline-block", verticalAlign: "middle" }} />
+                        ) : (
+                          <span>{v}</span>
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -314,7 +408,7 @@ export default function PricingPage() {
 
       {/* ── FAQ ── */}
       <section style={{ padding: "80px 24px" }}>
-        <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        <div style={{ maxWidth: 780, margin: "0 auto" }}>
           <h2
             style={{
               fontSize: "clamp(24px, 3vw, 34px)", fontWeight: 700, marginBottom: 32,
@@ -329,16 +423,14 @@ export default function PricingPage() {
               <details
                 key={f.q}
                 style={{
-                  background: "#fff",
-                  borderRadius: 12,
-                  border: "1px solid #E7E5E4",
-                  padding: "16px 20px",
+                  background: "#fff", borderRadius: 12,
+                  border: "1px solid #E7E5E4", padding: "16px 20px",
                 }}
               >
                 <summary style={{ fontSize: 15, fontWeight: 600, color: "#1C1917", cursor: "pointer", listStyle: "none" }}>
                   {f.q}
                 </summary>
-                <p style={{ marginTop: 12, fontSize: 14, color: "#57534e", lineHeight: 1.6 }}>{f.a}</p>
+                <p style={{ marginTop: 12, fontSize: 14, color: "#57534e", lineHeight: 1.65 }}>{f.a}</p>
               </details>
             ))}
           </div>
@@ -354,10 +446,10 @@ export default function PricingPage() {
             fontFamily: "var(--font-fraunces, Georgia, serif)",
           }}
         >
-          Set up your club in under 5 minutes
+          Start your 14-day free trial
         </h2>
-        <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 16, marginBottom: 28 }}>
-          Start on Growth and scale up the moment you need more. Cancel anytime.
+        <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 16, marginBottom: 28 }}>
+          Set up your club in under 5 minutes. No credit card required to start.
         </p>
         <Link
           href="/signup"
