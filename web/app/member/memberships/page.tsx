@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Ticket } from "lucide-react";
+import { Ticket, Sparkles } from "lucide-react";
 
 type Option = { label: string; price: number; billingPeriod: string };
 type Membership = {
@@ -12,6 +12,9 @@ type Membership = {
   options: string;
   autoRenewDefault: boolean;
   contractMonths: number | null;
+  trialEnabled: boolean;
+  trialDays: number | null;
+  trialAppliesToReturning: boolean;
 };
 type ActiveSub = { id: string; membershipId: string; optionLabel: string; status: string };
 
@@ -118,6 +121,16 @@ export default function MemberMembershipsPage() {
                     </span>
                   )}
                 </div>
+
+                {m.trialEnabled && (m.trialDays ?? 0) > 0 && (
+                  <div className="inline-flex items-center gap-1.5 mt-2 mb-1 px-2.5 py-1 rounded-full bg-lime-accent/20 text-charcoal text-xs font-semibold">
+                    <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    {m.trialDays}-day free trial
+                    {!m.trialAppliesToReturning && (
+                      <span className="font-normal text-stone-600">· new members</span>
+                    )}
+                  </div>
+                )}
 
                 {m.contractMonths && (
                   <p className="text-xs text-stone-500 mb-3">{m.contractMonths}-month minimum commitment</p>
