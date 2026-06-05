@@ -9,6 +9,7 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { applyParentalControls } from "@/lib/parentalControls";
 
 // POST /api/member/classes/book
 // Member-self booking for a class session. The price tier (member / non-member
@@ -136,26 +137,86 @@ export async function POST(req: Request) {
       }
     }
 
-    // Auto-detect priced tier: any active sub → MEMBER, else NON_MEMBER, else DROP_IN.
+    // Auto-detect priced tier.
+    //
+    // Eligibility rule (P4 correction): when a class declares accepted
+    // memberships (acceptedMembershipIds.length > 0), the member tier is
+    // ONLY available to members who actually hold one of those plans.
+    // Without a matching sub the booker is treated as a NON-MEMBER for
+    // this class — even if they have OTHER active subs at the club. This
+    // closes the "child with membership A books a class that only
+    // accepts membership B" hole the smoke test caught.
     const memberSubs = await prisma.memberSubscription.findMany({
       where: { memberId: member.id, status: "active" },
       select: { id: true },
     });
     const hasAnySub = memberSubs.length > 0;
+    const classRestrictsToAcceptedMemberships = acceptedMembershipIds.length > 0;
+    // We already proved (in the free-coverage block above) that the
+    // member has no matching sub at this point. So if the class is
+    // restricted to accepted memberships, they cannot use the MEMBER
+    // tier here regardless of their other subscriptions.
+    const eligibleForMemberPrice = hasAnySub && !classRestrictsToAcceptedMemberships;
+
     type PricedOption = { type: "member" | "nonmember" | "dropin"; price: number };
     const memberPrice    = options.find((o): o is PricedOption => o?.type === "member");
     const nonMemberPrice = options.find((o): o is PricedOption => o?.type === "nonmember");
     const dropInPrice    = options.find((o): o is PricedOption => o?.type === "dropin");
     let priced: { price: number; label: string; pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" } | null = null;
-    if (hasAnySub && memberPrice) priced = { price: memberPrice.price, label: "Member", pricingType: "MEMBER" };
-    else if (nonMemberPrice)      priced = { price: nonMemberPrice.price, label: "Non-member", pricingType: "NON_MEMBER" };
-    else if (dropInPrice)         priced = { price: dropInPrice.price, label: "Drop-in", pricingType: "DROP_IN" };
-    else if (memberPrice)         priced = { price: memberPrice.price, label: "Member", pricingType: "MEMBER" };
+    if (eligibleForMemberPrice && memberPrice) {
+      priced = { price: memberPrice.price, label: "Member", pricingType: "MEMBER" };
+    } else if (nonMemberPrice) {
+      priced = { price: nonMemberPrice.price, label: "Non-member", pricingType: "NON_MEMBER" };
+    } else if (dropInPrice) {
+      priced = { price: dropInPrice.price, label: "Drop-in", pricingType: "DROP_IN" };
+    } else if (!classRestrictsToAcceptedMemberships && memberPrice) {
+      // Unrestricted class with only a member price (legacy default for
+      // single-tier clubs) — still allow at member rate.
+      priced = { price: memberPrice.price, label: "Member", pricingType: "MEMBER" };
+    }
+
     if (!priced || !priced.price) {
+      // Restricted class + non-matching sub + no non-member/drop-in
+      // fallback price → the member's tier doesn't cover this class.
+      // Surface that clearly instead of the generic "not available".
+      if (classRestrictsToAcceptedMemberships) {
+        return NextResponse.json(
+          {
+            error:
+              "Your current membership doesn't include this class. Contact your club to upgrade.",
+            code: "MEMBERSHIP_NOT_INCLUDED",
+          },
+          { status: 403 },
+        );
+      }
       return NextResponse.json(
         { error: "This class isn't available for self-booking. Contact your club." },
         { status: 400 },
       );
+    }
+
+    // P4 parental gate. Runs after price resolution + before Stripe.
+    // Allows by default; queues a guardian-approval row for controlled
+    // minors. Replay payload is the same { classSessionId, memberId }
+    // POST body that started this flow.
+    const gate = await applyParentalControls({
+      member: {
+        id: member.id,
+        clubId: session.user.clubId,
+        userId: member.userId,
+        isMinor: member.isMinor,
+        parentControls: member.parentControls,
+      },
+      bookerUserId: session.user.id,
+      kind: "CLASS_BOOK",
+      amount: priced.price,
+      payload: { classSessionId, memberId: member.id, pricingType: priced.pricingType },
+    });
+    if (gate.kind === "block") {
+      return NextResponse.json(gate.body, { status: gate.status });
+    }
+    if (gate.kind === "queue") {
+      return NextResponse.json(gate.response, { status: 202 });
     }
 
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });

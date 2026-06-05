@@ -9,6 +9,7 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { applyParentalControls } from "@/lib/parentalControls";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -296,6 +297,30 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
     if (priceCents <= 0) {
       return NextResponse.json({ error: "No price configured" }, { status: 400 });
+    }
+
+    // P4 parental gate. Applied after final price is known + before
+    // Stripe so a controlled minor sees "Sent to your guardian" instead
+    // of a Stripe redirect. Replay payload mirrors the original POST so
+    // the approval flow can re-invoke this endpoint cleanly.
+    const gate = await applyParentalControls({
+      member: {
+        id: member.id,
+        clubId: session.user.clubId,
+        userId: member.userId,
+        isMinor: member.isMinor,
+        parentControls: member.parentControls,
+      },
+      bookerUserId: session.user.id,
+      kind: "EVENT_REGISTER",
+      amount: priceCents / 100,
+      payload: { eventId: event.id, pricingType, memberId: member.id },
+    });
+    if (gate.kind === "block") {
+      return NextResponse.json(gate.body, { status: gate.status });
+    }
+    if (gate.kind === "queue") {
+      return NextResponse.json(gate.response, { status: 202 });
     }
 
     const platformFee = calculatePlatformFee(priceCents, club.tier);

@@ -50,6 +50,15 @@ type Member = {
   guardian?: GuardianProfile | null;
   membership?: { name: string } | null;
   subscriptions?: { id: string; status: string; membership: { name: string }; optionLabel: string }[];
+  // P4 parental controls — present on Member after migration 20260610.
+  // Owners use these to lock a minor's DOB and (later) gate paid actions.
+  birthdayLockedAt?: string | null;
+  parentControls?: {
+    requirePaymentApproval?: boolean;
+    monitoredMessaging?: boolean;
+    allowPackagePurchase?: boolean;
+    dailySpendLimit?: number;
+  } | null;
 };
 
 type CustomField = { id: string; label: string; fieldType: string; required: boolean; options: string };
@@ -602,6 +611,8 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
   const [guardianPhone, setGuardianPhone] = useState(member?.guardianPhone || "");
   const [guardianRelationship, setGuardianRelationship] = useState(member?.guardianRelationship || "");
   const [profileImageUrl, setProfileImageUrl] = useState((member as any)?.profileImageUrl || "");
+  // P4 — DOB lock is parent-only. Owner cannot toggle it from this
+  // modal; the field becomes read-only when set. See render below.
   const [customValues, setCustomValues] = useState<Record<string, string>>(initialCustomValues);
   const [siblings, setSiblings] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [error, setError] = useState("");
@@ -658,6 +669,9 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
         guardianEmail: isMinor ? guardianEmail : undefined,
         guardianPhone: isMinor ? guardianPhone : undefined,
         guardianRelationship: isMinor ? guardianRelationship : undefined,
+        // P4 — birthdayLocked intentionally NOT sent. Owner cannot
+        // toggle the lock from this modal anymore; only the parent's
+        // family-controls page sets it.
       }),
     });
     setSaving(false);
@@ -780,8 +794,37 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
 
           {fieldEnabled("dateOfBirth") && (
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Date of birth {fieldRequired("dateOfBirth") && <span className="text-red-500">*</span>}</label>
-              <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} required={fieldRequired("dateOfBirth")} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+              <label className="block text-sm font-medium text-text-primary mb-1">
+                Date of birth {fieldRequired("dateOfBirth") && <span className="text-red-500">*</span>}
+                {isEdit && member?.birthdayLockedAt && (
+                  <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
+                    Locked by parent
+                  </span>
+                )}
+              </label>
+              <input
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+                required={fieldRequired("dateOfBirth")}
+                disabled={isEdit && !!member?.birthdayLockedAt}
+                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand ${
+                  isEdit && member?.birthdayLockedAt
+                    ? "bg-app-bg border-app-border text-text-muted cursor-not-allowed"
+                    : "border-app-border"
+                }`}
+              />
+              {/* P4 correction — DOB lock is now parent-only. Owners no
+                  longer have a toggle here; the lock is set by the
+                  guardian from the family-controls page. Owner sees the
+                  status only and cannot edit a locked DOB. Copy mirrors
+                  what the member sees on /member/profile. */}
+              {isEdit && member?.birthdayLockedAt && (
+                <p className="text-[11px] text-amber-700 mt-1">
+                  Parent-confirmed DOB is locked for athlete safety and
+                  eligibility integrity.
+                </p>
+              )}
             </div>
           )}
 

@@ -6,6 +6,7 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { applyParentalControls } from "@/lib/parentalControls";
 
 // POST /api/member/private-packages/[id]/buy
 //
@@ -65,6 +66,32 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   if (totalCents <= 0) {
     return NextResponse.json({ error: "Package price is missing." }, { status: 400 });
   }
+
+  // P4 parental gate. Runs before any Stripe-side cost is paid; either
+  // allows the checkout, blocks the buy outright (allowPackagePurchase=false),
+  // or queues a PendingApproval for the guardian. The replay payload is
+  // just the package id — POST this same endpoint again after approval
+  // and the gate will return "allow" because the row already exists.
+  const gate = await applyParentalControls({
+    member: {
+      id: member.id,
+      clubId,
+      userId: member.userId,
+      isMinor: member.isMinor,
+      parentControls: member.parentControls,
+    },
+    bookerUserId: session.user.id,
+    kind: "PACKAGE_BUY",
+    amount: Number(pkg.price),
+    payload: { packageId: pkg.id },
+  });
+  if (gate.kind === "block") {
+    return NextResponse.json(gate.body, { status: gate.status });
+  }
+  if (gate.kind === "queue") {
+    return NextResponse.json(gate.response, { status: 202 });
+  }
+
   const platformFee = calculatePlatformFee(totalCents, club.tier);
   const feeItem = processingFeeLineItem(totalCents, club.passProcessingFees);
   const baseUrl = getAppBaseUrl();

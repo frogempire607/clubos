@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import ImageUpload from "@/components/ImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "@/lib/activeProfile";
@@ -25,6 +26,15 @@ type MeProfile = {
   profileImageUrl: string | null;
   status: string;
   stripeCustomerId: string | null;
+  // Parental controls (P4). Server enforces; UI uses these to disable
+  // the DOB input and explain why.
+  birthdayLockedAt?: string | null;
+  parentControls?: {
+    requirePaymentApproval?: boolean;
+    monitoredMessaging?: boolean;
+    allowPackagePurchase?: boolean;
+    dailySpendLimit?: number;
+  } | null;
 };
 
 type MeUser = {
@@ -298,9 +308,30 @@ export default function MemberProfilePage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Date of birth</label>
-                <input type="date" value={dob} onChange={(e) => setDob(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Date of birth
+                  {me?.memberProfile?.birthdayLockedAt && (
+                    <span className="ml-1 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
+                      Locked
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="date"
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                  disabled={!!me?.memberProfile?.birthdayLockedAt}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 ${
+                    me?.memberProfile?.birthdayLockedAt
+                      ? "bg-stone-100 border-stone-200 text-stone-500 cursor-not-allowed"
+                      : "border-stone-300"
+                  }`}
+                />
+                {me?.memberProfile?.birthdayLockedAt && (
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    Your guardian has locked your date of birth. Ask them to update it for you.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Gender</label>
@@ -340,7 +371,14 @@ export default function MemberProfilePage() {
             {member?.dateOfBirth && (
               <ProfileRow
                 label="Date of birth"
-                value={new Date(member.dateOfBirth).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                // timeZone:"UTC" — DOB is stored as UTC midnight (e.g.
+                // 2001-01-18T00:00:00Z). Without an explicit timeZone,
+                // toLocaleDateString uses the viewer's local zone, which
+                // in UTC-5 shifts the displayed day back to Jan 17. UTC
+                // lock makes the displayed day match what was saved.
+                value={new Date(member.dateOfBirth).toLocaleDateString("en-US", {
+                  month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+                })}
               />
             )}
             {member?.gender && <ProfileRow label="Gender" value={member.gender} />}
@@ -412,6 +450,11 @@ export default function MemberProfilePage() {
         );
       })()}
 
+      {/* Pending approvals — only renders for guardians of at least one
+          linked child (the API returns [] otherwise so the section
+          collapses naturally). */}
+      <PendingApprovalsCard />
+
       {/* Guardian info (for minors) */}
       {isMinor && (
         <div className="bg-amber-50 rounded-xl border border-amber-200 p-6 mb-4">
@@ -469,13 +512,17 @@ export default function MemberProfilePage() {
                               month: "short",
                               day: "numeric",
                               year: "numeric",
+                              timeZone: "UTC",
                             })}
                             {(() => {
+                              // Use UTC components for both sides so a viewer
+                              // west of UTC doesn't tick the age down a day
+                              // around the child's birthday.
                               const d = new Date(g.member.dateOfBirth);
                               const now = new Date();
-                              let age = now.getFullYear() - d.getFullYear();
-                              const m = now.getMonth() - d.getMonth();
-                              if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+                              let age = now.getUTCFullYear() - d.getUTCFullYear();
+                              const m = now.getUTCMonth() - d.getUTCMonth();
+                              if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) age -= 1;
                               return ` (age ${age})`;
                             })()}
                           </>
@@ -483,20 +530,33 @@ export default function MemberProfilePage() {
                         {g.member.isMinor ? " · Minor" : null}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveProfileId(g.member.id);
-                        setActiveProfileIdState(g.member.id);
-                      }}
-                      className={`text-xs px-3 py-1.5 rounded-lg border ${
-                        active
-                          ? "border-stone-900 bg-stone-900 text-white"
-                          : "border-stone-200 text-stone-600 hover:bg-stone-50"
-                      }`}
-                    >
-                      {active ? "Selected" : "Switch"}
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {/* Parental controls only make sense for linked
+                          children — guardians can't set controls on
+                          their own (self) profile. */}
+                      {g.kind === "child" && (
+                        <Link
+                          href={`/member/family/${g.member.id}`}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
+                        >
+                          Controls
+                        </Link>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveProfileId(g.member.id);
+                          setActiveProfileIdState(g.member.id);
+                        }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border ${
+                          active
+                            ? "border-stone-900 bg-stone-900 text-white"
+                            : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                        }`}
+                      >
+                        {active ? "Selected" : "Switch"}
+                      </button>
+                    </div>
                   </div>
                   {summary && (
                     <div className="mt-2 ml-11 grid grid-cols-3 gap-2 text-xs">
@@ -625,6 +685,108 @@ function ProfileRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-start gap-4">
       <dt className="text-xs font-medium text-stone-500 w-24 flex-shrink-0 pt-0.5">{label}</dt>
       <dd className="text-sm text-stone-900 whitespace-pre-line">{value}</dd>
+    </div>
+  );
+}
+
+// ─── Pending approvals card ───────────────────────────────────────────
+// Shown only when the guardian has at least one PENDING approval row
+// across their linked children. Empty list → component renders nothing.
+
+type ApprovalRow = {
+  id: string;
+  kind: "CLASS_BOOK" | "EVENT_REGISTER" | "PRIVATE_REQUEST" | "PACKAGE_BUY";
+  amount: number | null;
+  requestedAt: string;
+  member: { id: string; firstName: string; lastName: string };
+};
+
+const APPROVAL_KIND_LABEL: Record<ApprovalRow["kind"], string> = {
+  CLASS_BOOK: "Class booking",
+  EVENT_REGISTER: "Event registration",
+  PRIVATE_REQUEST: "Private lesson request",
+  PACKAGE_BUY: "Package purchase",
+};
+
+function PendingApprovalsCard() {
+  const [rows, setRows] = useState<ApprovalRow[]>([]);
+  const [acting, setActing] = useState<string | null>(null);
+
+  const load = () => {
+    fetch("/api/member/family/approvals")
+      .then((r) => (r.ok ? r.json() : { approvals: [] }))
+      .then((d) => setRows(Array.isArray(d.approvals) ? d.approvals : []))
+      .catch(() => setRows([]));
+  };
+  useEffect(load, []);
+
+  async function respond(id: string, action: "APPROVE" | "DECLINE") {
+    setActing(id);
+    const res = await fetch(`/api/member/family/approvals/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    setActing(null);
+    if (res.ok) {
+      // Remove the row locally — server has already updated status.
+      setRows((r) => r.filter((x) => x.id !== id));
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="bg-amber-50 rounded-xl border border-amber-200 p-5 mb-4">
+      <h2 className="text-sm font-semibold text-amber-900 mb-1">
+        Approvals waiting on you ({rows.length})
+      </h2>
+      <p className="text-xs text-amber-700 mb-3">
+        These bookings or purchases were paused until you approve. Decline if it
+        shouldn&apos;t happen.
+      </p>
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div
+            key={r.id}
+            className="bg-white border border-amber-200 rounded-lg p-3 flex items-center gap-3"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-stone-900 truncate">
+                <span className="font-medium">
+                  {r.member.firstName} {r.member.lastName}
+                </span>
+                {" — "}
+                {APPROVAL_KIND_LABEL[r.kind] || r.kind}
+                {r.amount && r.amount > 0 ? ` · $${r.amount.toFixed(2)}` : ""}
+              </p>
+              <p className="text-[11px] text-stone-500">
+                Requested {new Date(r.requestedAt).toLocaleString("en-US", {
+                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                })}
+              </p>
+            </div>
+            <div className="flex gap-1 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => respond(r.id, "DECLINE")}
+                disabled={acting === r.id}
+                className="text-xs px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+              >
+                Decline
+              </button>
+              <button
+                type="button"
+                onClick={() => respond(r.id, "APPROVE")}
+                disabled={acting === r.id}
+                className="text-xs px-3 py-1.5 rounded-lg bg-amber-900 text-amber-50 hover:bg-amber-800 disabled:opacity-50"
+              >
+                {acting === r.id ? "…" : "Approve"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

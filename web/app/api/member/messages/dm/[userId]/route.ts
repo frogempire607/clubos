@@ -4,6 +4,13 @@ import { getServerSession } from "next-auth";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { memberCanMessage } from "@/lib/parentalControls";
+
+const MESSAGING_DISABLED = {
+  error:
+    "Messaging is managed by your guardian on this account. Ask them if you need to send a message.",
+  code: "MESSAGING_DISABLED",
+};
 
 // GET /api/member/messages/dm/[userId]
 // Returns the thread between the current member and the other user, marks
@@ -12,6 +19,11 @@ export async function GET(_req: Request, context: { params: Promise<{ userId: st
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // P4 — guardian-disabled messaging for a controlled minor.
+  if (!(await memberCanMessage(session.user.id, session.user.clubId))) {
+    return NextResponse.json(MESSAGING_DISABLED, { status: 403 });
+  }
 
   // Confirm the other user belongs to the same club
   const other = await prisma.user.findFirst({
@@ -54,6 +66,11 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // P4 — guardian-disabled messaging for a controlled minor.
+  if (!(await memberCanMessage(session.user.id, session.user.clubId))) {
+    return NextResponse.json(MESSAGING_DISABLED, { status: 403 });
+  }
 
   // 60 messages per minute per user. Generous enough for a real
   // conversation; blocks spam blasts.

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -26,6 +27,11 @@ const updateSchema = z.object({
   guardianPhone: z.string().optional().nullable(),
   guardianRelationship: z.string().optional().nullable(),
   profileImageUrl: z.string().optional().nullable(),
+  // P4 correction — birthdayLocked + parentControls are NOT editable
+  // from this owner endpoint. Guardian-only via
+  // /api/member/family/[memberId]/controls. Stripped from the schema
+  // so an owner client sending them just gets a Zod "unrecognized"
+  // 400 instead of a silent override.
 });
 
 async function requireMember(memberId: string, clubId: string) {
@@ -117,6 +123,31 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     const body = await req.json();
     const data = updateSchema.parse(body);
 
+    // P4 — owner cannot edit DOB on a parent-locked member.
+    // The lock is set by the guardian from /member/family/[memberId];
+    // owners only see the status on the edit modal. If the owner ever
+    // genuinely needs to override (legal name correction, etc.) the
+    // guardian has to unlock first OR a separate explicit admin
+    // override flow with audit trail handles it — not this surface.
+    if (data.dateOfBirth !== undefined && member.birthdayLockedAt) {
+      const incoming = data.dateOfBirth ? new Date(data.dateOfBirth).getTime() : null;
+      const current = member.dateOfBirth ? member.dateOfBirth.getTime() : null;
+      if (incoming !== current) {
+        return NextResponse.json(
+          {
+            error:
+              "Parent-confirmed DOB is locked for athlete safety and eligibility integrity. The guardian must unlock from their family controls first.",
+            code: "BIRTHDAY_LOCKED",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    // (P4 — owners no longer set the lock from here; the schema
+    // already excludes birthdayLocked/parentControls so any stray field
+    // from an old client just gets stripped by Zod's default behavior.)
+
     // If marking as a minor, validate required guardian fields per spec
     const willBeMinor = data.isMinor ?? member.isMinor;
     if (willBeMinor && (data.isMinor !== undefined || data.guardianName !== undefined || data.guardianEmail !== undefined || data.guardianPhone !== undefined)) {
@@ -160,18 +191,23 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       if (activeSub === 0) nextStatus = "PROSPECT";
     }
 
+    // Use UncheckedUpdateInput so we can write the FK column `guardianId`
+    // directly via guardianIdUpdate (the relations-checked variant would
+    // demand `guardian: { connect: ... }`).
+    const updateData: Prisma.MemberUncheckedUpdateInput = {
+      ...data,
+      ...(nextStatus !== undefined ? { status: nextStatus } : {}),
+      ...guardianIdUpdate,
+      guardianEmail: data.guardianEmail !== undefined
+        ? (data.guardianEmail ? data.guardianEmail.toLowerCase() : null)
+        : undefined,
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth === null ? null : undefined,
+      customFieldValues: data.customFieldValues ? JSON.stringify(data.customFieldValues) : undefined,
+    };
+
     const updated = await prisma.member.update({
       where: { id: params.id },
-      data: {
-        ...data,
-        ...(nextStatus !== undefined ? { status: nextStatus } : {}),
-        ...guardianIdUpdate,
-        guardianEmail: data.guardianEmail !== undefined
-          ? (data.guardianEmail ? data.guardianEmail.toLowerCase() : null)
-          : undefined,
-        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth === null ? null : undefined,
-        customFieldValues: data.customFieldValues ? JSON.stringify(data.customFieldValues) : undefined,
-      },
+      data: updateData,
     });
 
     return NextResponse.json(updated);

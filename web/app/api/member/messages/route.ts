@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { memberCanMessage } from "@/lib/parentalControls";
 
 // GET /api/member/messages
 // Returns the member's DM conversations + group threads they belong to.
@@ -11,6 +12,21 @@ export async function GET() {
 
   const userId = session.user.id;
   const clubId = session.user.clubId;
+
+  // P4 — guardian-disabled messaging for a controlled minor. Return a
+  // shaped empty response with messagingDisabled:true so the page can
+  // render a "managed by your guardian" banner instead of an error.
+  // Status stays 200 because the page WANTS to load — it just shows
+  // the banner in place of the conversation list.
+  if (!(await memberCanMessage(userId, clubId))) {
+    return NextResponse.json({
+      conversations: [],
+      groups: [],
+      childConversations: [],
+      childGroups: [],
+      messagingDisabled: true,
+    });
+  }
 
   // Direct message conversations
   const dms = await prisma.message.findMany({

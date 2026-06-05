@@ -539,6 +539,20 @@ function MinorAthleteView({ data }: { data: PortalData }) {
       {member && (
         <UpcomingBookings bookings={minorAllBookings} label="My Schedule" />
       )}
+
+      {/* Minor tile grid. Mirrors the Adult/Parent home grids so a minor
+          has a direct path to Messages / Announcements / Documents / etc.
+          Before this, minors had to know the URL (typing /member/messages)
+          to find their conversations — the bottom-nav Messages tab IS
+          present but easy to miss on first launch. */}
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <TileLink href="/member/schedule"      icon={CalendarDays}  label="Schedule"      desc="Classes and events" />
+        <TileLink href="/member/bookings"      icon={CheckSquare}   label="My Bookings"   desc="Sessions you're in" />
+        <TileLink href="/member/messages"      icon={MessageSquare} label="Messages"      desc="Talk to your coaches" />
+        <TileLink href="/member/announcements" icon={Megaphone}     label="Announcements" desc="News from your club" />
+        <TileLink href="/member/documents"     icon={FileText}      label="Documents"     desc="Waivers and forms" />
+        <TileLink href="/member/profile"       icon={UserCircle2}   label="My Profile"    desc="Your info" />
+      </div>
     </>
   );
 }

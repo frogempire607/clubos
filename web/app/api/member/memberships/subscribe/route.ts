@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { applyParentalControls } from "@/lib/parentalControls";
 
 const schema = z.object({
   membershipId: z.string(),
@@ -66,6 +67,31 @@ export async function POST(req: Request) {
       option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING";
     const startDate = new Date();
     const endDate: Date | null = billingType === "ONE_TIME" ? computeEndDate(startDate, option.billingPeriod) : null;
+
+    // P4 parental gate. Memberships are an ongoing commitment, not a
+    // one-off charge — even more important than class booking that a
+    // controlled minor can't subscribe themselves without guardian
+    // approval. Run BEFORE we create the pending MemberSubscription
+    // row so a queued/declined request doesn't leave a stale row.
+    const gate = await applyParentalControls({
+      member: {
+        id: member.id,
+        clubId: club.id,
+        userId: member.userId,
+        isMinor: member.isMinor,
+        parentControls: member.parentControls,
+      },
+      bookerUserId: session.user.id,
+      kind: "MEMBERSHIP_SUBSCRIBE",
+      amount: option.price,
+      payload: { membershipId, optionLabel },
+    });
+    if (gate.kind === "block") {
+      return NextResponse.json(gate.body, { status: gate.status });
+    }
+    if (gate.kind === "queue") {
+      return NextResponse.json(gate.response, { status: 202 });
+    }
 
     const memberSub = await prisma.memberSubscription.create({
       data: {

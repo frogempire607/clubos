@@ -157,13 +157,29 @@ export default function MemberSchedulePage() {
       setError(d.error || "Could not book this class.");
       return;
     }
+    // Parental gate (P4) — server returns 202 + { pendingApproval } when
+    // a controlled minor queues an action. Don't show "Booked" — the
+    // booking is on hold until the guardian responds.
+    if (d.pendingApproval) {
+      setSelected(null);
+      setInfo(d.message || "Sent to your guardian for approval.");
+      return;
+    }
     if (d.url) {
       window.location.href = d.url;
       return;
     }
-    setSelected(null);
-    setInfo(d.coveredByMembership ? "Booked — covered by your membership." : "Booked.");
-    await load(activeId);
+    // Only show "Booked" when the server confirms a real booking: either
+    // the membership-covered free path, or an attendanceRecordId came
+    // back. Guards against a spurious 2xx with no booking payload from
+    // ever rendering a green badge again.
+    if (d.coveredByMembership || d.attendanceRecordId) {
+      setSelected(null);
+      setInfo(d.coveredByMembership ? "Booked — covered by your membership." : "Booked.");
+      await load(activeId);
+      return;
+    }
+    setError("We couldn't confirm your booking. Contact your club if this keeps happening.");
   }
 
   async function register(item: ScheduleItem) {
@@ -179,6 +195,13 @@ export default function MemberSchedulePage() {
     setBusy(null);
     if (!res.ok) {
       setError(d.error || "Could not register for this event.");
+      return;
+    }
+    // Same P4 parental gate handling as bookClass — 202 + pendingApproval
+    // means the registration is on hold, not done.
+    if (d.pendingApproval) {
+      setSelected(null);
+      setInfo(d.message || "Sent to your guardian for approval.");
       return;
     }
     if (d.url) {

@@ -37,6 +37,11 @@ export async function GET() {
           profileImageUrl: true,
           status: true,
           stripeCustomerId: true,
+          // Parental controls (P4). UI uses these to disable the DOB
+          // input when locked, and to render the per-control summary on
+          // the member profile when a guardian has set restrictions.
+          birthdayLockedAt: true,
+          parentControls: true,
         },
       },
     },
@@ -82,6 +87,25 @@ export async function PATCH(req: Request) {
       where: { userId: session.user.id, clubId: session.user.clubId, deletedAt: null },
     });
     if (member) {
+      // Parental control: when birthdayLockedAt is set, the member can't
+      // change their own DOB. Only owner/staff (via /api/members/[id])
+      // can update it, and they clear the lock as part of that flow.
+      // Allow a no-op DOB (same value) to pass through so unrelated edits
+      // don't accidentally trip this check.
+      if (data.dateOfBirth !== undefined && member.birthdayLockedAt) {
+        const incoming = data.dateOfBirth ? new Date(data.dateOfBirth).getTime() : null;
+        const current  = member.dateOfBirth ? member.dateOfBirth.getTime() : null;
+        if (incoming !== current) {
+          return NextResponse.json(
+            {
+              error:
+                "Your date of birth is locked by your guardian. Ask them to update it for you.",
+              code: "BIRTHDAY_LOCKED",
+            },
+            { status: 403 },
+          );
+        }
+      }
       await prisma.member.update({
         where: { id: member.id },
         data: {
