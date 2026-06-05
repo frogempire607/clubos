@@ -27,19 +27,11 @@ const updateSchema = z.object({
   guardianPhone: z.string().optional().nullable(),
   guardianRelationship: z.string().optional().nullable(),
   profileImageUrl: z.string().optional().nullable(),
-  // Parental controls (P4). Boolean convenience for the lock: true =>
-  // birthdayLockedAt set to now, false/null => cleared. parentControls
-  // is the JSON toggle bag stored on Member as-is (null clears).
-  birthdayLocked: z.boolean().optional(),
-  parentControls: z
-    .object({
-      requirePaymentApproval: z.boolean().optional(),
-      monitoredMessaging:     z.boolean().optional(),
-      allowPackagePurchase:   z.boolean().optional(),
-      dailySpendLimit:        z.number().nonnegative().optional(),
-    })
-    .nullable()
-    .optional(),
+  // P4 correction — birthdayLocked + parentControls are NOT editable
+  // from this owner endpoint. Guardian-only via
+  // /api/member/family/[memberId]/controls. Stripped from the schema
+  // so an owner client sending them just gets a Zod "unrecognized"
+  // 400 instead of a silent override.
 });
 
 async function requireMember(memberId: string, clubId: string) {
@@ -131,6 +123,31 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     const body = await req.json();
     const data = updateSchema.parse(body);
 
+    // P4 — owner cannot edit DOB on a parent-locked member.
+    // The lock is set by the guardian from /member/family/[memberId];
+    // owners only see the status on the edit modal. If the owner ever
+    // genuinely needs to override (legal name correction, etc.) the
+    // guardian has to unlock first OR a separate explicit admin
+    // override flow with audit trail handles it — not this surface.
+    if (data.dateOfBirth !== undefined && member.birthdayLockedAt) {
+      const incoming = data.dateOfBirth ? new Date(data.dateOfBirth).getTime() : null;
+      const current = member.dateOfBirth ? member.dateOfBirth.getTime() : null;
+      if (incoming !== current) {
+        return NextResponse.json(
+          {
+            error:
+              "Parent-confirmed DOB is locked for athlete safety and eligibility integrity. The guardian must unlock from their family controls first.",
+            code: "BIRTHDAY_LOCKED",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    // (P4 — owners no longer set the lock from here; the schema
+    // already excludes birthdayLocked/parentControls so any stray field
+    // from an old client just gets stripped by Zod's default behavior.)
+
     // If marking as a minor, validate required guardian fields per spec
     const willBeMinor = data.isMinor ?? member.isMinor;
     if (willBeMinor && (data.isMinor !== undefined || data.guardianName !== undefined || data.guardianEmail !== undefined || data.guardianPhone !== undefined)) {
@@ -174,19 +191,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       if (activeSub === 0) nextStatus = "PROSPECT";
     }
 
-    // Strip the parental-control fields from the generic spread — we
-    // translate them into prisma-shaped values below. Keeps the spread
-    // safe from accidentally writing `birthdayLocked` (the bool) as a
-    // column (which doesn't exist).
-    const { birthdayLocked, parentControls, ...rest } = data;
-
     // Use UncheckedUpdateInput so we can write the FK column `guardianId`
     // directly via guardianIdUpdate (the relations-checked variant would
-    // demand `guardian: { connect: ... }`). This was implicit before;
-    // making it explicit silences the TS overload pick error introduced
-    // by adding the JSON `parentControls` field.
+    // demand `guardian: { connect: ... }`).
     const updateData: Prisma.MemberUncheckedUpdateInput = {
-      ...rest,
+      ...data,
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...guardianIdUpdate,
       guardianEmail: data.guardianEmail !== undefined
@@ -194,18 +203,6 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         : undefined,
       dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth === null ? null : undefined,
       customFieldValues: data.customFieldValues ? JSON.stringify(data.customFieldValues) : undefined,
-      // P4 parental controls. Owner sets/clears the lock; parentControls
-      // is stored as JSON so future toggles don't need a migration.
-      // Prisma.JsonNull is the literal-null sentinel for JSONB fields.
-      ...(birthdayLocked !== undefined
-        ? { birthdayLockedAt: birthdayLocked ? new Date() : null }
-        : {}),
-      ...(parentControls !== undefined
-        ? {
-            parentControls:
-              parentControls === null ? Prisma.JsonNull : (parentControls as Prisma.InputJsonValue),
-          }
-        : {}),
     };
 
     const updated = await prisma.member.update({

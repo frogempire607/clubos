@@ -611,9 +611,8 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
   const [guardianPhone, setGuardianPhone] = useState(member?.guardianPhone || "");
   const [guardianRelationship, setGuardianRelationship] = useState(member?.guardianRelationship || "");
   const [profileImageUrl, setProfileImageUrl] = useState((member as any)?.profileImageUrl || "");
-  // Parental controls (P4). Lock the DOB so the minor can't self-edit
-  // from /member/profile. Defaults to whatever the server already has.
-  const [birthdayLocked, setBirthdayLocked] = useState<boolean>(!!member?.birthdayLockedAt);
+  // P4 — DOB lock is parent-only. Owner cannot toggle it from this
+  // modal; the field becomes read-only when set. See render below.
   const [customValues, setCustomValues] = useState<Record<string, string>>(initialCustomValues);
   const [siblings, setSiblings] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [error, setError] = useState("");
@@ -670,10 +669,9 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
         guardianEmail: isMinor ? guardianEmail : undefined,
         guardianPhone: isMinor ? guardianPhone : undefined,
         guardianRelationship: isMinor ? guardianRelationship : undefined,
-        // Only send the lock flag on edits; create flow can leave it
-        // alone (members start unlocked). Sending it on create is also
-        // safe but adds noise in the audit log.
-        ...(isEdit ? { birthdayLocked } : {}),
+        // P4 — birthdayLocked intentionally NOT sent. Owner cannot
+        // toggle the lock from this modal anymore; only the parent's
+        // family-controls page sets it.
       }),
     });
     setSaving(false);
@@ -796,27 +794,36 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
 
           {fieldEnabled("dateOfBirth") && (
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Date of birth {fieldRequired("dateOfBirth") && <span className="text-red-500">*</span>}</label>
-              <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} required={fieldRequired("dateOfBirth")} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-              {/* P4 — birthday lock. Only meaningful on edit (the lock
-                  field on Member is set when this saves). Showing the
-                  checkbox at create time would be cosmetic noise. */}
-              {isEdit && (
-                <label className="flex items-start gap-2 mt-2 text-xs text-text-muted cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={birthdayLocked}
-                    onChange={(e) => setBirthdayLocked(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    <span className="font-medium text-text-primary">Lock this date of birth</span>
-                    <span className="block">
-                      Prevents the member from editing their own DOB in the portal.
-                      Use this for minors whose age must not be self-changed.
-                    </span>
+              <label className="block text-sm font-medium text-text-primary mb-1">
+                Date of birth {fieldRequired("dateOfBirth") && <span className="text-red-500">*</span>}
+                {isEdit && member?.birthdayLockedAt && (
+                  <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
+                    Locked by parent
                   </span>
-                </label>
+                )}
+              </label>
+              <input
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+                required={fieldRequired("dateOfBirth")}
+                disabled={isEdit && !!member?.birthdayLockedAt}
+                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand ${
+                  isEdit && member?.birthdayLockedAt
+                    ? "bg-app-bg border-app-border text-text-muted cursor-not-allowed"
+                    : "border-app-border"
+                }`}
+              />
+              {/* P4 correction — DOB lock is now parent-only. Owners no
+                  longer have a toggle here; the lock is set by the
+                  guardian from the family-controls page. Owner sees the
+                  status only and cannot edit a locked DOB. Copy mirrors
+                  what the member sees on /member/profile. */}
+              {isEdit && member?.birthdayLockedAt && (
+                <p className="text-[11px] text-amber-700 mt-1">
+                  Parent-confirmed DOB is locked for athlete safety and
+                  eligibility integrity.
+                </p>
               )}
             </div>
           )}
