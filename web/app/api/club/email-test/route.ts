@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, isEmailConfigured, smtpMissingVars } from "@/lib/email";
+
+const bodySchema = z.object({
+  to: z.string().email().optional(),
+});
 
 // POST /api/club/email-test
 // Owner-only. Sends a one-off email to either the supplied address or the
@@ -23,12 +28,20 @@ export async function POST(req: Request) {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
+  let body: z.infer<typeof bodySchema>;
+  try {
+    body = bodySchema.parse(await req.json().catch(() => ({})));
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ ok: false, error: err.errors[0].message }, { status: 400 });
+    }
+    return NextResponse.json({ ok: false, error: "Bad request" }, { status: 400 });
+  }
   const owner = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { email: true, firstName: true },
   });
-  const to = (body?.to as string | undefined) || owner?.email;
+  const to = body.to || owner?.email;
   if (!to) return NextResponse.json({ ok: false, error: "No recipient" }, { status: 400 });
 
   try {
