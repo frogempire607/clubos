@@ -16,9 +16,12 @@ export const PROSPECT_TTL_DAYS = 30;
  * Call this after a subscription's status changes (Stripe webhook), or after
  * a manual subscription update.
  */
-export async function recomputeMemberStatus(memberId: string): Promise<void> {
-  const member = await prisma.member.findUnique({
-    where: { id: memberId },
+export async function recomputeMemberStatus(memberId: string, clubId: string): Promise<void> {
+  // Defense-in-depth: every caller already resolved memberId from a clubId-
+  // scoped lookup, but enforce it here too so a future caller can't leak
+  // tenancy by passing a foreign memberId.
+  const member = await prisma.member.findFirst({
+    where: { id: memberId, clubId },
     select: { id: true, status: true, joinedAt: true, createdAt: true },
   });
   if (!member) return;

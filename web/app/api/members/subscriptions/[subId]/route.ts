@@ -60,7 +60,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ subId: st
       ...(data.price !== undefined ? { price: data.price } : {}),
     },
   });
-  await recomputeMemberStatus(sub.member.id);
+  await recomputeMemberStatus(sub.member.id, session.user.clubId);
 
   // Local price is updated immediately. A live Stripe subscription keeps
   // billing its own amount until changed in Stripe — flag that to the caller.
@@ -112,7 +112,7 @@ export async function DELETE(_req: Request, context: { params: Promise<{ subId: 
     where: { id: sub.id },
     data: { status: "canceled", canceledAt: new Date() },
   });
-  await recomputeMemberStatus(sub.member.id);
+  await recomputeMemberStatus(sub.member.id, session.user.clubId);
 
   return NextResponse.json({ ok: true });
 }

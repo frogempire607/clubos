@@ -140,8 +140,9 @@ export async function POST(req: Request) {
 
         // ── Membership checkout ──────────────────────────────────────────────
         if (memberSubscriptionId) {
-          const memberSub = await prisma.memberSubscription.findUnique({
-            where: { id: memberSubscriptionId },
+          const memberSub = await prisma.memberSubscription.findFirst({
+            where: { id: memberSubscriptionId, member: { clubId } },
+            include: { member: { select: { clubId: true } } },
           });
 
           if (memberSub) {
@@ -199,7 +200,7 @@ export async function POST(req: Request) {
             }
 
             // Now that this member has an active subscription, promote them to ACTIVE.
-            await recomputeMemberStatus(memberSub.memberId);
+            await recomputeMemberStatus(memberSub.memberId, memberSub.member.clubId);
 
             // Email: membership activated
             const contact = await memberContact(memberSub.memberId);
@@ -339,7 +340,7 @@ export async function POST(req: Request) {
           const classRow = await prisma.recurringClass.findFirst({
             where: { id: classId, clubId, deletedAt: null },
           });
-          const sessionRow = await prisma.classSession.findUnique({ where: { id: classSessionId } });
+          const sessionRow = await prisma.classSession.findFirst({ where: { id: classSessionId, clubId } });
           if (classRow && sessionRow) {
             const contact = await memberContact(memberId);
             if (contact.email) {
@@ -406,7 +407,7 @@ export async function POST(req: Request) {
           });
 
           // Decrement inventory
-          const sale = await prisma.productSale.findUnique({ where: { id: saleId }, include: { product: true } });
+          const sale = await prisma.productSale.findFirst({ where: { id: saleId, clubId }, include: { product: true } });
           if (sale?.product.trackInventory && sale.product.inventory !== null) {
             await prisma.product.update({
               where: { id: sale.productId },
@@ -575,14 +576,14 @@ export async function POST(req: Request) {
         if (subscriptionId) {
           const subs = await prisma.memberSubscription.findMany({
             where: { stripeSubscriptionId: subscriptionId },
-            select: { id: true, memberId: true },
+            select: { id: true, memberId: true, member: { select: { clubId: true } } },
           });
           await prisma.memberSubscription.updateMany({
             where: { stripeSubscriptionId: subscriptionId },
             data: { status: "past_due" },
           });
           for (const s of subs) {
-            await recomputeMemberStatus(s.memberId);
+            await recomputeMemberStatus(s.memberId, s.member.clubId);
             const contact = await memberContact(s.memberId);
             if (contact.email) {
               const amountStr = invoice.amount_due
@@ -610,14 +611,14 @@ export async function POST(req: Request) {
         // Member-sub side (member paying their club)
         const subs = await prisma.memberSubscription.findMany({
           where: { stripeSubscriptionId: subscription.id },
-          select: { id: true, memberId: true },
+          select: { id: true, memberId: true, member: { select: { clubId: true } } },
         });
         if (subs.length > 0) {
           await prisma.memberSubscription.updateMany({
             where: { stripeSubscriptionId: subscription.id },
             data: { status: "canceled", canceledAt: new Date() },
           });
-          for (const s of subs) await recomputeMemberStatus(s.memberId);
+          for (const s of subs) await recomputeMemberStatus(s.memberId, s.member.clubId);
         } else {
           // ClubOS platform sub (club paying ClubOS) canceled. There is no
           // free tier to fall back to — keep the tier on record and just mark

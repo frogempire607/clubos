@@ -114,7 +114,7 @@ export async function POST(req: Request) {
         },
       });
       // Manual assignment is active immediately — flip member status to ACTIVE
-      await recomputeMemberStatus(memberId);
+      await recomputeMemberStatus(memberId, session.user.clubId);
       return NextResponse.json({ memberSub, type: "manual" }, { status: 201 });
     }
 
