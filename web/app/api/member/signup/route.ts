@@ -20,6 +20,10 @@ const schema = z.object({
   // Parent fields (for PARENT — link to child's member record)
   childEmail: z.string().email().optional().or(z.literal("")),
   relationship: z.string().optional(),
+  // Consent — must be exactly true. Rejects undefined/false/"true".
+  acceptedTerms: z.literal(true),
+  termsVersion: z.string().min(1),
+  privacyVersion: z.string().min(1),
 });
 
 export async function POST(req: Request) {
@@ -154,6 +158,36 @@ export async function POST(req: Request) {
           guardianRelationship: data.guardianRelationship || existingMember.guardianRelationship,
         },
       });
+    }
+
+    // Record terms/privacy consent — 2 rows per signup (TOS + PRIVACY).
+    // Wrapped in try/catch so a consent-write failure can never block
+    // the signup flow. Same shape as /api/auth/signup.
+    try {
+      await prisma.legalAcceptance.createMany({
+        data: [
+          {
+            userId: user.id,
+            clubId: club.id,
+            documentType: "TOS",
+            version: data.termsVersion,
+            acceptedAt: new Date(),
+            ipAddress: ipFromRequest(req),
+            userAgent: req.headers.get("user-agent") || null,
+          },
+          {
+            userId: user.id,
+            clubId: club.id,
+            documentType: "PRIVACY",
+            version: data.privacyVersion,
+            acceptedAt: new Date(),
+            ipAddress: ipFromRequest(req),
+            userAgent: req.headers.get("user-agent") || null,
+          },
+        ],
+      });
+    } catch (err) {
+      console.error("Failed to persist legal acceptance (member signup):", err);
     }
 
     return NextResponse.json({ ok: true, clubSlug: club.slug }, { status: 201 });

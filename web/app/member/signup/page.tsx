@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { User, Baby, Users, type LucideIcon } from "lucide-react";
+import { TERMS_VERSION, PRIVACY_VERSION } from "@/legal/versions";
 
 type AccountType = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "PARENT";
 
@@ -33,6 +34,7 @@ export default function MemberSignupPage() {
   const [childEmail, setChildEmail] = useState("");
   const [relationship, setRelationship] = useState("Parent");
 
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -57,6 +59,11 @@ export default function MemberSignupPage() {
       return;
     }
 
+    if (!acceptedTerms) {
+      setError("You must agree to the Terms of Service and Privacy Policy.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -77,6 +84,9 @@ export default function MemberSignupPage() {
         guardianRelationship: accountType === "MINOR_ATHLETE" ? guardianRelationship : undefined,
         childEmail: accountType === "PARENT" ? childEmail : undefined,
         relationship: accountType === "PARENT" ? relationship : undefined,
+        acceptedTerms: true,
+        termsVersion: TERMS_VERSION,
+        privacyVersion: PRIVACY_VERSION,
       }),
     });
 
@@ -354,6 +364,27 @@ export default function MemberSignupPage() {
                   </div>
                 )}
 
+                <label className="flex items-start gap-2 text-sm text-stone-700">
+                  <input
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={(e) => setAcceptedTerms(e.target.checked)}
+                    required
+                    className="mt-1 h-4 w-4 rounded border-stone-300 text-[#534AB7] focus:ring-[#534AB7]"
+                  />
+                  <span>
+                    I agree to the{" "}
+                    <Link href="/terms" target="_blank" className="font-medium text-[#534AB7] underline">
+                      Terms of Service
+                    </Link>{" "}
+                    and{" "}
+                    <Link href="/privacy" target="_blank" className="font-medium text-[#534AB7] underline">
+                      Privacy Policy
+                    </Link>
+                    .
+                  </span>
+                </label>
+
                 {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 
                 <div className="flex gap-2">
@@ -361,7 +392,7 @@ export default function MemberSignupPage() {
                     className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">
                     Back
                   </button>
-                  <button type="submit" disabled={loading}
+                  <button type="submit" disabled={loading || !acceptedTerms}
                     className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
                     {loading ? "Creating account…" : "Create account"}
                   </button>
