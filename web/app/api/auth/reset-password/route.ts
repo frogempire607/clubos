@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     if (!user || !user.resetExpires || user.resetExpires < new Date()) {
       return NextResponse.json({ error: "Invalid or expired token" }, { status: 400 });
     }
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
     await prisma.user.update({
       where: { id: user.id },
       data: { passwordHash, resetToken: null, resetExpires: null },

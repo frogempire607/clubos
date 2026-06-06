@@ -3,11 +3,15 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import { resolvePermissions } from "./permissions";
+import { rateLimit } from "./ratelimit";
 
 const isProd = process.env.NODE_ENV === "production";
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
+  // 14-day session lifetime (default was 30d). Owners use the dashboard daily
+  // so they'll never see the prompt; members on the native shell get a fresh
+  // login every two weeks — tighter window for a stolen cookie to be useful.
+  session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 14 },
   pages: { signIn: "/login" },
   // Explicit cookie config. NextAuth's defaults derive cookie name and
   // `secure` from NEXTAUTH_URL. If NEXTAUTH_URL is missing/malformed (we
@@ -39,10 +43,22 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
         clubSlug: { label: "Club", type: "text" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password || !credentials?.clubSlug) {
           return null;
         }
+
+        // Rate-limit login attempts per IP. 10 attempts per 10 minutes leaves
+        // headroom for typos but blocks credential stuffing / brute force.
+        // Returning null on rate-limit triggers a generic "CredentialsSignin"
+        // error to the client — no timing oracle distinguishing it from a
+        // wrong password.
+        const ip =
+          (req?.headers?.["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+          (req?.headers?.["x-real-ip"] as string | undefined) ||
+          "unknown";
+        const rl = rateLimit({ key: `auth:login:${ip}`, limit: 10, windowMs: 10 * 60_000 });
+        if (!rl.allowed) return null;
 
         // iOS WKWebView's default keyboard auto-capitalizes the first
         // letter of <input type="text"> and may auto-correct, so a slug

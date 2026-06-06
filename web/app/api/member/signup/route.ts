@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "An account with this email already exists. Try logging in." }, { status: 409 });
     }
 
-    const passwordHash = await bcrypt.hash(data.password, 10);
+    const passwordHash = await bcrypt.hash(data.password, 12);
     const isMinor = data.accountType === "MINOR_ATHLETE";
 
     // Find existing Member record by email (case-insensitive via stored lowercase) to link up

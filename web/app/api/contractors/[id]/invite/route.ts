@@ -48,7 +48,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   const [firstName, ...rest] = contractor.name.trim().split(/\s+/);
   const lastName = rest.join(" ") || "—";
   const tempPassword = crypto.randomBytes(6).toString("base64url");
-  const passwordHash = await bcrypt.hash(tempPassword, 10);
+  const passwordHash = await bcrypt.hash(tempPassword, 12);
 
   const user = await prisma.user.create({
     data: {

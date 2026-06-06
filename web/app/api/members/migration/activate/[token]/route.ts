@@ -171,7 +171,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   }
 
   // Create or link the portal User account.
-  const passwordHash = await bcrypt.hash(body.password, 10);
+  const passwordHash = await bcrypt.hash(body.password, 12);
   let user = await prisma.user.findUnique({
     where: { clubId_email: { clubId: club.id, email: contactEmail } },
   });

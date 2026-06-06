@@ -79,7 +79,7 @@ export async function POST(req: Request) {
     // password via the emailed link. resetToken doubles as the invite token.
     const usingSetupLink = !!data.sendSetupLink;
     const effectivePassword = data.password ?? crypto.randomBytes(32).toString("hex");
-    const passwordHash = await bcrypt.hash(effectivePassword, 10);
+    const passwordHash = await bcrypt.hash(effectivePassword, 12);
     const resetToken = usingSetupLink ? crypto.randomBytes(32).toString("hex") : null;
     const resetExpires = usingSetupLink
       ? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) // 14 days
