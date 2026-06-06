@@ -11,6 +11,11 @@ const schema = z.object({
   lastName: z.string().min(1),
   mode: z.enum(["create", "join"]),
   clubSlug: z.string().optional(),
+  // Consent — must be EXACTLY true. z.literal(true) rejects undefined/false/"true"
+  // and gives a clean 400 instead of silently storing no consent record.
+  acceptedTerms: z.literal(true),
+  termsVersion: z.string().min(1),
+  privacyVersion: z.string().min(1),
 });
 
 export async function POST(req: Request) {
@@ -67,6 +72,37 @@ export async function POST(req: Request) {
         role,
       },
     });
+
+    // Record terms/privacy consent. Wrapped in try/catch + feature-detection
+    // so this route keeps working before the LegalAcceptance migration is
+    // applied (Task 8 — see docs/proposed-migration-legal-acceptance.md).
+    // Once `prisma.legalAcceptance` exists, real rows are written; until
+    // then the route logs a structured warning so the gap is visible in
+    // server logs without blocking signup.
+    try {
+      const acceptedAt = new Date();
+      const ipAddress = ipFromRequest(req);
+      const userAgent = req.headers.get("user-agent") || null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const p = prisma as any;
+      if (typeof p.legalAcceptance?.createMany === "function") {
+        await p.legalAcceptance.createMany({
+          data: [
+            { userId: user.id, clubId, documentType: "TOS",     version: data.termsVersion,   acceptedAt, ipAddress, userAgent },
+            { userId: user.id, clubId, documentType: "PRIVACY", version: data.privacyVersion, acceptedAt, ipAddress, userAgent },
+          ],
+        });
+      } else {
+        console.warn(
+          `[legal-acceptance:pending-migration] userId=${user.id} clubId=${clubId} ` +
+          `termsVersion=${data.termsVersion} privacyVersion=${data.privacyVersion} ` +
+          `acceptedAt=${acceptedAt.toISOString()} ipAddress=${ipAddress} userAgent=${userAgent}`
+        );
+      }
+    } catch (err) {
+      // Never block signup on the consent record — log + continue.
+      console.error("Failed to persist legal acceptance:", err);
+    }
 
     return NextResponse.json({ id: user.id, email: user.email, clubSlug }, { status: 201 });
   } catch (err) {

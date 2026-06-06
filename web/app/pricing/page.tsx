@@ -475,10 +475,12 @@ export default function PricingPage() {
           <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
             © {new Date().getFullYear()} AthletixOS. All rights reserved.
           </span>
-          <div style={{ display: "flex", gap: 24 }}>
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
             <Link href="/" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Home</Link>
             <Link href="/pricing" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Pricing</Link>
             <Link href="/signup" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Sign up</Link>
+            <Link href="/terms" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Terms</Link>
+            <Link href="/privacy" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Privacy</Link>
             <a href="mailto:contact@athletix-os.com" style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}>Contact</a>
           </div>
         </div>

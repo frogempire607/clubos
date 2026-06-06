@@ -5,6 +5,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Sparkles, Check } from "lucide-react";
+import { TERMS_VERSION, PRIVACY_VERSION } from "@/legal/versions";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -14,12 +15,20 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [clubSlug, setClubSlug] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Version strings flow into /api/auth/signup so we record EXACTLY which
+  // document each user accepted. Single source of truth: legal/versions.ts.
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!acceptedTerms) {
+      setError("You must agree to the Terms of Service and Privacy Policy.");
+      return;
+    }
     setLoading(true);
 
     try {
@@ -33,6 +42,9 @@ export default function SignupPage() {
           password,
           mode,
           clubSlug: mode === "join" ? clubSlug : undefined,
+          acceptedTerms: true,
+          termsVersion: TERMS_VERSION,
+          privacyVersion: PRIVACY_VERSION,
         }),
       });
 
@@ -192,6 +204,27 @@ export default function SignupPage() {
               />
               <p className="text-xs text-stone-400 mt-1">At least 8 characters</p>
             </div>
+
+            <label className="flex items-start gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                required
+                className="mt-1 h-4 w-4 rounded border-stone-300 text-[#534AB7] focus:ring-[#534AB7]"
+              />
+              <span>
+                I agree to the{" "}
+                <Link href="/terms" target="_blank" className="font-medium text-[#534AB7] underline">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link href="/privacy" target="_blank" className="font-medium text-[#534AB7] underline">
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
 
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">

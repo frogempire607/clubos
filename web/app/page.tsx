@@ -619,10 +619,12 @@ export default function Home() {
               © {new Date().getFullYear()} AthletixOS. All rights reserved.
             </span>
           </div>
-          <div style={{ display: "flex", gap: 24 }}>
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
             <Link href="/pricing" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Pricing</Link>
             <Link href="/login" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Sign in</Link>
             <Link href="/signup" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Sign up</Link>
+            <Link href="/terms" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Terms</Link>
+            <Link href="/privacy" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Privacy</Link>
             <a href="mailto:contact@athletix-os.com" style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}>Contact</a>
           </div>
         </div>
