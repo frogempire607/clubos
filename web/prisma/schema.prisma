@@ -172,6 +172,7 @@ model Club {
   staffCompensations          StaffCompensation[]
   plaidConnections            PlaidConnection[]
   pendingApprovals            PendingApproval[]
+  legalAcceptances            LegalAcceptance[]
 
   @@index([slug])
   @@map("clubs")
@@ -306,11 +307,35 @@ model User {
   compensation            StaffCompensation?
   staffDocuments          StaffDocument[]              @relation("StaffDocsTarget")
   uploadedStaffDocs       StaffDocument[]              @relation("StaffDocsUploader")
+  legalAcceptances        LegalAcceptance[]
 
   @@unique([clubId, email])
   @@index([clubId])
   @@index([email])
   @@map("users")
+}
+
+// Audit-grade record of Terms of Service + Privacy Policy acceptance.
+// One row per (user, documentType) acceptance event. New acceptance of a
+// new version creates a new row — we never overwrite history. Two rows are
+// written per signup (TOS + PRIVACY). Source-of-truth versions live in
+// legal/versions.ts (TERMS_VERSION + PRIVACY_VERSION).
+model LegalAcceptance {
+  id           String   @id @default(cuid())
+  userId       String
+  clubId       String?
+  documentType String   // "TOS" | "PRIVACY"
+  version      String   // e.g. "2026-06-05-draft"
+  acceptedAt   DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club Club? @relation(fields: [clubId], references: [id], onDelete: SetNull)
+
+  @@index([userId, documentType])
+  @@index([clubId, documentType])
+  @@map("legal_acceptances")
 }
 
 // Documents the owner uploads to a staff member's profile — tax docs
