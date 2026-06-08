@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { upsertGuardianProfile } from "@/lib/guardian";
+import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import {
   resolveName,
   parseFlexibleDate,
@@ -68,6 +69,11 @@ export async function POST(req: Request) {
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // 5 imports per 10 minutes per session. Member import is heavy
+  // (DB writes per row up to 2000) and a normal user does it rarely.
+  const rl = rateLimit({ key: `import:members:${session.user.id}`, limit: 5, windowMs: 10 * 60_000 });
+  if (!rl.allowed) return rateLimitedResponse(rl, "Too many import attempts. Wait a few minutes between bulk imports.");
 
   try {
     const body = await req.json();

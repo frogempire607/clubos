@@ -17,6 +17,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Owner-side at-the-door charge. Members must use the member-facing
+  // registration flow which enforces parent controls and tier eligibility.
+  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
     const body = await req.json();

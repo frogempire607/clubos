@@ -45,6 +45,12 @@ export async function GET() {
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Role gate: only OWNER or STAFF with messages permission can broadcast.
+  // Without this a MEMBER could craft a POST and broadcast to every member
+  // (including email blasts on Pro+) — never accepted to ship that.
+  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
     const data = schema.parse(await req.json());
