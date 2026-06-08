@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-03 (P1 UI/UX fixes on `feat/p1-ui-fixes` — 7 commits, tip `e48edf2`. P1.B dark mode contrast + login tokenization, P1.C sign-in logo → landing link, P1.D calendar grid + mobile day-list redesign, P1.E member nav adds Bookings + secondary items move to More sheet, P1.F owner dashboard widgets for Recent messages + Recent bookings, P1.G iOS app icon regenerated from circle.PNG, **P1.H sweep eliminates every remaining unicode/emoji tofu glyph across the native app — 46 files, lucide-react SVG replacements everywhere, fixes buildPortalNav Book Now icon mapping**. Branch off `main` 62ea801; NOT pushed, NOT merged. **CODE-LEVEL VERIFICATION DONE** (tsc/build/cap:sync all clean); simulator + browser smoke not yet run. P2 privates overhaul / P3 notifications / P4 minor accounts / CX landing redesign / CY Android docs all queued — see Session log — 2026-06-03 below for full plan + manual test checklist. Earlier merge to main (commit 62ea801) brought in 43 commits from native-app-shell: Native Capacitor shell + URL/redirect hardening + dashboard mobile-aware redesign + lucide SVG icons + parent-child message context + events page scoreboard layout + security pass with lib/ratelimit.ts + lib/sanitizeHtml.ts + zod gaps closed.)
+Last updated: 2026-06-05. `main` at tip `0e3aeaf`, pushed to `origin/main`. Since 2026-06-03 the following shipped in order: **P1 UI/UX fixes** merged to main (was `feat/p1-ui-fixes`, 7 commits — dark mode contrast, sign-in logo link, calendar grid + mobile day-list, member nav Bookings + More sheet, owner dashboard Recent messages + Recent bookings widgets, iOS app icon regen, full unicode-glyph eradication across 46 files); **CX overhaul** (5 commits — pricing page rebuild with 14-day trial + email/3-5d/urgent-call support copy + Help Center references removed, SEO foundation with rich metadata + sitemap.ts + robots.ts + JSON-LD Organization & SoftwareApplication, landing page premium rewrite with hero/use-cases/value-props, member portal trial badge, signup trial reinforcement); **CY Android verification docs** (`docs/android-verification.md` — emulator + device setup, 8-min smoke checklist, keystore setup, Play Console first-time submission); **real-domain wiring** (`athletix-os.com` everywhere — SITE_URL fallback, EMAIL_FROM `noreply@athletix-os.com`, slug-prefix labels, support/hello/contact inbox routing; iOS+Android bundle ID `com.athletixos.app` preserved); **security audit Tasks 1-8** all complete with results in `SECURITY_AUDIT_RESULTS.md` (Task 2 multi-tenant isolation defense-in-depth fixes, Task 5 security headers + Report-Only CSP in `next.config.mjs`, Task 6 NextAuth login rate-limit + bcrypt cost 10→12 + explicit 14-day session, Task 7 email-test zod validation, Task 8 `/terms` + `/privacy` public pages + signup consent checkbox + `LegalAcceptance` model & migration applied + member-signup consent symmetry). Pinned versions preserved throughout (no new deps, no Prisma 7 upgrade). All 13 post-2026-06-03 commits pushed.
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -187,10 +187,13 @@ Important navigation notes:
 
 Public/auth pages:
 
-- `/` — marketing landing page (hero, features, embedded tiers, CTA, footer)
-- `/pricing` — dedicated tier comparison page with table + FAQ; linked from landing nav and footer
+- `/` — marketing landing page (premium rewrite — hero with lime "All in one system." accent, value-prop trio, features grid, "Built for your sport" dark section with 4 use-cases, pricing snapshot, footer with Terms/Privacy/Contact links)
+- `/pricing` — dedicated tier comparison page with 14-day free trial messaging throughout, support promise card ("Email support included · 3–5 business day response · urgent → call"), 18-row comparison table with lucide Check/Minus icons, FAQ; linked from landing nav and footer
+- `/terms` — public Terms of Service page (renders from `app/terms/page.tsx`, source of truth `legal/TERMS_OF_SERVICE.md`, DRAFT blockquote hidden from public render). 720px reading width, Fraunces headings, brand-violet links, version hash from `legal/versions.ts`
+- `/privacy` — public Privacy Policy page (renders from `app/privacy/page.tsx`, source `legal/PRIVACY_POLICY.md`). Same chrome as /terms, two-role + COPPA structure
+- `/sitemap.xml` and `/robots.txt` — Next 14 generated from `app/sitemap.ts` + `app/robots.ts`. Sitemap lists `/`, `/pricing`, `/login`, `/signup`. Robots allows public marketing routes, disallows `/api/`, `/dashboard/`, `/member/`, auth flows, `/onboarding`, `/setup`
 - `/login`
-- `/signup`
+- `/signup` — gated by a required "I agree to the Terms of Service and Privacy Policy" checkbox; server enforces `acceptedTerms: z.literal(true)` and writes two `LegalAcceptance` rows (TOS + PRIVACY) capturing version + timestamp + IP + user-agent
 - `/forgot-password`
 - `/reset-password`
 - `/onboarding`
@@ -238,7 +241,7 @@ Member portal pages:
 - `/member/bookings` — child-switcher for parents; shows bookings per accessible member
 - `/member/documents` — child-switcher + sign / re-sign with audit trail and frequency-based expiry
 - `/member/profile` — account profile plus Family & athlete access area for parent/guardian switching and child linking
-- `/member/signup`
+- `/member/signup` — same gated Terms/Privacy checkbox on step 3 of the wizard; server writes the same two `LegalAcceptance` rows on success
 - `/member/announcements`
 - `/member/messages`, `.../dm/[userId]`, `.../group/[id]`
 - `/member/memberships`
@@ -251,8 +254,8 @@ Member portal pages:
 
 Auth:
 
-- `/api/auth/[...nextauth]`
-- `/api/auth/signup`
+- `/api/auth/[...nextauth]` — login `authorize()` now rate-limits 10 attempts / 10 min per IP via `lib/ratelimit`; session JWT `maxAge` explicitly set to 14 days (was inheriting 30-day default)
+- `/api/auth/signup` — schema requires `acceptedTerms: z.literal(true)` + `termsVersion` + `privacyVersion`; writes two `LegalAcceptance` rows (TOS + PRIVACY) on success with IP + user-agent
 - `/api/auth/forgot-password`
 - `/api/auth/reset-password`
 - `/api/auth/change-password`
@@ -385,7 +388,7 @@ Core models currently present:
 - Documents/settings: `Document`, `DocumentSignature`, `CustomField`, `ClubProfile`, `LegalEntity`, `DonationLink`
 - Financials: `Transaction`, `Expense`, `PlaidConnection`
 - Private lessons/staff: `PrivateLessonType`, `PrivatePackage`, `PrivateCreditLedger`, `PrivateBooking`, `PrivateLessonPayRate`, `StaffAvailability`, `StaffAvailabilityException`
-- Infra: `UploadedFile`, `StripeWebhookEvent`
+- Infra: `UploadedFile`, `StripeWebhookEvent`, `LegalAcceptance` (audit-grade Terms/Privacy acceptance — one row per (user, documentType); `User.legalAcceptances` + `Club.legalAcceptances` reverse relations)
 
 Notable model fields added since 2026-05-03:
 
@@ -439,12 +442,17 @@ Migration folders currently present:
 - `20260604000000_class_visibility_message_read_dates` — `RecurringClass.visibility` (PUBLIC/MEMBERS_ONLY/PRIVATE), `AnnouncementEngagement` / `GroupMessageReceipt` index work
 - `20260605000000_member_billing_visibility` — `Club.memberBillingVisibility` JSONB
 - `20260607000000_plaid_multiple_banks` — `plaid_connections` table + nullable `plaidConnectionId` on `transactions` and `expenses`; backfills legacy single-bank rows
+- `20260610000000_minor_parental_controls` — `members.birthdayLockedAt`, `members.parentControls` (JSONB), `pending_approvals` table for guardian-approval gate (P4)
+- `20260611000000_legal_acceptances` — `legal_acceptances` table (id, userId, clubId?, documentType, version, acceptedAt, ipAddress?, userAgent?) with `(userId, documentType)` + `(clubId, documentType)` indexes; FK to users ON DELETE CASCADE, FK to clubs ON DELETE SET NULL. Two rows written per signup (TOS + PRIVACY) by `/api/auth/signup` and `/api/member/signup`
 
 Current migration status:
 
 - `npx prisma migrate status` currently fails locally with a bare `Schema engine error:` even though direct `psql` checks work and the additive 20260603 migrations were applied locally.
 - `npx prisma validate` passes.
-- New libs: `lib/permissions.ts`, `lib/apiGuard.ts`, `lib/fees.ts`, `lib/financials.ts`, `lib/financialReports.ts`, `lib/migration.ts`, `lib/migrationServer.ts`, `lib/memberLink.ts`, `lib/dashboardWidgets.ts`, `lib/datetime.ts`, `lib/activeProfile.ts`, `lib/categoryMatcher.ts`, `lib/privatePartners.ts`, `lib/memberMessaging.ts`, `lib/eventTypeColors.ts`.
+- New libs: `lib/permissions.ts`, `lib/apiGuard.ts`, `lib/fees.ts`, `lib/financials.ts`, `lib/financialReports.ts`, `lib/migration.ts`, `lib/migrationServer.ts`, `lib/memberLink.ts`, `lib/dashboardWidgets.ts`, `lib/datetime.ts`, `lib/activeProfile.ts`, `lib/categoryMatcher.ts`, `lib/privatePartners.ts`, `lib/memberMessaging.ts`, `lib/eventTypeColors.ts`, `lib/ratelimit.ts`, `lib/sanitizeHtml.ts`, `lib/baseUrl.ts`, `lib/signOutEverywhere.ts`, `lib/dashboardNav.ts`, `lib/preview.ts`, `lib/memberStatus.ts`.
+- Repo-root non-code deliverables: `licenses.json` (Task 1 audit output, 704 packages), `SECURITY_AUDIT_RESULTS.md` (Tasks 1-7 final prioritized report).
+- `legal/` directory: `legal/TERMS_OF_SERVICE.md`, `legal/PRIVACY_POLICY.md` (verbatim sources with DRAFT blockquote), `legal/versions.ts` (TERMS_VERSION + PRIVACY_VERSION constants imported by `/terms`, `/privacy`, `/signup`, `/member/signup` so they cannot drift).
+- New docs: `docs/android-verification.md` (Android setup + smoke + keystore + Play submission), `docs/proposed-migration-legal-acceptance.md` (kept as historical reference for the now-applied migration).
 - Major additions this cycle: member-portal club branding + auto-link, event mass-invoicing + tournament pricing fix, customizable dashboard, Guest/Contractor management, staff roles/permissions + restricted staff view, per-occurrence class schedule edits, Member Migration wizard, new 3-tier pricing + pass-through fees, Financial OS, attendance cash/comp/invoice for non-members.
 
 ## Migration Warning Notes
@@ -796,13 +804,82 @@ Documented in `.env.example`. Critical for production:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_GROWTH` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_ENTERPRISE` — recurring Price IDs for the ClubOS-own tiers (different in test vs live mode)
+- `NEXT_PUBLIC_SITE_URL` — production absolute URL (default fallback `https://athletix-os.com`); drives canonical/OG/JSON-LD/sitemap/robots
 - `UPLOADS_DIR` (optional; defaults to `./storage/uploads`)
-- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing)
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing). Set `EMAIL_FROM=AthletixOS <noreply@athletix-os.com>` in prod
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
 
-## Session log — 2026-06-03 (P1 UI/UX fixes — branch feat/p1-ui-fixes, NOT merged)
+## Session log — 2026-06-05 (CX overhaul + CY Android docs + real-domain wiring + Security audit Tasks 1-8 + Task 8 legal pages and migration)
 
-Branch: `feat/p1-ui-fixes` off `main` 62ea801. Tip: `e48edf2`. **Not pushed. Not merged.** Waiting on user sign-off before merging to main and starting P2.
+All work below is on `main` and pushed to `origin/main`. Tip: `0e3aeaf`. 13 commits between 2026-06-03 and 2026-06-05.
+
+### CX — public-facing UX overhaul (5 commits, merged from `feat/cx-overhaul`)
+
+| SHA | Commit |
+|---|---|
+| `29270ce` | C1 pricing overhaul — remove ambiguous "Help Center" implication; explicit support promise ("Email support included · 3-5 business day response · urgent operational → call"); 14-day free trial messaging in hero pill + per-tier line + comparison row + FAQ + final CTA; lucide Check/Minus replace unicode glyphs; per-page metadata for SEO |
+| `84f4156` | C2 SEO foundation — `app/layout.tsx` rich metadata (metadataBase, title template, OG, Twitter, Permissions-Policy, robots config) targeting wrestling/MMA/martial-arts/gymnastics/youth-sports keywords; new `app/sitemap.ts` + `app/robots.ts`; Organization + SoftwareApplication JSON-LD via `next/script` |
+| `1dbe50b` | C3 landing page premium rewrite — bold hero with lime "All in one system." accent; trust-line under hero (no fake logos); value-prop trio (Replace 7 apps / 0% fee / Native shell); "Built for your sport" dark section (wrestling/BJJ-MMA/gymnastics/youth sports); pricing snapshot with "Compare every feature" link; gradient final CTA with dual buttons |
+| `882d6c2` | C4 member portal trial badge — `/api/member/memberships` now returns `trialEnabled/trialDays/trialAppliesToReturning`; `/member/memberships` renders a lime Sparkles pill ("14-day free trial · new members" qualifier) when enabled |
+| `6a7fa6f` | C5 signup trial reinforcement — `/signup` shows a violet-gradient "YOUR 14-DAY FREE TRIAL STARTS NOW" banner above the form (only in 'Create a club' mode), brand-violet submit button replaces stone-900 |
+
+Merged to main as `2c22af9`.
+
+### CY — Android verification & release docs (1 commit, `acb7723`)
+
+`docs/android-verification.md` (310 lines, 10 sections): current Android setup table (com.athletixos.app, Capacitor 8, AGP 8.13, SDK 24-36, NO keystore yet), host setup (Android Studio + JDK + ANDROID_HOME + AVD), emulator dev loop (the `10.0.2.2:3000` gotcha vs iOS Simulator's `127.0.0.1`), physical-device LAN-IP setup, 12-row smoke test mirroring iOS, troubleshooting table, **keystore generation with hard warning that losing the .jks = permanent loss of update access to the Play listing**, signed AAB build, Play Console Data Safety form answers, routine maintenance schedule, what's still NOT built (push/FCM, per-club apps, deep linking).
+
+### Real-domain wiring (1 commit, `6391605`)
+
+User registered `athletix-os.com` (hyphenated) and set up `info@`, `support@`, `contact@`, `noreply@`, `hello@` inboxes. CX commits had used the placeholder `athletixos.app`. Fixed across 14 files:
+
+- `app/layout.tsx`, `app/sitemap.ts`, `app/robots.ts` SITE_URL fallback → `https://athletix-os.com`
+- `lib/email.ts` EMAIL_FROM default + baseLayout footer link
+- `app/api/club/email-settings/route.ts` default sendingAddress
+- 5 slug-prefix UI labels in onboarding + settings + member signup (`clubos.app/<slug>` → `athletix-os.com/<slug>`)
+- Pricing FAQ support@ reference + Enterprise contact-sales mailto (`hello@`)
+- Landing + pricing + terms + privacy footer Contact link (`contact@`)
+- `scripts/native-dev-switch.mjs` + `scripts/native-shell-config.mjs` + `docs/android-verification.md` example URLs
+
+**Bundle IDs preserved** — `com.athletixos.app` is App Store / Play Store immutable identity; domain doesn't have to match.
+
+### Security audit (Tasks 1-8) — `SECURITY_AUDIT_RESULTS.md` at repo root
+
+Pinned versions preserved (no Prisma 7.x upgrade despite nag). Pure read-only Tasks 1, 3, 4 produced no code commits beyond `licenses.json`. Action commits:
+
+| SHA | Task | Closed |
+|---|---|---|
+| `c5e7aea` | 2 — Multi-tenant isolation | F-1: `recomputeMemberStatus(memberId)` → `recomputeMemberStatus(memberId, clubId)` with internal `findFirst({where:{id, clubId}})`; 7 callers updated. F-2: Stripe webhook `ClassSession` + `ProductSale` lookups switched from `findUnique({where:{id}})` to `findFirst({where:{id, clubId}})` using metadata clubId. F-3 (central `tenantDb` wrapper) deferred as security debt |
+| `342d8ad` | 5 — Security headers | `next.config.mjs` sends HSTS (2y + subdomains + preload), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (camera/mic/geo/FLoC denied). CSP shipped Report-Only — script-src includes `'unsafe-inline'` (3 inline scripts in `app/layout.tsx`, nonce wiring deferred), pre-permits Stripe redirect + Plaid Link iframes + Capacitor WebView. Promote `Content-Security-Policy-Report-Only` → `Content-Security-Policy` after ~2 weeks of clean reports |
+| `0c5c340` | 6 — Auth hardening | F-AUTH-1: NextAuth `authorize()` rate-limits 10 attempts / 10 min per IP via `lib/ratelimit`. F-AUTH-2: bcrypt cost 10 → 12 at all 7 hash sites (signup, password reset, change-password, member signup, member-migration activation, staff invite, contractor invite); existing hashes still verify. F-AUTH-3: `session.maxAge = 60*60*24*14` (was inheriting 30d). One-time user re-login after deploy |
+| `6ad3a1b` | 7 — Input validation | `app/api/club/email-test/route.ts` validates optional `to` field through `z.string().email().optional()`. Audit found 114 of 131 mutate routes use Zod; remaining 17 verified safe (15 take only URL params, 1 is signature-verified webhook, 1 has manual enum validator). Zero `$queryRawUnsafe` anywhere; the one `$queryRaw` site (`/api/reports/overview`) is correctly parameterized |
+| `47bb884` | — | `SECURITY_AUDIT_RESULTS.md` saved at repo root (Critical/High/Medium/Low prioritization, per-finding status, deferred security debt with rationale) |
+
+Tasks 1 (license audit) + 3 (Stripe webhook signature) + 4 (secrets & git history audit) confirmed **clean** — no GPL/AGPL/LGPL/SSPL anywhere, signature verification correctly uses raw body + env secret + idempotency via `StripeWebhookEvent`, no real `sk_live`/`whsec_`/`DATABASE_URL` credentials in current code or 155-commit history.
+
+### Task 8 — Legal pages, signup consent, LegalAcceptance migration (3 commits)
+
+| SHA | What |
+|---|---|
+| `0849949` | `legal/TERMS_OF_SERVICE.md` + `legal/PRIVACY_POLICY.md` saved verbatim (DRAFT blockquote in source, NOT in public render). `app/terms/page.tsx` + `app/privacy/page.tsx` (720px reading width, Fraunces headings, brand-violet links, footer with legal links). `legal/versions.ts` single source of truth for `TERMS_VERSION` + `PRIVACY_VERSION`. Footer links added to landing + pricing. `/signup` checkbox required (links open new tab, server-enforced `z.literal(true)`). Initially used a feature-detection guard on `prisma.legalAcceptance` so the route worked before migration |
+| `c4acb12` | **Migration applied** — `prisma/migrations/20260611000000_legal_acceptances/migration.sql` hand-written per project pattern. Schema gained `model LegalAcceptance` + `User.legalAcceptances` + `Club.legalAcceptances`. Verified live in Postgres via `\d legal_acceptances`. `npx prisma generate` v5.7.0 (pinned). `/api/auth/signup` now writes real DB rows on every signup |
+| `0e3aeaf` | `/member/signup` symmetric consent — step 3 of the wizard has the same checkbox + server schema requires `acceptedTerms: z.literal(true)` + writes two `LegalAcceptance` rows (TOS + PRIVACY) on success |
+
+**Audit trail per signup**: 2 rows in `legal_acceptances` with `documentType` (TOS/PRIVACY), `version` (e.g. `2026-06-05-draft`), `acceptedAt`, `ipAddress`, `userAgent`. Insert-only, never updated. Defensible proof of consent for attorney review.
+
+### Cookie banner — not needed today
+
+Zero third-party analytics (no GA, no FB pixel, no Hotjar, no Mixpanel). Only cookies are session, theme, preview — all "strictly necessary" and exempt from GDPR banner rules. Currently US-only per Privacy Policy. **Add cookie banner if you ever add analytics/marketing pixels.**
+
+### What's queued / not started
+
+P2 privates overhaul, P3 notifications, P4 minor parental controls were completed earlier (merged at `fbcc2c3`). No active backlog items from prior session logs are pending — the audit and Task 8 took the queue down to zero. Next operational items live in `SECURITY_AUDIT_RESULTS.md` "Items for the operator" section (live Stripe keys, prod env vars, promote CSP to enforcing after 2 weeks, etc.).
+
+---
+
+## Session log — 2026-06-03 (P1 UI/UX fixes — merged to main at 2c22af9)
+
+Branch: `feat/p1-ui-fixes` off `main` 62ea801. Tip: `e48edf2`. **Merged to main 2026-06-05.**
 
 ### Commits this session (oldest → newest)
 
