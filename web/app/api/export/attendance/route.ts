@@ -19,9 +19,9 @@ export async function GET(req: Request) {
       select: { tier: true },
     });
     const features = getTierFeatures(club?.tier ?? "growth");
-    if (!features.reports) {
+    if (!features.advancedAnalytics) {
       return new Response(
-        "Excel and PDF exports require a Growth plan or higher. Use CSV instead, or upgrade.",
+        "Excel and PDF exports are available on Pro and Enterprise plans. Use CSV instead, or upgrade.",
         { status: 403 },
       );
     }

@@ -10,6 +10,7 @@ import {
   mergeBrandedAppConfig,
   type BrandedAppConfig,
 } from "@/lib/brandedApp";
+import { getTierFeatures, tierBlockedBody, upgradeRequired } from "@/lib/tier";
 
 // Branded mobile-app configuration. Owner-only — this drives the native
 // wrapper (Capacitor) the club ships to the App Store / Google Play.
@@ -81,9 +82,20 @@ export async function PATCH(req: Request) {
 
   const club = await prisma.club.findUnique({
     where: { id: session.user.clubId },
-    select: { name: true, slug: true, primaryColor: true, logoUrl: true, brandedAppConfig: true },
+    select: { name: true, slug: true, primaryColor: true, logoUrl: true, brandedAppConfig: true, tier: true },
   });
   if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
+
+  // Tier gate: the branded mobile app is a Pro+ feature.
+  if (!getTierFeatures(club.tier).brandedApp) {
+    return NextResponse.json(
+      tierBlockedBody({
+        message: "The branded mobile app is available on Pro and Enterprise plans. Upgrade to configure it.",
+        upgradeRequired: upgradeRequired(club.tier, "brandedApp"),
+      }),
+      { status: 403 },
+    );
+  }
 
   const config: BrandedAppConfig = mergeBrandedAppConfig(
     defaultBrandedAppConfig(club),

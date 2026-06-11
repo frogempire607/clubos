@@ -97,6 +97,11 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   if (!session || session.user.role !== "OWNER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  await prisma.messageGroup.delete({ where: { id: params.id } });
+  // Scope to the caller's club — deleteMany returns count instead of throwing,
+  // and the clubId predicate prevents cross-tenant deletion by guessed id.
+  const deleted = await prisma.messageGroup.deleteMany({
+    where: { id: params.id, clubId: session.user.clubId },
+  });
+  if (deleted.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

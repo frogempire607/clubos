@@ -67,7 +67,7 @@ const TIERS = [
     price: "$99/mo",
     fee: "Built for growing, professional organizations.",
     color: "#fff",
-    features: ["Everything in Growth", "Unlimited members", "Up to 3 locations", "Plaid bank reconciliation", "Email & SMS messaging", "Branded iOS & Android app", "Advanced analytics", "Priority support"],
+    features: ["Everything in Growth", "Unlimited members", "Up to 3 locations", "Plaid bank reconciliation", "Email & SMS messaging", "Branded iOS & Android app", "Excel & PDF exports", "Priority support"],
   },
   {
     id: "enterprise",
@@ -75,7 +75,7 @@ const TIERS = [
     price: "$199+/mo",
     fee: "Powerful infrastructure for large-scale operations.",
     color: "var(--color-text)",
-    features: ["Everything in Pro", "Unlimited locations", "API access", "SSO", "Advanced permissions", "Custom onboarding", "Dedicated account manager", "Enterprise reporting"],
+    features: ["Everything in Pro", "Unlimited locations", "Custom onboarding", "Dedicated account manager", "Enterprise reporting"],
   },
 ];
 

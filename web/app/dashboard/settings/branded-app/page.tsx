@@ -7,6 +7,7 @@ import {
   type BrandedAppConfig,
   type BrandedNavKey,
 } from "@/lib/brandedApp";
+import { canUseFeature } from "@/lib/tier";
 
 type SectionKey =
   | "thumbnail"
@@ -121,6 +122,33 @@ export default function BrandedAppPage() {
   }
 
   if (loading) return <div className="p-8 text-sm text-text-muted">Loading...</div>;
+
+  // Tier gate: branded app is Pro+. Show an upgrade state instead of the editor.
+  if (clubInfo && !canUseFeature(clubInfo.tier, "brandedApp")) {
+    return (
+      <div className="p-6 lg:p-8 max-w-3xl mx-auto">
+        <div className="mb-2">
+          <Link href="/dashboard/settings" className="text-sm text-text-muted hover:text-text-primary">
+            Settings
+          </Link>
+        </div>
+        <div className="rounded-2xl border border-app-border bg-app-surface p-10 text-center">
+          <h1 className="text-2xl font-semibold text-text-primary">Branded mobile app</h1>
+          <p className="mt-3 text-sm text-text-muted max-w-md mx-auto">
+            Ship your own iOS and Android app with your club&apos;s name, icon, and colors.
+            The branded app editor is available on Pro and Enterprise plans.
+          </p>
+          <Link
+            href="/dashboard/settings"
+            className="mt-6 inline-block px-5 py-2.5 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
+          >
+            Upgrade to Pro →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (!cfg) return <div className="p-8 text-sm text-text-muted">Could not load configuration.</div>;
 
   return (

@@ -69,7 +69,7 @@ const tiers = [
     name: "Enterprise",
     price: 199,
     desc: "Powerful infrastructure for large-scale operations.",
-    highlights: ["Everything in Pro", "Unlimited locations", "API access", "SSO & advanced permissions", "Custom onboarding", "Dedicated account manager"],
+    highlights: ["Everything in Pro", "Unlimited locations", "Custom onboarding", "Dedicated account manager"],
     cta: "Contact us",
     featured: false,
   },

@@ -125,8 +125,9 @@ function parseCSV(text: string): string[][] {
 }
 
 const MEMBER_FIELDS = [
-  { key: "firstName",            label: "First name",            required: true  },
-  { key: "lastName",             label: "Last name",             required: true  },
+  { key: "athleteName",          label: "Athlete name (full)",   required: false },
+  { key: "firstName",            label: "First name",            required: false },
+  { key: "lastName",             label: "Last name",             required: false },
   { key: "email",                label: "Email",                 required: false },
   { key: "phone",                label: "Phone",                 required: false },
   { key: "dateOfBirth",          label: "Date of birth",         required: false },
@@ -1172,7 +1173,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
   // Map the synthetic "athleteName" to its underlying CSV columns so we can show
   // First/Last in the dropdown but still honor the owner's enabled/required config.
   const cfgKeyToCsvKeys: Record<MemberFormFieldKey, string[]> = {
-    athleteName: ["firstName", "lastName"],
+    athleteName: ["athleteName", "firstName", "lastName"],
     email: ["email"],
     phone: ["phone"],
     dateOfBirth: ["dateOfBirth"],
@@ -1195,8 +1196,11 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
   // isMinor=true, not toggleable by the form config.
   ["guardianName", "guardianEmail", "guardianPhone"].forEach((k) => allowedCsvKeys.add(k));
 
+  // Name is special: satisfied by EITHER "Athlete name (full)" OR First+Last.
   const requiredCsvKeys = new Set<string>(
-    formConfig.requiredFields.flatMap((k) => cfgKeyToCsvKeys[k] ?? [])
+    formConfig.requiredFields
+      .filter((k) => k !== "athleteName")
+      .flatMap((k) => cfgKeyToCsvKeys[k] ?? [])
   );
 
   const mappingFields = [
@@ -1226,6 +1230,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
         else if (lh.includes("guardian") && lh.includes("email")) autoMap[i] = "guardianEmail";
         else if (lh.includes("guardian") && lh.includes("phone")) autoMap[i] = "guardianPhone";
         else if (lh.includes("guardian") && (lh.includes("relation") || lh.includes("relationship"))) autoMap[i] = "guardianRelationship";
+        else if (lh.includes("athletename") || lh.includes("fullname") || lh.includes("membername") || lh === "name" || lh === "athlete" || lh === "player") autoMap[i] = "athleteName";
         else if (lh.includes("first")) autoMap[i] = "firstName";
         else if (lh.includes("last")) autoMap[i] = "lastName";
         else if (lh.includes("email")) autoMap[i] = "email";
@@ -1259,15 +1264,16 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
         if (field && field !== "skip") obj[field] = row[i] || "";
       });
       return obj;
-    }).filter((m) => m.firstName || m.lastName);
+    }).filter((m) => m.athleteName || m.firstName || m.lastName);
   }
 
   async function handleImport() {
     setImporting(true);
     setError("");
     const members = buildMembers().map((m) => ({
-      firstName: m.firstName || "(no name)",
-      lastName: m.lastName || "",
+      athleteName: m.athleteName || undefined,
+      firstName: m.firstName || undefined,
+      lastName: m.lastName || undefined,
       email: m.email || undefined,
       phone: m.phone || undefined,
       dateOfBirth: m.dateOfBirth || undefined,
@@ -1337,7 +1343,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
                 <p className="font-medium mb-1">CSV format tips:</p>
                 <ul className="space-y-0.5 list-disc list-inside">
                   <li>First row should be column headers</li>
-                  <li>Required columns: First Name, Last Name</li>
+                  <li>Required: a name — either one &quot;Athlete Name&quot; (full name) column, or First Name + Last Name</li>
                   <li>Optional: Email, Phone, Date of Birth, Gender, Address, Status, Tags, Notes</li>
                   <li>For minors: Guardian Name, Guardian Email, Guardian Phone (required)</li>
                   <li>Any custom fields you've created are also mappable</li>
@@ -1350,6 +1356,8 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
           {step === "map" && (() => {
             const mappedKeys = new Set(Object.values(mapping).filter((v) => v && v !== "skip"));
             const missingRequired = Array.from(requiredCsvKeys).filter((k) => !mappedKeys.has(k));
+            const hasName = mappedKeys.has("athleteName") || mappedKeys.has("firstName") || mappedKeys.has("lastName");
+            if (!hasName) missingRequired.unshift("athleteName (full) or firstName/lastName");
             return (
               <div>
                 <p className="text-sm text-text-muted mb-2">
@@ -1409,7 +1417,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
                   <tbody>
                     {preview.map((m, i) => (
                       <tr key={i} className="border-t border-app-border">
-                        <td className="px-3 py-2 font-medium">{m.firstName} {m.lastName}</td>
+                        <td className="px-3 py-2 font-medium">{m.athleteName || `${m.firstName || ""} ${m.lastName || ""}`.trim()}</td>
                         <td className="px-3 py-2 text-text-muted">{m.email || "—"}</td>
                         <td className="px-3 py-2 text-text-muted">{m.status || "ACTIVE"}</td>
                         <td className="px-3 py-2 text-text-muted">{m.guardianName || "—"}</td>
