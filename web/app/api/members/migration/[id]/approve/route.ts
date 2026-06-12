@@ -56,12 +56,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   } else {
     anchor = member.billingAnchorDate;
   }
-  anchor = resolveBillingAnchor({
-    nextBillingDate: anchor,
-    membershipStartDate: member.membershipStartDate,
-    frequency: member.legacyBillingFrequency,
-    now: new Date(),
-  });
+  // No explicit date anywhere → derive one from the imported start date.
+  if (!anchor) {
+    anchor = resolveBillingAnchor({
+      nextBillingDate: null,
+      membershipStartDate: member.membershipStartDate,
+      frequency: member.legacyBillingFrequency,
+      now: new Date(),
+    });
+  }
+  // If the agreed billing date already passed (member activated late), the
+  // missed charge is collected NOW and the cycle recurs every frequency from
+  // this charge — we do not skip ahead to the next cycle.
+  const billsImmediately = !!anchor && anchor.getTime() <= Date.now() + 60_000;
+  if (billsImmediately) anchor = new Date();
 
   // Resolve the plan: owner-assigned Membership first, else legacy snapshot.
   let planName = member.legacyMembershipName || "Continued membership";
@@ -210,7 +218,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       clubId: club.id,
       memberId: member.id,
       type: "COMPLETED",
-      message: `Approved — billing continues ${anchor ? `from ${anchor.toLocaleDateString()}` : "on file"} (${planName})`,
+      message: billsImmediately
+        ? `Approved — billing date had passed, so the cycle charge ran at approval and recurs ${period.toLowerCase()} from today (${planName})`
+        : `Approved — billing continues ${anchor ? `from ${anchor.toLocaleDateString()}` : "on file"} (${planName})`,
       actorUserId: session.user.id,
     },
   });

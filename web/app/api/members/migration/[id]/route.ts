@@ -41,6 +41,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 const patchSchema = z.object({
   migrationMembershipId: z.string().optional().nullable(),
   billingAnchorDate: z.string().optional().nullable(),
+  billingFrequency: z.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMI_ANNUAL", "ANNUAL"]).optional().nullable(),
   commitmentEndDate: z.string().optional().nullable(),
   priceOverride: z.number().nonnegative().optional().nullable(),
   discountNote: z.string().max(200).optional().nullable(),
@@ -103,6 +104,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         : {}),
       ...(data.billingAnchorDate !== undefined
         ? { billingAnchorDate: parseDate(data.billingAnchorDate) }
+        : {}),
+      ...(data.billingFrequency !== undefined
+        ? { legacyBillingFrequency: data.billingFrequency || null }
         : {}),
       ...(data.commitmentEndDate !== undefined
         ? { commitmentEndDate: parseDate(data.commitmentEndDate) }

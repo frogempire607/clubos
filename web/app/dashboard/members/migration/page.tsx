@@ -480,6 +480,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
   const [priceOverride, setPriceOverride] = useState("");
   const [discountNote, setDiscountNote] = useState("");
   const [anchor, setAnchor] = useState("");
+  const [frequency, setFrequency] = useState("MONTHLY");
   const [endDate, setEndDate] = useState("");
   const [editable, setEditable] = useState<Record<string, boolean>>({
     phone: true, email: false, billingDateRequest: true, notes: true,
@@ -501,6 +502,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
         );
         setDiscountNote(m.migrationDiscountNote || "");
         setAnchor(dInput(m.billingAnchorDate));
+        setFrequency(m.legacyBillingFrequency || "MONTHLY");
         setEndDate(dInput(m.commitmentEndDate));
         setApproveDate(dInput(m.requestedBillingDate || m.billingAnchorDate));
         if (m.activationEditableFields) {
@@ -527,6 +529,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
         priceOverride: priceOverride.trim() === "" ? null : Number(priceOverride),
         discountNote: discountNote.trim() || null,
         billingAnchorDate: anchor || null,
+        billingFrequency: frequency || null,
         commitmentEndDate: endDate || null,
         activationEditableFields: editable,
       }),
@@ -538,7 +541,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
   }
 
   async function approve(acceptRequested: boolean) {
-    if (!confirm("Approve this member? Billing will be scheduled on the agreed date — they are not charged today.")) return;
+    if (!confirm("Approve this member? Billing is scheduled on the agreed date. If that date has already passed, the charge runs now and renews each cycle from today.")) return;
     setSaving(true); setMsg("");
     const res = await fetch(`/api/members/migration/${memberId}/approve`, {
       method: "POST",
@@ -660,11 +663,25 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">Next billing date</label>
                   <input type="date" value={anchor} onChange={(e) => setAnchor(e.target.value)} className="inp" />
-                  <p className="text-[11px] text-text-muted mt-1">First Stripe charge (old cycle or edit it)</p>
+                  <p className="text-[11px] text-text-muted mt-1">
+                    Defaults to the imported date. If it has already passed when you approve, the member is charged right away and the cycle restarts from that charge.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-1">Billing frequency</label>
+                  <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className="inp">
+                    <option value="WEEKLY">Weekly</option>
+                    <option value="BIWEEKLY">Every 2 weeks</option>
+                    <option value="MONTHLY">Monthly</option>
+                    <option value="QUARTERLY">Quarterly</option>
+                    <option value="SEMI_ANNUAL">Every 6 months</option>
+                    <option value="ANNUAL">Annual</option>
+                  </select>
+                  <p className="text-[11px] text-text-muted mt-1">How often the membership renews</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">End / commitment date</label>
