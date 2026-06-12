@@ -133,6 +133,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        {/* Cookieless analytics (Plausible). Loads only when configured —
+            no cookies, no personal data, so no consent banner is needed and
+            the privacy policy's "no tracking" posture stays true. */}
+        {process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN && (
+          <Script
+            defer
+            data-domain={process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN}
+            src="https://plausible.io/js/script.js"
+            strategy="afterInteractive"
+          />
+        )}
         <Script
           id="ld-organization"
           type="application/ld+json"
