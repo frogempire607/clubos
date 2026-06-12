@@ -21,9 +21,9 @@ export async function POST() {
   if (!features.plaid) {
     return NextResponse.json(
       {
-        error: "Bank integration requires a Growth plan or higher.",
+        error: "Plaid bank sync is available on Pro and Enterprise plans.",
         code: "UPGRADE_REQUIRED",
-        upgradeRequired: "growth",
+        upgradeRequired: "pro",
       },
       { status: 403 }
     );

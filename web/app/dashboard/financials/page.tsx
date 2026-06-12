@@ -941,6 +941,7 @@ function BankTab() {
   const [loading, setLoading] = useState(true);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [plaidError, setPlaidError] = useState<string | null>(null);
   const [plaidConfigured, setPlaidConfigured] = useState(true);
   // Owner-selected filter — when set, transactions/accounts are scoped
   // to just that bank connection. null = "All accounts".
@@ -960,10 +961,15 @@ function BankTab() {
 
   async function startPlaidLink() {
     setConnecting(true);
+    setPlaidError(null);
     const res = await fetch("/api/plaid/link-token", { method: "POST" });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setConnecting(false);
-    if (data.error) { if (data.error === "Plaid not configured") setPlaidConfigured(false); return; }
+    if (data.error) {
+      if (data.error === "Plaid not configured") setPlaidConfigured(false);
+      else setPlaidError(data.error);
+      return;
+    }
     setLinkToken(data.linkToken);
   }
   const onSuccess = useCallback(async (publicToken: string) => {
@@ -1034,6 +1040,9 @@ function BankTab() {
         <button onClick={startPlaidLink} disabled={connecting} className="px-6 py-2.5 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
           {connecting ? "Opening…" : "Connect bank account"}
         </button>
+        {plaidError && (
+          <p className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mt-4 max-w-sm mx-auto">{plaidError}</p>
+        )}
         <p className="text-xs text-text-muted mt-3">Secured by Plaid · Read-only access</p>
       </div>
     );
@@ -1056,6 +1065,9 @@ function BankTab() {
             {connecting ? "Opening…" : "+ Add bank"}
           </button>
         </div>
+        {plaidError && (
+          <p className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-3">{plaidError}</p>
+        )}
         {connections.length === 0 ? (
           <p className="text-xs text-text-muted">
             None labelled yet — connect a second bank to organize operating, foundation, savings, etc.
