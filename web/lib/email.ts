@@ -21,6 +21,7 @@ export async function sendEmail({
   html,
   fromName,
   replyTo,
+  listUnsubscribeUrl,
 }: {
   to: string;
   subject: string;
@@ -32,6 +33,9 @@ export async function sendEmail({
   fromName?: string | null;
   // Where member replies go (e.g. the club's contact email).
   replyTo?: string | null;
+  // For bulk/announcement email (CAN-SPAM): adds RFC 8058 one-click
+  // List-Unsubscribe headers. Leave unset for transactional email.
+  listUnsubscribeUrl?: string | null;
 }) {
   if (!process.env.SMTP_HOST) {
     console.log(`[Email – no SMTP configured] To: ${to} | Subject: ${subject}`);
@@ -61,6 +65,14 @@ export async function sendEmail({
     subject,
     html,
     ...(replyTo ? { replyTo } : {}),
+    ...(listUnsubscribeUrl
+      ? {
+          headers: {
+            "List-Unsubscribe": `<${listUnsubscribeUrl}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          },
+        }
+      : {}),
   });
 }
 

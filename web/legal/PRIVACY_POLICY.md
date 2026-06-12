@@ -1,6 +1,6 @@
 # Privacy Policy — AthletixOS
 
-**Last updated: [DATE — fill in on publish]**
+**Last updated: June 11, 2026**
 
 > **DRAFT — FOR ATTORNEY REVIEW.** This is a working first draft. Privacy law (COPPA, state privacy laws like the CCPA, and GDPR if you ever have EU users) carries real penalties. Have a licensed attorney review before launch.
 
@@ -28,7 +28,7 @@ We use Club account and usage data to: provide and maintain the Service, process
 
 ## 4. How we share information
 
-We share information with: **service providers** who help us operate (e.g. Stripe for payments, our hosting/database providers) under confidentiality obligations; **as required by law** or to protect rights and safety; and in a **business transfer** (merger, acquisition) with notice. We do not sell personal information.
+We share information with: **service providers** who help us operate — Stripe (payments), Resend (email delivery), Plaid (optional bank sync, only when a Club connects a bank), Sentry (error monitoring), Supabase (database hosting), and Netlify (application hosting) — under confidentiality obligations; **as required by law** or to protect rights and safety; and in a **business transfer** (merger, acquisition) with notice. We do not sell personal information.
 
 ## 5. Data security
 

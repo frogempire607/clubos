@@ -3,5 +3,5 @@
 // the corresponding .md / page changes — together with the visible
 // "Last updated" date — and the next signups will record the new
 // version in their LegalAcceptance rows. Old rows are never rewritten.
-export const TERMS_VERSION = "2026-06-05-draft";
-export const PRIVACY_VERSION = "2026-06-05-draft";
+export const TERMS_VERSION = "2026-06-11";
+export const PRIVACY_VERSION = "2026-06-11";

@@ -80,7 +80,7 @@ export default function PrivacyPage() {
       >
         <h1 style={h1Style}>Privacy Policy</h1>
         <p style={lastUpdated}>
-          <strong>Last updated:</strong> [DATE — fill in on publish]
+          <strong>Last updated:</strong> June 11, 2026
         </p>
 
         <p style={leadStyle}>
@@ -131,8 +131,10 @@ export default function PrivacyPage() {
 
         <h2 style={h2Style}>4. How we share information</h2>
         <p>
-          We share information with: <strong>service providers</strong> who help us operate (e.g. Stripe for payments,
-          our hosting/database providers) under confidentiality obligations; <strong>as required by law</strong> or to
+          We share information with: <strong>service providers</strong> who help us operate — Stripe (payments),
+          Resend (email delivery), Plaid (optional bank sync, only when a Club connects a bank), Sentry (error
+          monitoring), Supabase (database hosting), and Netlify (application hosting) — under confidentiality
+          obligations; <strong>as required by law</strong> or to
           protect rights and safety; and in a <strong>business transfer</strong> (merger, acquisition) with notice. We
           do not sell personal information.
         </p>

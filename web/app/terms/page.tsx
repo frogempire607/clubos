@@ -81,7 +81,7 @@ export default function TermsPage() {
       >
         <h1 style={h1Style}>Terms of Service</h1>
         <p style={lastUpdated}>
-          <strong>Last updated:</strong> [DATE — fill in on publish]
+          <strong>Last updated:</strong> June 11, 2026
         </p>
 
         <p style={leadStyle}>
@@ -191,9 +191,10 @@ export default function TermsPage() {
 
         <h2 style={h2Style}>12. Indemnification</h2>
         <p>
-          You agree to indemnify and hold us harmless from claims arising out of your Customer Data, your use of the
-          Service, your violation of these Terms, or your failure to obtain required consents (including parental
-          consent for minors).
+          You agree to indemnify and hold us harmless from claims arising out of your Customer Data and any content you
+          or your members upload or post to the Service (including claims that such content infringes a third party&apos;s
+          copyright, trademark, publicity, or privacy rights), your use of the Service, your violation of these Terms,
+          or your failure to obtain required consents (including parental consent for minors).
         </p>
 
         <h2 style={h2Style}>13. Changes to these Terms</h2>
@@ -209,7 +210,24 @@ export default function TermsPage() {
           parties agree otherwise.
         </p>
 
-        <h2 style={h2Style}>15. Contact</h2>
+        <h2 style={h2Style}>15. Copyright complaints (DMCA)</h2>
+        <p>
+          We respect intellectual property rights and respond to notices that comply with the Digital Millennium
+          Copyright Act (17 U.S.C. § 512). If you believe content on the Service infringes your copyright, send a
+          written notice to our Designated Copyright Agent including: (a) your physical or electronic signature; (b)
+          identification of the copyrighted work claimed to be infringed; (c) identification of the material and its
+          location on the Service; (d) your contact information; (e) a statement that you have a good-faith belief the
+          use is not authorized by the copyright owner, its agent, or the law; and (f) a statement, under penalty of
+          perjury, that the notice is accurate and you are authorized to act for the copyright owner.
+        </p>
+        <p>
+          Designated Copyright Agent: Copyright Agent, MC Technologies Group LLC, 981 Dryden Rd, Ithaca, NY 14850 —{" "}
+          <a href="mailto:dmca@athletix-os.com" style={linkStyle}>dmca@athletix-os.com</a>. We may remove or disable
+          access to allegedly infringing material, notify the user who posted it (who may submit a counter-notification
+          under § 512(g)), and terminate repeat infringers&apos; accounts.
+        </p>
+
+        <h2 style={h2Style}>16. Contact</h2>
         <p>
           Questions about these Terms:
           <br />

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, isEmailConfigured, smtpMissingVars } from "@/lib/email";
+import { buildUnsubscribeUrl } from "@/lib/unsubscribe";
 import { getTierFeatures } from "@/lib/tier";
 import { z } from "zod";
 
@@ -125,23 +126,35 @@ export async function POST(req: Request) {
         }
       }
 
+      // CAN-SPAM: honor the club's suppression list before sending.
+      const optOuts = await prisma.emailOptOut.findMany({
+        where: { clubId: session.user.clubId },
+        select: { email: true },
+      });
+      for (const o of optOuts) recipients.delete(o.email);
+
       let succeeded = 0;
       let failed = 0;
       const subject = `${club?.name ?? "Your Club"}: ${data.title}`;
-      const html = `
-        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-          <h2 style="color:#1c1917">${data.title}</h2>
-          <div style="color:#57534e;line-height:1.6;white-space:pre-wrap">${data.body}</div>
-          <hr style="border:none;border-top:1px solid #e7e5e4;margin:24px 0"/>
-          <p style="color:#a8a29e;font-size:12px">
-            Sent by ${club?.name ?? "your club"} via AthletixOS
-          </p>
-        </div>
-      `;
 
       for (const to of recipients) {
         try {
-          await sendEmail({ to, subject, html });
+          const unsubUrl = buildUnsubscribeUrl(session.user.clubId, to);
+          // CAN-SPAM footer: identify the sender with a physical mailing
+          // address and provide a working unsubscribe link.
+          const html = `
+            <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+              <h2 style="color:#1c1917">${data.title}</h2>
+              <div style="color:#57534e;line-height:1.6;white-space:pre-wrap">${data.body}</div>
+              <hr style="border:none;border-top:1px solid #e7e5e4;margin:24px 0"/>
+              <p style="color:#a8a29e;font-size:12px;line-height:1.6">
+                Sent by ${club?.name ?? "your club"} via AthletixOS<br/>
+                AthletixOS · MC Technologies Group LLC · 981 Dryden Rd, Ithaca, NY 14850<br/>
+                <a href="${unsubUrl}" style="color:#a8a29e">Unsubscribe from announcement emails</a>
+              </p>
+            </div>
+          `;
+          await sendEmail({ to, subject, html, listUnsubscribeUrl: unsubUrl });
           succeeded++;
         } catch {
           failed++;

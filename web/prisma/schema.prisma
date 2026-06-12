@@ -152,6 +152,7 @@ model Club {
   products                    Product[]
   productSales                ProductSale[]
   uploadedFiles               UploadedFile[]
+  emailOptOuts                EmailOptOut[]
   eventRegistrations          EventRegistration[]
   contractors                 Contractor[]
   contractorPayments          ContractorPayment[]
@@ -1930,4 +1931,19 @@ model AttendanceRecord {
   @@index([classSessionId])
   @@index([eventId])
   @@map("attendance_records")
+}
+
+// Per-club email suppression list (CAN-SPAM). Populated by the public
+// unsubscribe link in announcement/broadcast emails. Transactional email
+// (receipts, activation, password reset) is NOT affected.
+model EmailOptOut {
+  id        String   @id @default(cuid())
+  clubId    String
+  email     String
+  createdAt DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, email])
+  @@map("email_opt_outs")
 }

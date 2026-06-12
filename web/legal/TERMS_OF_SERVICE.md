@@ -1,6 +1,6 @@
 # Terms of Service — AthletixOS
 
-**Last updated: [DATE — fill in on publish]**
+**Last updated: June 11, 2026**
 
 > **DRAFT — FOR ATTORNEY REVIEW.** This is a working first draft to get AthletixOS operational. Have a licensed attorney review it before launch, especially the liability, indemnification, and data sections.
 
@@ -68,7 +68,13 @@ We may update these Terms. We will post the updated version with a new "Last upd
 
 These Terms are governed by the laws of the State of New York, without regard to conflict-of-laws rules. Disputes will be resolved in the state or federal courts located in Tompkins County, New York, unless the parties agree otherwise.
 
-## 15. Contact
+## 15. Copyright complaints (DMCA)
+
+We respect intellectual property rights and respond to notices that comply with the Digital Millennium Copyright Act (17 U.S.C. § 512). If you believe content on the Service infringes your copyright, send a written notice to our Designated Copyright Agent including: (a) your physical or electronic signature; (b) identification of the copyrighted work claimed to be infringed; (c) identification of the material and its location on the Service; (d) your contact information; (e) a statement that you have a good-faith belief the use is not authorized by the copyright owner, its agent, or the law; and (f) a statement, under penalty of perjury, that the notice is accurate and you are authorized to act for the copyright owner.
+
+Designated Copyright Agent: Copyright Agent, MC Technologies Group LLC, 981 Dryden Rd, Ithaca, NY 14850 — dmca@athletix-os.com. We may remove or disable access to allegedly infringing material, notify the user who posted it (who may submit a counter-notification under § 512(g)), and terminate repeat infringers' accounts.
+
+## 16. Contact
 
 Questions about these Terms:
 support@athletix-os.com
