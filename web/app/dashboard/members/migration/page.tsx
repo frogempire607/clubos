@@ -138,6 +138,7 @@ export default function MigrationPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [showImport, setShowImport] = useState(false);
+  const [showMembershipImport, setShowMembershipImport] = useState(false);
   const [historyFor, setHistoryFor] = useState<Row | null>(null);
   const [drawerFor, setDrawerFor] = useState<Row | null>(null);
 
@@ -215,12 +216,20 @@ export default function MigrationPage() {
             send activation links, and members continue billing on their existing date.
           </p>
         </div>
-        <button
-          onClick={() => setShowImport(true)}
-          className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition flex-shrink-0"
-        >
-          Import / Migrate Members
-        </button>
+        <div className="flex gap-2 flex-shrink-0">
+          <button
+            onClick={() => setShowMembershipImport(true)}
+            className="text-sm px-4 py-2 border border-app-border text-text-primary rounded-lg hover:bg-app-bg transition"
+          >
+            Match Memberships CSV
+          </button>
+          <button
+            onClick={() => setShowImport(true)}
+            className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition"
+          >
+            Import / Migrate Members
+          </button>
+        </div>
       </div>
 
       {/* Owner guidance */}
@@ -422,6 +431,7 @@ export default function MigrationPage() {
       </div>
 
       {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
+      {showMembershipImport && <MembershipImportWizard onClose={() => setShowMembershipImport(false)} onDone={() => { setShowMembershipImport(false); load(); }} />}
       {historyFor && <HistoryDrawer row={historyFor} onClose={() => setHistoryFor(null)} />}
       {drawerFor && (
         <MigrationDrawer
@@ -986,6 +996,186 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                 Next: select members and use “Send Activation Links”. Imported members are not charged until they activate.
               </p>
               <button onClick={onDone} className="text-sm px-5 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover">Go to migration dashboard</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Membership matching wizard ───────────────────────────────────────────────
+// Second-pass import: a CSV that carries membership/billing data and is
+// MATCHED to existing members (legacy ID → email → unique full name) instead
+// of creating anyone. Built for platforms that export people and billing as
+// separate reports, and for clubs importing 1000s of profiles where only the
+// active members carry a membership.
+
+const MEMBERSHIP_FIELDS: { key: string; label: string }[] = [
+  { key: "legacyMemberId",      label: "Legacy member ID (best match key)" },
+  { key: "email",               label: "Email (match key)" },
+  { key: "athleteName",         label: "Athlete name (full, match key)" },
+  { key: "firstName",           label: "First name (match key)" },
+  { key: "lastName",            label: "Last name (match key)" },
+  { key: "membershipName",      label: "Membership name" },
+  { key: "membershipPrice",     label: "Membership price" },
+  { key: "billingFrequency",    label: "Billing frequency" },
+  { key: "nextBillingDate",     label: "Next billing date" },
+  { key: "membershipStartDate", label: "Membership start date" },
+  { key: "commitmentEndDate",   label: "Commitment end date" },
+  { key: "skip",                label: "— Don't import —" },
+];
+
+function MembershipImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<"upload" | "map" | "done">("upload");
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [data, setData] = useState<string[][]>([]);
+  const [mapping, setMapping] = useState<Record<number, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{ updated: number; unmatched: number; failed: number; errors: string[] } | null>(null);
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const parsed = parseCSV(ev.target?.result as string);
+      if (parsed.length < 2) { setError("CSV needs a header row and at least one data row."); return; }
+      setHeaders(parsed[0]);
+      setData(parsed.slice(1));
+      const am: Record<number, string> = {};
+      parsed[0].forEach((h, i) => {
+        const k = autoMap(h);
+        am[i] = MEMBERSHIP_FIELDS.some((f) => f.key === k) ? k : "skip";
+      });
+      setMapping(am);
+      setError("");
+      setStep("map");
+    };
+    reader.readAsText(file);
+  }
+
+  const mappedKeys = new Set(Object.values(mapping));
+  const hasMatchKey = ["legacyMemberId", "email", "athleteName", "firstName", "lastName"].some((k) => mappedKeys.has(k));
+  const hasBillingData = ["membershipName", "membershipPrice", "billingFrequency", "nextBillingDate", "membershipStartDate", "commitmentEndDate"].some((k) => mappedKeys.has(k));
+
+  function buildRows() {
+    return data.map((row) => {
+      const o: Record<string, string> = {};
+      headers.forEach((_, i) => {
+        const f = mapping[i];
+        if (f && f !== "skip") o[f] = (row[i] || "").trim();
+      });
+      return o;
+    }).filter((o) => o.legacyMemberId || o.email || o.athleteName || o.firstName || o.lastName);
+  }
+
+  async function doImport() {
+    setBusy(true);
+    setError("");
+    const res = await fetch("/api/members/import/memberships", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows: buildRows() }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setError(typeof d.error === "string" ? d.error : "Import failed"); return; }
+    setResult(d);
+    setStep("done");
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto border border-app-border">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
+          <h2 className="text-lg font-semibold text-text-primary">Match Memberships to Members</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+        </div>
+        <div className="p-6">
+          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</div>}
+
+          {step === "upload" && (
+            <div className="text-center py-8">
+              <p className="text-sm text-text-muted mb-1">Upload a CSV with membership and billing info for members you already imported.</p>
+              <p className="text-xs text-text-muted mb-5 max-w-md mx-auto">
+                Each row is matched to an existing member by Legacy ID, email, or name — no new members are created.
+                Matched members keep billing on their existing date and are never auto-charged.
+              </p>
+              <button onClick={() => fileRef.current?.click()} className="px-5 py-2.5 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
+                Choose CSV file
+              </button>
+              <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
+            </div>
+          )}
+
+          {step === "map" && (
+            <div>
+              <p className="text-sm text-text-muted mb-2">
+                Map your CSV columns. You need at least one <strong>match key</strong> (Legacy ID, email, or name) and one membership field.
+              </p>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {headers.map((h, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-48 text-sm text-text-primary font-medium truncate flex-shrink-0">{h}</div>
+                    <div className="text-text-muted text-xs flex-shrink-0">→</div>
+                    <select value={mapping[i] || "skip"} onChange={(e) => setMapping({ ...mapping, [i]: e.target.value })} className="flex-1 px-3 py-1.5 border border-app-border rounded-lg text-sm bg-surface">
+                      {MEMBERSHIP_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                    </select>
+                    <div className="text-xs text-text-muted w-20 truncate flex-shrink-0">{data[0]?.[i] || ""}</div>
+                  </div>
+                ))}
+              </div>
+              {!hasMatchKey && (
+                <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  Map at least one match key: Legacy member ID, Email, or a name column.
+                </div>
+              )}
+              {hasMatchKey && !hasBillingData && (
+                <div className="mt-3 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                  Map at least one membership field (name, price, frequency, or a billing date) — otherwise there is nothing to attach.
+                </div>
+              )}
+              <div className="flex gap-2 pt-4">
+                <button onClick={() => setStep("upload")} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Back</button>
+                <button
+                  onClick={doImport}
+                  disabled={busy || !hasMatchKey || !hasBillingData}
+                  className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+                >
+                  {busy ? "Matching…" : `Match ${buildRows().length} rows`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "done" && result && (
+            <div>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-app-bg rounded-lg p-3 text-center">
+                  <p className="text-2xl font-semibold text-text-primary">{result.updated}</p>
+                  <p className="text-xs text-text-muted">Matched & updated</p>
+                </div>
+                <div className="bg-app-bg rounded-lg p-3 text-center">
+                  <p className="text-2xl font-semibold text-text-primary">{result.unmatched}</p>
+                  <p className="text-xs text-text-muted">Unmatched</p>
+                </div>
+                <div className="bg-app-bg rounded-lg p-3 text-center">
+                  <p className="text-2xl font-semibold text-text-primary">{result.failed}</p>
+                  <p className="text-xs text-text-muted">Failed</p>
+                </div>
+              </div>
+              {result.errors.length > 0 && (
+                <div className="max-h-48 overflow-y-auto text-xs text-text-muted bg-app-bg rounded-lg p-3 space-y-1 mb-4">
+                  {result.errors.map((e, i) => <p key={i}>{e}</p>)}
+                </div>
+              )}
+              <p className="text-xs text-text-muted mb-4">
+                Matched members now show <strong>payment setup required</strong> and will bill on their imported date once they activate. Unmatched rows: add a Legacy ID or email column and re-run — already-matched members are simply updated again.
+              </p>
+              <button onClick={onDone} className="w-full px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">Done</button>
             </div>
           )}
         </div>
