@@ -3,9 +3,8 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 import { randomBytes } from "crypto";
+import { putObject } from "@/lib/storage";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -18,13 +17,6 @@ const ALLOWED_DOC_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
-
-// Storage root. Defaults to ./storage/uploads (NOT under /public so files are
-// not served as static assets — they go through /api/files/[id] which enforces
-// club scoping).
-function storageRoot(): string {
-  return process.env.UPLOADS_DIR || join(process.cwd(), "storage", "uploads");
-}
 
 // FormData can't be validated by zod directly, but we can still validate
 // the unpacked primitives after the parse.
@@ -77,14 +69,11 @@ export async function POST(req: Request) {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
-  const root = storageRoot();
-  await mkdir(root, { recursive: true });
-
   const rawExt = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
   // Unguessable random storage key. Different from the row id so even leaked
   // ids can't be used to construct a disk path.
   const storageKey = `${randomBytes(16).toString("hex")}.${rawExt}`;
-  await writeFile(join(root, storageKey), buffer);
+  await putObject(storageKey, buffer, file.type);
 
   const kind = type === "document" && !ALLOWED_IMAGE_TYPES.has(file.type) ? "DOCUMENT" : "IMAGE";
   const record = await prisma.uploadedFile.create({

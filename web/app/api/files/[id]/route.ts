@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { readFile } from "fs/promises";
-import { join } from "path";
-
-function storageRoot(): string {
-  return process.env.UPLOADS_DIR || join(process.cwd(), "storage", "uploads");
-}
+import { getObject } from "@/lib/storage";
 
 // GET /api/files/[id]
 // Streams a stored file ONLY if the requester is a logged-in user in the same
@@ -27,11 +22,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(join(storageRoot(), file.storageKey));
-  } catch {
-    return NextResponse.json({ error: "File missing on disk" }, { status: 410 });
+  const bytes = await getObject(file.storageKey);
+  if (!bytes) {
+    return NextResponse.json({ error: "File missing in storage" }, { status: 410 });
   }
 
   // Use a buffer copy so the underlying ArrayBuffer is a plain ArrayBuffer (not SharedArrayBuffer).
