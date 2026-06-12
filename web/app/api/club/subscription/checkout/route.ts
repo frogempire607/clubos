@@ -55,13 +55,43 @@ export async function POST(req: Request) {
     });
     if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
 
-    // If the club already has an active subscription, redirect them to the
-    // customer portal to swap plans rather than starting a fresh checkout.
+    // If the club already has a LIVE subscription, send them to the customer
+    // portal to swap plans. Verify against Stripe rather than trusting the
+    // stored id — cancellations or dashboard deletions can leave stale ids.
     if (club.stripeSubscriptionId) {
-      return NextResponse.json(
-        { error: "You already have an active plan. Use 'Manage billing' to change it." },
-        { status: 400 }
-      );
+      let live = false;
+      try {
+        const sub = await stripe.subscriptions.retrieve(club.stripeSubscriptionId);
+        live = ["active", "trialing", "past_due", "unpaid", "paused"].includes(sub.status);
+      } catch {
+        live = false; // subscription gone on Stripe's side — treat as none
+      }
+      if (live) {
+        return NextResponse.json(
+          { error: "You already have an active plan. Use 'Manage billing' to change it." },
+          { status: 400 }
+        );
+      }
+      await prisma.club.update({
+        where: { id: club.id },
+        data: { stripeSubscriptionId: null, subscriptionStatus: "canceled" },
+      });
+      club.stripeSubscriptionId = null;
+    }
+
+    // Reuse the saved customer only if it still exists (and wasn't deleted in
+    // the Stripe dashboard); otherwise start fresh.
+    if (club.stripeCustomerId) {
+      try {
+        const cust = await stripe.customers.retrieve(club.stripeCustomerId);
+        if ((cust as { deleted?: boolean }).deleted) throw new Error("deleted");
+      } catch {
+        await prisma.club.update({
+          where: { id: club.id },
+          data: { stripeCustomerId: null },
+        });
+        club.stripeCustomerId = null;
+      }
     }
 
     const baseUrl = getAppBaseUrl();

@@ -627,7 +627,9 @@ export async function POST(req: Request) {
           // Starter downgrade.
           await prisma.club.updateMany({
             where: { stripeSubscriptionId: subscription.id },
-            data: { subscriptionStatus: "canceled" },
+            // Clear the id so the owner can subscribe again — checkout treats
+            // a lingering stripeSubscriptionId as "already subscribed".
+            data: { subscriptionStatus: "canceled", stripeSubscriptionId: null },
           });
         }
         break;

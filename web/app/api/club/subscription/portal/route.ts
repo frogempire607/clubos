@@ -34,7 +34,20 @@ export async function POST() {
     });
     return NextResponse.json({ url: portal.url });
   } catch (err) {
+    // Customer deleted in the Stripe dashboard → clear the stale id so the
+    // owner can subscribe fresh instead of being stuck on "No such customer".
+    const msg = String(err);
+    if (msg.includes("No such customer")) {
+      await prisma.club.update({
+        where: { id: session.user.clubId },
+        data: { stripeCustomerId: null, stripeSubscriptionId: null, subscriptionStatus: null },
+      });
+      return NextResponse.json(
+        { error: "Your billing account no longer exists in Stripe. Subscribe to a plan to start fresh." },
+        { status: 400 }
+      );
+    }
     console.error("Portal session error:", err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
