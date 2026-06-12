@@ -1167,6 +1167,8 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Record<number, string>>({});
   const [importing, setImporting] = useState(false);
+  // How dates (e.g. Date of birth) are written in the uploaded file.
+  const [dateFormat, setDateFormat] = useState<"auto" | "mdy" | "dmy" | "ymd">("mdy");
   const [result, setResult] = useState<{ created: number; skipped: number; failed: number; errors: string[] } | null>(null);
   const [error, setError] = useState("");
 
@@ -1196,12 +1198,8 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
   // isMinor=true, not toggleable by the form config.
   ["guardianName", "guardianEmail", "guardianPhone"].forEach((k) => allowedCsvKeys.add(k));
 
-  // Name is special: satisfied by EITHER "Athlete name (full)" OR First+Last.
-  const requiredCsvKeys = new Set<string>(
-    formConfig.requiredFields
-      .filter((k) => k !== "athleteName")
-      .flatMap((k) => cfgKeyToCsvKeys[k] ?? [])
-  );
+  // Import requires only a name. Other member-form required fields apply to
+  // manual entry / signup forms — never to bulk CSV import.
 
   const mappingFields = [
     ...MEMBER_FIELDS.slice(0, -1).filter((f) => allowedCsvKeys.has(f.key)),
@@ -1256,6 +1254,23 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
     reader.readAsText(file);
   }
 
+  // Convert a date string from the owner-selected format to unambiguous ISO
+  // (yyyy-mm-dd) so the server can't misread dd/mm as mm/dd. Unparseable
+  // values pass through untouched and surface as server-side warnings.
+  function convertDate(raw: string): string {
+    const v = (raw || "").trim();
+    if (!v || dateFormat === "auto") return v;
+    const m = v.match(/^(\d{1,4})[\/\-.](\d{1,2})[\/\-.](\d{1,4})$/);
+    if (!m) return v;
+    let day: number, month: number, year: number;
+    if (dateFormat === "mdy") { month = +m[1]; day = +m[2]; year = +m[3]; }
+    else if (dateFormat === "dmy") { day = +m[1]; month = +m[2]; year = +m[3]; }
+    else { year = +m[1]; month = +m[2]; day = +m[3]; }
+    if (year < 100) year += year > new Date().getFullYear() % 100 ? 1900 : 2000;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return v;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
   function buildMembers() {
     return rows.map((row) => {
       const obj: Record<string, string> = {};
@@ -1276,7 +1291,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
       lastName: m.lastName || undefined,
       email: m.email || undefined,
       phone: m.phone || undefined,
-      dateOfBirth: m.dateOfBirth || undefined,
+      dateOfBirth: m.dateOfBirth ? convertDate(m.dateOfBirth) : undefined,
       gender: m.gender || undefined,
       streetAddress: m.streetAddress || undefined,
       city: m.city || undefined,
@@ -1355,19 +1370,17 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
 
           {step === "map" && (() => {
             const mappedKeys = new Set(Object.values(mapping).filter((v) => v && v !== "skip"));
-            const missingRequired = Array.from(requiredCsvKeys).filter((k) => !mappedKeys.has(k));
             const hasName = mappedKeys.has("athleteName") || mappedKeys.has("firstName") || mappedKeys.has("lastName");
-            if (!hasName) missingRequired.unshift("athleteName (full) or firstName/lastName");
+            const missingRequired: string[] = hasName ? [] : ["a name column (Athlete name, or First/Last name)"];
+            const hasDateColumn = mappedKeys.has("dateOfBirth");
             return (
               <div>
                 <p className="text-sm text-text-muted mb-2">
                   Match your CSV columns to member fields. We auto-detected some mappings — adjust as needed.
                 </p>
-                {requiredCsvKeys.size > 0 && (
-                  <p className="text-xs text-text-muted mb-4">
-                    Required by your member form: {Array.from(requiredCsvKeys).join(", ")}
-                  </p>
-                )}
+                <p className="text-xs text-text-muted mb-4">
+                  Only a name is required — everything else is optional and can be filled in later.
+                </p>
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                   {headers.map((h, i) => (
                     <div key={i} className="flex items-center gap-3">
@@ -1380,9 +1393,25 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
                     </div>
                   ))}
                 </div>
+                {hasDateColumn && (
+                  <div className="mt-4 bg-app-bg rounded-lg p-3">
+                    <label className="block text-xs font-medium text-text-primary mb-1">Date format in your file</label>
+                    <p className="text-xs text-text-muted mb-2">Pick the format that matches your spreadsheet so dates like 03/04/2010 import correctly.</p>
+                    <select
+                      value={dateFormat}
+                      onChange={(e) => setDateFormat(e.target.value as typeof dateFormat)}
+                      className="px-3 py-1.5 border border-app-border rounded-lg text-sm bg-surface"
+                    >
+                      <option value="mdy">US — MM/DD/YYYY (e.g. 08/24/2025)</option>
+                      <option value="dmy">International — DD/MM/YYYY (e.g. 24/08/2025)</option>
+                      <option value="ymd">ISO — YYYY-MM-DD (e.g. 2025-08-24)</option>
+                      <option value="auto">Auto-detect (text dates like "Feb 10 2020")</option>
+                    </select>
+                  </div>
+                )}
                 {missingRequired.length > 0 && (
                   <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                    Map a column to each required field before importing: {missingRequired.join(", ")}
+                    Map {missingRequired.join(", ")} before importing.
                   </div>
                 )}
                 <div className="flex gap-2 pt-4">
