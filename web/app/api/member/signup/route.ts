@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
+import { requestGuardianLink } from "@/lib/guardianLink";
 
 const schema = z.object({
   clubSlug: z.string().min(1),
@@ -104,45 +105,59 @@ export async function POST(req: Request) {
       include: { memberProfile: true },
     });
 
-    // If PARENT — link them as guardian of child member
+    // If PARENT — request guardian access to the child member. Access is
+    // granted here ONLY when the owner already named this email as the
+    // child's guardian (childMember.guardianEmail === signup email).
+    // Otherwise it is queued for owner approval and NO access — and no
+    // guardian-of-record — is established. This prevents an unauthenticated
+    // signup from silently claiming any club-mate by email.
+    let guardianLinkPending = false;
     if (data.accountType === "PARENT" && data.childEmail) {
       const childMember = await prisma.member.findFirst({
         where: { clubId: club.id, email: data.childEmail.toLowerCase(), deletedAt: null },
       });
       if (childMember) {
-        await prisma.memberGuardianUser.upsert({
-          where: { userId_memberId: { userId: user.id, memberId: childMember.id } },
-          update: { relationship: data.relationship || null },
-          create: { userId: user.id, memberId: childMember.id, relationship: data.relationship || null },
+        const linkResult = await requestGuardianLink({
+          clubId: club.id,
+          requestingUserId: user.id,
+          requestingUserEmail: data.email.toLowerCase(),
+          child: { id: childMember.id, isMinor: childMember.isMinor, guardianEmail: childMember.guardianEmail },
+          relationship: data.relationship || null,
         });
 
-        // Also normalize a Guardian profile so this parent's family can hold siblings
-        const guardianFullName = `${data.firstName} ${data.lastName}`.trim();
-        const guardianEmail = data.email.toLowerCase();
-        const guardianProfile = await prisma.guardian.upsert({
-          where: { clubId_email: { clubId: club.id, email: guardianEmail } },
-          update: {
-            firstName: data.firstName,
-            lastName: data.lastName,
-            userId: user.id,
-          },
-          create: {
-            clubId: club.id,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            email: guardianEmail,
-            phone: childMember.guardianPhone || "",
-            userId: user.id,
-          },
-        });
-        await prisma.member.update({
-          where: { id: childMember.id },
-          data: {
-            guardianId: guardianProfile.id,
-            guardianName: childMember.guardianName || guardianFullName,
-            guardianEmail: childMember.guardianEmail || guardianEmail,
-          },
-        });
+        if (linkResult.status === "linked") {
+          // Owner-vouched parent: normalize a Guardian profile so this
+          // parent's family can hold siblings, and stamp guardian-of-record.
+          const guardianFullName = `${data.firstName} ${data.lastName}`.trim();
+          const guardianEmail = data.email.toLowerCase();
+          const guardianProfile = await prisma.guardian.upsert({
+            where: { clubId_email: { clubId: club.id, email: guardianEmail } },
+            update: {
+              firstName: data.firstName,
+              lastName: data.lastName,
+              userId: user.id,
+            },
+            create: {
+              clubId: club.id,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              email: guardianEmail,
+              phone: childMember.guardianPhone || "",
+              userId: user.id,
+            },
+          });
+          await prisma.member.update({
+            where: { id: childMember.id },
+            data: {
+              guardianId: guardianProfile.id,
+              guardianName: childMember.guardianName || guardianFullName,
+              guardianEmail: childMember.guardianEmail || guardianEmail,
+            },
+          });
+        } else {
+          // Queued — do NOT establish any guardian relationship yet.
+          guardianLinkPending = true;
+        }
       }
     }
 
@@ -190,7 +205,7 @@ export async function POST(req: Request) {
       console.error("Failed to persist legal acceptance (member signup):", err);
     }
 
-    return NextResponse.json({ ok: true, clubSlug: club.slug }, { status: 201 });
+    return NextResponse.json({ ok: true, clubSlug: club.slug, guardianLinkPending }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
     return NextResponse.json({ error: String(err) }, { status: 500 });

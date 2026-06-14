@@ -141,7 +141,14 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   const member = r.member;
   const club = member.club;
 
-  if (member.migrationStatus === MIGRATION_STATUS.COMPLETED) {
+  // Replay guard. A successful activation sets status to ACTIVATED (NOT
+  // COMPLETED), so we must reject BOTH — otherwise the link could be
+  // re-POSTed after activation to reset the member's portal password
+  // (account takeover). The atomic claim below closes the concurrent race.
+  if (
+    member.migrationStatus === MIGRATION_STATUS.COMPLETED ||
+    member.migrationStatus === MIGRATION_STATUS.ACTIVATED
+  ) {
     return NextResponse.json({ error: "This membership is already active." }, { status: 409 });
   }
 
@@ -171,30 +178,51 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   }
 
   // Create or link the portal User account.
-  const passwordHash = await bcrypt.hash(body.password, 12);
+  //
+  // SECURITY: if a portal User already exists for this email, NEVER overwrite
+  // its passwordHash from a migration token — that is the account-takeover
+  // vector. An existing user already has a login and the normal reset flow.
+  // A password is set ONLY when the account is created for the first time.
   let user = await prisma.user.findUnique({
     where: { clubId_email: { clubId: club.id, email: contactEmail } },
   });
-  if (user) {
-    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
-  } else {
-    user = await prisma.user.create({
-      data: {
-        clubId: club.id,
-        email: contactEmail,
-        passwordHash,
-        firstName: member.firstName,
-        lastName: member.lastName,
-        role: "MEMBER",
-      },
-    });
+  if (!user) {
+    const passwordHash = await bcrypt.hash(body.password, 12);
+    try {
+      user = await prisma.user.create({
+        data: {
+          clubId: club.id,
+          email: contactEmail,
+          passwordHash,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          role: "MEMBER",
+        },
+      });
+    } catch {
+      // A concurrent request raced us to the unique (clubId, email). Re-fetch
+      // and continue WITHOUT touching the existing password.
+      user = await prisma.user.findUnique({
+        where: { clubId_email: { clubId: club.id, email: contactEmail } },
+      });
+      if (!user) {
+        return NextResponse.json({ error: "Could not complete activation." }, { status: 500 });
+      }
+    }
   }
 
   const requestedDate = body.requestedBillingDate ? new Date(body.requestedBillingDate) : null;
   const validRequested = requestedDate && !isNaN(requestedDate.getTime()) ? requestedDate : null;
 
-  await prisma.member.update({
-    where: { id: member.id },
+  // Atomically claim the activation. Only a member still in a pre-active
+  // state can be flipped to ACTIVATED; a concurrent or replayed POST updates
+  // 0 rows and 409s below — so profile/password side effects can't be
+  // re-applied by a second request even under a race.
+  const claimed = await prisma.member.updateMany({
+    where: {
+      id: member.id,
+      migrationStatus: { notIn: [MIGRATION_STATUS.ACTIVATED, MIGRATION_STATUS.COMPLETED] },
+    },
     data: {
       ...(member.userId ? {} : { userId: user.id }),
       ...(editable.phone && body.phone?.trim() ? { phone: body.phone.trim() } : {}),
@@ -210,6 +238,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       approvalStatus: "PENDING_APPROVAL",
     },
   });
+  if (claimed.count === 0) {
+    return NextResponse.json({ error: "This membership is already active." }, { status: 409 });
+  }
 
   // Optional required-document signature.
   if (body.signedDocumentId) {

@@ -564,6 +564,7 @@ function LinkChildModal({ onClose, onLinked }: { onClose: () => void; onLinked: 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [pendingMsg, setPendingMsg] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -577,8 +578,27 @@ function LinkChildModal({ onClose, onLinked }: { onClose: () => void; onLinked: 
     const data = await res.json();
     setSaving(false);
     if (!res.ok) { setError(data.error || "Failed to link child"); return; }
+    if (data.linked === false) {
+      // Queued for owner approval — no access granted yet.
+      setPendingMsg(data.message || "Request sent to your club for approval.");
+      return;
+    }
     setSuccess(true);
     setTimeout(() => { onLinked(); }, 1200);
+  }
+
+  if (pendingMsg) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl w-full max-w-sm p-8 text-center">
+          <p className="text-base font-semibold text-stone-900 mb-1">Request sent</p>
+          <p className="text-sm text-stone-500">{pendingMsg}</p>
+          <button onClick={onClose} className="mt-4 text-sm font-semibold text-stone-900 hover:underline">
+            Close
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (success) {

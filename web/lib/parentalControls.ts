@@ -48,6 +48,18 @@ export type ApprovalKind =
   | "MEMBERSHIP_SUBSCRIBE"
   | "PRODUCT_BUY";
 
+// The PendingApproval.kind values that belong to the member-side parental
+// queue. Used to scope the family-approvals consumers so owner-side kinds
+// (e.g. GUARDIAN_LINK) can never surface in a member's family card.
+export const MEMBER_APPROVAL_KINDS = [
+  "CLASS_BOOK",
+  "EVENT_REGISTER",
+  "PRIVATE_REQUEST",
+  "PACKAGE_BUY",
+  "MEMBERSHIP_SUBSCRIBE",
+  "PRODUCT_BUY",
+] as const satisfies readonly ApprovalKind[];
+
 export type GateInput = {
   member: {
     id: string;

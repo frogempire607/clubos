@@ -219,13 +219,18 @@ model PendingApproval {
   id            String   @id @default(cuid())
   clubId        String
   memberId      String
-  // CLASS_BOOK | EVENT_REGISTER | PRIVATE_REQUEST | PACKAGE_BUY | OTHER
+  // Member-side (parental) kinds, surfaced in the family-approvals card:
+  //   CLASS_BOOK | EVENT_REGISTER | PRIVATE_REQUEST | PACKAGE_BUY
+  //   | MEMBERSHIP_SUBSCRIBE | PRODUCT_BUY | OTHER
+  // Owner-side kind, surfaced only on the dashboard (never to members):
+  //   GUARDIAN_LINK -> a User requesting guardian access to this member
   kind          String
   // Replay payload — shape varies by kind:
   //   CLASS_BOOK     -> { classSessionId }
   //   EVENT_REGISTER -> { eventId, sessionId? }
   //   PRIVATE_REQUEST-> { lessonTypeId, coachId?, requestedSlots[] }
   //   PACKAGE_BUY    -> { packageId }
+  //   GUARDIAN_LINK  -> { requestingUserId, requestingUserEmail, relationship? }
   payload       Json
   // Optional dollar amount captured at request time. Powers the
   // dailySpendLimit cap check + the parent-side summary. Null for free

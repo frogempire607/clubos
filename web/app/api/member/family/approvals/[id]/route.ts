@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_APPROVAL_KINDS } from "@/lib/parentalControls";
 
 // POST /api/member/family/approvals/[id]
 //
@@ -33,6 +34,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       id: params.id,
       clubId: session.user.clubId,
       status: "PENDING",
+      // Member-side queue only — a guardian can never action an owner-side
+      // kind (GUARDIAN_LINK) from here.
+      kind: { in: [...MEMBER_APPROVAL_KINDS] },
       // Guardian gate: only rows whose member is linked to the signed-in
       // user via MemberGuardianUser are loadable.
       member: {

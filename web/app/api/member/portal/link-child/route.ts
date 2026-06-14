@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requestGuardianLink } from "@/lib/guardianLink";
 
 const schema = z.object({
   childEmail:   z.string().email(),
@@ -37,24 +38,38 @@ export async function POST(req: Request) {
     // Prevent linking yourself
     const self = await prisma.user.findUnique({
       where: { id: session.user.id },
-      include: { memberProfile: true },
+      select: { email: true, memberProfile: { select: { id: true } } },
     });
     if (self?.memberProfile?.id === childMember.id) {
       return NextResponse.json({ error: "You cannot link yourself as your own child." }, { status: 400 });
     }
 
-    // Upsert portal access link (a User claiming guardianship of a Member)
-    const guardian = await prisma.memberGuardianUser.upsert({
-      where: { userId_memberId: { userId: session.user.id, memberId: childMember.id } },
-      update: { relationship: body.relationship || null },
-      create: {
-        userId:       session.user.id,
-        memberId:     childMember.id,
-        relationship: body.relationship || null,
-      },
+    // Authorization gate (was: unconditional link by club + email only).
+    // Auto-link ONLY when the owner already designated this requester as the
+    // minor's guardian (childMember.guardianEmail === requester email).
+    // Otherwise queue an owner approval and grant NO access until confirmed.
+    const result = await requestGuardianLink({
+      clubId: session.user.clubId,
+      requestingUserId: session.user.id,
+      requestingUserEmail: self?.email ?? null,
+      child: { id: childMember.id, isMinor: childMember.isMinor, guardianEmail: childMember.guardianEmail },
+      relationship: body.relationship || null,
     });
 
-    return NextResponse.json({ ok: true, childMember, guardian }, { status: 201 });
+    if (result.status === "linked") {
+      return NextResponse.json({ ok: true, linked: true }, { status: 201 });
+    }
+    return NextResponse.json(
+      {
+        ok: true,
+        linked: false,
+        pendingApproval: true,
+        message:
+          "Your request to manage this athlete was sent to the club for approval. " +
+          "You'll get access once they confirm you're their guardian.",
+      },
+      { status: 202 },
+    );
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
     return NextResponse.json({ error: String(err) }, { status: 500 });

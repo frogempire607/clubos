@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_APPROVAL_KINDS } from "@/lib/parentalControls";
 
 // GET /api/member/family/approvals
 //
@@ -33,6 +34,9 @@ export async function GET() {
       clubId: session.user.clubId,
       memberId: { in: childIds },
       status: "PENDING",
+      // Member-side queue only. Owner-side kinds (GUARDIAN_LINK) are
+      // reviewed by the club, never shown in a member's family card.
+      kind: { in: [...MEMBER_APPROVAL_KINDS] },
     },
     orderBy: { requestedAt: "desc" },
     select: {

@@ -234,8 +234,16 @@ export default function MemberProfilePage() {
     }
     setChildEmail("");
     setRelationship("");
-    setFamilyMessage("Athlete linked. You can now switch to that profile across the portal.");
-    load();
+    if (data.linked === false) {
+      // Queued for owner approval — no access granted yet.
+      setFamilyMessage(
+        data.message ||
+          "Request sent to your club for approval. You'll get access once they confirm you're the guardian.",
+      );
+    } else {
+      setFamilyMessage("Athlete linked. You can now switch to that profile across the portal.");
+      load();
+    }
   }
 
   if (loading) return <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>;
