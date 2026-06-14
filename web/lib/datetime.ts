@@ -51,6 +51,26 @@ export function kindIsWallClockUTC(kind: string): boolean {
   return kind === "class";
 }
 
+// ── "Today" / date-input helpers ─────────────────────────────────────────────
+//
+// CRITICAL: never derive a calendar day from `new Date().toISOString()` — that
+// is UTC, so after ~8pm US-Eastern it rolls to "tomorrow" and the dashboard
+// shows the wrong day. Use these helpers, which read the VIEWER'S LOCAL day,
+// for "today" and for default values of <input type="date">.
+
+/** A Date → local-timezone calendar day as YYYY-MM-DD. */
+export function localISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Today's calendar day in the viewer's local timezone, as YYYY-MM-DD. */
+export function todayLocalISO(): string {
+  return localISO(new Date());
+}
+
 // The calendar-day this stamp belongs to, honoring the storage convention so
 // a 9pm class doesn't bleed onto the next/previous day in the grid.
 export function dayNumber(d: Stamp, utc: boolean): number {

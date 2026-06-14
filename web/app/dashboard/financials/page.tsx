@@ -13,6 +13,7 @@ import {
   TAX_SUMMARY_NOTE,
 } from "@/lib/financials";
 import { REPORT_TYPES, REPORT_LABELS, type ReportType } from "@/lib/financialReports";
+import { todayLocalISO } from "@/lib/datetime";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
@@ -571,7 +572,7 @@ function ExpenseModal({ expense, entities, bankConnections, onClose, onSaved }: 
   const [plaidConnectionId, setPlaidConnectionId] = useState<string>(
     (expense as { plaidConnectionId?: string | null } | null)?.plaidConnectionId || "",
   );
-  const [date, setDate] = useState(expense ? expense.date.split("T")[0] : new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(expense ? expense.date.split("T")[0] : todayLocalISO());
   const [isRecurring, setIsRecurring] = useState(expense?.isRecurring || false);
   const [kind, setKind] = useState<string>((expense as { kind?: string | null } | null)?.kind || "");
   const [reimbursable, setReimbursable] = useState(expense?.reimbursable || false);

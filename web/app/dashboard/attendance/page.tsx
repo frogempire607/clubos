@@ -7,6 +7,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList } from "@/components/LoadingSkeleton";
+import { todayLocalISO } from "@/lib/datetime";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -90,7 +91,9 @@ function fmtTimeLocal(iso: string) {
 }
 
 function todayStr() {
-  return new Date().toISOString().split("T")[0];
+  // Local calendar day — NOT UTC. toISOString() rolls to tomorrow after ~8pm
+  // US-Eastern, which made the dashboard show the wrong day.
+  return todayLocalISO();
 }
 
 function addDays(dateStr: string, n: number) {

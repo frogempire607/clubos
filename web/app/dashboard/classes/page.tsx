@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList } from "@/components/LoadingSkeleton";
+import { todayLocalISO } from "@/lib/datetime";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,7 +130,7 @@ const emptyForm = (): FormData => ({
   endTime: "19:30",
   dayOverrides: {},
   capacity: "",
-  recurrenceStartDate: new Date().toISOString().split("T")[0],
+  recurrenceStartDate: todayLocalISO(),
   recurrenceEndDate: "",
   memberPriceEnabled: false,
   memberPrice: "",
