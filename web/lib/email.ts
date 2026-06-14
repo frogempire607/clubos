@@ -262,6 +262,7 @@ export async function sendMembershipActivatedEmail({
   membershipName,
   amountPaid,
   endDate,
+  nextBillingDate,
   portalUrl,
 }: {
   to: string;
@@ -270,6 +271,9 @@ export async function sendMembershipActivatedEmail({
   membershipName: string;
   amountPaid?: string;
   endDate?: Date | null;
+  // The agreed first/next billing date. Surfaced so a member who requested a
+  // specific billing day can confirm the club honored it.
+  nextBillingDate?: Date | null;
   portalUrl: string;
 }) {
   await sendEmail({
@@ -283,6 +287,7 @@ export async function sendMembershipActivatedEmail({
       <div style="background:#F5F3EE;border-radius:8px;padding:16px;margin:0 0 16px">
         <p style="color:#1c1917;margin:0 0 4px;font-weight:600">${membershipName}</p>
         ${amountPaid ? `<p style="color:#57534e;margin:0;font-size:14px">Paid: <strong>${amountPaid}</strong></p>` : ""}
+        ${nextBillingDate ? `<p style="color:#57534e;margin:4px 0 0;font-size:14px">First billing date: <strong>${nextBillingDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</strong></p>` : ""}
         ${endDate ? `<p style="color:#57534e;margin:4px 0 0;font-size:14px">Renews ${endDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>` : ""}
       </div>
       <a href="${portalUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
@@ -291,6 +296,47 @@ export async function sendMembershipActivatedEmail({
       <p style="color:#a8a29e;font-size:13px;margin:20px 0 0">
         You can manage your membership and payment method any time from the portal.
       </p>
+    `),
+  });
+}
+
+export async function sendCancellationDecisionEmail({
+  to,
+  firstName,
+  clubName,
+  membershipName,
+  decision,
+  effectiveText,
+  refunded,
+  portalUrl,
+}: {
+  to: string;
+  firstName: string;
+  clubName: string;
+  membershipName: string;
+  decision: "APPROVED" | "DECLINED";
+  effectiveText?: string | null;
+  refunded?: boolean;
+  portalUrl: string;
+}) {
+  const approved = decision === "APPROVED";
+  await sendEmail({
+    to,
+    subject: approved
+      ? `Your ${membershipName} membership has been canceled`
+      : `Update on your cancellation request`,
+    html: baseLayout(`
+      <h2 style="color:#1c1917;margin:0 0 8px">${approved ? `Cancellation confirmed, ${firstName}` : `About your request, ${firstName}`}</h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        ${
+          approved
+            ? `Your <strong>${membershipName}</strong> membership at ${clubName} has been canceled.${effectiveText ? ` ${effectiveText}` : ""}${refunded ? " A refund has been issued to your card." : ""}`
+            : `Your club reviewed your request to cancel <strong>${membershipName}</strong> and kept it active for now. Reach out to ${clubName} if you have any questions.`
+        }
+      </p>
+      <a href="${portalUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        Go to your portal
+      </a>
     `),
   });
 }

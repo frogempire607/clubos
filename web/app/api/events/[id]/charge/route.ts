@@ -11,6 +11,12 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 const schema = z.object({
   memberId: z.string(),
   pricingType: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN"]).optional(),
+  // STRIPE  -> existing online checkout link (default)
+  // CASH    -> owner took cash at the door
+  // TERMINAL-> owner ran the card on an in-person card reader / terminal
+  // CASH and TERMINAL confirm the booking and log a manual transaction in
+  // Financials WITHOUT creating a Stripe charge (reuses the manual-payment path).
+  paymentMethod: z.enum(["STRIPE", "CASH", "TERMINAL"]).optional().default("STRIPE"),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -25,12 +31,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   try {
     const body = await req.json();
-    const { memberId, pricingType = "MEMBER" } = schema.parse(body);
+    const { memberId, pricingType = "MEMBER", paymentMethod = "STRIPE" } = schema.parse(body);
 
     const club = await prisma.club.findUnique({
       where: { id: session.user.clubId },
     });
-    if (!club || !club.stripeAccountId || !club.stripeChargesEnabled) {
+    if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
+    // Stripe is only required for the online-checkout path. Cash/terminal
+    // bookings are recorded manually and never touch Stripe, so a club that
+    // hasn't connected Stripe can still take an at-the-door payment.
+    if (paymentMethod === "STRIPE" && (!club.stripeAccountId || !club.stripeChargesEnabled)) {
       return NextResponse.json({ error: "Connect Stripe first" }, { status: 400 });
     }
 
@@ -187,6 +197,61 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
     if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
+    // ── Cash / in-person terminal: confirm the booking and log a manual
+    // transaction in Financials. No Stripe charge. Mirrors the manual-payment
+    // route's transaction shape so it shows up alongside other Cash/Manual money.
+    if (paymentMethod === "CASH" || paymentMethod === "TERMINAL") {
+      const existing = await prisma.booking.findUnique({
+        where: { eventId_memberId: { eventId: event.id, memberId } },
+      });
+      if (existing) return NextResponse.json({ error: "Already booked" }, { status: 409 });
+
+      const status =
+        event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      const amount = +(priceCents / 100).toFixed(2);
+      const methodLabel = paymentMethod === "CASH" ? "cash" : "in-person terminal";
+
+      await prisma.$transaction([
+        prisma.booking.create({ data: { eventId: event.id, memberId, status } }),
+        prisma.transaction.create({
+          data: {
+            clubId: club.id,
+            amount,
+            status: "SUCCEEDED",
+            type: "MANUAL",
+            category: "event_booking",
+            paymentMethod, // "CASH" | "TERMINAL"
+            legalEntityId: club.defaultLegalEntityId || null,
+            source: `${member.firstName} ${member.lastName}`.trim() || null,
+            description: `${event.name} — ${priceLabel} price (${methodLabel})`,
+            manual: true,
+            txDate: new Date(),
+          },
+        }),
+      ]);
+
+      if (status === "CONFIRMED") {
+        const to = member.isMinor
+          ? member.guardianEmail || member.email
+          : member.email || member.guardianEmail;
+        if (to) {
+          const baseUrl = getAppBaseUrl();
+          sendBookingConfirmationEmail({
+            to,
+            firstName: member.firstName,
+            clubName: club.name,
+            eventName: event.name,
+            startsAt: event.startsAt,
+            endsAt: event.endsAt,
+            amountPaid: amount.toFixed(2),
+            portalUrl: `${baseUrl}/member/bookings`,
+          }).catch((e) => console.error("Booking email failed:", e));
+        }
+      }
+
+      return NextResponse.json({ recordedManually: true, paymentMethod, status, amount });
+    }
+
     const platformFee = calculatePlatformFee(priceCents, club.tier);
     const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
@@ -226,7 +291,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           clubId: club.id,
         },
       },
-      { stripeAccount: club.stripeAccountId }
+      // Non-null: the STRIPE path only reaches here after the top guard
+      // confirmed stripeAccountId; cash/terminal returned earlier.
+      { stripeAccount: club.stripeAccountId! }
     );
 
     return NextResponse.json({ url: checkoutSession.url });

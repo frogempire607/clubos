@@ -1,6 +1,7 @@
 import {
   LayoutGrid,
   Users,
+  UserCheck,
   Shield,
   ShoppingCart,
   Calendar,
@@ -30,6 +31,7 @@ export type NavItem =
 export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutGrid, href: "/dashboard" },
   { id: "members", label: "Members", icon: Users, href: "/dashboard/members" },
+  { id: "approvals", label: "Approvals", icon: UserCheck, href: "/dashboard/approvals" },
   {
     id: "staff",
     label: "Staff",

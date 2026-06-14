@@ -463,6 +463,9 @@ function StyleSection({ cfg, patchNested }: Pick<SectionProps, "cfg" | "patchNes
         <Field label="Button text color">
           <ColorInput value={cfg.style.buttonTextColor} onChange={(v) => patchNested("style", { buttonTextColor: v })} />
         </Field>
+        <Field label="Card text color" hint="Text inside service cards and info cards.">
+          <ColorInput value={cfg.style.cardTextColor} onChange={(v) => patchNested("style", { cardTextColor: v })} />
+        </Field>
         <Field label="Icon color">
           <ColorInput value={cfg.style.iconColor} onChange={(v) => patchNested("style", { iconColor: v })} />
         </Field>
@@ -804,17 +807,17 @@ function BookPreview({ cfg, clubName }: { cfg: BrandedAppConfig; clubName: strin
             <p className="text-[10px] opacity-75 truncate">Member app</p>
           </div>
         </div>
-        <span style={{ color: cfg.bookNow.topIconColor }}>***</span>
+        <MoreHorizontal size={18} strokeWidth={2} style={{ color: cfg.bookNow.topIconColor }} />
       </div>
       <div className="flex-1 p-4 space-y-3 overflow-hidden">
         <div className="text-xs rounded-lg p-3 border border-white/70" style={{ background: cfg.bookNow.cardBackground }}>
-          <p className="font-semibold text-stone-900">Location</p>
-          <p className="text-stone-500 mt-1">Club address and contact details appear here when saved.</p>
+          <p className="font-semibold" style={{ color: cfg.style.cardTextColor }}>Location</p>
+          <p className="mt-1 opacity-60" style={{ color: cfg.style.cardTextColor }}>Club address and contact details appear here when saved.</p>
         </div>
         <p className="text-xs uppercase tracking-wider text-stone-500 font-medium pt-1">Book a service</p>
         {["Classes", "Events", "Private Lessons", "Products / Store"].map((label) => (
           <div key={label} className="rounded-lg p-3 border flex items-center justify-between" style={bookCardStyle(cfg)}>
-            <span className="text-sm font-medium text-stone-900">{label}</span>
+            <span className="text-sm font-medium" style={{ color: cfg.style.cardTextColor }}>{label}</span>
             <span className="text-sm" style={{ color: cfg.style.iconColor }}>+</span>
           </div>
         ))}

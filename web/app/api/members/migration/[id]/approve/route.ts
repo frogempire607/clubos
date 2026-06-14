@@ -7,6 +7,13 @@ import { requirePermission } from "@/lib/apiGuard";
 import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { recurringUnitWithFee } from "@/lib/fees";
 import { MIGRATION_STATUS, resolveBillingAnchor } from "@/lib/migration";
+import { sendMembershipActivatedEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
+
+// Athlete (or guardian for minors) contact email for activation/approval notices.
+function memberContactEmail(m: { isMinor: boolean; email: string | null; guardianEmail: string | null }) {
+  return m.isMinor ? m.guardianEmail || m.email : m.email || m.guardianEmail;
+}
 
 // POST /api/members/migration/[id]/approve
 // Owner reviews a PENDING_APPROVAL migration and approves billing. ONLY here
@@ -143,6 +150,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         actorUserId: session.user.id,
       },
     });
+    const toNoPay = memberContactEmail(member);
+    if (toNoPay) {
+      sendMembershipActivatedEmail({
+        to: toNoPay,
+        firstName: member.firstName,
+        clubName: club.name,
+        membershipName: planName,
+        nextBillingDate: anchor,
+        portalUrl: `${getAppBaseUrl()}/member`,
+      }).catch((e) => console.error("Approval email failed:", e));
+    }
     return NextResponse.json({ ok: true, noPayment: true });
   }
 
@@ -224,6 +242,19 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       actorUserId: session.user.id,
     },
   });
+
+  const toPaid = memberContactEmail(member);
+  if (toPaid) {
+    sendMembershipActivatedEmail({
+      to: toPaid,
+      firstName: member.firstName,
+      clubName: club.name,
+      membershipName: planName,
+      amountPaid: billsImmediately ? `$${price.toFixed(2)}` : undefined,
+      nextBillingDate: billsImmediately ? null : anchor,
+      portalUrl: `${getAppBaseUrl()}/member`,
+    }).catch((e) => console.error("Approval email failed:", e));
+  }
 
   return NextResponse.json({ ok: true, subscriptionId: memberSub.stripeSubscriptionId });
 }

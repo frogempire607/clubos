@@ -37,6 +37,10 @@ export type BrandedAppConfig = {
     primaryButtonColor: string;
     secondaryButtonColor: string;
     buttonTextColor: string;
+    // Text color for content cards (service rows, info cards) that sit on a
+    // light card background — kept distinct from buttonTextColor, which is the
+    // label color on filled buttons.
+    cardTextColor: string;
     borderRadius: number;
     headerBackgroundColor: string;
     headerTextColor: string;
@@ -126,6 +130,7 @@ export function defaultBrandedAppConfig(club: {
       primaryButtonColor: accent,
       secondaryButtonColor: "#F5F5F4",
       buttonTextColor: "#FFFFFF",
+      cardTextColor: "#1C1917",
       borderRadius: 12,
       headerBackgroundColor: accent,
       headerTextColor: "#FFFFFF",

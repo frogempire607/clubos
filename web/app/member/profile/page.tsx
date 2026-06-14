@@ -116,6 +116,8 @@ export default function MemberProfilePage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
+  const [requestingCancel, setRequestingCancel] = useState(false);
+  const [cancelMsg, setCancelMsg] = useState("");
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -202,6 +204,29 @@ export default function MemberProfilePage() {
       return;
     }
     window.location.href = d.url;
+  }
+
+  async function requestCancellation(subscriptionId: string) {
+    if (!confirm("Request to cancel this membership? Your club has to approve it before billing stops.")) return;
+    setRequestingCancel(true);
+    setError("");
+    setCancelMsg("");
+    const res = await fetch("/api/member/subscriptions/request-cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscriptionId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setRequestingCancel(false);
+    if (!res.ok) {
+      setError(typeof d.error === "string" ? d.error : "Could not send your request.");
+      return;
+    }
+    setCancelMsg(
+      typeof d.message === "string"
+        ? d.message
+        : "Your cancellation request was sent to your club.",
+    );
   }
 
   async function deleteAccount() {
@@ -440,19 +465,34 @@ export default function MemberProfilePage() {
                 )}
               </dl>
             ) : null}
-            {showInvoices && me.memberProfile?.stripeCustomerId && (
-              <button
-                onClick={openBillingPortal}
-                disabled={openingPortal}
-                className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-              >
-                {openingPortal ? "Opening…" : "View invoices"}
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {showInvoices && me.memberProfile?.stripeCustomerId && (
+                <button
+                  onClick={openBillingPortal}
+                  disabled={openingPortal}
+                  className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  {openingPortal ? "Opening…" : "Update card / invoices"}
+                </button>
+              )}
+              {active && active.status === "active" && (
+                <button
+                  onClick={() => requestCancellation(active.id)}
+                  disabled={requestingCancel}
+                  className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  {requestingCancel ? "Sending…" : "Request cancellation"}
+                </button>
+              )}
+            </div>
+            {cancelMsg && (
+              <div className="mt-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                {cancelMsg}
+              </div>
             )}
             <p className="text-xs text-stone-500 mt-3">
-              Your club manages billing. To update your card, change plans,
-              pause, or cancel, message your club and they&apos;ll take care of
-              it from your account.
+              You can update your payment method and view invoices here.
+              Cancellations are reviewed by your club before billing stops.
             </p>
           </div>
         );

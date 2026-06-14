@@ -1528,6 +1528,7 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
   const [loading, setLoading] = useState(true);
   const [selectedMember, setSelectedMember] = useState("");
   const [pricingType, setPricingType] = useState<"MEMBER" | "NON_MEMBER" | "DROP_IN">("MEMBER");
+  const [payMethod, setPayMethod] = useState<"STRIPE" | "CASH" | "TERMINAL">("STRIPE");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
 
@@ -1563,13 +1564,16 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
       const res = await fetch(`/api/events/${eventId}/charge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberId: selectedMember, pricingType }),
+        body: JSON.stringify({ memberId: selectedMember, pricingType, paymentMethod: payMethod }),
       });
       const data = await res.json();
       setAdding(false);
       if (!res.ok) { setError(data.error?.toString() || "Failed to start checkout"); return; }
-      if (data.coveredByMembership || data.variableCost) {
+      // Covered-by-membership, variable-cost (billed later), and cash/terminal
+      // (recordedManually) all confirm the booking server-side with no redirect.
+      if (data.coveredByMembership || data.variableCost || data.recordedManually) {
         setSelectedMember("");
+        setPayMethod("STRIPE");
         load();
         return;
       }
@@ -1642,13 +1646,30 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
                     {event?.dropInFee && <option value="DROP_IN">Drop-in — ${Number(event.dropInFee).toFixed(2)}</option>}
                   </select>
                 )}
+                {isPaid && !hasVariableCost && (
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-text-muted">Payment method</label>
+                    <select value={payMethod} onChange={(e) => setPayMethod(e.target.value as any)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+                      <option value="STRIPE">Online checkout link (Stripe)</option>
+                      <option value="CASH">Cash — paid at the door</option>
+                      <option value="TERMINAL">Card terminal / in person</option>
+                    </select>
+                    {payMethod !== "STRIPE" && (
+                      <p className="text-[11px] text-text-muted">Confirms the booking now and logs the payment in Financials. No card is charged.</p>
+                    )}
+                  </div>
+                )}
                 <button onClick={handleAdd} disabled={!selectedMember || adding} className="w-full px-3 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
                   {adding
                     ? "Processing…"
                     : hasVariableCost
                       ? "Register (invoice later)"
                       : isPaid
-                        ? "Send checkout link"
+                        ? (payMethod === "STRIPE"
+                            ? "Send checkout link"
+                            : payMethod === "CASH"
+                              ? "Record cash & confirm"
+                              : "Record terminal & confirm")
                         : "Book (free)"}
                 </button>
                 {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">{error}</div>}
