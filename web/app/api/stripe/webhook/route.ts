@@ -116,6 +116,7 @@ export async function POST(req: Request) {
         const eventRegistrationId = session.metadata?.eventRegistrationId; // public/non-member event signup
         const clubOsPlan = session.metadata?.clubOsPlan; // ClubOS-own subscription tier
         const privatePackageId = session.metadata?.privatePackageId; // member-shop private package purchase
+        const bundleId  = session.metadata?.bundleId; // #3 event bundle purchase
 
         // ── ClubOS platform subscription checkout ────────────────────────────
         // Club owner upgraded their AthletixOS plan. Persist tier + Stripe ids
@@ -273,6 +274,41 @@ export async function POST(req: Request) {
             }
           } catch (e) {
             console.error("Migration setup completion update failed:", e);
+          }
+        }
+
+        // ── Event bundle checkout (#3): one payment books every included event ─
+        if (memberId && bundleId) {
+          await prisma.transaction.create({
+            data: {
+              clubId,
+              memberId,
+              amount: (session.amount_total || 0) / 100,
+              status: "SUCCEEDED",
+              stripePaymentIntentId: session.payment_intent as string,
+              description: "Event bundle booking",
+              type: "EVENT",
+              category: "events",
+              paymentMethod: "STRIPE",
+            },
+          });
+
+          const bundle = await prisma.eventBundle.findFirst({
+            where: { id: bundleId, clubId, deletedAt: null },
+            include: { items: { select: { eventId: true } } },
+          });
+          if (bundle) {
+            for (const it of bundle.items) {
+              // Idempotent — a retried webhook won't double-book.
+              const existing = await prisma.booking.findUnique({
+                where: { eventId_memberId: { eventId: it.eventId, memberId } },
+              });
+              if (!existing) {
+                await prisma.booking.create({
+                  data: { eventId: it.eventId, memberId, status: "CONFIRMED" },
+                });
+              }
+            }
           }
         }
 

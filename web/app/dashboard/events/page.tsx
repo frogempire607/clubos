@@ -219,6 +219,9 @@ export default function EventsPage() {
         description="Classes, privates, clinics, camps, tournaments"
         actions={
           <>
+            <a href="/dashboard/events/bundles" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+              Bundles
+            </a>
             <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
               Manage event types
             </button>

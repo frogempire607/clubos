@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarRange } from "lucide-react";
+import { CalendarRange, Package } from "lucide-react";
 
 type EventCard = {
   id: string;
@@ -25,6 +25,14 @@ type EventCard = {
 };
 
 type BookingRef = { eventId: string; status: string };
+
+type BundleCard = {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number | string;
+  items: { eventId: string; event: { id: string; name: string; startsAt: string; memberPrice: number | string | null; nonMemberPrice: number | string | null } }[];
+};
 
 const builtInColors: Record<string, { bg: string; fg: string }> = {
   CLASS: { bg: "var(--color-primary)", fg: "#fff" },
@@ -61,21 +69,24 @@ export default function MemberEventsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [bundles, setBundles] = useState<BundleCard[]>([]);
 
   function load() {
     setLoading(true);
-    fetch("/api/member/events")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) {
-          setEvents(d.events || []);
-          setBookings(d.bookings || []);
-          setActiveMembershipIds(d.activeMembershipIds || []);
-          setIsActiveMember(!!d.isActiveMember);
-          setHasMemberProfile(d.hasMemberProfile);
-        }
-        setLoading(false);
-      });
+    Promise.all([
+      fetch("/api/member/events").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/member/event-bundles").then((r) => (r.ok ? r.json() : [])),
+    ]).then(([d, b]) => {
+      if (d) {
+        setEvents(d.events || []);
+        setBookings(d.bookings || []);
+        setActiveMembershipIds(d.activeMembershipIds || []);
+        setIsActiveMember(!!d.isActiveMember);
+        setHasMemberProfile(d.hasMemberProfile);
+      }
+      setBundles(Array.isArray(b) ? b : []);
+      setLoading(false);
+    });
   }
   useEffect(() => { load(); }, []);
 
@@ -114,6 +125,23 @@ export default function MemberEventsPage() {
     setError("Unexpected response");
   }
 
+  async function registerBundle(bundleId: string) {
+    setBusy(`bundle:${bundleId}`);
+    setError("");
+    setInfo("");
+    const res = await fetch(`/api/member/event-bundles/${bundleId}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) { setError(d.error || "Could not register"); return; }
+    if (d.free) { setInfo(`Registered for all ${d.booked} events in the bundle.`); load(); return; }
+    if (d.url) { window.location.href = d.url; return; }
+    setError("Unexpected response");
+  }
+
   return (
     <>
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -132,6 +160,53 @@ export default function MemberEventsPage() {
 
       {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
       {info && <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 mb-4">{info}</div>}
+
+      {!loading && bundles.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-stone-900 mb-2">Bundles &amp; packages</h2>
+          <div className="space-y-3">
+            {bundles.map((b) => {
+              const separate = b.items.reduce((s, it) => s + (Number(it.event.memberPrice) || Number(it.event.nonMemberPrice) || 0), 0);
+              const price = Number(b.price);
+              const savings = separate > price ? separate - price : 0;
+              const key = `bundle:${b.id}`;
+              return (
+                <div key={b.id} className="bg-white rounded-xl border border-stone-200 p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="w-14 rounded-lg flex items-center justify-center flex-shrink-0 py-2 bg-stone-900 text-white">
+                      <Package className="h-6 w-6" strokeWidth={2} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <h3 className="text-sm font-semibold text-stone-900">{b.name}</h3>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-lime-accent/20 text-charcoal font-medium">
+                          {b.items.length} event{b.items.length === 1 ? "" : "s"}
+                        </span>
+                        {savings > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
+                            Save ${savings.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                      {b.description && <p className="text-xs text-stone-600 mt-0.5 mb-1 line-clamp-2 whitespace-pre-wrap">{b.description}</p>}
+                      <p className="text-xs text-stone-500 line-clamp-1">{b.items.map((it) => it.event.name).join(", ")}</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <button
+                        disabled={!hasMemberProfile || busy === key}
+                        onClick={() => registerBundle(b.id)}
+                        className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50"
+                      >
+                        {busy === key ? "…" : `Register · $${price.toFixed(2)}`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>

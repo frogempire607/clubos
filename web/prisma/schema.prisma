@@ -154,6 +154,7 @@ model Club {
   uploadedFiles               UploadedFile[]
   emailOptOuts                EmailOptOut[]
   eventRegistrations          EventRegistration[]
+  eventBundles                EventBundle[]
   contractors                 Contractor[]
   contractorPayments          ContractorPayment[]
   memberMigrationEvents       MemberMigrationEvent[]
@@ -835,6 +836,7 @@ model Event {
   sessions         EventSession[]
   staffAssignments EventStaffAssignment[]
   registrations    EventRegistration[]
+  bundleItems      EventBundleItem[]
 
   @@index([clubId])
   @@index([startsAt])
@@ -890,6 +892,41 @@ model EventRegistration {
   @@index([clubId])
   @@index([memberId])
   @@map("event_registrations")
+}
+
+// #3: a discounted package of several events sold for one price. Registering
+// for the bundle books the member into every included event in one payment.
+model EventBundle {
+  id          String    @id @default(cuid())
+  clubId      String
+  name        String
+  description String?
+  // Single package price for the whole bundle (the deal vs. buying each event
+  // separately). Applies to members and non-members alike.
+  price       Decimal   @db.Decimal(10, 2)
+  published   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  club  Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  items EventBundleItem[]
+
+  @@index([clubId])
+  @@map("event_bundles")
+}
+
+// Explicit join: which events belong to a bundle.
+model EventBundleItem {
+  bundleId String
+  eventId  String
+
+  bundle EventBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  event  Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([bundleId, eventId])
+  @@index([eventId])
+  @@map("event_bundle_items")
 }
 
 model Booking {
