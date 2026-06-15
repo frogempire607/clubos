@@ -488,6 +488,10 @@ model Member {
   activationTokenExpires   DateTime?
   activationEmailSentAt    DateTime?
   activationEmailSendCount Int      @default(0)
+  // "JOIN" = a free-join registration link sent to a non-member so they can
+  // create a portal account and browse options. null / "MIGRATION" = the
+  // software-switch activation flow.
+  activationKind           String?
   activatedAt              DateTime?
   migrationCompletedAt     DateTime?
   // Owner-assigned plan this migration continues (a real Membership.id).

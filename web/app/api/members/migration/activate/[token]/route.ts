@@ -120,6 +120,9 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     // #6: owner marked this member already paid through their final period —
     // the page shows "active through end date" and collects no card.
     finalPeriodPaid: m.migrationFinalPeriodPaid,
+    // #7: JOIN = a non-member free-join link (create a free account, browse options).
+    kind: m.activationKind,
+    joined: m.activationKind === "JOIN" && !!m.activatedAt,
     member: {
       firstName: m.firstName,
       lastName: m.lastName,
@@ -185,6 +188,10 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   ) {
     return NextResponse.json({ error: "This membership is already active." }, { status: 409 });
   }
+  // #7: a non-member JOIN link that's already been used.
+  if (member.activationKind === "JOIN" && member.activatedAt) {
+    return NextResponse.json({ error: "Your account is already set up — just sign in." }, { status: 409 });
+  }
 
   let body: z.infer<typeof postSchema>;
   try {
@@ -243,6 +250,34 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         return NextResponse.json({ error: "Could not complete activation." }, { status: 500 });
       }
     }
+  }
+
+  // #7: free-join (non-member). Create + link the portal account, mark
+  // activated. No membership, no billing; their member status is unchanged.
+  // They can then sign in and browse/buy the club's options.
+  if (member.activationKind === "JOIN") {
+    await prisma.member.update({
+      where: { id: member.id },
+      data: {
+        ...(member.userId ? {} : { userId: user.id }),
+        ...(editable.phone && body.phone?.trim() ? { phone: body.phone.trim() } : {}),
+        ...(newEmail ? { email: newEmail } : {}),
+        activatedAt: new Date(),
+      },
+    });
+    await prisma.memberMigrationEvent.create({
+      data: {
+        clubId: club.id,
+        memberId: member.id,
+        type: "JOINED",
+        message: "Created a free account via registration link",
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      joined: true,
+      message: `You're in! Your ${club.name} account is ready — sign in to explore memberships, classes, and events.`,
+    });
   }
 
   const requestedDate = body.requestedBillingDate ? new Date(body.requestedBillingDate) : null;

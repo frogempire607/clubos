@@ -701,3 +701,59 @@ export async function sendPartnerInviteEmail({
     }),
   });
 }
+
+// #7: invite a non-member to create a FREE portal account via a registration
+// link. Club-branded — it's a message "from the club." The link opens the
+// secure activation page in JOIN mode (no membership, no payment).
+export async function sendClubJoinInviteEmail({
+  to,
+  firstName,
+  clubName,
+  clubLogoUrl,
+  clubPrimaryColor,
+  registrationUrl,
+  fromName,
+  replyTo,
+}: {
+  to: string;
+  firstName: string;
+  clubName: string;
+  clubLogoUrl?: string | null;
+  clubPrimaryColor?: string | null;
+  registrationUrl: string;
+  fromName?: string | null;
+  replyTo?: string | null;
+}) {
+  const brand =
+    clubPrimaryColor && /^#[0-9a-fA-F]{6}$/.test(clubPrimaryColor) ? clubPrimaryColor : "#534AB7";
+  const safeName = escapeHtml(clubName);
+  const safeFirst = escapeHtml(firstName || "there");
+  await sendEmail({
+    to,
+    subject: `Join ${clubName} — set up your free account`,
+    fromName,
+    replyTo,
+    html: clubBrandedLayout({
+      clubName,
+      clubLogoUrl,
+      clubPrimaryColor,
+      content: `
+        <h2 style="color:#1c1917;margin:0 0 6px;font-size:20px;font-weight:700">
+          You're invited to join ${safeName}
+        </h2>
+        <p style="color:#57534e;line-height:1.6;margin:0 0 18px;font-size:14px">
+          Hi ${safeFirst}, set up your free account to see ${safeName}'s memberships,
+          classes, events, and more — and sign up for whatever's right for you. It's
+          free to create your account; you only pay for what you choose.
+        </p>
+        <a href="${registrationUrl}" style="display:inline-block;background:${brand};color:#ffffff;padding:13px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;letter-spacing:0.01em">
+          Set up my free account
+        </a>
+        <p style="color:#a8a29e;font-size:12px;margin:18px 0 0;line-height:1.5">
+          We never ask for card details by email; the button above opens your secure
+          ${safeName} page.
+        </p>
+      `,
+    }),
+  });
+}

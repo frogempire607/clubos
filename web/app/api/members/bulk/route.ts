@@ -4,9 +4,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
+import { sendJoinInvite } from "@/lib/migrationServer";
 
 const schema = z.object({
-  action: z.enum(["delete", "message"]),
+  action: z.enum(["delete", "message", "send_registration_link"]),
   memberIds: z.array(z.string().min(1)).min(1).max(500),
   body: z.string().min(1).max(4000).optional(),
 });
@@ -43,6 +44,18 @@ export async function POST(req: Request) {
       data: { deletedAt: new Date() },
     });
     return NextResponse.json({ ok: true, deleted: ids.length });
+  }
+
+  // #7: send a free-join registration link to each selected non-member.
+  if (data.action === "send_registration_link") {
+    let sent = 0;
+    const skipped: { memberId: string; reason: string }[] = [];
+    for (const memberId of ids) {
+      const r = await sendJoinInvite(memberId, session.user.clubId, session.user.id);
+      if (r.ok) sent++;
+      else skipped.push({ memberId, reason: r.reason ?? "Could not send" });
+    }
+    return NextResponse.json({ ok: true, sent, skipped });
   }
 
   // action === "message"

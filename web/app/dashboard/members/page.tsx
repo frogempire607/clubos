@@ -249,6 +249,26 @@ export default function MembersPage() {
     else alert("Bulk delete failed");
   }
 
+  // #7: send a free-join registration link to selected non-members.
+  async function bulkSendRegistration() {
+    const n = selectedIds.size;
+    if (!confirm(`Send a free-join registration link to ${n} selected ${n === 1 ? "person" : "people"}? Anyone who already has an active membership is skipped.`)) return;
+    const res = await fetch("/api/members/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send_registration_link", memberIds: Array.from(selectedIds) }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const skipped = Array.isArray(d.skipped) ? d.skipped.length : 0;
+      alert(`Sent ${d.sent ?? 0} registration link${(d.sent ?? 0) === 1 ? "" : "s"}.${skipped ? ` ${skipped} skipped (already a member or no email on file).` : ""}`);
+      setSelectedIds(new Set());
+      load();
+    } else {
+      alert(typeof d.error === "string" ? d.error : "Failed to send registration links");
+    }
+  }
+
   async function acceptDefaults() {
     await fetch("/api/club/member-form", {
       method: "PUT",
@@ -370,6 +390,12 @@ export default function MembersPage() {
             className="text-sm px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg"
           >
             Message selected
+          </button>
+          <button
+            onClick={bulkSendRegistration}
+            className="text-sm px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg"
+          >
+            Send registration link
           </button>
           <button
             onClick={bulkDelete}

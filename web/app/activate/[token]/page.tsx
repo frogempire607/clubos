@@ -8,6 +8,8 @@ type Data = {
   completed: boolean;
   pendingApproval: boolean;
   finalPeriodPaid: boolean;
+  kind: string | null;
+  joined?: boolean;
   member: {
     firstName: string; lastName: string; email: string | null; phone: string | null;
     isMinor: boolean; guardianName: string | null; guardianEmail: string | null;
@@ -64,6 +66,7 @@ export default function ActivatePage() {
 
   const accent = data?.club.primaryColor || "#534AB7";
   const finalPaid = !!data?.finalPeriodPaid;
+  const isJoin = data?.kind === "JOIN";
   const opts = data?.membership.options ?? [];
   const canChoosePlan = !finalPaid && !data?.membership.priceLocked && opts.length > 1;
   const chosenOption = opts.find((o) => o.label === selectedOptionLabel) || null;
@@ -74,10 +77,10 @@ export default function ActivatePage() {
     setError("");
     if (password.length < 8) { setError("Choose a password with at least 8 characters."); return; }
     // Autopay only applies to recurring card billing.
-    if (!finalPaid && paymentMethod === "CARD" && !autopay) {
+    if (!finalPaid && !isJoin && paymentMethod === "CARD" && !autopay) {
       setError("Please accept the autopay terms to continue."); return;
     }
-    if (data?.requiredDocument && !signed) { setError(`Please acknowledge "${data.requiredDocument.title}".`); return; }
+    if (!isJoin && data?.requiredDocument && !signed) { setError(`Please acknowledge "${data.requiredDocument.title}".`); return; }
     setSubmitting(true);
     const res = await fetch(`/api/members/migration/activate/${token}`, {
       method: "POST",
@@ -100,7 +103,7 @@ export default function ActivatePage() {
     setSubmitting(false);
     if (!res.ok) { setError(typeof d.error === "string" ? d.error : "Could not complete activation."); return; }
     if (d.url) { window.location.href = d.url; return; }
-    if (d.noPayment || d.finalPeriod) { setSuccessMsg(d.message || "Your account is activated."); return; }
+    if (d.noPayment || d.finalPeriod || d.joined) { setSuccessMsg(d.message || "Your account is activated."); return; }
     setSuccessMsg("Your account is activated.");
   }
 
@@ -119,11 +122,13 @@ export default function ActivatePage() {
   }
   if (!data) return null;
 
-  const done = justDone || data.completed || data.pendingApproval || !!successMsg;
-  const doneMsg = data.completed
-    ? `Thanks, ${data.member.firstName}! Your membership at ${data.club.name} is active and continuing without interruption.`
-    : successMsg ||
-      `Thanks, ${data.member.firstName}! Your details and payment method are saved. ${data.club.name} will review and confirm your billing — you have not been charged, and won't be until they approve and your billing date arrives.`;
+  const done = justDone || data.completed || data.pendingApproval || !!data.joined || !!successMsg;
+  const doneMsg = data.joined
+    ? successMsg || `You're in, ${data.member.firstName}! Your ${data.club.name} account is ready — sign in to explore memberships, classes, and events.`
+    : data.completed
+      ? `Thanks, ${data.member.firstName}! Your membership at ${data.club.name} is active and continuing without interruption.`
+      : successMsg ||
+        `Thanks, ${data.member.firstName}! Your details and payment method are saved. ${data.club.name} will review and confirm your billing — you have not been charged, and won't be until they approve and your billing date arrives.`;
 
   return (
     <div className="min-h-screen bg-stone-50 py-10 px-4">
@@ -153,6 +158,45 @@ export default function ActivatePage() {
                 You can sign in any time at the {data.club.name} member portal.
               </p>
             </div>
+          ) : isJoin ? (
+            <>
+              <p className="text-sm text-stone-600 leading-relaxed mb-5">
+                Create your free <strong>{data.club.name}</strong> account to browse memberships,
+                classes, and events — and sign up for whatever's right for you.{" "}
+                <strong>No payment needed to get started.</strong>
+              </p>
+              <div className="space-y-4 mb-5">
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
+                  <input
+                    value={data.editable.email ? email : data.member.email || data.member.guardianEmail || ""}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={!data.editable.email}
+                    className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.email ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Phone</label>
+                  <input value={phone} onChange={(e) => setPhone(e.target.value)}
+                    disabled={!data.editable.phone}
+                    className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
+                    placeholder="(555) 555-5555" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
+                </div>
+              </div>
+              {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</div>}
+              <button onClick={submit} disabled={submitting}
+                className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-50" style={{ background: accent }}>
+                {submitting ? "Creating…" : "Create my free account"}
+              </button>
+              <p className="text-[11px] text-stone-400 text-center mt-3">
+                Free account · Powered by AthletixOS. We never ask for card details over email.
+              </p>
+            </>
           ) : (
             <>
               {finalPaid ? (
