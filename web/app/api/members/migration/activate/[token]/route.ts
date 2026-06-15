@@ -214,10 +214,71 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   const requestedDate = body.requestedBillingDate ? new Date(body.requestedBillingDate) : null;
   const validRequested = requestedDate && !isNaN(requestedDate.getTime()) ? requestedDate : null;
 
-  // Atomically claim the activation. Only a member still in a pre-active
-  // state can be flipped to ACTIVATED; a concurrent or replayed POST updates
-  // 0 rows and 409s below — so profile/password side effects can't be
-  // re-applied by a second request even under a race.
+  // The connected account we collect the card on — null when the club hasn't
+  // finished Stripe onboarding (the owner then bills manually).
+  const stripeAccount = club.stripeChargesEnabled ? club.stripeAccountId : null;
+
+  // Set up the Stripe Customer + SETUP-mode Checkout session BEFORE we mutate
+  // any membership state. If Stripe fails we return a clean error and the
+  // member row is untouched, so the member can simply retry.
+  //
+  // Why ordering matters: the old code flipped migrationStatus to ACTIVATED
+  // first and only THEN called Stripe. An unguarded Stripe error (restricted
+  // connected account, transient API failure, …) threw an opaque 500 the page
+  // rendered as the generic "Could not complete activation." — and because the
+  // status was already ACTIVATED, the replay guard above then rejected every
+  // retry with "This membership is already active," stranding the member with
+  // no card on file. Doing Stripe first closes that trap.
+  let checkoutUrl: string | null = null;
+  let setupCustomerId: string | null = member.stripeSetupCustomerId ?? null;
+  if (stripeAccount) {
+    try {
+      const customer = member.stripeSetupCustomerId
+        ? { id: member.stripeSetupCustomerId }
+        : await stripe.customers.create(
+            {
+              email: contactEmail,
+              name: `${member.firstName} ${member.lastName}`.trim(),
+              metadata: { migrationMemberId: member.id, clubId: club.id },
+            },
+            { stripeAccount },
+          );
+      setupCustomerId = customer.id;
+
+      const baseUrl = getAppBaseUrl();
+      const checkout = await stripe.checkout.sessions.create(
+        {
+          mode: "setup",
+          customer: customer.id,
+          currency: "usd",
+          success_url: `${baseUrl}/activate/${token}?done=true`,
+          cancel_url: `${baseUrl}/activate/${token}?canceled=true`,
+          metadata: {
+            migrationMemberId: member.id,
+            clubId: club.id,
+            setupCustomerId: customer.id,
+          },
+          setup_intent_data: {
+            metadata: { migrationMemberId: member.id, clubId: club.id },
+          },
+        },
+        { stripeAccount },
+      );
+      checkoutUrl = checkout.url;
+    } catch (err) {
+      console.error("[activate] Stripe setup failed", err);
+      return NextResponse.json(
+        { error: "We couldn't open the secure payment step. Please try again in a moment." },
+        { status: 502 },
+      );
+    }
+  }
+
+  // Atomically claim the activation — only AFTER any Stripe work above
+  // succeeded, so a payment failure never flips the status. Only a member
+  // still in a pre-active state can be flipped to ACTIVATED; a concurrent or
+  // replayed POST updates 0 rows and 409s below, so profile/password side
+  // effects can't be re-applied by a second request even under a race.
   const claimed = await prisma.member.updateMany({
     where: {
       id: member.id,
@@ -232,6 +293,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         ? { requestedBillingNote: body.requestedBillingNote.trim() }
         : {}),
       ...(editable.notes && body.activationNote ? { activationNote: body.activationNote.trim() } : {}),
+      ...(setupCustomerId ? { stripeSetupCustomerId: setupCustomerId } : {}),
+      paymentSetupStatus: PAYMENT_SETUP.REQUIRED,
       migrationStatus: MIGRATION_STATUS.ACTIVATED,
       activatedAt: new Date(),
       // Goes into the owner's review queue. Billing does NOT begin.
@@ -278,11 +341,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   });
 
   // No online payments on the club → activated; owner handles billing manually.
-  if (!club.stripeAccountId || !club.stripeChargesEnabled) {
-    await prisma.member.update({
-      where: { id: member.id },
-      data: { paymentSetupStatus: PAYMENT_SETUP.REQUIRED },
-    });
+  if (!stripeAccount) {
     return NextResponse.json({
       ok: true,
       noPayment: true,
@@ -291,43 +350,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     });
   }
 
-  // Collect a payment method WITHOUT charging. A Customer on the connected
-  // account holds the saved card so it can be reused when the owner approves.
-  const customer = member.stripeSetupCustomerId
-    ? { id: member.stripeSetupCustomerId }
-    : await stripe.customers.create(
-        {
-          email: contactEmail,
-          name: `${member.firstName} ${member.lastName}`.trim(),
-          metadata: { migrationMemberId: member.id, clubId: club.id },
-        },
-        { stripeAccount: club.stripeAccountId },
-      );
-
-  const baseUrl = getAppBaseUrl();
-  const checkout = await stripe.checkout.sessions.create(
-    {
-      mode: "setup",
-      customer: customer.id,
-      currency: "usd",
-      success_url: `${baseUrl}/activate/${token}?done=true`,
-      cancel_url: `${baseUrl}/activate/${token}?canceled=true`,
-      metadata: {
-        migrationMemberId: member.id,
-        clubId: club.id,
-        setupCustomerId: customer.id,
-      },
-      setup_intent_data: {
-        metadata: { migrationMemberId: member.id, clubId: club.id },
-      },
-    },
-    { stripeAccount: club.stripeAccountId },
-  );
-
-  await prisma.member.update({
-    where: { id: member.id },
-    data: { stripeSetupCustomerId: customer.id, paymentSetupStatus: PAYMENT_SETUP.REQUIRED },
-  });
-
-  return NextResponse.json({ ok: true, url: checkout.url });
+  // Card collection happens on the Stripe-hosted SETUP page prepared above —
+  // before any state was mutated — so a Stripe failure can never strand the
+  // member mid-activation.
+  return NextResponse.json({ ok: true, url: checkoutUrl });
 }

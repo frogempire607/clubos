@@ -306,6 +306,29 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// Pull a human-readable message out of a failed API response WITHOUT ever
+// throwing. A non-JSON body (a platform 500/timeout, an auth redirect, an
+// empty body) used to make `res.json()` throw — and because the caller had no
+// try/catch, the exception was swallowed, leaving the modal silent: no
+// document, no error. Returns null when there's nothing useful to show so the
+// caller can fall back to a status-based message.
+async function readResponseError(res: Response): Promise<string | null> {
+  try {
+    const data = await res.json();
+    if (typeof data?.error === "string") return data.error;
+    if (Array.isArray(data?.error)) {
+      // Zod issue array: surface the field messages.
+      const msgs = data.error
+        .map((e: { message?: string }) => (e && typeof e.message === "string" ? e.message : null))
+        .filter(Boolean);
+      return msgs.length ? msgs.join(", ") : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /* ─── Rich Text Toolbar ─── */
 
 type FormatCmd = "bold" | "italic" | "underline";
@@ -475,28 +498,39 @@ function DocumentModal({
     const url = isEdit ? `/api/documents/${doc!.id}` : "/api/documents";
     const method = isEdit ? "PATCH" : "POST";
 
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        type,
-        body: body || null,
-        required,
-        requiresGuardianSignature,
-        deliveryTrigger,
-        expiresAt: expiresAt || null,
-        signatureValidForDays: signatureFrequency === "0" ? null : parseInt(signatureFrequency, 10),
-      }),
-    });
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          type,
+          body: body || null,
+          required,
+          requiresGuardianSignature,
+          deliveryTrigger,
+          expiresAt: expiresAt || null,
+          signatureValidForDays: signatureFrequency === "0" ? null : parseInt(signatureFrequency, 10),
+        }),
+      });
 
-    setSaving(false);
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Save failed");
-      return;
+      if (!res.ok) {
+        // Always surface a real error — never let response parsing throw and
+        // leave the modal silent (the original "button does nothing" bug).
+        setError(
+          (await readResponseError(res)) ||
+            `Couldn't save document (${res.status}). Please try again.`,
+        );
+        return;
+      }
+      onSaved();
+    } catch {
+      // fetch() itself rejected (offline, DNS, aborted). Previously this threw
+      // past the missing catch and left the button stuck on "Saving…".
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setSaving(false);
     }
-    onSaved();
   }
 
   return (
