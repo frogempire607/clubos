@@ -104,6 +104,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
   }
 
+  // #5: honor the option the member chose at registration over the plan
+  // default (the owner's explicit price override below still wins).
+  if (member.migrationSelectedOption && typeof member.migrationSelectedOption === "object") {
+    const sel = member.migrationSelectedOption as { price?: unknown; billingPeriod?: unknown };
+    if (typeof sel.price === "number") price = sel.price;
+    if (typeof sel.billingPeriod === "string" && sel.billingPeriod) period = sel.billingPeriod;
+  }
+
   // Owner price override set before activation wins over every other source.
   if (member.migrationPriceOverride != null) {
     price = Number(member.migrationPriceOverride);
@@ -135,6 +143,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         migrationStatus: MIGRATION_STATUS.COMPLETED,
         approvalStatus: "APPROVED",
         ...(anchor ? { billingAnchorDate: anchor } : {}),
+        ...(member.requestedCancellationDate ? { commitmentEndDate: member.requestedCancellationDate } : {}),
         migrationCompletedAt: new Date(),
       },
     });
@@ -168,6 +177,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // the FIRST charge to the agreed date so nobody is billed on approval day.
   const trialEnd =
     anchor && anchor.getTime() > Date.now() + 60_000 ? Math.floor(anchor.getTime() / 1000) : undefined;
+  // #5: if the member requested a cancellation/end date, schedule the Stripe
+  // subscription to auto-cancel then. Must be in the future and after any
+  // trial_end, or Stripe rejects it.
+  const cancelSource = member.requestedCancellationDate ?? member.commitmentEndDate ?? null;
+  let cancelAtUnix: number | undefined;
+  if (cancelSource && cancelSource.getTime() > Date.now() + 60_000) {
+    const ts = Math.floor(cancelSource.getTime() / 1000);
+    if (!trialEnd || ts > trialEnd) cancelAtUnix = ts;
+  }
   const amountCents = recurringUnitWithFee(Math.round(price * 100), club.passProcessingFees);
   const interval = billingPeriodToStripeInterval(period) || { interval: "month" as const, interval_count: 1 };
 
@@ -194,6 +212,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           },
         ],
         ...(trialEnd ? { trial_end: trialEnd } : {}),
+        ...(cancelAtUnix ? { cancel_at: cancelAtUnix } : {}),
         application_fee_percent: 0,
         metadata: { migrationMemberId: member.id, clubId: club.id },
       },
@@ -227,6 +246,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       approvalStatus: "APPROVED",
       membershipId,
       ...(anchor ? { billingAnchorDate: anchor } : {}),
+      ...(member.requestedCancellationDate ? { commitmentEndDate: member.requestedCancellationDate } : {}),
       migrationCompletedAt: new Date(),
       status: "ACTIVE",
     },

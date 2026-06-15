@@ -26,7 +26,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       approvalStatus: true, paymentSetupStatus: true, migrationMembershipId: true,
       migrationPriceOverride: true, migrationDiscountNote: true,
       activationEditableFields: true, requestedBillingDate: true, requestedBillingNote: true,
-      activationNote: true, activationToken: true, activationTokenExpires: true,
+      activationNote: true, requestedCancellationDate: true, requestedPaymentMethod: true,
+      migrationSelectedOption: true, migrationFinalPeriodPaid: true,
+      activationToken: true, activationTokenExpires: true,
       activationEmailSentAt: true, activationEmailSendCount: true,
     },
   });
@@ -45,6 +47,9 @@ const patchSchema = z.object({
   commitmentEndDate: z.string().optional().nullable(),
   priceOverride: z.number().nonnegative().optional().nullable(),
   discountNote: z.string().max(200).optional().nullable(),
+  // #6: owner marks the member as already paid through their final period —
+  // the activation link then collects no card and won't create a subscription.
+  finalPeriodPaid: z.boolean().optional(),
   activationEditableFields: z
     .object({
       phone: z.boolean().optional(),
@@ -119,6 +124,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         : {}),
       ...(data.activationEditableFields !== undefined
         ? { activationEditableFields: data.activationEditableFields ?? undefined }
+        : {}),
+      ...(data.finalPeriodPaid !== undefined
+        ? { migrationFinalPeriodPaid: data.finalPeriodPaid }
         : {}),
     },
     select: { id: true, migrationMembershipId: true, billingAnchorDate: true, commitmentEndDate: true },

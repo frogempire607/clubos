@@ -498,6 +498,10 @@ model Member {
   migrationPriceOverride   Decimal? @db.Decimal(10, 2)
   // Free-text note for why (e.g. "Founding member 20% off"). Display only.
   migrationDiscountNote    String?
+  // Owner flag: this member is in their already-paid final period. The
+  // activation link then shows "active through <commitmentEndDate>", collects
+  // no card, and completes as a non-renewing membership (no subscription).
+  migrationFinalPeriodPaid Boolean  @default(false)
   // Which fields/abilities the client may edit on the activation page.
   // Shape: { phone, email, billingDateRequest, notes }. null = defaults.
   activationEditableFields Json?
@@ -505,6 +509,15 @@ model Member {
   requestedBillingDate       DateTime?
   requestedBillingNote       String?
   activationNote             String?
+  // Member-set at registration; owner reviews. On approval this becomes the
+  // membership's commitmentEndDate (and the subscription's cancel_at).
+  requestedCancellationDate  DateTime?
+  // "CARD" | "CASH" | "CHECK". CASH/CHECK collect no card and require full
+  // owner approval before the membership is active.
+  requestedPaymentMethod     String?
+  // The membership option the member chose at registration:
+  // { label, price, billingPeriod }. Honored over the plan's default option.
+  migrationSelectedOption    Json?
   // null | PENDING_APPROVAL | APPROVED. Billing NEVER starts until APPROVED.
   approvalStatus             String?
   // Stripe Customer + PaymentMethod on the club's CONNECTED account, saved

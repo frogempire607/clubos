@@ -456,11 +456,16 @@ type Detail = {
   migrationDiscountNote: string | null;
   activationEditableFields: Record<string, boolean> | null;
   requestedBillingDate: string | null; requestedBillingNote: string | null; activationNote: string | null;
+  requestedCancellationDate: string | null; requestedPaymentMethod: string | null;
+  migrationSelectedOption: { label?: string; price?: number; billingPeriod?: string } | null;
+  migrationFinalPeriodPaid: boolean;
 };
 const EDITABLE_KEYS: { key: string; label: string }[] = [
   { key: "phone", label: "Phone number" },
   { key: "email", label: "Email address" },
   { key: "billingDateRequest", label: "Request a different billing date" },
+  { key: "cancellationDate", label: "Set a cancellation date" },
+  { key: "paymentChoice", label: "Choose card / cash / check" },
   { key: "notes", label: "Leave a note / comment" },
 ];
 function dInput(iso: string | null | undefined) {
@@ -482,8 +487,10 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
   const [anchor, setAnchor] = useState("");
   const [frequency, setFrequency] = useState("MONTHLY");
   const [endDate, setEndDate] = useState("");
+  const [finalPeriodPaid, setFinalPeriodPaid] = useState(false);
   const [editable, setEditable] = useState<Record<string, boolean>>({
     phone: true, email: false, billingDateRequest: true, notes: true,
+    cancellationDate: true, paymentChoice: true,
   });
   const [approveDate, setApproveDate] = useState("");
 
@@ -504,6 +511,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
         setAnchor(dInput(m.billingAnchorDate));
         setFrequency(m.legacyBillingFrequency || "MONTHLY");
         setEndDate(dInput(m.commitmentEndDate));
+        setFinalPeriodPaid(!!m.migrationFinalPeriodPaid);
         setApproveDate(dInput(m.requestedBillingDate || m.billingAnchorDate));
         if (m.activationEditableFields) {
           setEditable({
@@ -511,6 +519,8 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
             email: m.activationEditableFields.email ?? false,
             billingDateRequest: m.activationEditableFields.billingDateRequest ?? true,
             notes: m.activationEditableFields.notes ?? true,
+            cancellationDate: m.activationEditableFields.cancellationDate ?? true,
+            paymentChoice: m.activationEditableFields.paymentChoice ?? true,
           });
         }
       }
@@ -531,6 +541,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
         billingAnchorDate: anchor || null,
         billingFrequency: frequency || null,
         commitmentEndDate: endDate || null,
+        finalPeriodPaid,
         activationEditableFields: editable,
       }),
     });
@@ -591,6 +602,24 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                     <p className="text-xs text-text-primary">
                       Requested billing date: <strong>{new Date(d.requestedBillingDate).toLocaleDateString()}</strong>
                       {d.requestedBillingNote ? ` — “${d.requestedBillingNote}”` : ""}
+                    </p>
+                  )}
+                  {d.migrationSelectedOption?.label && (
+                    <p className="text-xs text-text-primary">
+                      Chose plan: <strong>{d.migrationSelectedOption.label}</strong>
+                      {typeof d.migrationSelectedOption.price === "number"
+                        ? ` — $${d.migrationSelectedOption.price.toFixed(2)}${d.migrationSelectedOption.billingPeriod ? ` / ${d.migrationSelectedOption.billingPeriod.toLowerCase()}` : ""}`
+                        : ""}
+                    </p>
+                  )}
+                  {d.requestedCancellationDate && (
+                    <p className="text-xs text-text-primary">
+                      Requested cancellation: <strong>{new Date(d.requestedCancellationDate).toLocaleDateString()}</strong>
+                    </p>
+                  )}
+                  {d.requestedPaymentMethod && d.requestedPaymentMethod !== "CARD" && (
+                    <p className="text-xs text-orange-accent font-medium">
+                      Paying by {d.requestedPaymentMethod.toLowerCase()} — confirm payment before approving.
                     </p>
                   )}
                   {d.activationNote && (
@@ -689,6 +718,16 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                   <p className="text-[11px] text-text-muted mt-1">Optional — matches prior contract</p>
                 </div>
               </div>
+
+              <label className="flex items-start gap-2 text-sm text-text-primary bg-app-bg border border-app-border rounded-lg p-3">
+                <input type="checkbox" checked={finalPeriodPaid} onChange={(e) => setFinalPeriodPaid(e.target.checked)} className="mt-0.5" />
+                <span>
+                  Final period already paid — no further billing
+                  <span className="block text-[11px] text-text-muted font-normal mt-0.5">
+                    For a member whose membership is ending: the activation link shows “active through {endDate ? new Date(endDate).toLocaleDateString() : "the end date above"}”, collects no card, and creates no subscription. Set the end / commitment date above.
+                  </span>
+                </span>
+              </label>
 
               <div>
                 <label className="block text-sm font-medium text-text-primary mb-1">Client can edit during activation</label>

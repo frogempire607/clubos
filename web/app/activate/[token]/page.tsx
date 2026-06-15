@@ -3,16 +3,22 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 
+type PlanOption = { label: string; price: number; billingPeriod: string };
 type Data = {
   completed: boolean;
   pendingApproval: boolean;
+  finalPeriodPaid: boolean;
   member: {
     firstName: string; lastName: string; email: string | null; phone: string | null;
     isMinor: boolean; guardianName: string | null; guardianEmail: string | null;
   };
   club: { name: string; slug: string; logoUrl: string | null; primaryColor: string | null };
-  membership: { name: string | null; price: number | null; frequency: string | null; nextBillingDate: string | null; commitmentEndDate: string | null };
-  editable: { phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean };
+  membership: {
+    name: string | null; price: number | null; frequency: string | null;
+    nextBillingDate: string | null; commitmentEndDate: string | null;
+    options: PlanOption[]; priceLocked: boolean; selectedOption: PlanOption | null;
+  };
+  editable: { phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean; cancellationDate: boolean; paymentChoice: boolean };
   paymentEnabled: boolean;
   requiredDocument: { id: string; title: string; body: string | null } | null;
 };
@@ -34,6 +40,9 @@ export default function ActivatePage() {
   const [reqDate, setReqDate] = useState("");
   const [reqNote, setReqNote] = useState("");
   const [note, setNote] = useState("");
+  const [selectedOptionLabel, setSelectedOptionLabel] = useState("");
+  const [cancelDate, setCancelDate] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"CARD" | "CASH" | "CHECK">("CARD");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -46,17 +55,28 @@ export default function ActivatePage() {
         setData(d);
         setPhone(d.member?.phone || "");
         setEmail(d.member?.email || "");
+        const planOpts: PlanOption[] = d.membership?.options || [];
+        setSelectedOptionLabel(d.membership?.selectedOption?.label || planOpts[0]?.label || "");
         setLoading(false);
       })
       .catch(() => { setLoadErr("Something went wrong. Please try again."); setLoading(false); });
   }, [token]);
 
   const accent = data?.club.primaryColor || "#534AB7";
+  const finalPaid = !!data?.finalPeriodPaid;
+  const opts = data?.membership.options ?? [];
+  const canChoosePlan = !finalPaid && !data?.membership.priceLocked && opts.length > 1;
+  const chosenOption = opts.find((o) => o.label === selectedOptionLabel) || null;
+  const displayPrice = chosenOption ? chosenOption.price : data?.membership.price ?? null;
+  const displayFrequency = chosenOption ? chosenOption.billingPeriod : data?.membership.frequency ?? null;
 
   async function submit() {
     setError("");
     if (password.length < 8) { setError("Choose a password with at least 8 characters."); return; }
-    if (!autopay) { setError("Please accept the autopay terms to continue."); return; }
+    // Autopay only applies to recurring card billing.
+    if (!finalPaid && paymentMethod === "CARD" && !autopay) {
+      setError("Please accept the autopay terms to continue."); return;
+    }
     if (data?.requiredDocument && !signed) { setError(`Please acknowledge "${data.requiredDocument.title}".`); return; }
     setSubmitting(true);
     const res = await fetch(`/api/members/migration/activate/${token}`, {
@@ -66,18 +86,21 @@ export default function ActivatePage() {
         password,
         phone: phone || null,
         email: data?.editable.email && email ? email : null,
-        autopayAccepted: true,
+        autopayAccepted: !finalPaid && paymentMethod === "CARD" ? autopay : false,
         signedDocumentId: data?.requiredDocument?.id || null,
-        requestedBillingDate: data?.editable.billingDateRequest && reqDate ? reqDate : null,
-        requestedBillingNote: data?.editable.billingDateRequest && reqNote ? reqNote : null,
+        requestedBillingDate: !finalPaid && data?.editable.billingDateRequest && reqDate ? reqDate : null,
+        requestedBillingNote: !finalPaid && data?.editable.billingDateRequest && reqNote ? reqNote : null,
         activationNote: data?.editable.notes && note ? note : null,
+        requestedCancellationDate: !finalPaid && data?.editable.cancellationDate && cancelDate ? cancelDate : null,
+        selectedOptionLabel: canChoosePlan ? selectedOptionLabel || null : null,
+        paymentMethod: finalPaid ? "CARD" : paymentMethod,
       }),
     });
     const d = await res.json().catch(() => ({}));
     setSubmitting(false);
     if (!res.ok) { setError(typeof d.error === "string" ? d.error : "Could not complete activation."); return; }
     if (d.url) { window.location.href = d.url; return; }
-    if (d.noPayment) { setSuccessMsg(d.message || "Your account is activated."); return; }
+    if (d.noPayment || d.finalPeriod) { setSuccessMsg(d.message || "Your account is activated."); return; }
     setSuccessMsg("Your account is activated.");
   }
 
@@ -132,11 +155,19 @@ export default function ActivatePage() {
             </div>
           ) : (
             <>
-              <p className="text-sm text-stone-600 leading-relaxed mb-5">
-                <strong>{data.club.name}</strong> has moved to AthletixOS. We've prepared your account
-                from your previous club software. Confirm your details and add a payment method to
-                keep your membership going — you won't be charged today.
-              </p>
+              {finalPaid ? (
+                <p className="text-sm text-stone-600 leading-relaxed mb-5">
+                  <strong>{data.club.name}</strong> has moved to AthletixOS. Your membership is already
+                  paid through the end of your term — just set a password to access your member portal.{" "}
+                  <strong>Nothing is due.</strong>
+                </p>
+              ) : (
+                <p className="text-sm text-stone-600 leading-relaxed mb-5">
+                  <strong>{data.club.name}</strong> has moved to AthletixOS. We've prepared your account
+                  from your previous club software. Confirm your details{data.paymentEnabled ? " and choose how to pay" : ""} to
+                  keep your membership going — you won't be charged today.
+                </p>
+              )}
 
               {/* Membership card */}
               <div className="bg-stone-900 rounded-xl p-5 mb-6 text-white">
@@ -148,17 +179,41 @@ export default function ActivatePage() {
                     <p>{data.member.firstName} {data.member.lastName}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[11px] text-stone-400">Next billing</p>
-                    <p>{data.membership.nextBillingDate ? new Date(data.membership.nextBillingDate).toLocaleDateString() : "After activation"}</p>
+                    <p className="text-[11px] text-stone-400">{finalPaid ? "Active through" : "Next billing"}</p>
+                    <p>{finalPaid
+                      ? (data.membership.commitmentEndDate ? new Date(data.membership.commitmentEndDate).toLocaleDateString() : "End of term")
+                      : (data.membership.nextBillingDate ? new Date(data.membership.nextBillingDate).toLocaleDateString() : "After activation")}</p>
                   </div>
                 </div>
-                {data.membership.price != null && (
+                {finalPaid ? (
+                  <p className="text-xs text-emerald-300 mt-3">Paid in full — no further payments.</p>
+                ) : displayPrice != null && (
                   <p className="text-xs text-stone-400 mt-3">
-                    ${data.membership.price.toFixed(2)}{data.membership.frequency ? ` / ${data.membership.frequency.toLowerCase()}` : ""}
+                    ${displayPrice.toFixed(2)}{displayFrequency ? ` / ${displayFrequency.toLowerCase()}` : ""}
                     {data.membership.commitmentEndDate ? ` · commitment through ${new Date(data.membership.commitmentEndDate).toLocaleDateString()}` : ""}
                   </p>
                 )}
               </div>
+
+              {/* Plan / price option picker */}
+              {canChoosePlan && (
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-stone-700 mb-2">Choose your plan</label>
+                  <div className="space-y-2">
+                    {opts.map((o) => (
+                      <label key={o.label}
+                        className={`flex items-center justify-between gap-3 px-3 py-2.5 border rounded-lg text-sm cursor-pointer ${selectedOptionLabel === o.label ? "border-stone-900 bg-stone-50" : "border-stone-300"}`}>
+                        <span className="flex items-center gap-2">
+                          <input type="radio" name="plan" checked={selectedOptionLabel === o.label}
+                            onChange={() => setSelectedOptionLabel(o.label)} />
+                          <span className="font-medium text-stone-800">{o.label}</span>
+                        </span>
+                        <span className="text-stone-600">${o.price.toFixed(2)}<span className="text-stone-400"> / {o.billingPeriod.toLowerCase()}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Confirm profile */}
               <div className="space-y-4 mb-5">
@@ -183,7 +238,7 @@ export default function ActivatePage() {
                   <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
                 </div>
-                {data.editable.billingDateRequest && (
+                {!finalPaid && data.editable.billingDateRequest && (
                   <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">
                       Request a different billing date <span className="text-stone-400 font-normal">(optional)</span>
@@ -193,6 +248,16 @@ export default function ActivatePage() {
                     <input value={reqNote} onChange={(e) => setReqNote(e.target.value)}
                       placeholder="Why? (optional — your club reviews this)"
                       className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm mt-2" />
+                  </div>
+                )}
+                {!finalPaid && data.editable.cancellationDate && (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">
+                      Cancellation date <span className="text-stone-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" />
+                    <p className="text-[11px] text-stone-400 mt-1">When you'd like your membership to end. Your club reviews this.</p>
                   </div>
                 )}
                 {data.editable.notes && (
@@ -221,16 +286,38 @@ export default function ActivatePage() {
                 </div>
               )}
 
-              {/* Autopay */}
-              <label className="flex items-start gap-2 text-sm text-stone-700 mb-5">
-                <input type="checkbox" checked={autopay} onChange={(e) => setAutopay(e.target.checked)} className="mt-0.5" />
-                <span>
-                  I authorize {data.club.name} to automatically charge my payment method for this
-                  membership on its recurring billing date. {data.paymentEnabled
-                    ? "I'll add my card on the next secure step. The club reviews and confirms my billing — I'm not charged today."
-                    : "The club will confirm billing details with me."}
-                </span>
-              </label>
+              {/* Payment method choice */}
+              {!finalPaid && data.editable.paymentChoice && data.paymentEnabled && (
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-stone-700 mb-2">How would you like to pay?</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["CARD", "CASH", "CHECK"] as const).map((m) => (
+                      <button key={m} type="button" onClick={() => setPaymentMethod(m)}
+                        className={`px-3 py-2 border rounded-lg text-sm font-medium ${paymentMethod === m ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 text-stone-700"}`}>
+                        {m === "CARD" ? "Card" : m === "CASH" ? "Cash" : "Check"}
+                      </button>
+                    ))}
+                  </div>
+                  {paymentMethod !== "CARD" && (
+                    <p className="text-[11px] text-stone-500 mt-2">
+                      Paying by {paymentMethod.toLowerCase()} — your club confirms the payment and approves your membership before it goes active.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Autopay — only when paying by card */}
+              {!finalPaid && paymentMethod === "CARD" && (
+                <label className="flex items-start gap-2 text-sm text-stone-700 mb-5">
+                  <input type="checkbox" checked={autopay} onChange={(e) => setAutopay(e.target.checked)} className="mt-0.5" />
+                  <span>
+                    I authorize {data.club.name} to automatically charge my payment method for this
+                    membership on its recurring billing date. {data.paymentEnabled
+                      ? "I'll add my card on the next secure step. The club reviews and confirms my billing — I'm not charged today."
+                      : "The club will confirm billing details with me."}
+                  </span>
+                </label>
+              )}
 
               {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</div>}
 
@@ -240,7 +327,17 @@ export default function ActivatePage() {
                 className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-50"
                 style={{ background: accent }}
               >
-                {submitting ? "Activating…" : data.paymentEnabled ? "Activate & add payment method" : "Activate my account"}
+                {submitting
+                  ? "Activating…"
+                  : finalPaid
+                    ? "Activate my account"
+                    : paymentMethod === "CARD" && data.paymentEnabled
+                      ? "Activate & add payment method"
+                      : paymentMethod === "CASH"
+                        ? "Activate — pay by cash"
+                        : paymentMethod === "CHECK"
+                          ? "Activate — pay by check"
+                          : "Activate my account"}
               </button>
               <p className="text-[11px] text-stone-400 text-center mt-3">
                 Secure activation · Powered by AthletixOS. We never ask for card details over email.

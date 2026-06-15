@@ -8,8 +8,14 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 
 // NO AUTH — token-gated public activation endpoint.
 
-type EditableFields = { phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean };
-const DEFAULT_EDITABLE: EditableFields = { phone: true, email: false, billingDateRequest: true, notes: true };
+type EditableFields = {
+  phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean;
+  cancellationDate: boolean; paymentChoice: boolean;
+};
+const DEFAULT_EDITABLE: EditableFields = {
+  phone: true, email: false, billingDateRequest: true, notes: true,
+  cancellationDate: true, paymentChoice: true,
+};
 
 function resolveEditable(raw: unknown): EditableFields {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
@@ -19,6 +25,9 @@ function resolveEditable(raw: unknown): EditableFields {
     billingDateRequest:
       o.billingDateRequest === undefined ? DEFAULT_EDITABLE.billingDateRequest : !!o.billingDateRequest,
     notes: o.notes === undefined ? DEFAULT_EDITABLE.notes : !!o.notes,
+    cancellationDate:
+      o.cancellationDate === undefined ? DEFAULT_EDITABLE.cancellationDate : !!o.cancellationDate,
+    paymentChoice: o.paymentChoice === undefined ? DEFAULT_EDITABLE.paymentChoice : !!o.paymentChoice,
   };
 }
 
@@ -38,6 +47,8 @@ type LoadedMember = Extract<Awaited<ReturnType<typeof loadByToken>>, { member: u
 
 // Resolve the plan this migration continues: owner-assigned Membership first,
 // else the legacy snapshot captured at import.
+type PlanOption = { label: string; price: number; billingPeriod: string };
+
 async function resolvePlan(m: LoadedMember) {
   if (m.migrationMembershipId) {
     const plan = await prisma.membership.findFirst({
@@ -47,16 +58,26 @@ async function resolvePlan(m: LoadedMember) {
     if (plan) {
       let price: number | null = m.legacyMembershipPrice ? Number(m.legacyMembershipPrice) : null;
       let frequency = m.legacyBillingFrequency || "MONTHLY";
+      let options: PlanOption[] = [];
       try {
         const opts = JSON.parse((plan.options as unknown as string) || "[]");
-        if (Array.isArray(opts) && opts[0]) {
-          if (price == null && typeof opts[0].price === "number") price = opts[0].price;
-          if (opts[0].billingPeriod) frequency = opts[0].billingPeriod;
+        if (Array.isArray(opts)) {
+          options = opts
+            .filter((o) => o && typeof o.price === "number")
+            .map((o) => ({
+              label: String(o.label ?? "Membership"),
+              price: Number(o.price),
+              billingPeriod: String(o.billingPeriod || "MONTHLY"),
+            }));
+          if (opts[0]) {
+            if (price == null && typeof opts[0].price === "number") price = opts[0].price;
+            if (opts[0].billingPeriod) frequency = opts[0].billingPeriod;
+          }
         }
       } catch {
         /* options not JSON — fall back to legacy snapshot */
       }
-      return { membershipId: plan.id, name: plan.name, price, frequency };
+      return { membershipId: plan.id, name: plan.name, price, frequency, options };
     }
   }
   return {
@@ -64,6 +85,7 @@ async function resolvePlan(m: LoadedMember) {
     name: m.legacyMembershipName,
     price: m.legacyMembershipPrice ? Number(m.legacyMembershipPrice) : null,
     frequency: m.legacyBillingFrequency || "MONTHLY",
+    options: [] as PlanOption[],
   };
 }
 
@@ -95,6 +117,9 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     completed: m.migrationStatus === MIGRATION_STATUS.COMPLETED,
     // Card on file & waiting for the club to review/approve billing.
     pendingApproval: m.approvalStatus === "PENDING_APPROVAL",
+    // #6: owner marked this member already paid through their final period —
+    // the page shows "active through end date" and collects no card.
+    finalPeriodPaid: m.migrationFinalPeriodPaid,
     member: {
       firstName: m.firstName,
       lastName: m.lastName,
@@ -109,6 +134,11 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       name: plan.name,
       price: plan.price,
       frequency: plan.frequency,
+      // Owner-configured options the member may choose from. Suppressed when
+      // the owner locked a specific price override (priceLocked).
+      options: m.migrationPriceOverride != null ? [] : plan.options,
+      priceLocked: m.migrationPriceOverride != null,
+      selectedOption: m.migrationSelectedOption ?? null,
       nextBillingDate: m.billingAnchorDate ? m.billingAnchorDate.toISOString() : null,
       commitmentEndDate: m.commitmentEndDate ? m.commitmentEndDate.toISOString() : null,
     },
@@ -122,12 +152,16 @@ const postSchema = z.object({
   password: z.string().min(8),
   phone: z.string().optional().nullable(),
   email: z.string().email().optional().nullable(),
-  autopayAccepted: z.literal(true),
+  autopayAccepted: z.boolean().optional().default(false),
   signedDocumentId: z.string().optional().nullable(),
   // Client requests — owner reviews these before billing starts.
   requestedBillingDate: z.string().optional().nullable(),
   requestedBillingNote: z.string().max(500).optional().nullable(),
   activationNote: z.string().max(1000).optional().nullable(),
+  // #5: member-chosen plan option, cancellation date, and payment method.
+  requestedCancellationDate: z.string().optional().nullable(),
+  selectedOptionLabel: z.string().max(200).optional().nullable(),
+  paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional().default("CARD"),
 });
 
 // POST — complete activation: set password, confirm profile, accept autopay,
@@ -214,9 +248,72 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   const requestedDate = body.requestedBillingDate ? new Date(body.requestedBillingDate) : null;
   const validRequested = requestedDate && !isNaN(requestedDate.getTime()) ? requestedDate : null;
 
+  // #6: a member the owner marked as already paid through their final period
+  // collects no card and creates no subscription — they just activate.
+  const finalPaid = !!member.migrationFinalPeriodPaid;
+
+  // #5: how the member chose to pay. CASH/CHECK collect no card and send the
+  // whole registration to the owner to approve. CARD keeps the secure redirect.
+  const method = finalPaid ? "CARD" : body.paymentMethod;
+
   // The connected account we collect the card on — null when the club hasn't
   // finished Stripe onboarding (the owner then bills manually).
   const stripeAccount = club.stripeChargesEnabled ? club.stripeAccountId : null;
+  // Collect a card only for the CARD method on a Stripe-enabled club, and never
+  // for a fully-paid final period.
+  const collectCard = !finalPaid && method === "CARD" && !!stripeAccount;
+
+  // Autopay consent is only meaningful for card billing. Cash/check and
+  // fully-paid members aren't on autopay.
+  if (method === "CARD" && !finalPaid && !body.autopayAccepted) {
+    return NextResponse.json(
+      { error: "You must accept the autopay terms to continue." },
+      { status: 400 },
+    );
+  }
+
+  // #5: member's requested cancellation/end date (owner reviews on approval).
+  const cancelDate = body.requestedCancellationDate ? new Date(body.requestedCancellationDate) : null;
+  const validCancel =
+    !finalPaid && editable.cancellationDate && cancelDate && !isNaN(cancelDate.getTime())
+      ? cancelDate
+      : null;
+
+  // #5: validate the member's chosen plan option against the REAL options on
+  // the assigned membership — never trust a client-sent price. Skipped when the
+  // owner locked a specific price override.
+  let selectedOption: { label: string; price: number; billingPeriod: string } | null = null;
+  if (
+    !finalPaid &&
+    body.selectedOptionLabel &&
+    member.migrationPriceOverride == null &&
+    member.migrationMembershipId
+  ) {
+    const plan = await prisma.membership.findFirst({
+      where: { id: member.migrationMembershipId, clubId: club.id, deletedAt: null },
+      select: { options: true },
+    });
+    if (plan) {
+      try {
+        const opts = JSON.parse((plan.options as unknown as string) || "[]");
+        const match = Array.isArray(opts)
+          ? opts.find(
+              (o) =>
+                o && String(o.label ?? "") === body.selectedOptionLabel && typeof o.price === "number",
+            )
+          : null;
+        if (match) {
+          selectedOption = {
+            label: String(match.label ?? "Membership"),
+            price: Number(match.price),
+            billingPeriod: String(match.billingPeriod || "MONTHLY"),
+          };
+        }
+      } catch {
+        /* options not JSON — leave unselected */
+      }
+    }
+  }
 
   // Set up the Stripe Customer + SETUP-mode Checkout session BEFORE we mutate
   // any membership state. If Stripe fails we return a clean error and the
@@ -231,7 +328,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // no card on file. Doing Stripe first closes that trap.
   let checkoutUrl: string | null = null;
   let setupCustomerId: string | null = member.stripeSetupCustomerId ?? null;
-  if (stripeAccount) {
+  if (collectCard && stripeAccount) {
     try {
       const customer = member.stripeSetupCustomerId
         ? { id: member.stripeSetupCustomerId }
@@ -293,12 +390,26 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         ? { requestedBillingNote: body.requestedBillingNote.trim() }
         : {}),
       ...(editable.notes && body.activationNote ? { activationNote: body.activationNote.trim() } : {}),
+      ...(validCancel ? { requestedCancellationDate: validCancel } : {}),
+      ...(selectedOption ? { migrationSelectedOption: selectedOption } : {}),
       ...(setupCustomerId ? { stripeSetupCustomerId: setupCustomerId } : {}),
-      paymentSetupStatus: PAYMENT_SETUP.REQUIRED,
-      migrationStatus: MIGRATION_STATUS.ACTIVATED,
+      ...(finalPaid ? {} : { requestedPaymentMethod: method }),
+      paymentSetupStatus: collectCard ? PAYMENT_SETUP.REQUIRED : null,
       activatedAt: new Date(),
-      // Goes into the owner's review queue. Billing does NOT begin.
-      approvalStatus: "PENDING_APPROVAL",
+      // #6 fully-paid: complete now as a non-renewing membership (nothing to
+      // approve, no subscription). Otherwise it enters the owner's review
+      // queue and billing does NOT begin until they approve.
+      ...(finalPaid
+        ? {
+            migrationStatus: MIGRATION_STATUS.COMPLETED,
+            migrationCompletedAt: new Date(),
+            status: "ACTIVE",
+            approvalStatus: "APPROVED",
+          }
+        : {
+            migrationStatus: MIGRATION_STATUS.ACTIVATED,
+            approvalStatus: "PENDING_APPROVAL",
+          }),
     },
   });
   if (claimed.count === 0) {
@@ -332,26 +443,53 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     data: {
       clubId: club.id,
       memberId: member.id,
-      type: "ACTIVATED",
-      message:
-        "Account activated, autopay accepted" +
-        (validRequested ? ` · client requested billing on ${validRequested.toLocaleDateString()}` : "") +
-        (body.activationNote ? " · left a note" : ""),
+      type: finalPaid ? "COMPLETED" : "ACTIVATED",
+      message: finalPaid
+        ? "Activated — final period already paid; no further billing. Membership ends on the commitment date."
+        : "Account activated" +
+          (collectCard
+            ? ", autopay accepted"
+            : method === "CASH"
+              ? " — paying by cash (awaiting club approval)"
+              : method === "CHECK"
+                ? " — paying by check (awaiting club approval)"
+                : "") +
+          (selectedOption ? ` · chose “${selectedOption.label}”` : "") +
+          (validRequested ? ` · requested billing on ${validRequested.toLocaleDateString()}` : "") +
+          (validCancel ? ` · requested end on ${validCancel.toLocaleDateString()}` : "") +
+          (body.activationNote ? " · left a note" : ""),
     },
   });
 
-  // No online payments on the club → activated; owner handles billing manually.
-  if (!stripeAccount) {
+  // #6 fully-paid final period: activated, nothing due, no subscription.
+  if (finalPaid) {
+    const endStr = member.commitmentEndDate
+      ? new Date(member.commitmentEndDate).toLocaleDateString()
+      : null;
     return NextResponse.json({
       ok: true,
-      noPayment: true,
-      message:
-        "Your account is activated. Your club will confirm billing details — you have not been charged.",
+      finalPeriod: true,
+      message: endStr
+        ? `You're all set — your membership is active through ${endStr}. Nothing is due.`
+        : "You're all set — your membership is active. Nothing is due.",
     });
   }
 
-  // Card collection happens on the Stripe-hosted SETUP page prepared above —
-  // before any state was mutated — so a Stripe failure can never strand the
-  // member mid-activation.
-  return NextResponse.json({ ok: true, url: checkoutUrl });
+  // Card path: collection happens on the Stripe-hosted SETUP page prepared
+  // above (before any state was mutated), so a Stripe failure can never strand
+  // the member mid-activation.
+  if (collectCard) {
+    return NextResponse.json({ ok: true, url: checkoutUrl });
+  }
+
+  // Cash/check (or a club with no online payments) → activated; the owner
+  // confirms payment and approves. No charge, no card collected.
+  return NextResponse.json({
+    ok: true,
+    noPayment: true,
+    message:
+      method === "CASH" || method === "CHECK"
+        ? `Your account is activated. ${club.name} will confirm your ${method.toLowerCase()} payment and approve your membership — you have not been charged.`
+        : "Your account is activated. Your club will confirm billing details — you have not been charged.",
+  });
 }
