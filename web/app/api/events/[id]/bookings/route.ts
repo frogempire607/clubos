@@ -57,7 +57,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }
 
@@ -98,6 +98,6 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }

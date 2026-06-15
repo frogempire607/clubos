@@ -137,6 +137,6 @@ export async function POST(req: Request) {
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
     console.error("Subscription checkout error:", err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }

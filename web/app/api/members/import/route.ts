@@ -226,6 +226,6 @@ export async function POST(req: Request) {
         .join(" · ");
       return NextResponse.json({ error: `Validation error: ${msg}` }, { status: 400 });
     }
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }

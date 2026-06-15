@@ -78,7 +78,7 @@ export async function PATCH(
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }
 

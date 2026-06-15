@@ -82,8 +82,8 @@ function baseLayout(content: string): string {
   return `
     <div style="font-family:Inter,sans-serif;max-width:540px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E7E5E4">
       <div style="background:#1C1917;padding:20px 28px;display:flex;align-items:center;gap:10px">
-        <div style="width:28px;height:28px;border-radius:8px;background:#534AB7;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px">C</div>
-        <span style="color:#fff;font-weight:600;font-size:15px">AthletixOS</span>
+        <img src="https://athletix-os.com/brand/icon.png" alt="AthletixOS" width="30" height="30" style="width:30px;height:30px;border-radius:8px;display:block;border:0;outline:none;text-decoration:none" />
+        <span style="color:#fff;font-weight:600;font-size:15px;letter-spacing:0.01em">AthletixOS</span>
       </div>
       <div style="padding:28px">${content}</div>
       <div style="padding:16px 28px;border-top:1px solid #E7E5E4;background:#F5F3EE">

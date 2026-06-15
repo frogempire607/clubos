@@ -123,6 +123,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ url: checkoutSession.url, saleId: sale.id });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }

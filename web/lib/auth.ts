@@ -7,6 +7,13 @@ import { rateLimit } from "./ratelimit";
 
 const isProd = process.env.NODE_ENV === "production";
 
+// Precomputed bcrypt hash (cost 12), used ONLY to equalize login response
+// timing on the club/user-not-found paths. Without it, a missing email returns
+// before bcrypt runs while a real email pays the ~250ms hash cost — that delta
+// lets an attacker enumerate which emails exist in a club. Computed once at
+// module load.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync("athletixos-login-timing-equalizer", 12);
+
 export const authOptions: NextAuthOptions = {
   // 14-day session lifetime (default was 30d). Owners use the dashboard daily
   // so they'll never see the prompt; members on the native shell get a fresh
@@ -72,21 +79,29 @@ export const authOptions: NextAuthOptions = {
         const club = await prisma.club.findUnique({
           where: { slug: slugNormalized },
         });
-        if (!club) return null;
 
-        const user = await prisma.user.findUnique({
-          where: {
-            clubId_email: {
-              clubId: club.id,
-              email: emailNormalized,
-            },
-          },
-          include: { staffProfile: { select: { permissions: true } } },
-        });
-        if (!user || user.deletedAt) return null;
+        const user = club
+          ? await prisma.user.findUnique({
+              where: {
+                clubId_email: {
+                  clubId: club.id,
+                  email: emailNormalized,
+                },
+              },
+              include: { staffProfile: { select: { permissions: true } } },
+            })
+          : null;
 
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) return null;
+        // Always run EXACTLY ONE bcrypt comparison — even when the club or user
+        // doesn't exist — so response time can't reveal which emails are
+        // registered (user-enumeration timing oracle). The dummy hash makes the
+        // not-found path do the same work as a real check. Behavior is otherwise
+        // unchanged: every failure path still returns the same generic null.
+        const activeHash =
+          user && !user.deletedAt && user.passwordHash ? user.passwordHash : null;
+        const valid = await bcrypt.compare(credentials.password, activeHash ?? DUMMY_PASSWORD_HASH);
+
+        if (!club || !user || user.deletedAt || !activeHash || !valid) return null;
 
         await prisma.user.update({
           where: { id: user.id },
