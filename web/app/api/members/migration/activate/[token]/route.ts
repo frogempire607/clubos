@@ -252,6 +252,20 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     }
   }
 
+  // A User can be the login for only ONE Member (members_userId is unique).
+  // Skip the link when this user already belongs to another member — most
+  // often a guardian activating a second minor, whose guardian account is
+  // already linked to a sibling. Without this guard the claim below 500s with
+  // "duplicate key value violates unique constraint members_userId_key", which
+  // the page shows as the generic "Could not complete activation." (Guardians
+  // reach their minors through the guardian-link system, not member.userId.)
+  const canLinkUser =
+    !member.userId &&
+    !(await prisma.member.findFirst({
+      where: { userId: user.id, deletedAt: null, id: { not: member.id } },
+      select: { id: true },
+    }));
+
   // #7: free-join (non-member). Create + link the portal account, mark
   // activated. No membership, no billing; their member status is unchanged.
   // They can then sign in and browse/buy the club's options.
@@ -259,7 +273,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     await prisma.member.update({
       where: { id: member.id },
       data: {
-        ...(member.userId ? {} : { userId: user.id }),
+        ...(canLinkUser ? { userId: user.id } : {}),
         ...(editable.phone && body.phone?.trim() ? { phone: body.phone.trim() } : {}),
         ...(newEmail ? { email: newEmail } : {}),
         activatedAt: new Date(),
@@ -417,7 +431,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       migrationStatus: { notIn: [MIGRATION_STATUS.ACTIVATED, MIGRATION_STATUS.COMPLETED] },
     },
     data: {
-      ...(member.userId ? {} : { userId: user.id }),
+      ...(canLinkUser ? { userId: user.id } : {}),
       ...(editable.phone && body.phone?.trim() ? { phone: body.phone.trim() } : {}),
       ...(newEmail ? { email: newEmail } : {}),
       ...(editable.billingDateRequest && validRequested ? { requestedBillingDate: validRequested } : {}),

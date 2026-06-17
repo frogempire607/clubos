@@ -42,5 +42,25 @@ const CONFIG: Parameters<typeof DOMPurify.sanitize>[1] = {
 
 export function sanitizeRichHtml(input: string | null | undefined): string {
   if (!input) return "";
-  return DOMPurify.sanitize(input, CONFIG);
+  try {
+    return DOMPurify.sanitize(input, CONFIG);
+  } catch {
+    // Safety net: if DOMPurify can't initialize in this runtime (e.g. a
+    // serverless function where jsdom failed to load), don't 500 the request.
+    // Fall back to a conservative strip of the dangerous bits — scripts,
+    // styles, iframes, event handlers, javascript: URLs — keeping the rest of
+    // the (owner/staff-authored) markup intact.
+    return fallbackStrip(input);
+  }
+}
+
+function fallbackStrip(html: string): string {
+  return html
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)\b[^>]*\/?>/gi, "")
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, "")
+    .replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, "$1=$2#$2")
+    .replace(/(href|src)\s*=\s*javascript:[^\s>]+/gi, "$1=#");
 }

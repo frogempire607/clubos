@@ -44,6 +44,13 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // isomorphic-dompurify pulls in jsdom, which Next's webpack bundling mangles
+  // for serverless functions — making sanitizeRichHtml() throw at runtime (the
+  // Create Document 500). Marking it external makes Netlify load it from
+  // node_modules at runtime instead of bundling it.
+  experimental: {
+    serverComponentsExternalPackages: ["isomorphic-dompurify"],
+  },
   async headers() {
     return [
       {
