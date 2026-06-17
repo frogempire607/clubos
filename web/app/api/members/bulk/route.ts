@@ -39,9 +39,11 @@ export async function POST(req: Request) {
   if (ids.length === 0) return NextResponse.json({ error: "No matching members." }, { status: 404 });
 
   if (data.action === "delete") {
+    // Release the unique members_userId slot on delete (the index is global and
+    // ignores deletedAt) so these people can be re-imported / re-activated later.
     await prisma.member.updateMany({
       where: { id: { in: ids } },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: new Date(), userId: null },
     });
     return NextResponse.json({ ok: true, deleted: ids.length });
   }

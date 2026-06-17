@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { sendMemberMigrationActivationEmail, sendClubJoinInviteEmail } from "@/lib/email";
 import { newActivationToken, MIGRATION_STATUS } from "@/lib/migration";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 
 const TOKEN_TTL_DAYS = 30;
 
@@ -63,7 +64,7 @@ export async function sendActivation(
       to,
       athleteName: `${member.firstName} ${member.lastName}`.trim(),
       clubName: club.name,
-      clubLogoUrl: club.logoUrl,
+      clubLogoUrl: publicClubLogoUrl(clubId, club.logoUrl),
       membershipName: member.legacyMembershipName,
       nextBillingDate: member.billingAnchorDate
         ? member.billingAnchorDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
@@ -154,7 +155,7 @@ export async function sendJoinInvite(
       to,
       firstName: member.firstName,
       clubName: club.name,
-      clubLogoUrl: club.logoUrl,
+      clubLogoUrl: publicClubLogoUrl(clubId, club.logoUrl),
       clubPrimaryColor: club.primaryColor,
       registrationUrl,
       fromName: club.emailFromName || club.name,

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 
 // NO AUTH — token-gated public activation endpoint.
 
@@ -132,7 +133,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       guardianName: m.guardianName,
       guardianEmail: m.guardianEmail,
     },
-    club: { name: m.club.name, slug: m.club.slug, logoUrl: m.club.logoUrl, primaryColor: m.club.primaryColor },
+    club: { name: m.club.name, slug: m.club.slug, logoUrl: publicClubLogoUrl(m.clubId, m.club.logoUrl), primaryColor: m.club.primaryColor },
     membership: {
       name: plan.name,
       price: plan.price,
@@ -261,13 +262,23 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     }
   }
 
-  // A User can be the login for only ONE Member (members_userId is unique).
-  // Skip the link when this user already belongs to another member — most
-  // often a guardian activating a second minor, whose guardian account is
-  // already linked to a sibling. Without this guard the claim below 500s with
-  // "duplicate key value violates unique constraint members_userId_key", which
-  // the page shows as the generic "Could not complete activation." (Guardians
-  // reach their minors through the guardian-link system, not member.userId.)
+  // The members_userId unique index is GLOBAL — it ignores deletedAt. So a
+  // SOFT-DELETED member that still holds this userId silently reserves the slot
+  // and makes the claim below 500 with "duplicate key value violates unique
+  // constraint members_userId_key" (surfaced as the generic "Could not complete
+  // activation."). This is exactly what happens after a member is deleted and
+  // re-imported, or a guardian's earlier minor was removed. A deleted row never
+  // needs its login link, so release any such dead holders first.
+  await prisma.member.updateMany({
+    where: { userId: user.id, deletedAt: { not: null } },
+    data: { userId: null },
+  });
+
+  // A User can be the login for only ONE *live* Member. Skip the link when this
+  // user already belongs to another live member — most often a guardian
+  // activating a second minor, whose account is already linked to a sibling.
+  // (Guardians reach their minors through the guardian-link system, not
+  // member.userId.)
   const canLinkUser =
     !member.userId &&
     !(await prisma.member.findFirst({

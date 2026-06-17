@@ -141,7 +141,9 @@ export async function DELETE() {
     await tx.user.update({ where: { id: session.user.id }, data: { deletedAt: now } });
     await tx.member.updateMany({
       where: { userId: session.user.id, deletedAt: null },
-      data:  { deletedAt: now },
+      // Release the unique members_userId slot (index is global / ignores
+      // deletedAt) so re-registration with the same email never collides.
+      data:  { deletedAt: now, userId: null },
     });
   });
 

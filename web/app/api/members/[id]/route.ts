@@ -229,9 +229,12 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   const member = await requireMember(params.id, session.user.clubId);
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Release the unique members_userId slot on delete (the index is global and
+  // ignores deletedAt) so the same person can be re-imported / re-activated
+  // later without colliding with this dead row.
   await prisma.member.update({
     where: { id: params.id },
-    data: { deletedAt: new Date() },
+    data: { deletedAt: new Date(), userId: null },
   });
 
   return NextResponse.json({ ok: true });
