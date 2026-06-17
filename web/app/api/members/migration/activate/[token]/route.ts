@@ -142,6 +142,13 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       options: m.migrationPriceOverride != null ? [] : plan.options,
       priceLocked: m.migrationPriceOverride != null,
       selectedOption: m.migrationSelectedOption ?? null,
+      // #5 v2: the member's imported/grandfathered rate — shown as the default
+      // "continue at your current rate" choice. Null when the owner locked a
+      // price override (that override is then the single price shown).
+      currentRate:
+        m.migrationPriceOverride == null && m.legacyMembershipPrice != null
+          ? { price: Number(m.legacyMembershipPrice), billingPeriod: m.legacyBillingFrequency || "MONTHLY" }
+          : null,
       nextBillingDate: m.billingAnchorDate ? m.billingAnchorDate.toISOString() : null,
       commitmentEndDate: m.commitmentEndDate ? m.commitmentEndDate.toISOString() : null,
     },
@@ -165,6 +172,8 @@ const postSchema = z.object({
   requestedCancellationDate: z.string().optional().nullable(),
   selectedOptionLabel: z.string().max(200).optional().nullable(),
   paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional().default("CARD"),
+  // #5 v2: continue at the member's imported/grandfathered rate.
+  useCurrentRate: z.boolean().optional(),
 });
 
 // POST — complete activation: set password, confirm profile, accept autopay,
@@ -333,6 +342,19 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // owner locked a specific price override.
   let selectedOption: { label: string; price: number; billingPeriod: string } | null = null;
   if (
+    !finalPaid &&
+    body.useCurrentRate &&
+    member.migrationPriceOverride == null &&
+    member.legacyMembershipPrice != null
+  ) {
+    // #5 v2: continue at the imported rate. Price comes from the server's
+    // legacy snapshot — never a client-sent number.
+    selectedOption = {
+      label: "Current rate",
+      price: Number(member.legacyMembershipPrice),
+      billingPeriod: member.legacyBillingFrequency || "MONTHLY",
+    };
+  } else if (
     !finalPaid &&
     body.selectedOptionLabel &&
     member.migrationPriceOverride == null &&

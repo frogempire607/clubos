@@ -19,6 +19,7 @@ type Data = {
     name: string | null; price: number | null; frequency: string | null;
     nextBillingDate: string | null; commitmentEndDate: string | null;
     options: PlanOption[]; priceLocked: boolean; selectedOption: PlanOption | null;
+    currentRate: { price: number; billingPeriod: string } | null;
   };
   editable: { phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean; cancellationDate: boolean; paymentChoice: boolean };
   paymentEnabled: boolean;
@@ -58,7 +59,11 @@ export default function ActivatePage() {
         setPhone(d.member?.phone || "");
         setEmail(d.member?.email || "");
         const planOpts: PlanOption[] = d.membership?.options || [];
-        setSelectedOptionLabel(d.membership?.selectedOption?.label || planOpts[0]?.label || "");
+        setSelectedOptionLabel(
+          d.membership?.selectedOption?.label ||
+            (d.membership?.currentRate ? "__current__" : planOpts[0]?.label) ||
+            "",
+        );
         setLoading(false);
       })
       .catch(() => { setLoadErr("Something went wrong. Please try again."); setLoading(false); });
@@ -67,11 +72,20 @@ export default function ActivatePage() {
   const accent = data?.club.primaryColor || "#534AB7";
   const finalPaid = !!data?.finalPeriodPaid;
   const isJoin = data?.kind === "JOIN";
-  const opts = data?.membership.options ?? [];
-  const canChoosePlan = !finalPaid && !data?.membership.priceLocked && opts.length > 1;
-  const chosenOption = opts.find((o) => o.label === selectedOptionLabel) || null;
-  const displayPrice = chosenOption ? chosenOption.price : data?.membership.price ?? null;
-  const displayFrequency = chosenOption ? chosenOption.billingPeriod : data?.membership.frequency ?? null;
+  const stdOpts = data?.membership.options ?? [];
+  const currentRate = data?.membership.currentRate ?? null;
+  // Plan choices: lead with the member's imported/grandfathered rate (if any),
+  // then the coach's standard options.
+  const planChoices = [
+    ...(currentRate
+      ? [{ key: "__current__", label: "Continue at your current rate", price: currentRate.price, billingPeriod: currentRate.billingPeriod }]
+      : []),
+    ...stdOpts.map((o) => ({ key: o.label, label: o.label, price: o.price, billingPeriod: o.billingPeriod })),
+  ];
+  const selectedChoice = planChoices.find((c) => c.key === selectedOptionLabel) || planChoices[0] || null;
+  const canChoosePlan = !finalPaid && !data?.membership.priceLocked && planChoices.length > 1;
+  const displayPrice = selectedChoice ? selectedChoice.price : data?.membership.price ?? null;
+  const displayFrequency = selectedChoice ? selectedChoice.billingPeriod : data?.membership.frequency ?? null;
 
   async function submit() {
     setError("");
@@ -95,7 +109,8 @@ export default function ActivatePage() {
         requestedBillingNote: !finalPaid && data?.editable.billingDateRequest && reqNote ? reqNote : null,
         activationNote: data?.editable.notes && note ? note : null,
         requestedCancellationDate: !finalPaid && data?.editable.cancellationDate && cancelDate ? cancelDate : null,
-        selectedOptionLabel: canChoosePlan ? selectedOptionLabel || null : null,
+        useCurrentRate: selectedChoice?.key === "__current__",
+        selectedOptionLabel: selectedChoice && selectedChoice.key !== "__current__" ? selectedChoice.key : null,
         paymentMethod: finalPaid ? "CARD" : paymentMethod,
       }),
     });
@@ -239,20 +254,23 @@ export default function ActivatePage() {
                 )}
               </div>
 
-              {/* Plan / price option picker */}
+              {/* Plan / price picker — leads with the member's imported rate */}
               {canChoosePlan && (
                 <div className="mb-5">
                   <label className="block text-sm font-medium text-stone-700 mb-2">Choose your plan</label>
                   <div className="space-y-2">
-                    {opts.map((o) => (
-                      <label key={o.label}
-                        className={`flex items-center justify-between gap-3 px-3 py-2.5 border rounded-lg text-sm cursor-pointer ${selectedOptionLabel === o.label ? "border-stone-900 bg-stone-50" : "border-stone-300"}`}>
+                    {planChoices.map((c) => (
+                      <label key={c.key}
+                        className={`flex items-center justify-between gap-3 px-3 py-2.5 border rounded-lg text-sm cursor-pointer ${selectedOptionLabel === c.key ? "border-stone-900 bg-stone-50" : "border-stone-300"}`}>
                         <span className="flex items-center gap-2">
-                          <input type="radio" name="plan" checked={selectedOptionLabel === o.label}
-                            onChange={() => setSelectedOptionLabel(o.label)} />
-                          <span className="font-medium text-stone-800">{o.label}</span>
+                          <input type="radio" name="plan" checked={selectedOptionLabel === c.key}
+                            onChange={() => setSelectedOptionLabel(c.key)} />
+                          <span className="font-medium text-stone-800">{c.label}</span>
+                          {c.key === "__current__" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">Your rate</span>
+                          )}
                         </span>
-                        <span className="text-stone-600">${o.price.toFixed(2)}<span className="text-stone-400"> / {o.billingPeriod.toLowerCase()}</span></span>
+                        <span className="text-stone-600">${c.price.toFixed(2)}<span className="text-stone-400"> / {c.billingPeriod.toLowerCase()}</span></span>
                       </label>
                     ))}
                   </div>
