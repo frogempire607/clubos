@@ -114,8 +114,21 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     select: { id: true, title: true, body: true },
   });
 
+  // Does a portal account already exist for the contact (e.g. a guardian
+  // activating a second child)? If so the activation page skips the
+  // "create a password" step — the existing password is never overwritten.
+  const checkEmail =
+    (m.isMinor ? m.guardianEmail || m.email : m.email || m.guardianEmail)?.toLowerCase() || null;
+  const hasAccount = checkEmail
+    ? !!(await prisma.user.findUnique({
+        where: { clubId_email: { clubId: m.clubId, email: checkEmail } },
+      }))
+    : false;
+
   return NextResponse.json({
     completed: m.migrationStatus === MIGRATION_STATUS.COMPLETED,
+    hasAccount,
+    accountEmail: checkEmail,
     // Card on file & waiting for the club to review/approve billing.
     pendingApproval: m.approvalStatus === "PENDING_APPROVAL",
     // #6: owner marked this member already paid through their final period —
@@ -160,7 +173,9 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
 }
 
 const postSchema = z.object({
-  password: z.string().min(8),
+  // Optional: only required when creating a NEW account. An existing account
+  // (e.g. a guardian activating a second child) keeps its current password.
+  password: z.string().min(8).optional(),
   phone: z.string().optional().nullable(),
   email: z.string().email().optional().nullable(),
   autopayAccepted: z.boolean().optional().default(false),
@@ -228,6 +243,27 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     );
   }
 
+  // GUARDIAN-MANAGED vs OWN LOGIN.
+  // When a minor's contact is the GUARDIAN's email, the account we create/find
+  // belongs to the GUARDIAN — and the guardian reaches the minor through the
+  // guardian-link system (MemberGuardianUser), NOT the minor's member.userId.
+  // (member.userId is a member's OWN login; pointing a minor's userId at the
+  // guardian inverts parental controls and — because userId is unique — makes a
+  // second child invisible.) A minor with only their OWN email, or any
+  // non-minor, instead gets their own login via member.userId.
+  const guardianManaged =
+    member.isMinor &&
+    !!member.guardianEmail &&
+    contactEmail === member.guardianEmail.toLowerCase();
+
+  // When creating the guardian's account, name it after the guardian, not the
+  // child. Falls back to the member's name if no guardian name is on file.
+  const guardianNameParts = (member.guardianName?.trim() || "").split(/\s+/).filter(Boolean);
+  const accountFirstName = guardianManaged ? guardianNameParts[0] || member.firstName : member.firstName;
+  const accountLastName = guardianManaged
+    ? guardianNameParts.slice(1).join(" ") || member.lastName
+    : member.lastName;
+
   // Create or link the portal User account.
   //
   // SECURITY: if a portal User already exists for this email, NEVER overwrite
@@ -238,6 +274,12 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     where: { clubId_email: { clubId: club.id, email: contactEmail } },
   });
   if (!user) {
+    if (!body.password) {
+      return NextResponse.json(
+        { error: "Choose a password (at least 8 characters) to create your account." },
+        { status: 400 },
+      );
+    }
     const passwordHash = await bcrypt.hash(body.password, 12);
     try {
       user = await prisma.user.create({
@@ -245,8 +287,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           clubId: club.id,
           email: contactEmail,
           passwordHash,
-          firstName: member.firstName,
-          lastName: member.lastName,
+          firstName: accountFirstName,
+          lastName: accountLastName,
           role: "MEMBER",
         },
       });
@@ -262,29 +304,50 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     }
   }
 
-  // The members_userId unique index is GLOBAL — it ignores deletedAt. So a
-  // SOFT-DELETED member that still holds this userId silently reserves the slot
-  // and makes the claim below 500 with "duplicate key value violates unique
-  // constraint members_userId_key" (surfaced as the generic "Could not complete
-  // activation."). This is exactly what happens after a member is deleted and
-  // re-imported, or a guardian's earlier minor was removed. A deleted row never
-  // needs its login link, so release any such dead holders first.
-  await prisma.member.updateMany({
-    where: { userId: user.id, deletedAt: { not: null } },
-    data: { userId: null },
-  });
+  // Decide whether to link this user as the member's OWN login (member.userId).
+  // Guardian-managed minors never do — they're reached via the guardian link
+  // created after activation, leaving member.userId free for a future child
+  // login. Only own-login members (non-minors, or a minor using their own
+  // email) link userId.
+  let canLinkUser = false;
+  if (!guardianManaged) {
+    // The members_userId unique index is GLOBAL — it ignores deletedAt. So a
+    // SOFT-DELETED member that still holds this userId silently reserves the
+    // slot and makes the claim below 500 with "duplicate key value violates
+    // unique constraint members_userId_key" (surfaced as the generic "Could not
+    // complete activation."). Happens after a member is deleted and re-imported.
+    // A deleted row never needs its login link, so release dead holders first.
+    await prisma.member.updateMany({
+      where: { userId: user.id, deletedAt: { not: null } },
+      data: { userId: null },
+    });
 
-  // A User can be the login for only ONE *live* Member. Skip the link when this
-  // user already belongs to another live member — most often a guardian
-  // activating a second minor, whose account is already linked to a sibling.
-  // (Guardians reach their minors through the guardian-link system, not
-  // member.userId.)
-  const canLinkUser =
-    !member.userId &&
-    !(await prisma.member.findFirst({
-      where: { userId: user.id, deletedAt: null, id: { not: member.id } },
-      select: { id: true },
-    }));
+    // A User can be the login for only ONE *live* Member. Skip the link when
+    // this user already belongs to another live member.
+    canLinkUser =
+      !member.userId &&
+      !(await prisma.member.findFirst({
+        where: { userId: user.id, deletedAt: null, id: { not: member.id } },
+        select: { id: true },
+      }));
+  }
+
+  // Owner-vouched guardian link: the owner put guardianEmail on file and the
+  // guardian is activating with that exact email, so granting guardian access
+  // to this minor is authorized (mirrors lib/guardianLink isOwnerVouched). This
+  // is what makes the minor show up under the guardian's account.
+  async function linkGuardianIfManaged() {
+    if (!guardianManaged) return;
+    await prisma.memberGuardianUser.upsert({
+      where: { userId_memberId: { userId: user!.id, memberId: member.id } },
+      update: {},
+      create: {
+        userId: user!.id,
+        memberId: member.id,
+        relationship: member.guardianRelationship || "GUARDIAN",
+      },
+    });
+  }
 
   // #7: free-join (non-member). Create + link the portal account, mark
   // activated. No membership, no billing; their member status is unchanged.
@@ -299,6 +362,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         activatedAt: new Date(),
       },
     });
+    await linkGuardianIfManaged();
     await prisma.memberMigrationEvent.create({
       data: {
         clubId: club.id,
@@ -497,6 +561,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   if (claimed.count === 0) {
     return NextResponse.json({ error: "This membership is already active." }, { status: 409 });
   }
+
+  // Grant the guardian access to this minor (no-op for own-login members).
+  await linkGuardianIfManaged();
 
   // Optional required-document signature.
   if (body.signedDocumentId) {

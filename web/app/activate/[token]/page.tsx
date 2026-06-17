@@ -6,6 +6,8 @@ import { useParams, useSearchParams } from "next/navigation";
 type PlanOption = { label: string; price: number; billingPeriod: string };
 type Data = {
   completed: boolean;
+  hasAccount?: boolean;
+  accountEmail?: string | null;
   pendingApproval: boolean;
   finalPeriodPaid: boolean;
   kind: string | null;
@@ -89,7 +91,11 @@ export default function ActivatePage() {
 
   async function submit() {
     setError("");
-    if (password.length < 8) { setError("Choose a password with at least 8 characters."); return; }
+    // Password is only needed to CREATE an account. If one already exists
+    // (e.g. a guardian activating another child), it's left untouched.
+    if (!data?.hasAccount && password.length < 8) {
+      setError("Choose a password with at least 8 characters."); return;
+    }
     // Autopay only applies to recurring card billing.
     if (!finalPaid && !isJoin && paymentMethod === "CARD" && !autopay) {
       setError("Please accept the autopay terms to continue."); return;
@@ -100,7 +106,7 @@ export default function ActivatePage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        password,
+        password: data?.hasAccount ? undefined : password,
         phone: phone || null,
         email: data?.editable.email && email ? email : null,
         autopayAccepted: !finalPaid && paymentMethod === "CARD" ? autopay : false,
@@ -197,11 +203,17 @@ export default function ActivatePage() {
                     className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
                     placeholder="(555) 555-5555" />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
-                </div>
+                {data.hasAccount ? (
+                  <div className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-[13px] text-stone-600">
+                    You already have a {data.club.name} account{data.accountEmail ? <> (<strong>{data.accountEmail}</strong>)</> : null}. We&apos;ll add this to it — just sign in with your existing password.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
+                  </div>
+                )}
               </div>
               {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</div>}
               <button onClick={submit} disabled={submitting}
@@ -295,11 +307,17 @@ export default function ActivatePage() {
                     className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
                     placeholder="(555) 555-5555" />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
-                </div>
+                {data.hasAccount ? (
+                  <div className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-[13px] text-stone-600">
+                    You already have a {data.club.name} account{data.accountEmail ? <> (<strong>{data.accountEmail}</strong>)</> : null}. This membership will be added to it — just sign in with your existing password.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
+                  </div>
+                )}
                 {!finalPaid && data.editable.billingDateRequest && (
                   <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">

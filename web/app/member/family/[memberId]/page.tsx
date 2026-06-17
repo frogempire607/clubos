@@ -44,6 +44,8 @@ export default function FamilyControlsPage() {
   const [dailySpendLimit, setDailySpendLimit] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [openingBilling, setOpeningBilling] = useState(false);
+  const [billingMsg, setBillingMsg] = useState("");
 
   useEffect(() => {
     fetch(`/api/member/family/${params.memberId}/controls`).then(async (r) => {
@@ -104,6 +106,26 @@ export default function FamilyControlsPage() {
     router.refresh();
   }
 
+  // Open the Stripe billing portal for THIS child (the API authorizes via the
+  // guardian link). Lets a parent update the card / view invoices for their
+  // child's membership. Cancellation stays gated behind club approval.
+  async function openChildBilling() {
+    setOpeningBilling(true);
+    setBillingMsg("");
+    const res = await fetch("/api/member/billing-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberId: params.memberId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setOpeningBilling(false);
+    if (!res.ok || !d.url) {
+      setBillingMsg(typeof d.error === "string" ? d.error : "Could not open billing.");
+      return;
+    }
+    window.location.href = d.url;
+  }
+
   if (loading) return <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>;
   if (error && !data) {
     return (
@@ -132,6 +154,28 @@ export default function FamilyControlsPage() {
           bypasses these checks — you&apos;re the oversight.
         </p>
       </div>
+
+      {/* Billing — parent manages the child's card/invoices via Stripe. */}
+      <section className="bg-white border border-stone-200 rounded-xl p-4 mb-4">
+        <h2 className="text-sm font-semibold text-stone-900 mb-1">Billing</h2>
+        <p className="text-xs text-stone-500 mb-3">
+          Update the card on file and view invoices for {data.member.firstName}&apos;s membership.
+          To cancel, your club reviews the request first.
+        </p>
+        <button
+          type="button"
+          onClick={openChildBilling}
+          disabled={openingBilling}
+          className="text-sm px-4 py-2 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+        >
+          {openingBilling ? "Opening…" : "Manage billing"}
+        </button>
+        {billingMsg && (
+          <div className="mt-3 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+            {billingMsg}
+          </div>
+        )}
+      </section>
 
       <form onSubmit={save} className="space-y-3">
         {/* Birthday lock */}

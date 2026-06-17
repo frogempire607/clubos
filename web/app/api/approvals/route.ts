@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
+import { MIGRATION_STATUS } from "@/lib/migration";
 
 // GET /api/approvals
 //
@@ -66,7 +67,7 @@ export async function GET() {
     : [];
   const userById = new Map(users.map((u) => [u.id, u]));
 
-  const approvals = rows.map((r) => {
+  const pendingApprovals = rows.map((r) => {
     const p = (r.payload as Payload | null) ?? {};
     const m = memberById.get(r.memberId);
     const memberName = m ? `${m.firstName} ${m.lastName}`.trim() : "Member";
@@ -101,6 +102,85 @@ export async function GET() {
       amount: r.amount != null ? Number(r.amount) : null,
     };
   });
+
+  // Migration BILLING approvals: members who activated + saved a card (or chose
+  // cash/check) and are awaiting the owner to approve and start their
+  // membership. These live on the Member row (migrationStatus=ACTIVATED,
+  // approvalStatus=PENDING_APPROVAL), NOT as PendingApproval rows — which is why
+  // they only showed in the migration tool before. Surface them here too.
+  // Gated by members:edit (the approve action route enforces the same).
+  type MigrationApproval = {
+    id: string;
+    kind: "MIGRATION_BILLING";
+    memberId: string;
+    memberName: string;
+    requestedAt: Date;
+    optionLabel: string;
+    price: number | null;
+    billingPeriod: string;
+    paymentMethod: string | null;
+    requestedBillingDate: string | null;
+    requestedCancellationDate: string | null;
+  };
+  let migrationApprovals: MigrationApproval[] = [];
+  if (isOwner || hasPermission(perms, "members", "edit")) {
+    const pendingMembers = await prisma.member.findMany({
+      where: {
+        clubId,
+        deletedAt: null,
+        migrationStatus: MIGRATION_STATUS.ACTIVATED,
+        approvalStatus: "PENDING_APPROVAL",
+      },
+      orderBy: { activatedAt: "desc" },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        activatedAt: true,
+        migrationSelectedOption: true,
+        migrationPriceOverride: true,
+        legacyMembershipName: true,
+        legacyMembershipPrice: true,
+        legacyBillingFrequency: true,
+        requestedPaymentMethod: true,
+        requestedBillingDate: true,
+        requestedCancellationDate: true,
+      },
+    });
+    migrationApprovals = pendingMembers.map((m) => {
+      const sel =
+        (m.migrationSelectedOption as { label?: unknown; price?: unknown; billingPeriod?: unknown } | null) ?? null;
+      const price =
+        m.migrationPriceOverride != null
+          ? Number(m.migrationPriceOverride)
+          : sel && typeof sel.price === "number"
+            ? sel.price
+            : m.legacyMembershipPrice != null
+              ? Number(m.legacyMembershipPrice)
+              : null;
+      const optionLabel =
+        (sel && typeof sel.label === "string" && sel.label) || m.legacyMembershipName || "Membership";
+      const billingPeriod =
+        (sel && typeof sel.billingPeriod === "string" && sel.billingPeriod) || m.legacyBillingFrequency || "MONTHLY";
+      return {
+        id: `migration:${m.id}`,
+        kind: "MIGRATION_BILLING" as const,
+        memberId: m.id,
+        memberName: `${m.firstName} ${m.lastName}`.trim(),
+        requestedAt: m.activatedAt ?? new Date(),
+        optionLabel,
+        price,
+        billingPeriod,
+        paymentMethod: m.requestedPaymentMethod ?? null,
+        requestedBillingDate: m.requestedBillingDate ? m.requestedBillingDate.toISOString() : null,
+        requestedCancellationDate: m.requestedCancellationDate ? m.requestedCancellationDate.toISOString() : null,
+      };
+    });
+  }
+
+  const approvals = [...pendingApprovals, ...migrationApprovals].sort(
+    (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime(),
+  );
 
   return NextResponse.json({ approvals });
 }

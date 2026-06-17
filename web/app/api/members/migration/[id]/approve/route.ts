@@ -137,11 +137,38 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     !!member.stripeSetupPaymentMethodId;
 
   if (!canCharge) {
+    // Free ($0) or manually-billed membership: there's no Stripe charge, but the
+    // member is still APPROVED and ACTIVE with their plan attached. Previously
+    // this path only flipped the migration flags and left the member as PROSPECT
+    // with no membership — so a $0/grandfathered or cash member never went live.
+    // Record a MANUAL subscription so the membership shows in their portal and
+    // can be canceled like any other.
+    await prisma.memberSubscription.create({
+      data: {
+        memberId: member.id,
+        membershipId: membershipId!,
+        optionLabel: planName,
+        price,
+        billingPeriod: period,
+        billingType: "MANUAL",
+        autoRenew: false,
+        status: "active",
+        startDate: member.membershipStartDate ?? new Date(),
+        billingAnchorDate: anchor,
+        ...(member.requestedCancellationDate ? { endDate: member.requestedCancellationDate } : {}),
+        notes:
+          price <= 0
+            ? "Free / grandfathered membership — no recurring charge"
+            : `Manual billing — ${club.name} collects payment offline`,
+      },
+    });
     await prisma.member.update({
       where: { id: member.id },
       data: {
         migrationStatus: MIGRATION_STATUS.COMPLETED,
         approvalStatus: "APPROVED",
+        status: "ACTIVE",
+        membershipId,
         ...(anchor ? { billingAnchorDate: anchor } : {}),
         ...(member.requestedCancellationDate ? { commitmentEndDate: member.requestedCancellationDate } : {}),
         migrationCompletedAt: new Date(),
@@ -154,8 +181,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         type: "COMPLETED",
         message:
           price <= 0
-            ? "Approved — no membership price on file; club handles billing manually."
-            : "Approved — no card on file / online payments off; club handles billing manually.",
+            ? "Approved — free/grandfathered membership; active with no recurring charge."
+            : "Approved — active; club handles billing manually (no card on file / online payments off).",
         actorUserId: session.user.id,
       },
     });

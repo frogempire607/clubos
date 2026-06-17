@@ -44,17 +44,46 @@ async function getMemberPortalConfigId(stripeAccountId: string): Promise<string>
   return configuration.id;
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "MEMBER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Optional: a guardian managing a specific child's billing passes that
+  // member's id. Omitted → the caller's own membership.
+  const bodyJson = (await req.json().catch(() => ({}))) as { memberId?: unknown };
+  const requestedMemberId = typeof bodyJson?.memberId === "string" ? bodyJson.memberId : null;
+
+  // Resolve which member's billing this user may manage: their OWN profile, or a
+  // minor they're a linked guardian of. (A guardian is never the minor's
+  // member.userId, so the old memberProfile-only lookup locked guardians out.)
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { memberProfile: { select: { id: true, stripeCustomerId: true } } },
+    select: {
+      memberProfile: { select: { id: true, stripeSetupCustomerId: true, stripeCustomerId: true } },
+      guardianOf: {
+        select: { member: { select: { id: true, stripeSetupCustomerId: true, stripeCustomerId: true } } },
+      },
+    },
   });
-  const customerId = user?.memberProfile?.stripeCustomerId || null;
+  const manageable = [
+    ...(user?.memberProfile ? [user.memberProfile] : []),
+    ...(user?.guardianOf?.map((g) => g.member) ?? []),
+  ];
+  const target = requestedMemberId
+    ? manageable.find((m) => m.id === requestedMemberId)
+    : manageable[0];
+  if (!target) {
+    return NextResponse.json(
+      { error: "You don't manage this membership's billing." },
+      { status: 403 },
+    );
+  }
+
+  // Migrated members store the card on stripeSetupCustomerId; older flows used
+  // stripeCustomerId. Either is the customer on the club's connected account.
+  const customerId = target.stripeSetupCustomerId || target.stripeCustomerId || null;
   if (!customerId) {
     return NextResponse.json(
       {

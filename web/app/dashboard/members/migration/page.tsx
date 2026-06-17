@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import MembersTabs from "@/components/MembersTabs";
 
 // ── CSV parser (handles quoted cells / embedded commas / CRLF) ───────────────
 function parseCSV(text: string): string[][] {
@@ -203,6 +204,7 @@ export default function MigrationPage() {
 
   return (
     <div className="p-8 max-w-7xl">
+      <MembersTabs />
       <div className="mb-2 flex items-center gap-2 text-sm text-text-muted">
         <Link href="/dashboard/members" className="hover:text-text-primary">Members</Link>
         <span>/</span>

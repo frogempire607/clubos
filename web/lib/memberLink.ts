@@ -22,13 +22,21 @@ export async function findOrAutoLinkMember(
   });
   if (byUserId) return byUserId;
 
-  // Fallback: unclaimed member with the same email
+  // Fallback: unclaimed member with the same email.
+  //
+  // Skip minors. A minor is reached by their guardian through the guardian-link
+  // system, not by silently claiming a same-email member row as the logged-in
+  // user's OWN profile — otherwise a guardian whose email also sits on the
+  // minor's record would auto-become the child. A minor who legitimately has
+  // their own login gets member.userId set explicitly (e.g. at activation), so
+  // they resolve via the userId path above and never need this fallback.
   const byEmail = await prisma.member.findFirst({
     where: {
       clubId,
       email: userEmail.toLowerCase(),
       deletedAt: null,
       userId: null,
+      isMinor: false,
     },
   });
   if (!byEmail) return null;

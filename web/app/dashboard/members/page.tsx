@@ -7,6 +7,7 @@ import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
 import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
+import MembersTabs from "@/components/MembersTabs";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import {
   DEFAULT_MEMBER_FORM_CONFIG,
@@ -311,6 +312,7 @@ export default function MembersPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+      <MembersTabs />
       <StripeRequiredBanner feature="charge members for memberships" />
 
       <PageHeader
