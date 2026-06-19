@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-05. `main` at tip `0e3aeaf`, pushed to `origin/main`. Since 2026-06-03 the following shipped in order: **P1 UI/UX fixes** merged to main (was `feat/p1-ui-fixes`, 7 commits — dark mode contrast, sign-in logo link, calendar grid + mobile day-list, member nav Bookings + More sheet, owner dashboard Recent messages + Recent bookings widgets, iOS app icon regen, full unicode-glyph eradication across 46 files); **CX overhaul** (5 commits — pricing page rebuild with 14-day trial + email/3-5d/urgent-call support copy + Help Center references removed, SEO foundation with rich metadata + sitemap.ts + robots.ts + JSON-LD Organization & SoftwareApplication, landing page premium rewrite with hero/use-cases/value-props, member portal trial badge, signup trial reinforcement); **CY Android verification docs** (`docs/android-verification.md` — emulator + device setup, 8-min smoke checklist, keystore setup, Play Console first-time submission); **real-domain wiring** (`athletix-os.com` everywhere — SITE_URL fallback, EMAIL_FROM `noreply@athletix-os.com`, slug-prefix labels, support/hello/contact inbox routing; iOS+Android bundle ID `com.athletixos.app` preserved); **security audit Tasks 1-8** all complete with results in `SECURITY_AUDIT_RESULTS.md` (Task 2 multi-tenant isolation defense-in-depth fixes, Task 5 security headers + Report-Only CSP in `next.config.mjs`, Task 6 NextAuth login rate-limit + bcrypt cost 10→12 + explicit 14-day session, Task 7 email-test zod validation, Task 8 `/terms` + `/privacy` public pages + signup consent checkbox + `LegalAcceptance` model & migration applied + member-signup consent symmetry). Pinned versions preserved throughout (no new deps, no Prisma 7 upgrade). All 13 post-2026-06-03 commits pushed.
+Last updated: 2026-06-17. `main` at tip `90533af`, pushed to `origin/main`. **Major systems added since 2026-06-07 — member migration & activation, the guardian/minor login model, parental controls, the unified Members → Approvals tab, member/parent billing management, and Supabase Storage uploads — now have their own current-state sections below ("Member Migration & Activation", "Guardian / Minor Model & Parental Controls", "Approvals", "Member Billing Management", "Critical Invariants & Serverless Gotchas"). Read those before touching members, activation, billing, guardian/minor, uploads, or DB migrations.** Earlier history (2026-06-03 → 06-05) shipped in order: **P1 UI/UX fixes** merged to main (was `feat/p1-ui-fixes`, 7 commits — dark mode contrast, sign-in logo link, calendar grid + mobile day-list, member nav Bookings + More sheet, owner dashboard Recent messages + Recent bookings widgets, iOS app icon regen, full unicode-glyph eradication across 46 files); **CX overhaul** (5 commits — pricing page rebuild with 14-day trial + email/3-5d/urgent-call support copy + Help Center references removed, SEO foundation with rich metadata + sitemap.ts + robots.ts + JSON-LD Organization & SoftwareApplication, landing page premium rewrite with hero/use-cases/value-props, member portal trial badge, signup trial reinforcement); **CY Android verification docs** (`docs/android-verification.md` — emulator + device setup, 8-min smoke checklist, keystore setup, Play Console first-time submission); **real-domain wiring** (`athletix-os.com` everywhere — SITE_URL fallback, EMAIL_FROM `noreply@athletix-os.com`, slug-prefix labels, support/hello/contact inbox routing; iOS+Android bundle ID `com.athletixos.app` preserved); **security audit Tasks 1-8** all complete with results in `SECURITY_AUDIT_RESULTS.md` (Task 2 multi-tenant isolation defense-in-depth fixes, Task 5 security headers + Report-Only CSP in `next.config.mjs`, Task 6 NextAuth login rate-limit + bcrypt cost 10→12 + explicit 14-day session, Task 7 email-test zod validation, Task 8 `/terms` + `/privacy` public pages + signup consent checkbox + `LegalAcceptance` model & migration applied + member-signup consent symmetry). Pinned versions preserved throughout (no new deps, no Prisma 7 upgrade). All 13 post-2026-06-03 commits pushed.
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -82,7 +82,7 @@ These rules apply to every software-development task in this repo. They override
 - Payments: Stripe Connect (member → club) and Stripe platform subscription (club → AthletixOS).
 - Bank integration: Plaid routes and settings present.
 - Email: Nodemailer helper with transactional templates wired into key flows.
-- File storage: private on-disk store under `process.env.UPLOADS_DIR` (default `./storage/uploads`), served only through `/api/files/[id]` with club scoping.
+- File storage: **Supabase Storage** (private `uploads` bucket, accessed server-side with the service-role key) in production — Netlify's filesystem is ephemeral so disk MUST NOT be used there. Local dev falls back to on-disk `process.env.UPLOADS_DIR` (default `./storage/uploads`) when `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are unset. All bytes flow through `lib/storage.ts` (`putObject`/`getObject`); the only authenticated read gate is `/api/files/[id]` (club-scoped). Public, non-sensitive club logos are served unauthenticated via `/api/public/club-logo/[clubId]` (see Member Billing / email sections).
 - Local dev port: `npm run dev` runs Next on `127.0.0.1:3000` (bound to `0.0.0.0` so the iOS simulator can reach it). Port 3001 was abandoned because it's on WebKit's restricted-network-ports blocklist.
 - Local auth URL: `.env` should use `NEXTAUTH_URL=http://127.0.0.1:3000`. Using the literal IP (not `localhost`) avoids the macOS IPv6-first resolution that breaks the WKWebView connect.
 
@@ -144,6 +144,59 @@ Tier enforcement: `/api/members` (maxMembers 200 on Growth → upgrade to Pro), 
 
 `lib/permissions.ts` is the single source of truth (10 keys: members, attendance, classes, events, schedule, messages, documents, finances, reports, staff). Permissions live in the JWT (set at login) + are surfaced live via `/api/me`. Middleware enforces per-section access for STAFF (owners bypass everything). `lib/apiGuard.ts` `requirePermission`/`requireOwner` guard API routes. **Permission-gating ≠ tier-gating** — never tier-gate cash/financial tracking.
 
+## Member Migration & Activation
+
+The flagship onboarding flow for clubs switching from other software. Files: `lib/migration.ts` (`MIGRATION_STATUS`, anchor helpers), `lib/migrationServer.ts` (`sendActivation`, `sendJoinInvite`), `app/dashboard/members/migration/*` (owner tool), `app/activate/[token]/page.tsx` (public page), `app/api/members/migration/activate/[token]/route.ts` (GET/POST), `app/api/members/migration/[id]/approve/route.ts` (owner approval).
+
+Flow:
+1. Owner **CSV-imports** members (`/dashboard/members/migration` — name is the only required field, date-format picker, second-pass membership matching). Imported members carry a legacy snapshot and start IMPORTED.
+2. Owner **sends an activation email** (branded; `lib/email.ts sendMemberMigrationActivationEmail`). Member opens the **token-gated public page** `/activate/[token]`.
+3. **Activation POST** sets a password (only when CREATING a new portal user — an existing user's password is NEVER overwritten from a token; that's the account-takeover guard), confirms profile, accepts autopay, optionally signs a required document, and for CARD members opens a Stripe **setup-mode** Checkout that saves a card with **NO charge**. Member → migrationStatus=ACTIVATED, approvalStatus=PENDING_APPROVAL. Used tokens (ACTIVATED/COMPLETED) 409.
+4. **Billing starts only on owner approval** (`/api/members/migration/[id]/approve`): creates the recurring Stripe subscription off the saved card with `trial_end` anchored to the agreed date (never charges on approval day), then sets the member **ACTIVE + `membershipId` + a `MemberSubscription`**. The `!canCharge` branch ($0/grandfathered, cash/check, or no card / Stripe off) now ALSO sets ACTIVE + membershipId + a **MANUAL** `MemberSubscription` (fixed 2026-06-17 — it previously left such members PROSPECT with no membership).
+
+Variants: **registration options** (#5 — member picks a plan option / requests billing date / requests cancellation date / chooses CARD·CASH·CHECK; prices validated server-side against real options or the imported `legacyMembershipPrice` via `useCurrentRate`, never a client price; owner `migrationPriceOverride` always wins). **Fully-paid final period** (#6 — `migrationFinalPeriodPaid`: activates as a non-renewing membership, no card). **Free-join** (#7 — `activationKind="JOIN"`: a non-member registration link that creates a free portal account to browse/buy, no membership/billing). **Event bundles** (`EventBundle`/`EventBundleItem` — discounted packages that book all included events).
+
+Key data: `MemberMigrationEvent` (per-member audit log) + `Member` fields `activationToken`/`activationTokenExpires`/`activationEmailSent*`, `migrationStatus`, `approvalStatus`, `activationKind`, `activatedAt`, `legacyMembershipName/Price`/`legacyBillingFrequency`/`legacySource`, `migrationMembershipId`, `migrationPriceOverride`, `migrationSelectedOption` (JSON), `migrationFinalPeriodPaid`, `requestedPaymentMethod`/`requestedBillingDate`/`requestedBillingNote`/`requestedCancellationDate`/`activationNote`, `stripeSetupCustomerId`/`stripeSetupPaymentMethodId`, `billingAnchorDate`/`commitmentEndDate`, `activationEditableFields` (JSON).
+
+## Guardian / Minor Model & Parental Controls
+
+`Member.userId` (`@unique`) is the member's **OWN** portal login. A guardian reaches a minor through the **guardian-link** system — `MemberGuardianUser` (relation `User.guardianOf` ↔ `Member.guardianLinks`) — **not** by pointing the minor's `userId` at the guardian's user (doing so inverts parental controls and, because `userId` is unique, makes a second child invisible).
+
+- **Session → member resolution:** `lib/memberLink.ts findOrAutoLinkMember` (by `userId`, else an email fallback that **skips minors**). The member portal builds an account switcher from `self` (the user's own `memberProfile`) + `guardianOf` children (e.g. `resolveMemberContext` in `app/api/member/schedule`).
+- **Linking authorization:** `lib/guardianLink.ts` — `isOwnerVouched` (the owner already typed this email into `Member.guardianEmail`) → auto-creates the `MemberGuardianUser` link; otherwise a `GUARDIAN_LINK` `PendingApproval` for the owner. Activation auto-links guardian-managed minors (`guardianManaged` = minor whose activation contact == `guardianEmail`) and names the created account after the guardian.
+- **Parental controls:** `lib/parentalControls.ts` — `applyParentalControls` gates paid member-portal actions (CLASS_BOOK / EVENT_REGISTER / PRIVATE_REQUEST / PACKAGE_BUY / MEMBERSHIP_SUBSCRIBE / PRODUCT_BUY) → allow / block / queue; it keys oversight on `member.userId !== bookerUserId` (a guardian acting IS the oversight). `memberCanMessage` gates the minor's own messaging. Controls JSON on `Member.parentControls`: `requirePaymentApproval`, `monitoredMessaging`, `allowPackagePurchase`, `allowOwnMessaging`, `dailySpendLimit`. Per-child editor: `/member/family/[memberId]`.
+
+## Approvals
+
+Unified owner queue at `/dashboard/members/approvals` (a Members sub-tab; old `/dashboard/approvals` redirects here). `GET /api/approvals` returns three permission-filtered kinds:
+
+- `GUARDIAN_LINK` (members:view) and `MEMBERSHIP_CANCEL` (finances:view) — real `PendingApproval` rows.
+- `MIGRATION_BILLING` (members:edit) — **synthesized** from members in migrationStatus=ACTIVATED + approvalStatus=PENDING_APPROVAL (these live on the Member row, not `PendingApproval`, which is why they only showed in the migration tool before).
+
+Action routes: guardian → `/api/members/[id]/guardians/approve`; cancel → `/api/approvals/membership-cancel` (mode `PERIOD_END | IMMEDIATE | IMMEDIATE_REFUND`); migration billing → `/api/members/migration/[id]/approve`. Kind constants: `lib/approvals.ts` (`MEMBERSHIP_CANCEL_KIND`), `lib/guardianLink.ts` (`GUARDIAN_LINK_KIND`); `lib/parentalControls.ts MEMBER_APPROVAL_KINDS` are the member-side family kinds (kept distinct so they never cross into the owner queue).
+
+## Member Billing Management
+
+Members/guardians **cannot self-cancel** — cancellation always routes through staff approval.
+
+- `POST /api/member/billing-portal` opens the Stripe Billing Portal on the club's connected account (update card + invoices; `subscription_cancel` disabled by config). Accepts optional `memberId` so a guardian can manage a linked child's billing (authorized via `guardianOf`); resolves the customer as `stripeSetupCustomerId ?? stripeCustomerId`.
+- `POST /api/member/subscriptions/request-cancel` → a `MEMBERSHIP_CANCEL` PendingApproval (guardian-aware); owner approves in the Approvals tab.
+- UI: self billing on `/member/profile`; per-child "Manage billing" on `/member/family/[memberId]`.
+- "Add-before-remove card" relies on Stripe's portal (it blocks removing the card backing an active subscription) — there is intentionally no custom card manager.
+- Known follow-up: the self `/member/profile` "Update card/invoices" button is gated on `stripeCustomerId` only, so a migrated paying member (card on `stripeSetupCustomerId`) may not see it until that gate is widened.
+
+## Other Systems (high level — schema is source of truth, 63 models)
+
+Private lessons (`PrivateLessonType`/`PrivatePackage`/`PrivateCreditLedger`/`PrivateBooking`/`PrivateBookingPartner`/`PrivateLessonPayRate`; `lib/privateLessonRules.ts`, `privatePartners.ts`). Staff comp/payroll/contractors (`StaffCompensation`/`CompensationBonus`/`CompensationAssignment`/`Contractor`/`ContractorPayment`; `lib/compensation.ts`, `payroll.ts`). Discounts (`Discount`; `/api/discounts`). Products (`Product`/`ProductSale`). Donations (`Donation`/`DonationLink`). Recurring classes & attendance (`RecurringClass`/`ClassSession`/`AttendanceRecord`; `lib/classSessions.ts`). Email opt-out (`EmailOptOut`; `lib/unsubscribe.ts`, `/api/unsubscribe`).
+
+## Critical Invariants & Serverless Gotchas
+
+- **`members_userId` is a PLAIN GLOBAL unique index — it ignores `deletedAt`.** A soft-deleted member still holding a `userId` reserves that slot and makes any re-link 500 with `duplicate key value violates unique constraint "members_userId_key"`. So: (a) every member soft-delete path (`/api/members/[id]` DELETE, `/api/members/bulk`, `/api/member/me` DELETE) nulls `userId`; (b) activation releases stale soft-deleted holders before linking. Do not re-introduce a delete path that leaves `userId` set, and never point a minor's `userId` at the guardian.
+- **DB migrations: `prisma migrate dev` FAILS on this Supabase** (shadow DB blocked by the pooler — "...shadow_db... is being accessed by other users"). Workflow: hand-write the migration SQL folder → `npx prisma migrate deploy` (no shadow DB) → `prisma generate`. `DIRECT_URL`/`directUrl` is the non-pooler URL migrations use. Netlify build = `prisma generate && next build`, so the deployed client is regenerated every deploy.
+- **`isomorphic-dompurify` can crash the route at import.** It pulls in jsdom, which the Netlify serverless bundler mangles so the module throws while LOADING — a top-level import 500s the whole route (this was the "Create Document 500"). `lib/sanitizeHtml.ts` lazy-`require`s it inside try/catch and falls back to a regex `fallbackStrip`; `next.config.mjs` also externalizes it. Always sanitize via `sanitizeRichHtml()` before storing HTML rendered with `dangerouslySetInnerHTML`.
+- **Email / public images must be absolute + unauthenticated.** `/api/files/[id]` requires a session, so it can't load in emails or for logged-out members. Club logos in emails and on the public activation page go through `/api/public/club-logo/[clubId]` (`lib/clubLogo.ts publicClubLogoUrl`, absolute via `getAppBaseUrl()`).
+- **Mobile = Capacitor remote-URL wrapper.** `capacitor.config.ts` loads `NEXT_PUBLIC_APP_URL` in a WebView, so web deploys auto-update app content; only native-shell changes (icon/splash/plugins/server URL) need `npm run cap:sync` + an Xcode/Android Studio rebuild + store resubmit. Local dev binds `0.0.0.0:3000` with `NEXTAUTH_URL=http://127.0.0.1:3000` (not `localhost`, not `:3001`).
+
 ## Financial OS
 
 Lightweight accounting/tax-prep helper (NOT QuickBooks), permission-gated on `finances`, **never tier-gated**. `lib/financials.ts` (categories, payment methods incl. CASH/COMP/INVOICE, `isCashMethod`/`isCompMethod`, disclaimers) + `lib/financialReports.ts` (`buildReport`/`reportToCsv`). Transaction/Expense/Donation carry `legalEntityId` + `category` + `paymentMethod`; `Transaction.manual=true` for cash/comp/invoice (only manual records are deletable — never delete Stripe records). Reports separate Card / Cash / Comp / Invoiced. Cash option exists everywhere via `/api/financials/manual-payment` (Money In tab) and `/api/attendance/charge` (at-the-door non-member drop-in/trial/guest). Disclaimer shown; never claims tax filing.
@@ -153,7 +206,10 @@ Lightweight accounting/tax-prep helper (NOT QuickBooks), permission-gated on `fi
 Current dashboard sidebar structure:
 
 - Dashboard
-- Members
+- Members (now a GROUP — `lib/dashboardNav.ts`)
+  - All members (`/dashboard/members`)
+  - Migration (`/dashboard/members/migration`)
+  - Approvals (`/dashboard/members/approvals`)
 - Staff
   - Directory
   - Schedule
@@ -179,6 +235,7 @@ Current dashboard sidebar structure:
 
 Important navigation notes:
 
+- **Approvals moved under Members** (was a top-level item). `/dashboard/approvals` now redirects to `/dashboard/members/approvals`. The three Members pages share `components/MembersTabs.tsx` (a sub-tab bar). See the "Approvals" section.
 - Memberships is not a top-level sidebar item.
 - Purchase option grouped routes exist under `/dashboard/purchase-options/*` and re-export the existing top-level pages.
 - Do not delete existing top-level routes yet; they may still be linked internally or bookmarked.
@@ -251,6 +308,8 @@ Member portal pages:
 - `/member/staff` — visible coach/owner bios + contact
 
 ## Current API Routes
+
+> This list predates the 2026-06-07→17 work and is not exhaustive. Newer route areas are documented in the systems sections above: `/api/approvals` + `/api/members/migration/*` + `/api/members/[id]/guardians/approve` (Approvals & Migration), `/api/member/billing-portal` + `/api/member/subscriptions/request-cancel` + `/api/approvals/membership-cancel` (Member Billing), `/api/public/club-logo/[clubId]`, plus `/api/event-bundles`, `/api/discounts`, `/api/private-lessons/*`, `/api/contractors/*`, `/api/member/family/*`. The route tree under `app/api/` is the source of truth.
 
 Auth:
 
@@ -375,7 +434,7 @@ Member-side:
 
 ## Current Prisma Schema Status
 
-`prisma/schema.prisma` validates as of 2026-06-07.
+`prisma/schema.prisma` is the source of truth — **63 models** as of 2026-06-17. Newer models added since this list was written include `MemberMigrationEvent`, `MemberGuardianUser`, `MemberRelationship`, `MemberSubscription`, `Guardian`, `EventBundle`/`EventBundleItem`, `Discount`, `Product`/`ProductSale`, `Donation`/`DonationLink`, `PrivateLessonType`/`PrivatePackage`/`PrivateCreditLedger`/`PrivateBooking`/`PrivateBookingPartner`/`PrivateLessonPayRate`, `StaffCompensation`/`CompensationBonus`/`CompensationAssignment`/`Contractor`/`ContractorPayment`, `RecurringClass`/`ClassSession`/`AttendanceRecord`, `UploadedFile`, `EmailOptOut`, `LegalEntity`, `ClubProfile`. See "Critical Invariants" for the `members_userId` global-unique gotcha and the Supabase migration workflow.
 
 Core models currently present:
 
@@ -805,9 +864,26 @@ Documented in `.env.example`. Critical for production:
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_GROWTH` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_ENTERPRISE` — recurring Price IDs for the ClubOS-own tiers (different in test vs live mode)
 - `NEXT_PUBLIC_SITE_URL` — production absolute URL (default fallback `https://athletix-os.com`); drives canonical/OG/JSON-LD/sitemap/robots
-- `UPLOADS_DIR` (optional; defaults to `./storage/uploads`)
+- `NEXT_PUBLIC_APP_URL` — the app's external URL the Capacitor native shell loads (and `getAppBaseUrl()` falls back from `NEXTAUTH_URL`); set to `https://athletix-os.com` in prod
+- `DIRECT_URL` — **direct (non-pooler) Postgres URL for Prisma migrations.** Prisma's `directUrl` in `schema.prisma`. Required because migrations can't run through the Supabase pooler. See "Critical Invariants & Serverless Gotchas → DB migrations".
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_STORAGE_BUCKET` (default `uploads`) — production file storage (`lib/storage.ts`). When unset, storage falls back to local disk.
+- `UPLOADS_DIR` (optional local-dev disk fallback; defaults to `./storage/uploads`)
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing). Set `EMAIL_FROM=AthletixOS <noreply@athletix-os.com>` in prod
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
+- `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` (optional) — when set, injects the cookieless Plausible analytics script
+- `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` + sample-rate/env vars (optional error tracking)
+
+## Session log — 2026-06-07 → 2026-06-17 (migration/activation, guardian model, parental controls, approvals, billing, storage, launch QA)
+
+Everything below shipped to `main` after the 2026-06-05 log (tips `8532134` → `90533af`). Current-state detail lives in the new top sections (Member Migration & Activation, Guardian / Minor Model & Parental Controls, Approvals, Member Billing Management, Critical Invariants & Serverless Gotchas). Chronological summary by commit group:
+
+- **Launch QA + infra:** `8532134` authorization gates on owner-only routes (4 blockers); `0bf76ee` Netlify build runs `prisma generate` + `directUrl` for migrations; `b2ef77c` `netlify.toml` Next runtime plugin.
+- **Tier gating + import:** `390c263` tier gating + tenant fix + CSV full-name import; `71c5940` Plaid tier-gate/upgrade errors (Pro+); `5ecbfeb` CSV import name-only + date-format picker; `44761c5` second-pass membership matching; `a530718` editable billing frequency + late-activation billing.
+- **Storage:** `29680bb` uploads moved to **Supabase Storage** (private bucket) — Netlify disk is ephemeral. All bytes via `lib/storage.ts`; read gate `/api/files/[id]`.
+- **Legal/marketing:** `1648c06` DMCA + processor disclosure + CAN-SPAM unsubscribe; `9b0c292` sitemap +/terms +/privacy; `a888779` optional Plausible analytics; `c295eff` 14-day trial (was 30) + promotion codes.
+- **Billing resilience + security:** `5188362` billing self-heal (never strand a club on stale Stripe ids); `8c24011` timezone (derive today from local date); `ad9bedd` gate guardian linking + close activation-token replay; `cf1d6cf` login-timing equalizer + stop leaking raw error text.
+- **Migration/activation feature set:** `fd3a7c8` billing/onboarding gaps (cash/terminal bookings, owner-approved cancel via Stripe portal + `MEMBERSHIP_CANCEL` queue, billing-date notify, guardian-link approvals queue + `/dashboard/approvals`); `7b7a8f4` guard activation Stripe step + surface document save errors; `35be79d` registration options (plan/cash-check/cancel date) + expiring fully-paid flow; `ed209ef` event bundles; `4a7885f` free-join (JOIN) registration links; `5716df4` activation picker leads with the member's imported rate.
+- **Production fixes (this session, `9d05b86` + `90533af`):** activation `members_userId` unique-constraint collision — root cause is the GLOBAL unique index ignoring `deletedAt`; fix releases soft-deleted holders + nulls `userId` on all delete paths; **separated minors from the guardian login** (guardian-link instead of `member.userId`). Document "save (500)" — `isomorphic-dompurify` crashing at module import in the Netlify bundle; fixed with lazy-load + `fallbackStrip` + `serverComponentsExternalPackages`. Branded email/activation-page logo — broken because `club.logoUrl` is a relative, session-gated `/api/files` path; added public `/api/public/club-logo/[clubId]`. `$0`/manual migration approval left members PROSPECT with no membership — fixed so the `!canCharge` branch also activates + attaches membership + a MANUAL subscription. Activation page now skips the password prompt when the account already exists (2nd-child case). Built the unified **Members → Approvals** tab (migration billing + guardian link + cancellation) and per-child "Manage billing".
 
 ## Session log — 2026-06-05 (CX overhaul + CY Android docs + real-domain wiring + Security audit Tasks 1-8 + Task 8 legal pages and migration)
 

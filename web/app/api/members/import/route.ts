@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { upsertGuardianProfile } from "@/lib/guardian";
+import { upsertGuardianProfile, type GuardianInput } from "@/lib/guardian";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import {
   resolveName,
@@ -70,6 +70,19 @@ function normalizeStatus(raw: string | null | undefined): "PROSPECT" | "INACTIVE
   return "PROSPECT";
 }
 
+// Bulk import can do several writes per row. On a cold serverless function
+// going through the connection pooler, a strictly sequential row-by-row loop
+// could exceed the platform's default ~10s function limit even for a modest
+// file — the client surfaced that hard timeout as a generic "Import failed".
+// This raises the ceiling (the host clamps it to the plan max) while the
+// batching below is the real fix.
+export const maxDuration = 60;
+
+// How many rows to process concurrently. Small enough to stay within the
+// Prisma/pooler connection budget, large enough to collapse the wall-clock of
+// an import from "N sequential round-trips" to "N / CONCURRENCY".
+const IMPORT_CONCURRENCY = 5;
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
@@ -95,6 +108,32 @@ export async function POST(req: Request) {
       errors: [] as string[],
     };
 
+    // Prefetch every existing (non-deleted) member email for this club in ONE
+    // query, so duplicate detection is a Set lookup instead of a per-row DB
+    // round-trip. This alone removes N queries from the hot path.
+    const existingMembers = await prisma.member.findMany({
+      where: { clubId, deletedAt: null, email: { not: null } },
+      select: { email: true },
+    });
+    const seenEmails = new Set<string>();
+    for (const e of existingMembers) if (e.email) seenEmails.add(e.email.toLowerCase());
+
+    // ── Pass 1 (no DB): validate + normalize every row, reserve emails so an
+    // in-batch duplicate is also skipped, and collect the UNIQUE guardian
+    // emails to resolve. ──
+    type PreparedRow = {
+      row: (typeof members)[number];
+      firstName: string;
+      lastName: string;
+      display: string;
+      email: string | null;
+      guardianEmail: string | null;
+      isMinor: boolean;
+      migrationStatus: string | null;
+    };
+    const prepared: PreparedRow[] = [];
+    const guardianInputs = new Map<string, GuardianInput>();
+
     for (const m of members) {
       const { firstName, lastName, display } = resolveName({
         athleteName: m.athleteName,
@@ -108,118 +147,155 @@ export async function POST(req: Request) {
         continue;
       }
 
-      try {
-        const rawEmail = m.email?.trim() || "";
-        const email = isValidEmail(rawEmail) ? rawEmail.toLowerCase() : null;
+      const rawEmail = m.email?.trim() || "";
+      const email = isValidEmail(rawEmail) ? rawEmail.toLowerCase() : null;
 
-        // Never overwrite an existing member silently — skip duplicates.
-        if (email) {
-          const dupe = await prisma.member.findFirst({
-            where: { clubId, email, deletedAt: null },
-            select: { id: true },
-          });
-          if (dupe) {
-            results.skipped++;
-            results.errors.push(`${display}: ${email} already exists — skipped (not overwritten)`);
-            continue;
-          }
-        }
+      // Never overwrite an existing member silently — skip duplicates (also
+      // catches a second row carrying the same email within this import).
+      if (email && seenEmails.has(email)) {
+        results.skipped++;
+        results.errors.push(`${display}: ${email} already exists — skipped (not overwritten)`);
+        continue;
+      }
 
-        const guardianEmail = m.guardianEmail?.trim().toLowerCase() || null;
-        const isMinor = m.isMinor ?? !!(m.guardianName || guardianEmail);
+      const guardianEmail = m.guardianEmail?.trim().toLowerCase() || null;
+      const isMinor = m.isMinor ?? !!(m.guardianName || guardianEmail);
 
-        // For migration we DO NOT hard-fail minors missing guardian details —
-        // we import and flag for review so no member is lost in the switch.
-        let migrationStatus: string | null = migration ? MIGRATION_STATUS.IMPORTED : null;
-        if (migration && isMinor && (!m.guardianName?.trim() || !guardianEmail)) {
-          migrationStatus = MIGRATION_STATUS.NEEDS_REVIEW;
-          results.needsReview++;
-        } else if (!migration && isMinor && (!m.guardianName?.trim() || !guardianEmail || !m.guardianPhone?.trim())) {
-          results.failed++;
-          results.errors.push(`${display}: minors require guardian name, email, and phone`);
-          continue;
-        }
-
-        const guardian = guardianEmail
-          ? await upsertGuardianProfile(clubId, {
-              guardianName: m.guardianName ?? null,
-              guardianEmail,
-              guardianPhone: m.guardianPhone ?? null,
-            })
-          : null;
-
-        // Migration billing dates (display + Stripe anchor; never auto-charged).
-        const membershipStartDate = parseFlexibleDate(m.membershipStartDate);
-        const nextBillingDate = parseFlexibleDate(m.nextBillingDate);
-        const commitmentEndDate = parseFlexibleDate(m.commitmentEndDate);
-        const frequency = normalizeFrequency(m.billingFrequency);
-        const billingAnchorDate = migration
-          ? resolveBillingAnchor({ nextBillingDate, membershipStartDate, frequency, now })
-          : null;
-
-        const created = await prisma.member.create({
-          data: {
-            clubId,
-            firstName,
-            lastName,
-            email,
-            phone: m.phone?.trim() || null,
-            dateOfBirth: parseFlexibleDate(m.dateOfBirth),
-            // Migrated members are Pending Activation → PROSPECT until they
-            // activate; non-migration import keeps its normalized status.
-            status: migration ? "PROSPECT" : normalizeStatus(m.status),
-            tags: m.tags?.trim() || "",
-            notes: m.notes?.trim() || null,
-            streetAddress: m.streetAddress?.trim() || null,
-            city: m.city?.trim() || null,
-            state: m.state?.trim() || null,
-            zipCode: m.zipCode?.trim() || null,
-            gender: m.gender?.trim() || null,
-            customFieldValues: JSON.stringify(m.customFieldValues || {}),
-            isMinor,
-            guardianId: guardian?.id ?? null,
-            guardianName: m.guardianName?.trim() || null,
-            guardianEmail,
-            guardianPhone: m.guardianPhone?.trim() || null,
-            guardianRelationship: m.guardianRelationship?.trim() || null,
-            ...(migration
-              ? {
-                  legacySource: legacySource?.trim() || null,
-                  legacyMemberId: m.legacyMemberId?.trim() || null,
-                  importedAt: now,
-                  migrationStatus,
-                  paymentSetupStatus: PAYMENT_SETUP.REQUIRED,
-                  legacyMembershipName: m.membershipName?.trim() || null,
-                  legacyMembershipPrice: parseMoney(m.membershipPrice),
-                  legacyBillingFrequency: frequency,
-                  membershipStartDate,
-                  nextBillingDate,
-                  billingAnchorDate,
-                  commitmentEndDate,
-                }
-              : {}),
-          },
-          select: { id: true },
-        });
-
-        if (migration) {
-          await prisma.memberMigrationEvent.create({
-            data: {
-              clubId,
-              memberId: created.id,
-              type: "IMPORTED",
-              message: `Imported${legacySource ? ` from ${legacySource}` : ""}${
-                m.membershipName ? ` · ${m.membershipName}` : ""
-              }${billingAnchorDate ? ` · next bill ${billingAnchorDate.toISOString().slice(0, 10)}` : ""}`,
-              actorUserId: session.user.id,
-            },
-          });
-        }
-
-        results.created++;
-      } catch {
+      // For migration we DO NOT hard-fail minors missing guardian details —
+      // we import and flag for review so no member is lost in the switch.
+      let migrationStatus: string | null = migration ? MIGRATION_STATUS.IMPORTED : null;
+      if (migration && isMinor && (!m.guardianName?.trim() || !guardianEmail)) {
+        migrationStatus = MIGRATION_STATUS.NEEDS_REVIEW;
+        results.needsReview++;
+      } else if (!migration && isMinor && (!m.guardianName?.trim() || !guardianEmail)) {
         results.failed++;
-        results.errors.push(`${display}: failed to save`);
+        results.errors.push(`${display}: minors require a guardian name and email`);
+        continue;
+      }
+
+      if (email) seenEmails.add(email);
+      if (guardianEmail && !guardianInputs.has(guardianEmail)) {
+        guardianInputs.set(guardianEmail, {
+          guardianName: m.guardianName ?? null,
+          guardianEmail,
+          guardianPhone: m.guardianPhone ?? null,
+        });
+      }
+
+      prepared.push({ row: m, firstName, lastName, display, email, guardianEmail, isMinor, migrationStatus });
+    }
+
+    // ── Pass 2: resolve each UNIQUE guardian once (deduped), in small
+    // concurrent batches. Reuses upsertGuardianProfile so semantics are
+    // unchanged — we just stop re-upserting the same guardian for every
+    // sibling, which was a big chunk of the per-row cost. ──
+    const guardianIdByEmail = new Map<string, string>();
+    const guardianEntries = [...guardianInputs.entries()];
+    for (let i = 0; i < guardianEntries.length; i += IMPORT_CONCURRENCY) {
+      const slice = guardianEntries.slice(i, i + IMPORT_CONCURRENCY);
+      await Promise.all(
+        slice.map(async ([gemail, ginput]) => {
+          try {
+            const g = await upsertGuardianProfile(clubId, ginput);
+            if (g) guardianIdByEmail.set(gemail, g.id);
+          } catch {
+            /* a guardian that can't be resolved just leaves the member's guardianId null */
+          }
+        }),
+      );
+    }
+
+    // ── Pass 3: create members in small concurrent batches. Each row keeps the
+    // original create shapes (member, then its migration event) but rows run in
+    // parallel, so the wall-clock is N / IMPORT_CONCURRENCY round-trips instead
+    // of N — what keeps the request under the function time limit. ──
+    for (let i = 0; i < prepared.length; i += IMPORT_CONCURRENCY) {
+      const slice = prepared.slice(i, i + IMPORT_CONCURRENCY);
+      const outcomes = await Promise.all(
+        slice.map(async (p): Promise<"ok" | string> => {
+          const m = p.row;
+          try {
+            // Migration billing dates (display + Stripe anchor; never auto-charged).
+            const membershipStartDate = parseFlexibleDate(m.membershipStartDate);
+            const nextBillingDate = parseFlexibleDate(m.nextBillingDate);
+            const commitmentEndDate = parseFlexibleDate(m.commitmentEndDate);
+            const frequency = normalizeFrequency(m.billingFrequency);
+            const billingAnchorDate = migration
+              ? resolveBillingAnchor({ nextBillingDate, membershipStartDate, frequency, now })
+              : null;
+            const guardianId = p.guardianEmail ? guardianIdByEmail.get(p.guardianEmail) ?? null : null;
+
+            const created = await prisma.member.create({
+              data: {
+                clubId,
+                firstName: p.firstName,
+                lastName: p.lastName,
+                email: p.email,
+                phone: m.phone?.trim() || null,
+                dateOfBirth: parseFlexibleDate(m.dateOfBirth),
+                // Migrated members are Pending Activation → PROSPECT until they
+                // activate; non-migration import keeps its normalized status.
+                status: migration ? "PROSPECT" : normalizeStatus(m.status),
+                tags: m.tags?.trim() || "",
+                notes: m.notes?.trim() || null,
+                streetAddress: m.streetAddress?.trim() || null,
+                city: m.city?.trim() || null,
+                state: m.state?.trim() || null,
+                zipCode: m.zipCode?.trim() || null,
+                gender: m.gender?.trim() || null,
+                customFieldValues: JSON.stringify(m.customFieldValues || {}),
+                isMinor: p.isMinor,
+                guardianId,
+                guardianName: m.guardianName?.trim() || null,
+                guardianEmail: p.guardianEmail,
+                guardianPhone: m.guardianPhone?.trim() || null,
+                guardianRelationship: m.guardianRelationship?.trim() || null,
+                ...(migration
+                  ? {
+                      legacySource: legacySource?.trim() || null,
+                      legacyMemberId: m.legacyMemberId?.trim() || null,
+                      importedAt: now,
+                      migrationStatus: p.migrationStatus,
+                      paymentSetupStatus: PAYMENT_SETUP.REQUIRED,
+                      legacyMembershipName: m.membershipName?.trim() || null,
+                      legacyMembershipPrice: parseMoney(m.membershipPrice),
+                      legacyBillingFrequency: frequency,
+                      membershipStartDate,
+                      nextBillingDate,
+                      billingAnchorDate,
+                      commitmentEndDate,
+                    }
+                  : {}),
+              },
+              select: { id: true },
+            });
+
+            if (migration) {
+              await prisma.memberMigrationEvent.create({
+                data: {
+                  clubId,
+                  memberId: created.id,
+                  type: "IMPORTED",
+                  message: `Imported${legacySource ? ` from ${legacySource}` : ""}${
+                    m.membershipName ? ` · ${m.membershipName}` : ""
+                  }${billingAnchorDate ? ` · next bill ${billingAnchorDate.toISOString().slice(0, 10)}` : ""}`,
+                  actorUserId: session.user.id,
+                },
+              });
+            }
+
+            return "ok";
+          } catch {
+            return `${p.display}: failed to save`;
+          }
+        }),
+      );
+      for (const o of outcomes) {
+        if (o === "ok") results.created++;
+        else {
+          results.failed++;
+          results.errors.push(o);
+        }
       }
     }
 

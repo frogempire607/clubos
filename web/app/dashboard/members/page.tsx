@@ -1388,7 +1388,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
                   <li>First row should be column headers</li>
                   <li>Required: a name — either one &quot;Athlete Name&quot; (full name) column, or First Name + Last Name</li>
                   <li>Optional: Email, Phone, Date of Birth, Gender, Address, Status, Tags, Notes</li>
-                  <li>For minors: Guardian Name, Guardian Email, Guardian Phone (required)</li>
+                  <li>For minors: Guardian Name and Guardian Email (required); Guardian Phone optional</li>
                   <li>Any custom fields you've created are also mappable</li>
                 </ul>
               </div>

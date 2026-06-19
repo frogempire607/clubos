@@ -5,10 +5,18 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { sendJoinInvite } from "@/lib/migrationServer";
+import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
+
+// `delete` is a single bulk DB update, so it can take a large selection (a club
+// clearing out an import can easily exceed 500). `message` and
+// `send_registration_link` loop per member and send email, so they're capped
+// lower below to stay within the serverless time budget.
+const MAX_IDS = 5000;
+const LOOP_ACTION_LIMIT = 200;
 
 const schema = z.object({
   action: z.enum(["delete", "message", "send_registration_link"]),
-  memberIds: z.array(z.string().min(1)).min(1).max(500),
+  memberIds: z.array(z.string().min(1)).min(1).max(MAX_IDS),
   body: z.string().min(1).max(4000).optional(),
 });
 
@@ -33,10 +41,22 @@ export async function POST(req: Request) {
   // Scope to this club only.
   const owned = await prisma.member.findMany({
     where: { id: { in: data.memberIds }, clubId: session.user.clubId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, userId: true },
   });
   const ids = owned.map((m) => m.id);
   if (ids.length === 0) return NextResponse.json({ error: "No matching members." }, { status: 404 });
+
+  // The email-sending actions run a per-member loop; cap them so one request
+  // can't blow the serverless time budget. (delete is a single bulk update.)
+  if (
+    (data.action === "message" || data.action === "send_registration_link") &&
+    ids.length > LOOP_ACTION_LIMIT
+  ) {
+    return NextResponse.json(
+      { error: `You can only do that for up to ${LOOP_ACTION_LIMIT} members at once. Select fewer and try again.` },
+      { status: 400 },
+    );
+  }
 
   if (data.action === "delete") {
     // Release the unique members_userId slot on delete (the index is global and
@@ -45,6 +65,9 @@ export async function POST(req: Request) {
       where: { id: { in: ids } },
       data: { deletedAt: new Date(), userId: null },
     });
+    // Also remove each member's own login (skips shared guardian + owner/staff
+    // accounts) so deleted members can no longer sign in.
+    await deleteOrphanedMemberLogins(owned.map((m) => m.userId), session.user.clubId);
     return NextResponse.json({ ok: true, deleted: ids.length });
   }
 

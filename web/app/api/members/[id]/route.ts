@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { upsertGuardianProfile } from "@/lib/guardian";
+import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -236,6 +237,10 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
     where: { id: params.id },
     data: { deletedAt: new Date(), userId: null },
   });
+
+  // Also remove this member's own login so they can no longer sign in — unless
+  // that account is shared (a guardian of another live member) or is owner/staff.
+  await deleteOrphanedMemberLogins([member.userId], session.user.clubId);
 
   return NextResponse.json({ ok: true });
 }
