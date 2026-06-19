@@ -316,7 +316,7 @@ function DocViewer({
         <div className="p-6">
           {doc.body ? (
             <div
-              className="text-sm text-stone-700 leading-relaxed prose max-w-none"
+              className="doc-prose max-w-none"
               dangerouslySetInnerHTML={{ __html: doc.body }}
             />
           ) : (

@@ -1120,6 +1120,10 @@ model Document {
   type                      String
   body                      String?
   required                  Boolean   @default(false)
+  // Surfaces where signing is mandatory before the member can proceed:
+  // ONBOARDING | SIGNUP | PURCHASE | EVENT. `required` above is kept mirrored
+  // (true when this is non-empty) so legacy reads keep working.
+  requiredAt                String[]  @default([])
   publishAt                 DateTime?
   unpublishAt               DateTime?
   expiresAt                 DateTime?

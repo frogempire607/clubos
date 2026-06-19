@@ -10,6 +10,13 @@ import { SkeletonList } from "@/components/LoadingSkeleton";
 
 type BuiltInType = "CLASS" | "PRIVATE" | "CLINIC" | "CAMP" | "TOURNAMENT" | "OTHER";
 
+// Reserved registrationForm field id for a tournament's participant category
+// (weight class, position, division, belt level…). Storing it inline in
+// registrationForm reuses the existing render/validate/store/report pipeline —
+// it shows on the signup page, is validated server-side, saved to
+// formResponses, and listed in Registrations — with no extra column.
+const PARTICIPANT_FIELD_ID = "participant_category";
+
 type FormFieldDef = {
   id: string;
   label: string;
@@ -656,8 +663,19 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   const [publicPricingOption, setPublicPricingOption] = useState<string>(
     (ev as { publicPricingOption?: string | null } | null)?.publicPricingOption || "",
   );
+  // Split the reserved participant-category field out of the generic field list
+  // so it gets its own first-class editor below and isn't shown/edited twice.
+  const initialForm: FormFieldDef[] = Array.isArray(ev?.registrationForm) ? ev.registrationForm : [];
+  const initialParticipant = initialForm.find((f) => f.id === PARTICIPANT_FIELD_ID);
   const [formFields, setFormFields] = useState<FormFieldDef[]>(
-    Array.isArray(ev?.registrationForm) ? ev.registrationForm : []
+    initialForm.filter((f) => f.id !== PARTICIPANT_FIELD_ID)
+  );
+  const [participantLabel, setParticipantLabel] = useState<string>(initialParticipant?.label || "");
+  const [participantOptions, setParticipantOptions] = useState<string>(
+    (initialParticipant?.options || []).join("\n")
+  );
+  const [participantRequired, setParticipantRequired] = useState<boolean>(
+    initialParticipant?.required ?? true
   );
   const [varCostEnabled, setVarCostEnabled] = useState<boolean>(!!ev?.variableCostEnabled);
   const [varCostMode, setVarCostMode] = useState<string>(ev?.variableCostMode || "ESTIMATED");
@@ -749,9 +767,24 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
         publicRegistration,
         publicFormIntro: publicFormIntro || null,
         publicPricingOption: publicPricingOption || null,
-        registrationForm: formFields
-          .filter((f) => f.label.trim())
-          .map((f) => ({ ...f, label: f.label.trim() })),
+        registrationForm: [
+          // Reserved participant-category field first (tournaments only).
+          ...(type === "TOURNAMENT" && participantLabel.trim()
+            ? [{
+                id: PARTICIPANT_FIELD_ID,
+                label: participantLabel.trim(),
+                type: "select" as const,
+                required: participantRequired,
+                options: participantOptions
+                  .split("\n")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              }]
+            : []),
+          ...formFields
+            .filter((f) => f.label.trim() && f.id !== PARTICIPANT_FIELD_ID)
+            .map((f) => ({ ...f, label: f.label.trim() })),
+        ],
         variableCostEnabled: type === "TOURNAMENT" && tournamentMode === "ATTEND" ? varCostEnabled : false,
         variableCostMode: varCostEnabled ? varCostMode : null,
         variableCostTotal: varCostEnabled && varCostTotal ? parseFloat(varCostTotal) : null,
@@ -845,6 +878,51 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                   <span className="font-medium block">Attending a tournament</span>
                   <span className="text-[11px] text-text-muted">Gather signups for a trip & split costs</span>
                 </button>
+              </div>
+
+              {/* Participant category — flexible per sport (weight class / position / division…) */}
+              <div className="border-t border-app-border pt-3 space-y-2">
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Participant category</p>
+                  <p className="text-[11px] text-text-muted">
+                    What does each entrant choose at signup? Use your sport&apos;s term —
+                    e.g. <span className="font-medium">Weight Class</span> (wrestling, judo, MMA),{" "}
+                    <span className="font-medium">Position</span> (team sports),{" "}
+                    <span className="font-medium">Division</span>,{" "}
+                    <span className="font-medium">Age Group</span>, or{" "}
+                    <span className="font-medium">Belt Level</span>. Leave blank to skip.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  value={participantLabel}
+                  onChange={(e) => setParticipantLabel(e.target.value)}
+                  placeholder="e.g. Weight Class, Position, Division"
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+                />
+                {participantLabel.trim() && (
+                  <>
+                    <textarea
+                      value={participantOptions}
+                      onChange={(e) => setParticipantOptions(e.target.value)}
+                      rows={4}
+                      placeholder={"One option per line, e.g.\n106 lb\n113 lb\n120 lb"}
+                      className="w-full px-3 py-2 border border-app-border rounded-lg text-sm font-mono"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      One option per line. Entrants pick one when they register, and it appears on every registration.
+                    </p>
+                    <label className="flex items-center gap-2 text-xs text-text-muted">
+                      <input
+                        type="checkbox"
+                        checked={participantRequired}
+                        onChange={(e) => setParticipantRequired(e.target.checked)}
+                        className="w-3.5 h-3.5 accent-stone-900"
+                      />
+                      Require entrants to choose a {participantLabel.trim().toLowerCase() || "category"}
+                    </label>
+                  </>
+                )}
               </div>
 
               {/* ATTEND → variable cost */}

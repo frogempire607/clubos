@@ -5,11 +5,14 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
 
+const REQUIRED_SURFACES = ["ONBOARDING", "SIGNUP", "PURCHASE", "EVENT"] as const;
+
 const updateSchema = z.object({
   title: z.string().min(1).optional(),
   type: z.enum(["Waiver", "Policy", "Agreement", "Handbook", "Other"]).optional(),
   body: z.string().nullable().optional(),
   required: z.boolean().optional(),
+  requiredAt: z.array(z.enum(REQUIRED_SURFACES)).optional(),
   requiresGuardianSignature: z.boolean().optional(),
   deliveryTrigger: z.enum(["MANUAL", "MEMBERSHIP", "EVENT", "MESSAGE"]).optional(),
   expiresAt: z.string().nullable().optional(),
@@ -60,7 +63,15 @@ export async function PATCH(
         ...(data.body !== undefined && {
           body: data.body ? sanitizeRichHtml(data.body) : null,
         }),
-        ...(data.required !== undefined && { required: data.required }),
+        // `requiredAt` drives `required`; if only the legacy flag is sent, honor it.
+        ...(data.requiredAt !== undefined
+          ? (() => {
+              const requiredAt = Array.from(new Set(data.requiredAt));
+              return { requiredAt, required: requiredAt.length > 0 };
+            })()
+          : data.required !== undefined
+            ? { required: data.required }
+            : {}),
         ...(data.requiresGuardianSignature !== undefined && { requiresGuardianSignature: data.requiresGuardianSignature }),
         ...(data.deliveryTrigger !== undefined && { deliveryTrigger: data.deliveryTrigger }),
         ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt ? new Date(data.expiresAt) : null }),

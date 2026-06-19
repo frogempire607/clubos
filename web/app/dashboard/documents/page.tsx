@@ -12,6 +12,7 @@ type Doc = {
   type: string;
   body: string | null;
   required: boolean;
+  requiredAt: string[];
   publishAt: string | null;
   unpublishAt: string | null;
   expiresAt: string | null;
@@ -36,6 +37,15 @@ const triggerLabels: Record<string, string> = {
   EVENT: "On event registration",
   MESSAGE: "Via message",
 };
+
+// Surfaces where a document can be made mandatory to sign. Stored on
+// Document.requiredAt; `required` is derived (true when any are selected).
+const DOC_REQUIRED_SURFACES: { key: string; label: string; hint: string }[] = [
+  { key: "ONBOARDING", label: "During onboarding / activation", hint: "Migrated or invited members must sign while activating their account." },
+  { key: "SIGNUP", label: "When a new member signs up", hint: "Surfaced as must-sign in the member's portal right after they join." },
+  { key: "PURCHASE", label: "When buying a membership, product, or event", hint: "Appears with the purchase and in the member's required documents." },
+  { key: "EVENT", label: "When registering for an event or tournament", hint: "Must be acknowledged on the event signup form." },
+];
 
 export default function DocumentsPage() {
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -480,7 +490,12 @@ function DocumentModal({
   const [title, setTitle] = useState(doc?.title || "");
   const [type, setType] = useState(doc?.type || "Waiver");
   const [body, setBody] = useState(doc?.body || "");
-  const [required, setRequired] = useState(doc?.required || false);
+  const [requiredAt, setRequiredAt] = useState<string[]>(
+    doc?.requiredAt && doc.requiredAt.length > 0 ? doc.requiredAt : doc?.required ? ["ONBOARDING"] : []
+  );
+  function toggleSurface(key: string) {
+    setRequiredAt((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
   const [requiresGuardianSignature, setRequiresGuardianSignature] = useState(doc?.requiresGuardianSignature || false);
   const [deliveryTrigger, setDeliveryTrigger] = useState(doc?.deliveryTrigger || "MANUAL");
   const [expiresAt, setExpiresAt] = useState(doc?.expiresAt ? doc.expiresAt.split("T")[0] : "");
@@ -506,7 +521,8 @@ function DocumentModal({
           title,
           type,
           body: body || null,
-          required,
+          required: requiredAt.length > 0,
+          requiredAt,
           requiresGuardianSignature,
           deliveryTrigger,
           expiresAt: expiresAt || null,
@@ -622,20 +638,29 @@ function DocumentModal({
             </p>
           </div>
 
-          <div className="space-y-2 pt-1">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={required}
-                onChange={(e) => setRequired(e.target.checked)}
-                className="w-4 h-4 accent-stone-900"
-              />
-              <span className="text-sm text-text-primary">
-                Required — members must sign before participating
-              </span>
-            </label>
+          <div className="pt-1">
+            <p className="text-sm font-medium text-text-primary mb-1">Require members to sign this</p>
+            <p className="text-[11px] text-text-muted mb-2">
+              Choose where a signature is mandatory before the member can continue. Leave all unchecked to keep it optional / reference-only.
+            </p>
+            <div className="space-y-2 rounded-lg border border-app-border p-3">
+              {DOC_REQUIRED_SURFACES.map((s) => (
+                <label key={s.key} className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={requiredAt.includes(s.key)}
+                    onChange={() => toggleSurface(s.key)}
+                    className="w-4 h-4 accent-stone-900 mt-0.5"
+                  />
+                  <span className="text-sm text-text-primary leading-tight">
+                    {s.label}
+                    <span className="block text-[11px] text-text-muted">{s.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
 
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer mt-3">
               <input
                 type="checkbox"
                 checked={requiresGuardianSignature}
@@ -691,7 +716,7 @@ function DocumentViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
         <div className="p-6">
           {doc.body ? (
             <div
-              className="text-sm text-text-primary leading-relaxed prose max-w-none"
+              className="doc-prose max-w-none"
               dangerouslySetInnerHTML={{ __html: doc.body }}
             />
           ) : (

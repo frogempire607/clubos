@@ -10,7 +10,10 @@ import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
-  email: z.string().email().optional(),
+  // Accept null/"" so a minor (or anyone) without their own email can be saved.
+  // A bare z.string().email().optional() rejected null → "Expected string,
+  // received null" when editing a minor with no email on file.
+  email: z.string().email().optional().nullable().or(z.literal("")),
   phone: z.string().optional().nullable(),
   dateOfBirth: z.string().optional().nullable(),
   status: z.enum(["ACTIVE", "PROSPECT", "INACTIVE", "PAUSED"]).optional(),
@@ -161,9 +164,8 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       if (!guardianEmail?.trim()) {
         return NextResponse.json({ error: "Guardian email is required for minors." }, { status: 400 });
       }
-      if (!guardianPhone?.trim()) {
-        return NextResponse.json({ error: "Guardian phone is required for minors." }, { status: 400 });
-      }
+      // Guardian phone is optional — we only require one email + one phone, and
+      // the guardian email covers the required contact for a minor.
     }
 
     // Upsert/relink guardian profile when guardian fields change
@@ -199,6 +201,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       ...data,
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...guardianIdUpdate,
+      email: data.email !== undefined
+        ? (data.email ? data.email.toLowerCase() : null)
+        : undefined,
       guardianEmail: data.guardianEmail !== undefined
         ? (data.guardianEmail ? data.guardianEmail.toLowerCase() : null)
         : undefined,

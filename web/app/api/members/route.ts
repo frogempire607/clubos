@@ -62,9 +62,9 @@ const createSchema = z.object({
   customFieldValues: z.record(z.string()).optional(),
   isMinor: z.boolean().default(false),
   guardianName: z.string().optional(),
-  guardianEmail: z.string().email().optional().or(z.literal("")),
-  guardianPhone: z.string().optional(),
-  guardianRelationship: z.string().optional(),
+  guardianEmail: z.string().email().optional().nullable().or(z.literal("")),
+  guardianPhone: z.string().optional().nullable(),
+  guardianRelationship: z.string().optional().nullable(),
   profileImageUrl: z.string().optional().nullable(),
 });
 
@@ -117,16 +117,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // Validate minor required fields per spec
+    // Minors are reached through their guardian, so we require guardian name +
+    // guardian email and treat that as the member's one email/phone on file.
+    // The minor's OWN email/phone are optional (and may be null) — saving a
+    // minor without their own email must never error.
     if (data.isMinor) {
       if (!data.guardianName?.trim()) {
         return NextResponse.json({ error: "Guardian name is required for minors." }, { status: 400 });
       }
       if (!data.guardianEmail?.trim()) {
         return NextResponse.json({ error: "Guardian email is required for minors." }, { status: 400 });
-      }
-      if (!data.guardianPhone?.trim()) {
-        return NextResponse.json({ error: "Guardian phone is required for minors." }, { status: 400 });
       }
     }
 

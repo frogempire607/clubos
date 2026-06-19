@@ -2,14 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { MessageSquare, Mail } from "lucide-react";
-
-type Announcement = {
-  id: string;
-  title: string;
-  body: string;
-  createdAt: string;
-};
+import { MessageSquare } from "lucide-react";
 
 type GroupMessage = {
   id: string;
@@ -82,17 +75,17 @@ type Conversation = {
 };
 
 export default function MessagesPage() {
-  const [tab, setTab] = useState<"announcements" | "groups" | "dms">("announcements");
+  const [tab, setTab] = useState<"groups" | "dms">("groups");
 
   return (
     <div className="p-8 max-w-6xl">
       <div className="mb-6">
         <h1 className="text-3xl font-semibold text-text-primary mb-1">Messages</h1>
-        <p className="text-sm text-text-muted">Announcements, group chats, and direct messages.</p>
+        <p className="text-sm text-text-muted">Group chats and direct messages. Posting to the whole club? Use <a href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</a>.</p>
       </div>
 
       <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit">
-        {(["announcements", "groups", "dms"] as const).map((t) => (
+        {(["groups", "dms"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -100,176 +93,13 @@ export default function MessagesPage() {
               tab === t ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
             }`}
           >
-            {t === "announcements" ? "Announcements" : t === "groups" ? "Group Messages" : "Direct Messages"}
+            {t === "groups" ? "Group Messages" : "Direct Messages"}
           </button>
         ))}
       </div>
 
-      {tab === "announcements" && <AnnouncementsTab />}
       {tab === "groups" && <GroupsTab />}
       {tab === "dms" && <DMsTab />}
-    </div>
-  );
-}
-
-/* ─── Announcements ─── */
-
-function AnnouncementsTab() {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
-
-  async function load() {
-    setLoading(true);
-    const res = await fetch("/api/messages");
-    if (res.ok) setAnnouncements(await res.json());
-    setLoading(false);
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this announcement?")) return;
-    await fetch(`/api/messages/${id}`, { method: "DELETE" });
-    load();
-  }
-
-  return (
-    <>
-      <div className="flex justify-end mb-4">
-        <button
-          onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
-        >
-          + New announcement
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
-      ) : announcements.length === 0 ? (
-        <div className="bg-white rounded-xl border border-app-border p-12 text-center">
-          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
-            <Mail className="h-7 w-7" strokeWidth={2} />
-          </div>
-          <h3 className="text-lg font-medium text-text-primary mb-1">No announcements yet</h3>
-          <p className="text-sm text-text-muted mb-4">Post updates to keep your members informed.</p>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
-          >
-            Post your first announcement
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {announcements.map((a) => (
-            <div key={a.id} className="bg-white rounded-xl border border-app-border hover:shadow-sm transition">
-              <div
-                className="flex items-start gap-3 p-4 cursor-pointer"
-                onClick={() => setExpanded(expanded === a.id ? null : a.id)}
-              >
-                <div className="w-9 h-9 rounded-lg bg-app-bg flex items-center justify-center text-text-muted text-sm flex-shrink-0">
-                  📢
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-text-primary">{a.title}</p>
-                  {expanded !== a.id && (
-                    <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{a.body}</p>
-                  )}
-                  <p className="text-[10px] text-text-muted mt-1">
-                    {new Date(a.createdAt).toLocaleDateString("en-US", {
-                      month: "short", day: "numeric", year: "numeric",
-                      hour: "numeric", minute: "2-digit",
-                    })}
-                    {" · All members"}
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(a.id); }}
-                  className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded flex-shrink-0"
-                >
-                  Delete
-                </button>
-              </div>
-              {expanded === a.id && (
-                <div className="px-5 pb-4 pt-0">
-                  <div className="border-t border-app-border pt-3">
-                    <p className="text-sm text-text-primary whitespace-pre-wrap leading-relaxed">{a.body}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {showAdd && (
-        <AnnouncementModal
-          onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); load(); }}
-        />
-      )}
-    </>
-  );
-}
-
-function AnnouncementModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    const res = await fetch("/api/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, body, channels: "all" }),
-    });
-    setSaving(false);
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Save failed");
-      return;
-    }
-    onSaved();
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg">
-        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-text-primary">New announcement</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required
-              placeholder="Practice schedule update"
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Message</label>
-            <textarea value={body} onChange={(e) => setBody(e.target.value)} required rows={5}
-              placeholder="Write your announcement here…"
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none" />
-          </div>
-          <div className="flex items-center gap-2 p-3 bg-app-bg rounded-lg text-xs text-text-muted">
-            📢 Visible to all members of your club.
-          </div>
-          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
-              {saving ? "Posting…" : "Post announcement"}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }

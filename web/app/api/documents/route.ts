@@ -17,11 +17,16 @@ export async function GET() {
   return NextResponse.json(docs);
 }
 
+const REQUIRED_SURFACES = ["ONBOARDING", "SIGNUP", "PURCHASE", "EVENT"] as const;
+
 const createSchema = z.object({
   title: z.string().min(1),
   type: z.enum(["Waiver", "Policy", "Agreement", "Handbook", "Other"]),
   body: z.string().nullable().optional(),
   required: z.boolean().default(false),
+  // Where a signature is mandatory. When omitted, falls back to the legacy
+  // `required` flag (treated as ONBOARDING) so older callers still work.
+  requiredAt: z.array(z.enum(REQUIRED_SURFACES)).optional(),
   requiresGuardianSignature: z.boolean().default(false),
   deliveryTrigger: z.enum(["MANUAL", "MEMBERSHIP", "EVENT", "MESSAGE"]).default("MANUAL"),
   expiresAt: z.string().nullable().optional(),
@@ -36,6 +41,15 @@ export async function POST(req: Request) {
 
   try {
     const data = createSchema.parse(await req.json());
+    // `requiredAt` is the source of truth; `required` is mirrored from it so
+    // legacy reads (member portal, activation) keep working. A bare
+    // required:true with no surfaces is treated as onboarding.
+    const requiredAt =
+      data.requiredAt && data.requiredAt.length > 0
+        ? Array.from(new Set(data.requiredAt))
+        : data.required
+          ? ["ONBOARDING"]
+          : [];
     const doc = await prisma.document.create({
       data: {
         clubId: session.user.clubId,
@@ -44,7 +58,8 @@ export async function POST(req: Request) {
         // Sanitized on write — rendered via dangerouslySetInnerHTML on
         // both /dashboard/documents (owner) and /member/documents (member).
         body: data.body ? sanitizeRichHtml(data.body) : null,
-        required: data.required,
+        required: requiredAt.length > 0,
+        requiredAt,
         requiresGuardianSignature: data.requiresGuardianSignature,
         deliveryTrigger: data.deliveryTrigger,
         expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,

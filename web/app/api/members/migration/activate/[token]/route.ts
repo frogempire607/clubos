@@ -103,16 +103,20 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     plan.price = Number(m.migrationPriceOverride);
   }
 
-  const requiredDoc = await prisma.document.findFirst({
+  // Documents that must be signed during onboarding — the legacy `required`
+  // flag OR the explicit ONBOARDING surface (Document.requiredAt). All of them
+  // are returned so the page can render and require each one.
+  const onboardingDocs = await prisma.document.findMany({
     where: {
       clubId: m.clubId,
       deletedAt: null,
-      required: true,
-      OR: [{ publishAt: null }, { publishAt: { lte: new Date() } }],
+      OR: [{ required: true }, { requiredAt: { has: "ONBOARDING" } }],
+      AND: [{ OR: [{ publishAt: null }, { publishAt: { lte: new Date() } }] }],
     },
     orderBy: { createdAt: "asc" },
     select: { id: true, title: true, body: true },
   });
+  const requiredDoc = onboardingDocs[0] ?? null;
 
   // Does a portal account already exist for the contact (e.g. a guardian
   // activating a second child)? If so the activation page skips the
@@ -131,6 +135,60 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       })
     : null;
   const hasAccount = !!(existingActivationUser && !existingActivationUser.deletedAt);
+
+  // FAMILY ONBOARDING. When a guardian manages this minor (their guardian email
+  // is the contact), surface the guardian's OTHER pending children so the
+  // parent can set them all up in one flow — entering their account once and
+  // (optionally) reusing one card across the family.
+  const guardianEmailLc = m.guardianEmail?.toLowerCase() || null;
+  const isGuardianManaged = m.isMinor && !!guardianEmailLc && checkEmail === guardianEmailLc;
+  type FamilyMember = {
+    id: string; firstName: string; lastName: string;
+    token: string | null; done: boolean; current: boolean;
+  };
+  let family: FamilyMember[] = [];
+  let familyCardOnFile = false;
+  if (isGuardianManaged && guardianEmailLc) {
+    const siblings = await prisma.member.findMany({
+      where: {
+        clubId: m.clubId,
+        deletedAt: null,
+        isMinor: true,
+        guardianEmail: { equals: guardianEmailLc, mode: "insensitive" },
+        activationKind: { not: "JOIN" },
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true, firstName: true, lastName: true,
+        activationToken: true, activationTokenExpires: true,
+        migrationStatus: true, stripeSetupCustomerId: true, stripeSetupPaymentMethodId: true,
+      },
+    });
+    if (siblings.length > 1) {
+      const nowMs = Date.now();
+      family = siblings.map((s) => {
+        const done =
+          s.migrationStatus === MIGRATION_STATUS.ACTIVATED ||
+          s.migrationStatus === MIGRATION_STATUS.COMPLETED;
+        const tokenValid =
+          !!s.activationToken &&
+          (!s.activationTokenExpires || s.activationTokenExpires.getTime() > nowMs);
+        return {
+          id: s.id,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          // Only expose a sibling's token (so the parent can continue to it)
+          // while it's still pending — never for one that's already done.
+          token: !done && tokenValid ? s.activationToken : null,
+          done,
+          current: s.id === m.id,
+        };
+      });
+      familyCardOnFile = siblings.some(
+        (s) => s.id !== m.id && !!s.stripeSetupCustomerId && !!s.stripeSetupPaymentMethodId,
+      );
+    }
+  }
 
   return NextResponse.json({
     completed: m.migrationStatus === MIGRATION_STATUS.COMPLETED,
@@ -176,6 +234,9 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     editable: resolveEditable(m.activationEditableFields),
     paymentEnabled: !!(m.club.stripeAccountId && m.club.stripeChargesEnabled),
     requiredDocument: requiredDoc,
+    requiredDocuments: onboardingDocs,
+    family,
+    familyCardOnFile,
   });
 }
 
@@ -187,6 +248,11 @@ const postSchema = z.object({
   email: z.string().email().optional().nullable(),
   autopayAccepted: z.boolean().optional().default(false),
   signedDocumentId: z.string().optional().nullable(),
+  // Multiple onboarding documents can be required; the page sends every id it
+  // showed. signedDocumentId (singular) is kept for backward compatibility.
+  signedDocumentIds: z.array(z.string()).optional(),
+  // Family flow: reuse the card a sibling already saved instead of re-entering.
+  reuseFamilyCard: z.boolean().optional(),
   // Client requests — owner reviews these before billing starts.
   requestedBillingDate: z.string().optional().nullable(),
   requestedBillingNote: z.string().max(500).optional().nullable(),
@@ -434,6 +500,33 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // for a fully-paid final period.
   const collectCard = !finalPaid && method === "CARD" && !!stripeAccount;
 
+  // FAMILY "one card on file": when the guardian already saved a card while
+  // activating a sibling, reuse that exact customer + payment method for this
+  // child instead of sending the parent through Stripe card entry again.
+  let reusedCustomerId: string | null = null;
+  let reusedPaymentMethodId: string | null = null;
+  if (collectCard && guardianManaged && body.reuseFamilyCard && member.guardianEmail) {
+    const sib = await prisma.member.findFirst({
+      where: {
+        clubId: club.id,
+        deletedAt: null,
+        isMinor: true,
+        guardianEmail: { equals: member.guardianEmail.toLowerCase(), mode: "insensitive" },
+        id: { not: member.id },
+        stripeSetupCustomerId: { not: null },
+        stripeSetupPaymentMethodId: { not: null },
+      },
+      select: { stripeSetupCustomerId: true, stripeSetupPaymentMethodId: true },
+    });
+    if (sib?.stripeSetupCustomerId && sib?.stripeSetupPaymentMethodId) {
+      reusedCustomerId = sib.stripeSetupCustomerId;
+      reusedPaymentMethodId = sib.stripeSetupPaymentMethodId;
+    }
+  }
+  const reuseFamilyCard = !!reusedCustomerId && !!reusedPaymentMethodId;
+  // Open a new Stripe SETUP redirect only when collecting a fresh card.
+  const collectCardNow = collectCard && !reuseFamilyCard;
+
   // Autopay consent is only meaningful for card billing. Cash/check and
   // fully-paid members aren't on autopay.
   if (method === "CARD" && !finalPaid && !body.autopayAccepted) {
@@ -512,7 +605,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // no card on file. Doing Stripe first closes that trap.
   let checkoutUrl: string | null = null;
   let setupCustomerId: string | null = member.stripeSetupCustomerId ?? null;
-  if (collectCard && stripeAccount) {
+  if (collectCardNow && stripeAccount) {
     try {
       const customer = member.stripeSetupCustomerId
         ? { id: member.stripeSetupCustomerId }
@@ -576,9 +669,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       ...(editable.notes && body.activationNote ? { activationNote: body.activationNote.trim() } : {}),
       ...(validCancel ? { requestedCancellationDate: validCancel } : {}),
       ...(selectedOption ? { migrationSelectedOption: selectedOption } : {}),
-      ...(setupCustomerId ? { stripeSetupCustomerId: setupCustomerId } : {}),
+      ...(reuseFamilyCard
+        ? { stripeSetupCustomerId: reusedCustomerId, stripeSetupPaymentMethodId: reusedPaymentMethodId }
+        : setupCustomerId
+          ? { stripeSetupCustomerId: setupCustomerId }
+          : {}),
       ...(finalPaid ? {} : { requestedPaymentMethod: method }),
-      paymentSetupStatus: collectCard ? PAYMENT_SETUP.REQUIRED : null,
+      paymentSetupStatus: collectCardNow || reuseFamilyCard ? PAYMENT_SETUP.REQUIRED : null,
       activatedAt: new Date(),
       // #6 fully-paid: complete now as a non-renewing membership (nothing to
       // approve, no subscription). Otherwise it enters the owner's review
@@ -603,21 +700,28 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // Grant the guardian access to this minor (no-op for own-login members).
   await linkGuardianIfManaged();
 
-  // Optional required-document signature.
-  if (body.signedDocumentId) {
-    const doc = await prisma.document.findFirst({
-      where: { id: body.signedDocumentId, clubId: club.id, deletedAt: null },
+  // Required-document signatures (one or many). Record one signature row per
+  // acknowledged document, attributed to the signer (guardian for a minor).
+  const docIdsToSign = Array.from(
+    new Set([
+      ...(body.signedDocumentIds ?? []),
+      ...(body.signedDocumentId ? [body.signedDocumentId] : []),
+    ]),
+  );
+  if (docIdsToSign.length > 0) {
+    const validDocs = await prisma.document.findMany({
+      where: { id: { in: docIdsToSign }, clubId: club.id, deletedAt: null },
       select: { id: true },
     });
-    if (doc) {
-      const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
-      const sig = {
-        signerUserId: user.id,
-        signerName: `${member.firstName} ${member.lastName}`.trim(),
-        relationship: member.isMinor ? "GUARDIAN" : "SELF",
-        ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
-        userAgent: req.headers.get("user-agent"),
-      };
+    const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
+    const sig = {
+      signerUserId: user.id,
+      signerName: `${member.firstName} ${member.lastName}`.trim(),
+      relationship: member.isMinor ? "GUARDIAN" : "SELF",
+      ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
+      userAgent: req.headers.get("user-agent"),
+    };
+    for (const doc of validDocs) {
       await prisma.documentSignature.upsert({
         where: { documentId_memberId: { documentId: doc.id, memberId: member.id } },
         update: { ...sig, signedAt: new Date() },
@@ -665,17 +769,18 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // Card path: collection happens on the Stripe-hosted SETUP page prepared
   // above (before any state was mutated), so a Stripe failure can never strand
   // the member mid-activation.
-  if (collectCard) {
+  if (collectCardNow) {
     return NextResponse.json({ ok: true, url: checkoutUrl });
   }
 
-  // Cash/check (or a club with no online payments) → activated; the owner
-  // confirms payment and approves. No charge, no card collected.
+  // Cash/check, a reused family card, or a club with no online payments →
+  // activated; the owner confirms payment and approves. No charge here.
   return NextResponse.json({
     ok: true,
     noPayment: true,
-    message:
-      method === "CASH" || method === "CHECK"
+    message: reuseFamilyCard
+      ? `Activated using the card already on file for your family — no need to re-enter it. ${club.name} will review and confirm billing; you have not been charged.`
+      : method === "CASH" || method === "CHECK"
         ? `Your account is activated. ${club.name} will confirm your ${method.toLowerCase()} payment and approve your membership — you have not been charged.`
         : "Your account is activated. Your club will confirm billing details — you have not been charged.",
   });

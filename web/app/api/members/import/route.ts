@@ -127,7 +127,9 @@ export async function POST(req: Request) {
       lastName: string;
       display: string;
       email: string | null;
+      phone: string | null;
       guardianEmail: string | null;
+      guardianPhone: string | null;
       isMinor: boolean;
       migrationStatus: string | null;
     };
@@ -148,7 +150,27 @@ export async function POST(req: Request) {
       }
 
       const rawEmail = m.email?.trim() || "";
-      const email = isValidEmail(rawEmail) ? rawEmail.toLowerCase() : null;
+      const memberEmailRaw = isValidEmail(rawEmail) ? rawEmail.toLowerCase() : null;
+      const memberPhoneRaw = m.phone?.trim() || null;
+      const providedGuardianEmail = m.guardianEmail?.trim().toLowerCase() || null;
+      const providedGuardianPhone = m.guardianPhone?.trim() || null;
+
+      const isMinor = m.isMinor ?? !!(m.guardianName || providedGuardianEmail);
+
+      // Most other gym/CRM exports keep ONE contact column and never separate
+      // the parent from the child. For a minor, that single email/phone is
+      // really the guardian's — so when no guardian-specific contact was given,
+      // default the guardian contact from the member's contact, and DON'T also
+      // keep it as the child's own (keeps logins + duplicate-detection clean,
+      // and means we only ever require one email + one phone per member).
+      let guardianEmail = providedGuardianEmail;
+      let guardianPhone = providedGuardianPhone;
+      let email = memberEmailRaw;
+      let phone = memberPhoneRaw;
+      if (isMinor) {
+        if (!guardianEmail && memberEmailRaw) { guardianEmail = memberEmailRaw; email = null; }
+        if (!guardianPhone && memberPhoneRaw) { guardianPhone = memberPhoneRaw; phone = null; }
+      }
 
       // Never overwrite an existing member silently — skip duplicates (also
       // catches a second row carrying the same email within this import).
@@ -158,19 +180,27 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const guardianEmail = m.guardianEmail?.trim().toLowerCase() || null;
-      const isMinor = m.isMinor ?? !!(m.guardianName || guardianEmail);
-
-      // For migration we DO NOT hard-fail minors missing guardian details —
-      // we import and flag for review so no member is lost in the switch.
+      // Require ONE email + ONE phone on the right party: the guardian for a
+      // minor (guardian name + a guardian email/phone), the member themselves
+      // for an adult (their own email or phone). Migration NEVER hard-fails —
+      // it flags NEEDS_REVIEW so nobody is lost in the switch.
+      const hasRequiredContact = isMinor
+        ? !!(m.guardianName?.trim() && (guardianEmail || guardianPhone))
+        : !!(email || phone);
       let migrationStatus: string | null = migration ? MIGRATION_STATUS.IMPORTED : null;
-      if (migration && isMinor && (!m.guardianName?.trim() || !guardianEmail)) {
-        migrationStatus = MIGRATION_STATUS.NEEDS_REVIEW;
-        results.needsReview++;
-      } else if (!migration && isMinor && (!m.guardianName?.trim() || !guardianEmail)) {
-        results.failed++;
-        results.errors.push(`${display}: minors require a guardian name and email`);
-        continue;
+      if (!hasRequiredContact) {
+        if (migration) {
+          migrationStatus = MIGRATION_STATUS.NEEDS_REVIEW;
+          results.needsReview++;
+        } else {
+          results.failed++;
+          results.errors.push(
+            isMinor
+              ? `${display}: a minor needs a guardian name and a guardian email or phone`
+              : `${display}: needs an email or phone`,
+          );
+          continue;
+        }
       }
 
       if (email) seenEmails.add(email);
@@ -178,11 +208,11 @@ export async function POST(req: Request) {
         guardianInputs.set(guardianEmail, {
           guardianName: m.guardianName ?? null,
           guardianEmail,
-          guardianPhone: m.guardianPhone ?? null,
+          guardianPhone: guardianPhone ?? null,
         });
       }
 
-      prepared.push({ row: m, firstName, lastName, display, email, guardianEmail, isMinor, migrationStatus });
+      prepared.push({ row: m, firstName, lastName, display, email, phone, guardianEmail, guardianPhone, isMinor, migrationStatus });
     }
 
     // ── Pass 2: resolve each UNIQUE guardian once (deduped), in small
@@ -231,7 +261,7 @@ export async function POST(req: Request) {
                 firstName: p.firstName,
                 lastName: p.lastName,
                 email: p.email,
-                phone: m.phone?.trim() || null,
+                phone: p.phone,
                 dateOfBirth: parseFlexibleDate(m.dateOfBirth),
                 // Migrated members are Pending Activation → PROSPECT until they
                 // activate; non-migration import keeps its normalized status.
@@ -248,7 +278,7 @@ export async function POST(req: Request) {
                 guardianId,
                 guardianName: m.guardianName?.trim() || null,
                 guardianEmail: p.guardianEmail,
-                guardianPhone: m.guardianPhone?.trim() || null,
+                guardianPhone: p.guardianPhone,
                 guardianRelationship: m.guardianRelationship?.trim() || null,
                 ...(migration
                   ? {

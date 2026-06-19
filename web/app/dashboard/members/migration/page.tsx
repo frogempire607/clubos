@@ -234,6 +234,43 @@ export default function MigrationPage() {
         </div>
       </div>
 
+      {/* Two-step import explainer — what each upload is for */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div className="bg-surface border border-app-border rounded-xl p-4 flex flex-col">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-5 h-5 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">1</span>
+            <p className="text-sm font-semibold text-text-primary">Import all your clients</p>
+          </div>
+          <p className="text-[13px] text-text-muted flex-1">
+            Start here. Upload your <strong className="text-text-primary">full roster</strong> — everyone from your old system, active or not.
+            Each person comes in as a Prospect and is <strong className="text-text-primary">never charged</strong> until they activate.
+            One contact email/phone is enough; for a minor it&apos;s the guardian&apos;s.
+          </p>
+          <button
+            onClick={() => setShowImport(true)}
+            className="mt-3 self-start text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover"
+          >
+            Import / Migrate Members
+          </button>
+        </div>
+        <div className="bg-surface border border-app-border rounded-xl p-4 flex flex-col">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-5 h-5 rounded-full bg-brand/15 text-brand text-xs font-semibold flex items-center justify-center flex-shrink-0">2</span>
+            <p className="text-sm font-semibold text-text-primary">Add active members&apos; memberships</p>
+          </div>
+          <p className="text-[13px] text-text-muted flex-1">
+            Optional second pass. Upload a CSV of just your <strong className="text-text-primary">active</strong> members with their plan, price, and billing date.
+            It matches each one (by email or name) to a client from step 1 and attaches billing so they keep their existing cycle.
+          </p>
+          <button
+            onClick={() => setShowMembershipImport(true)}
+            className="mt-3 self-start text-sm px-3 py-1.5 border border-app-border text-text-primary rounded-lg hover:bg-app-bg"
+          >
+            Match Memberships CSV
+          </button>
+        </div>
+      </div>
+
       {/* Owner guidance */}
       <div className="bg-brand/5 border border-brand/20 rounded-xl p-4 mb-6 text-sm text-text-primary">
         <p className="font-semibold mb-1.5">Before you switch — a few things to know</p>
@@ -949,7 +986,13 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
           {step === "upload" && (
             <div className="text-center py-8">
               <p className="text-sm text-text-muted mb-1">Upload a CSV exported from your previous club software.</p>
-              <p className="text-xs text-text-muted mb-5">Only an athlete name is required. Everything else is optional and mapped on the next step.</p>
+              <p className="text-xs text-text-muted mb-4">This is your <strong className="text-text-primary">whole roster</strong> — active or not. Only an athlete name is required; everything else is optional and mapped on the next step.</p>
+              <div className="text-left max-w-md mx-auto mb-5 rounded-lg border border-app-border bg-app-bg p-3 text-[12px] text-text-muted space-y-1">
+                <p className="font-medium text-text-primary">What to include</p>
+                <p>• One email and one phone per person is enough.</p>
+                <p>• For a minor, use the <strong className="text-text-primary">guardian&apos;s</strong> name + email — a single contact column is treated as the guardian&apos;s automatically.</p>
+                <p>• Membership plan &amp; billing dates are optional here; you can add them in step 2 (&quot;Match Memberships CSV&quot;).</p>
+              </div>
               <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} className="hidden" />
               <button onClick={() => fileRef.current?.click()} className="text-sm px-5 py-2.5 bg-brand text-white rounded-lg hover:bg-brand-hover">Choose CSV file</button>
             </div>

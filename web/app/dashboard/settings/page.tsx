@@ -193,7 +193,7 @@ export default function SettingsPage() {
               <Link href="/dashboard/settings/branded-app"
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
                 <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-warning)", color: "#fff" }}>A</span>
-                Branded App
+                App Design
               </Link>
               <Link href="/dashboard/settings/email"
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
@@ -966,6 +966,38 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
 
   return (
     <div className="space-y-4">
+      {/* Launch guide intro */}
+      <div className="bg-white rounded-xl border border-app-border p-6">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Launch your branded app</h2>
+            <p className="text-xs text-text-muted mt-0.5">
+              Two ways to put {club.name} in your members&apos; pockets — start with one, do both over time.
+            </p>
+          </div>
+          <a
+            href="/dashboard/settings/branded-app"
+            className="text-xs px-3 py-2 rounded-lg bg-brand text-white font-medium hover:bg-brand-hover whitespace-nowrap flex-shrink-0"
+          >
+            Open App Design editor →
+          </a>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="border border-app-border rounded-lg p-4 bg-app-bg">
+            <p className="text-sm font-semibold text-text-primary">1 · Instant web app (PWA)</p>
+            <p className="text-[11px] text-text-muted mt-1">
+              Live right now — members add your portal to their home screen in about 10 seconds. No app store, no waiting. The fastest way to start today.
+            </p>
+          </div>
+          <div className="border border-app-border rounded-lg p-4 bg-app-bg">
+            <p className="text-sm font-semibold text-text-primary">2 · Native iOS + Android app</p>
+            <p className="text-[11px] text-text-muted mt-1">
+              A dedicated app under your club&apos;s name in the App Store and Google Play. Follow the step-by-step below — AthletixOS handles the build and submission.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* PWA Status */}
       <div className="bg-white rounded-xl border border-app-border p-6">
         <div className="flex items-start justify-between mb-4">
@@ -1017,8 +1049,11 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             </div>
           </div>
           <p className="text-[11px] text-text-muted mt-3">
-            Member portal URL: <span className="font-mono">localhost:3000/member</span>
-            {" "}(replace with your production domain when you go live)
+            Member portal URL:{" "}
+            <span className="font-mono">
+              {typeof window !== "undefined" ? `${window.location.origin}/member` : "/member"}
+            </span>{" "}
+            — share this link (or its QR code) so members can install it.
           </p>
         </div>
       </div>
@@ -1131,50 +1166,123 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
         </form>
       </div>
 
-      {/* Native App Roadmap */}
+      {/* Native app launch guide */}
       <div className="bg-white rounded-xl border border-app-border p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-base font-semibold text-text-primary">Native App</h2>
-            <p className="text-xs text-text-muted mt-0.5">Dedicated iOS and Android app with your club's branding.</p>
-          </div>
+        <div className="flex items-start justify-between mb-1">
+          <h2 className="text-base font-semibold text-text-primary">Get your native iOS &amp; Android app</h2>
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
             isPro ? "bg-brand/10 text-brand" : "bg-app-bg text-text-muted"
           }`}>
-            {isPro ? "Pro / Enterprise" : "Pro+ required"}
+            {isPro ? "Included on your plan" : "Pro / Enterprise"}
           </span>
         </div>
+        <p className="text-xs text-text-muted mb-4">
+          Your app is a branded wrapper around your live member portal, so once it&apos;s on the
+          stores it updates automatically whenever you change something here — you almost never
+          have to resubmit. Here&apos;s exactly how it gets launched.
+        </p>
 
-        <div className="space-y-3">
+        <ol className="space-y-3">
           {[
-            { status: "done", label: "PWA (installable web app)", desc: "Live now — members install via browser" },
-            { status: "soon", label: "Custom app name & splash screen", desc: "Your club name replaces 'AthletixOS' on install" },
-            { status: "soon", label: "App Store listing (iOS & Android)", desc: "White-labeled app under your developer account" },
-            { status: "soon", label: "Push notifications", desc: "Native push for bookings, messages, and announcements" },
-            { status: "soon", label: "Offline full access", desc: "Complete offline mode with background sync" },
-          ].map((item) => (
-            <div key={item.label} className="flex items-start gap-3">
-              <span className={`text-xs mt-0.5 flex-shrink-0 ${
-                item.status === "done" ? "text-lime-accent" : "text-text-muted"
-              }`}>
-                {item.status === "done" ? "✓" : "○"}
+            {
+              n: "1",
+              who: "You",
+              title: "Design your app",
+              body: (
+                <>
+                  Set your icon, splash screen, colors, and screens in the{" "}
+                  <a href="/dashboard/settings/branded-app" className="text-brand hover:underline">App Design editor</a>.
+                  This is what members see when they open the app.
+                </>
+              ),
+            },
+            {
+              n: "2",
+              who: "You · one-time",
+              title: "Create your store accounts",
+              body: (
+                <>
+                  Apps publish under your club&apos;s own developer accounts so you fully own the
+                  listings:{" "}
+                  <a href="https://developer.apple.com/programs/enroll/" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">Apple Developer Program</a>{" "}
+                  ($99/year) and{" "}
+                  <a href="https://play.google.com/console/signup" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">Google Play Console</a>{" "}
+                  ($25 one-time). Apple can take 1–2 days to verify a business, so start this early.
+                </>
+              ),
+            },
+            {
+              n: "3",
+              who: "You",
+              title: "Invite AthletixOS as a developer",
+              body: (
+                <>
+                  Add us to your Apple and Google accounts (we send exact click-by-click
+                  instructions) so we can upload and manage builds. You stay the owner and can
+                  remove our access anytime.
+                </>
+              ),
+            },
+            {
+              n: "4",
+              who: "AthletixOS",
+              title: "We build and submit",
+              body: (
+                <>
+                  We package your designed app, prepare the store listing (name, icon,
+                  screenshots, description), and submit it to both stores. Nothing technical on
+                  your end.
+                </>
+              ),
+            },
+            {
+              n: "5",
+              who: "Apple / Google",
+              title: "Review and go live",
+              body: (
+                <>
+                  Apple review is usually ~24–48 hours; Google is often a few hours to a day. We
+                  let you know the moment each app is approved and live.
+                </>
+              ),
+            },
+          ].map((step) => (
+            <li key={step.n} className="flex gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-brand/10 text-brand text-xs font-semibold flex items-center justify-center">
+                {step.n}
               </span>
               <div>
-                <p className={`text-sm font-medium ${item.status === "done" ? "text-text-primary" : "text-text-muted"}`}>
-                  {item.label}
+                <p className="text-sm font-medium text-text-primary">
+                  {step.title}
+                  <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-app-bg text-text-muted font-medium align-middle">
+                    {step.who}
+                  </span>
                 </p>
-                <p className="text-xs text-text-muted">{item.desc}</p>
+                <p className="text-xs text-text-muted mt-0.5">{step.body}</p>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ol>
 
+        <div className="mt-5 flex flex-col sm:flex-row gap-2">
+          <a
+            href="mailto:support@athletix-os.com?subject=Branded%20app%20launch%20request"
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover text-center"
+          >
+            Request my app launch
+          </a>
+          <a
+            href="/dashboard/settings/branded-app"
+            className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg text-center"
+          >
+            Design my app first
+          </a>
+        </div>
         {!isPro && (
-          <div className="mt-4 pt-4 border-t border-app-border">
-            <p className="text-xs text-text-muted">
-              Upgrade to Pro or Enterprise to unlock native app features as they ship.
-            </p>
-          </div>
+          <p className="mt-3 text-xs text-text-muted border-t border-app-border pt-3">
+            Native publishing is included on Pro and Enterprise plans. The instant web app (PWA)
+            above works on every plan.
+          </p>
         )}
       </div>
     </div>

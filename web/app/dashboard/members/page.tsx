@@ -868,10 +868,11 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
           {isMinor && (
             <div className="space-y-3 p-4 bg-orange-accent/10 border border-orange-accent/30 rounded-lg">
               <p className="text-xs font-medium text-text-primary uppercase tracking-wider">Guardian / Parent Information</p>
+              <p className="text-[11px] text-text-muted -mt-1">For minors we contact the guardian — a guardian name and email are required. The athlete&apos;s own email and phone are optional.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className={fieldEnabled("guardianRelationship") ? "" : "col-span-2"}>
-                  <label className="block text-xs font-medium text-text-primary mb-1">Guardian name</label>
-                  <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="Full name" />
+                  <label className="block text-xs font-medium text-text-primary mb-1">Guardian name <span className="text-red-500">*</span></label>
+                  <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} required={isMinor} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="Full name" />
                 </div>
                 {fieldEnabled("guardianRelationship") && (
                   <div>
@@ -889,12 +890,13 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
                 )}
               </div>
               <div>
-                <label className="block text-xs font-medium text-text-primary mb-1">Guardian email</label>
-                <input type="email" value={guardianEmail} onChange={(e) => setGuardianEmail(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="guardian@email.com" />
+                <label className="block text-xs font-medium text-text-primary mb-1">Guardian email <span className="text-red-500">*</span></label>
+                <input type="email" value={guardianEmail} onChange={(e) => setGuardianEmail(e.target.value)} required={isMinor} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="guardian@email.com" />
+                <p className="text-xs text-text-muted mt-1">The minor&apos;s primary contact, and the email used to set up the parent&apos;s portal login.</p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-text-primary mb-1">Guardian phone <span className="text-red-500">*</span></label>
-                <input type="tel" value={guardianPhone} onChange={(e) => setGuardianPhone(e.target.value)} required={isMinor} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="(555) 000-0000" />
+                <label className="block text-xs font-medium text-text-primary mb-1">Guardian phone</label>
+                <input type="tel" value={guardianPhone} onChange={(e) => setGuardianPhone(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="(555) 000-0000" />
               </div>
 
               {siblings.length > 0 && (
@@ -1388,9 +1390,15 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
                   <li>First row should be column headers</li>
                   <li>Required: a name — either one &quot;Athlete Name&quot; (full name) column, or First Name + Last Name</li>
                   <li>Optional: Email, Phone, Date of Birth, Gender, Address, Status, Tags, Notes</li>
-                  <li>For minors: Guardian Name and Guardian Email (required); Guardian Phone optional</li>
-                  <li>Any custom fields you've created are also mappable</li>
+                  <li>One email and one phone per person is enough — for a minor, a single Email/Phone column is treated as the guardian&apos;s automatically</li>
+                  <li>For minors: Guardian Name + Guardian Email (Guardian Phone optional)</li>
+                  <li>Any custom fields you&apos;ve created are also mappable</li>
                 </ul>
+                <p className="mt-2 pt-2 border-t border-app-border">
+                  Switching from other software? Use{" "}
+                  <a href="/dashboard/members/migration" className="text-brand hover:underline font-medium">Import / Migrate</a>{" "}
+                  to bring your whole roster and keep everyone&apos;s existing billing dates.
+                </p>
               </div>
               {error && <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
             </div>

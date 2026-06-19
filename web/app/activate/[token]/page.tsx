@@ -26,6 +26,9 @@ type Data = {
   editable: { phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean; cancellationDate: boolean; paymentChoice: boolean };
   paymentEnabled: boolean;
   requiredDocument: { id: string; title: string; body: string | null } | null;
+  requiredDocuments?: { id: string; title: string; body: string | null }[];
+  family?: { id: string; firstName: string; lastName: string; token: string | null; done: boolean; current: boolean }[];
+  familyCardOnFile?: boolean;
 };
 
 export default function ActivatePage() {
@@ -41,7 +44,8 @@ export default function ActivatePage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [autopay, setAutopay] = useState(false);
-  const [signed, setSigned] = useState(false);
+  const [signedDocs, setSignedDocs] = useState<Record<string, boolean>>({});
+  const [reuseCard, setReuseCard] = useState(true);
   const [reqDate, setReqDate] = useState("");
   const [reqNote, setReqNote] = useState("");
   const [note, setNote] = useState("");
@@ -89,6 +93,21 @@ export default function ActivatePage() {
   const displayPrice = selectedChoice ? selectedChoice.price : data?.membership.price ?? null;
   const displayFrequency = selectedChoice ? selectedChoice.billingPeriod : data?.membership.frequency ?? null;
 
+  // Onboarding documents (one or many) + family-flow helpers.
+  const reqDocs =
+    data?.requiredDocuments && data.requiredDocuments.length > 0
+      ? data.requiredDocuments
+      : data?.requiredDocument
+        ? [data.requiredDocument]
+        : [];
+  const allDocsSigned = reqDocs.every((d) => signedDocs[d.id]);
+  const family = data?.family ?? [];
+  const isFamily = family.length > 1;
+  const currentIndex = family.findIndex((f) => f.current);
+  const pendingSiblings = family.filter((f) => !f.current && !f.done && f.token);
+  const nextSibling = pendingSiblings[0] ?? null;
+  const offerFamilyCard = !!data?.familyCardOnFile && !finalPaid && paymentMethod === "CARD";
+
   async function submit() {
     setError("");
     // Password is only needed to CREATE an account. If one already exists
@@ -100,7 +119,14 @@ export default function ActivatePage() {
     if (!finalPaid && !isJoin && paymentMethod === "CARD" && !autopay) {
       setError("Please accept the autopay terms to continue."); return;
     }
-    if (!isJoin && data?.requiredDocument && !signed) { setError(`Please acknowledge "${data.requiredDocument.title}".`); return; }
+    if (!isJoin && reqDocs.length > 0 && !allDocsSigned) {
+      setError(
+        reqDocs.length === 1
+          ? `Please read and agree to "${reqDocs[0].title}".`
+          : "Please read and agree to all required documents.",
+      );
+      return;
+    }
     setSubmitting(true);
     const res = await fetch(`/api/members/migration/activate/${token}`, {
       method: "POST",
@@ -110,7 +136,9 @@ export default function ActivatePage() {
         phone: phone || null,
         email: data?.editable.email && email ? email : null,
         autopayAccepted: !finalPaid && paymentMethod === "CARD" ? autopay : false,
-        signedDocumentId: data?.requiredDocument?.id || null,
+        signedDocumentId: reqDocs[0]?.id || null,
+        signedDocumentIds: reqDocs.map((d) => d.id),
+        reuseFamilyCard: offerFamilyCard ? reuseCard : undefined,
         requestedBillingDate: !finalPaid && data?.editable.billingDateRequest && reqDate ? reqDate : null,
         requestedBillingNote: !finalPaid && data?.editable.billingDateRequest && reqNote ? reqNote : null,
         activationNote: data?.editable.notes && note ? note : null,
@@ -171,6 +199,30 @@ export default function ActivatePage() {
         </div>
 
         <div className="bg-white rounded-b-2xl border border-stone-200 border-t-0 p-8">
+          {isFamily && (
+            <div className="mb-5 rounded-lg border border-stone-200 bg-stone-50 p-3">
+              <p className="text-xs font-medium text-stone-700 mb-2">
+                Family setup — athlete {currentIndex >= 0 ? currentIndex + 1 : 1} of {family.length}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {family.map((f) => (
+                  <span
+                    key={f.id}
+                    className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                      f.current
+                        ? "border-stone-900 bg-stone-900 text-white"
+                        : f.done
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-stone-300 text-stone-500"
+                    }`}
+                  >
+                    {f.done && !f.current ? "✓ " : ""}
+                    {f.firstName}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {done ? (
             <div className="text-center">
               <p className="text-3xl mb-2">🎉</p>
@@ -178,6 +230,18 @@ export default function ActivatePage() {
               <p className="text-sm text-stone-500 mt-3">
                 You can sign in any time at the {data.club.name} member portal.
               </p>
+              {nextSibling && (
+                <a
+                  href={`/activate/${nextSibling.token}`}
+                  className="mt-5 inline-block w-full py-3 rounded-xl text-white font-semibold text-center"
+                  style={{ background: accent }}
+                >
+                  Set up next athlete: {nextSibling.firstName} →
+                </a>
+              )}
+              {isFamily && !nextSibling && (
+                <p className="text-sm text-stone-500 mt-4">That&apos;s everyone — your whole family is set up. 🎉</p>
+              )}
             </div>
           ) : isJoin ? (
             <>
@@ -352,19 +416,28 @@ export default function ActivatePage() {
                 )}
               </div>
 
-              {/* Required document */}
-              {data.requiredDocument && (
-                <div className="mb-5 border border-stone-200 rounded-lg p-3">
-                  <p className="text-sm font-medium text-stone-800 mb-1">{data.requiredDocument.title}</p>
-                  {data.requiredDocument.body && (
-                    <div className="text-xs text-stone-500 max-h-28 overflow-y-auto mb-2 whitespace-pre-wrap">{data.requiredDocument.body}</div>
+              {/* Required documents — rendered as readable documents, one ack each */}
+              {reqDocs.map((doc) => (
+                <div key={doc.id} className="mb-5 border border-stone-200 rounded-lg overflow-hidden">
+                  <p className="text-sm font-medium text-stone-800 px-3 pt-3">{doc.title}</p>
+                  {doc.body ? (
+                    <div
+                      className="doc-prose max-h-60 overflow-y-auto mx-3 my-2 px-3 py-2 border border-stone-100 rounded bg-stone-50/60"
+                      dangerouslySetInnerHTML={{ __html: doc.body }}
+                    />
+                  ) : (
+                    <p className="text-xs text-stone-400 italic px-3 py-2">No content provided.</p>
                   )}
-                  <label className="flex items-center gap-2 text-sm text-stone-700">
-                    <input type="checkbox" checked={signed} onChange={(e) => setSigned(e.target.checked)} />
+                  <label className="flex items-center gap-2 text-sm text-stone-700 px-3 pb-3">
+                    <input
+                      type="checkbox"
+                      checked={!!signedDocs[doc.id]}
+                      onChange={(e) => setSignedDocs((s) => ({ ...s, [doc.id]: e.target.checked }))}
+                    />
                     I have read and agree to this document
                   </label>
                 </div>
-              )}
+              ))}
 
               {/* Payment method choice */}
               {!finalPaid && data.editable.paymentChoice && data.paymentEnabled && (
@@ -384,6 +457,14 @@ export default function ActivatePage() {
                     </p>
                   )}
                 </div>
+              )}
+
+              {/* Family: reuse the card already saved for a sibling */}
+              {offerFamilyCard && (
+                <label className="flex items-start gap-2 text-sm text-stone-700 mb-3 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
+                  <input type="checkbox" checked={reuseCard} onChange={(e) => setReuseCard(e.target.checked)} className="mt-0.5" />
+                  <span>Use the card already on file for your family — no need to re-enter it for {data.member.firstName}.</span>
+                </label>
               )}
 
               {/* Autopay — only when paying by card */}
@@ -412,7 +493,9 @@ export default function ActivatePage() {
                   : finalPaid
                     ? "Activate my account"
                     : paymentMethod === "CARD" && data.paymentEnabled
-                      ? "Activate & add payment method"
+                      ? offerFamilyCard && reuseCard
+                        ? "Activate my account"
+                        : "Activate & add payment method"
                       : paymentMethod === "CASH"
                         ? "Activate — pay by cash"
                         : paymentMethod === "CHECK"
