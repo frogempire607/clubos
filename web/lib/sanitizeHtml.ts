@@ -36,7 +36,7 @@ const CONFIG = {
   ],
   ALLOWED_ATTR: [
     "href", "target", "rel",
-    "class",
+    "class", "style",
     "colspan", "rowspan",
   ],
   // Block javascript:, vbscript:, data: URLs. http/https/mailto/tel allowed.

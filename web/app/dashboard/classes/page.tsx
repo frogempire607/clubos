@@ -736,7 +736,6 @@ export default function ClassesPage() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"classes" | "events">("classes");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<RecurringClass | null>(null);
   const [viewingSessions, setViewingSessions] = useState<RecurringClass | null>(null);
@@ -797,27 +796,15 @@ export default function ClassesPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
       <PageHeader
-        title="Classes & Events"
-        description="Manage recurring classes and one-time events"
+        title="Classes"
+        description="Manage your recurring classes. Events have their own tab under Classes & Events."
         actions={
-          <>
-            {tab === "classes" && (
-              <button
-                onClick={() => { setEditing(null); setShowModal(true); }}
-                className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover w-full sm:w-auto"
-              >
-                + New Class
-              </button>
-            )}
-            {tab === "events" && (
-              <a
-                href="/dashboard/events"
-                className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover w-full sm:w-auto"
-              >
-                + New Event
-              </a>
-            )}
-          </>
+          <button
+            onClick={() => { setEditing(null); setShowModal(true); }}
+            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover w-full sm:w-auto"
+          >
+            + New Class
+          </button>
         }
       />
 
@@ -827,26 +814,8 @@ export default function ClassesPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-app-border">
-        {(["classes", "events"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors capitalize ${
-              tab === t
-                ? "border-brand text-text-primary"
-                : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
-          >
-            {t === "classes" ? "Classes" : "Events"}
-          </button>
-        ))}
-      </div>
-
-      {/* Classes Tab */}
-      {tab === "classes" && (
-        <>
+      {/* Classes */}
+      <>
           {/* Search */}
           <div className="mb-4">
             <input
@@ -975,26 +944,6 @@ export default function ClassesPage() {
             </div>
           )}
         </>
-      )}
-
-      {/* Events Tab — redirects to existing events page */}
-      {tab === "events" && (
-        <div className="text-center py-20">
-          <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
-            <CalendarDays className="h-7 w-7" strokeWidth={2} />
-          </div>
-          <p className="text-text-muted font-medium mb-1">Events are managed separately</p>
-          <p className="text-text-muted text-sm mb-5">
-            Events include clinics, camps, tournaments, seminars, and special programs.
-          </p>
-          <a
-            href="/dashboard/events"
-            className="inline-block px-5 py-2 bg-brand text-white text-sm rounded-lg hover:bg-brand-hover"
-          >
-            Go to Events →
-          </a>
-        </div>
-      )}
 
       {/* Modals */}
       {showModal && (

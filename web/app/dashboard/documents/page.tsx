@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileText, List, Eraser } from "lucide-react";
+import { FileText, List, ListOrdered, Eraser } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
@@ -29,13 +29,6 @@ const typeColors: Record<string, { bg: string; fg: string }> = {
   Agreement: { bg: "var(--color-primary)", fg: "#fff" },
   Handbook: { bg: "var(--color-success)", fg: "#1F1F23" },
   Other: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
-};
-
-const triggerLabels: Record<string, string> = {
-  MANUAL: "Manual",
-  MEMBERSHIP: "On membership purchase",
-  EVENT: "On event registration",
-  MESSAGE: "Via message",
 };
 
 // Surfaces where a document can be made mandatory to sign. Stored on
@@ -124,11 +117,6 @@ export default function DocumentsPage() {
                       {d.requiresGuardianSignature && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/10 text-orange-accent">
                           Guardian sig
-                        </span>
-                      )}
-                      {d.deliveryTrigger && d.deliveryTrigger !== "MANUAL" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand/10 text-brand">
-                          {triggerLabels[d.deliveryTrigger] || d.deliveryTrigger}
                         </span>
                       )}
                     </div>
@@ -356,15 +344,63 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
 
   function applySize(size: string) {
     setFontSize(size);
+    editorRef.current?.focus();
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) return;
-    document.execCommand("styleWithCSS", false, "true");
-    document.execCommand("fontSize", false, "7");
-    const spans = editorRef.current?.querySelectorAll('font[size="7"]');
-    spans?.forEach((span) => {
-      (span as HTMLElement).style.fontSize = size;
-      (span as HTMLElement).removeAttribute("size");
-    });
+    // Wrap the exact selection in a span with the chosen px size. execCommand
+    // "fontSize" only accepts 1–7 (rendered as xx-small…xx-large), which is why
+    // changing it before only ever made text huge regardless of the number.
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const span = document.createElement("span");
+    span.style.fontSize = size;
+    try {
+      span.appendChild(range.extractContents());
+      range.insertNode(span);
+      sel.removeAllRanges();
+      const r = document.createRange();
+      r.selectNodeContents(span);
+      sel.addRange(r);
+    } catch {
+      /* selection spanned multiple blocks — skip rather than corrupt markup */
+    }
+    sync();
+  }
+
+  // Find the UL/OL the caret is currently inside (within this editor).
+  function currentListEl(): HTMLElement | null {
+    const sel = window.getSelection();
+    let node: Node | null = sel?.anchorNode ?? null;
+    while (node && node !== editorRef.current) {
+      if (node.nodeName === "UL" || node.nodeName === "OL") return node as HTMLElement;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function applyList(ordered: boolean, styleType?: string) {
+    editorRef.current?.focus();
+    document.execCommand(ordered ? "insertOrderedList" : "insertUnorderedList", false);
+    const list = currentListEl();
+    if (list) {
+      // Inline style so the marker shows in-editor (past Tailwind preflight),
+      // persists through the sanitizer, and renders the same to members.
+      list.style.listStyleType = styleType || (ordered ? "decimal" : "disc");
+      list.style.paddingLeft = "1.5rem";
+    }
+    sync();
+  }
+
+  function setBulletStyle(styleType: string) {
+    editorRef.current?.focus();
+    let list = currentListEl();
+    if (!list) {
+      document.execCommand("insertUnorderedList", false);
+      list = currentListEl();
+    }
+    if (list) {
+      list.style.listStyleType = styleType;
+      list.style.paddingLeft = "1.5rem";
+    }
     sync();
   }
 
@@ -443,13 +479,37 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
 
         <button
           type="button"
-          onMouseDown={(e) => { e.preventDefault(); document.execCommand("insertUnorderedList", false); sync(); }}
+          onMouseDown={(e) => { e.preventDefault(); applyList(false); }}
           className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border"
-          title="Bullet list"
-          aria-label="Bullet list"
+          title="Bulleted list"
+          aria-label="Bulleted list"
         >
           <List className="h-3.5 w-3.5" strokeWidth={2} />
         </button>
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); applyList(true); }}
+          className="w-7 h-7 flex items-center justify-center rounded text-text-primary hover:bg-app-border"
+          title="Numbered list"
+          aria-label="Numbered list"
+        >
+          <ListOrdered className="h-3.5 w-3.5" strokeWidth={2} />
+        </button>
+        <select
+          defaultValue=""
+          onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => { if (e.target.value) { setBulletStyle(e.target.value); e.target.value = ""; } }}
+          className="h-7 text-xs border border-app-border rounded px-1 bg-white text-text-primary focus:outline-none"
+          title="Bullet style"
+        >
+          <option value="">Bullets…</option>
+          <option value="disc">● Disc</option>
+          <option value="circle">○ Circle</option>
+          <option value="square">▪ Square</option>
+        </select>
+
+        <div className="w-px h-4 bg-app-border mx-0.5" />
+
         <button
           type="button"
           onMouseDown={(e) => { e.preventDefault(); document.execCommand("removeFormat", false); sync(); }}
@@ -467,7 +527,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
         contentEditable
         suppressContentEditableWarning
         onInput={sync}
-        className="min-h-[240px] p-4 text-sm text-text-primary leading-relaxed focus:outline-none"
+        className="rich-editor min-h-[240px] p-4 text-sm text-text-primary leading-relaxed focus:outline-none"
         style={{ fontFamily: "inherit" }}
         data-placeholder="Write the full document content here…"
       />
@@ -497,7 +557,9 @@ function DocumentModal({
     setRequiredAt((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   }
   const [requiresGuardianSignature, setRequiresGuardianSignature] = useState(doc?.requiresGuardianSignature || false);
-  const [deliveryTrigger, setDeliveryTrigger] = useState(doc?.deliveryTrigger || "MANUAL");
+  // Legacy/back-compat only — the "Require members to sign this" surfaces below
+  // replaced the old "Show to member" control, so this is no longer edited here.
+  const deliveryTrigger = doc?.deliveryTrigger || "MANUAL";
   const [expiresAt, setExpiresAt] = useState(doc?.expiresAt ? doc.expiresAt.split("T")[0] : "");
   const [signatureFrequency, setSignatureFrequency] = useState<string>(
     doc?.signatureValidForDays ? String(doc.signatureValidForDays) : "0"
@@ -593,30 +655,15 @@ function DocumentModal({
             <RichEditor value={body} onChange={setBody} />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Show to member</label>
-              <select
-                value={deliveryTrigger}
-                onChange={(e) => setDeliveryTrigger(e.target.value)}
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand"
-              >
-                <option value="MANUAL">Manually</option>
-                <option value="MEMBERSHIP">On membership purchase</option>
-                <option value="EVENT">On event registration</option>
-                <option value="MESSAGE">Via message</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Document expires on</label>
-              <input
-                type="date"
-                value={expiresAt}
-                onChange={(e) => setExpiresAt(e.target.value)}
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-              />
-              <p className="text-[10px] text-text-muted mt-1">Hides the document from members after this date</p>
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Document expires on</label>
+            <input
+              type="date"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+            <p className="text-[10px] text-text-muted mt-1">Hides the document from members after this date</p>
           </div>
 
           <div>
