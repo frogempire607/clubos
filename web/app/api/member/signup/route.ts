@@ -72,38 +72,80 @@ export async function POST(req: Request) {
       }
     }
 
-    const user = await prisma.user.create({
-      data: {
-        clubId: club.id,
-        email: data.email.toLowerCase(),
-        passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        role: "MEMBER",
-        ...(existingMember
-          ? {
-              memberProfile: { connect: { id: existingMember.id } },
-            }
-          : {
-              memberProfile: {
-                create: {
-                  clubId: club.id,
-                  firstName: data.firstName,
-                  lastName: data.lastName,
-                  email: data.email.toLowerCase(),
-                  status: "ACTIVE",
-                  isMinor,
-                  dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-                  guardianName: data.guardianName || null,
-                  guardianEmail: data.guardianEmail || null,
-                  guardianPhone: data.guardianPhone || null,
-                  guardianRelationship: data.guardianRelationship || null,
-                },
-              },
-            }),
-      },
-      include: { memberProfile: true },
-    });
+    // When a SOFT-DELETED login already occupies this (clubId, email) — e.g. the
+    // member was deleted and is signing up again — RESURRECT it instead of
+    // creating a new row. The (clubId, email) unique index is GLOBAL (it ignores
+    // deletedAt), so a plain create would throw a unique violation and 500. A
+    // soft-deleted login has no active credentials, so clearing deletedAt and
+    // setting the new password here is safe (we already 409'd above if a LIVE
+    // account exists). Member-profile linkage is identical in both paths.
+    const user = existing
+      ? await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            passwordHash,
+            deletedAt: null,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: "MEMBER",
+            resetToken: null,
+            resetExpires: null,
+            ...(existingMember
+              ? {
+                  memberProfile: { connect: { id: existingMember.id } },
+                }
+              : {
+                  memberProfile: {
+                    create: {
+                      clubId: club.id,
+                      firstName: data.firstName,
+                      lastName: data.lastName,
+                      email: data.email.toLowerCase(),
+                      status: "ACTIVE",
+                      isMinor,
+                      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+                      guardianName: data.guardianName || null,
+                      guardianEmail: data.guardianEmail || null,
+                      guardianPhone: data.guardianPhone || null,
+                      guardianRelationship: data.guardianRelationship || null,
+                    },
+                  },
+                }),
+          },
+          include: { memberProfile: true },
+        })
+      : await prisma.user.create({
+          data: {
+            clubId: club.id,
+            email: data.email.toLowerCase(),
+            passwordHash,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: "MEMBER",
+            ...(existingMember
+              ? {
+                  memberProfile: { connect: { id: existingMember.id } },
+                }
+              : {
+                  memberProfile: {
+                    create: {
+                      clubId: club.id,
+                      firstName: data.firstName,
+                      lastName: data.lastName,
+                      email: data.email.toLowerCase(),
+                      status: "ACTIVE",
+                      isMinor,
+                      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+                      guardianName: data.guardianName || null,
+                      guardianEmail: data.guardianEmail || null,
+                      guardianPhone: data.guardianPhone || null,
+                      guardianRelationship: data.guardianRelationship || null,
+                    },
+                  },
+                }),
+          },
+          include: { memberProfile: true },
+        });
 
     // If PARENT — request guardian access to the child member. Access is
     // granted here ONLY when the owner already named this email as the

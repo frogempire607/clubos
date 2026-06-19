@@ -23,7 +23,11 @@ export async function POST(req: Request) {
       where: { clubId_email: { clubId: club.id, email: email.toLowerCase() } },
     });
 
-    if (user) {
+    // Skip soft-deleted (revoked) logins. A reset link can't restore access —
+    // NextAuth rejects users with deletedAt — so emailing one only confuses.
+    // Legitimate re-onboarding runs through the owner's activation link, which
+    // resurrects the account and sets a fresh password.
+    if (user && !user.deletedAt) {
       const resetToken   = crypto.randomBytes(32).toString("hex");
       const resetExpires = new Date(Date.now() + 1000 * 60 * 60);
       await prisma.user.update({

@@ -15,7 +15,9 @@ export async function POST(req: Request) {
   try {
     const { token, password } = schema.parse(await req.json());
     const user = await prisma.user.findUnique({ where: { resetToken: token } });
-    if (!user || !user.resetExpires || user.resetExpires < new Date()) {
+    // Reject soft-deleted (revoked) logins too: resetting their hash would not
+    // let them sign in (NextAuth rejects deletedAt), so treat the token as dead.
+    if (!user || user.deletedAt || !user.resetExpires || user.resetExpires < new Date()) {
       return NextResponse.json({ error: "Invalid or expired token" }, { status: 400 });
     }
     const passwordHash = await bcrypt.hash(password, 12);

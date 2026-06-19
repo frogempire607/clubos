@@ -55,13 +55,19 @@ const importSchema = z.object({
   legacySource: z.string().optional().nullable(),
 });
 
-function normalizeStatus(raw: string | null | undefined): "ACTIVE" | "PROSPECT" | "INACTIVE" | "PAUSED" {
+// Imported members are NEVER auto-activated — activation happens through the
+// onboarding/activation flow, and ACTIVE is reserved for members with an active
+// subscription. We still honor a clearly inactive/paused signal from the old
+// software (so dead accounts aren't pulled into the prospect funnel), but
+// anything that would previously have been "active" — including a blank or
+// unknown status — now starts as PROSPECT. (Requirement: imported members must
+// default to Prospect regardless of their status in the previous software, and
+// ACTIVE must not be assigned automatically during import.)
+function normalizeStatus(raw: string | null | undefined): "PROSPECT" | "INACTIVE" | "PAUSED" {
   const s = (raw || "").toUpperCase().trim();
-  if (["ACTIVE", "PROSPECT", "INACTIVE", "PAUSED"].includes(s)) return s as any;
-  if (/cancel|inactive|expired|former|frozen/i.test(raw || "")) return "INACTIVE";
-  if (/pause|hold|suspend/i.test(raw || "")) return "PAUSED";
-  if (/lead|prospect|trial|pending/i.test(raw || "")) return "PROSPECT";
-  return "ACTIVE";
+  if (s === "INACTIVE" || /cancel|inactive|expired|former|frozen/i.test(raw || "")) return "INACTIVE";
+  if (s === "PAUSED" || /pause|hold|suspend/i.test(raw || "")) return "PAUSED";
+  return "PROSPECT";
 }
 
 export async function POST(req: Request) {

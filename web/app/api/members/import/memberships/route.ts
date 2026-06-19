@@ -141,6 +141,7 @@ export async function POST(req: Request) {
         const existing = await prisma.member.findUnique({
           where: { id: matches[0].id },
           select: {
+            status: true,
             migrationStatus: true,
             paymentSetupStatus: true,
             importedAt: true,
@@ -154,6 +155,24 @@ export async function POST(req: Request) {
           results.errors.push(`${label}: member disappeared mid-import`);
           continue;
         }
+
+        // Migrated members must start as PROSPECT — they only become ACTIVE
+        // after completing onboarding/activation. This second pass pulls a
+        // member into the migration pipeline; if they were left ACTIVE by a
+        // prior non-migration import, downgrade them so they aren't counted
+        // active before activating. Guard rails: only touch a currently-ACTIVE
+        // member with NO active subscription that hasn't already activated or
+        // completed migration — never demote someone mid/post-onboarding or
+        // with a live subscription.
+        const hasActiveSub =
+          (await prisma.memberSubscription.count({
+            where: { memberId: matches[0].id, status: "active" },
+          })) > 0;
+        const downgradeToProspect =
+          existing.status === "ACTIVE" &&
+          !hasActiveSub &&
+          existing.migrationStatus !== MIGRATION_STATUS.ACTIVATED &&
+          existing.migrationStatus !== MIGRATION_STATUS.COMPLETED;
 
         await prisma.member.update({
           where: { id: matches[0].id },
@@ -175,6 +194,8 @@ export async function POST(req: Request) {
               existing.paymentSetupStatus === PAYMENT_SETUP.COMPLETE
                 ? PAYMENT_SETUP.COMPLETE
                 : PAYMENT_SETUP.REQUIRED,
+            // Reset a stale ACTIVE (no live sub, pre-activation) back to PROSPECT.
+            ...(downgradeToProspect ? { status: "PROSPECT" } : {}),
           },
         });
 

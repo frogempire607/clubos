@@ -119,11 +119,18 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   // "create a password" step — the existing password is never overwritten.
   const checkEmail =
     (m.isMinor ? m.guardianEmail || m.email : m.email || m.guardianEmail)?.toLowerCase() || null;
-  const hasAccount = checkEmail
-    ? !!(await prisma.user.findUnique({
+  // A SOFT-DELETED login does NOT count as an existing account. It can't sign
+  // in (NextAuth rejects users with deletedAt) and must be resurrected with a
+  // fresh password during activation. Treating it as "has account" would hide
+  // the password field and strand the member with no working credentials —
+  // exactly the "onboarding completes but login says invalid password" bug.
+  const existingActivationUser = checkEmail
+    ? await prisma.user.findUnique({
         where: { clubId_email: { clubId: m.clubId, email: checkEmail } },
-      }))
-    : false;
+        select: { deletedAt: true },
+      })
+    : null;
+  const hasAccount = !!(existingActivationUser && !existingActivationUser.deletedAt);
 
   return NextResponse.json({
     completed: m.migrationStatus === MIGRATION_STATUS.COMPLETED,
@@ -273,7 +280,38 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   let user = await prisma.user.findUnique({
     where: { clubId_email: { clubId: club.id, email: contactEmail } },
   });
-  if (!user) {
+  if (user && user.deletedAt) {
+    // RESURRECT a soft-deleted login. This happens when a member is deleted
+    // (which soft-deletes their MEMBER-role login, leaving deletedAt set) and is
+    // later re-imported and re-onboarded with the same email. The (clubId,email)
+    // unique index is GLOBAL — it ignores deletedAt — so the dead row still
+    // reserves the slot and we cannot create a fresh user; we must revive this
+    // one. A soft-deleted user has NO active credentials and the owner issued
+    // this activation token, so setting a new password and clearing deletedAt is
+    // authorized. (The account-takeover guard only protects LIVE accounts.)
+    // Without this, activation silently skipped the password — the new password
+    // was never stored and login stayed blocked by the deletedAt flag, i.e. the
+    // "onboarding completes but login says invalid password" bug.
+    if (!body.password) {
+      return NextResponse.json(
+        { error: "Choose a password (at least 8 characters) to create your account." },
+        { status: 400 },
+      );
+    }
+    const passwordHash = await bcrypt.hash(body.password, 12);
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        deletedAt: null,
+        firstName: accountFirstName,
+        lastName: accountLastName,
+        role: "MEMBER",
+        resetToken: null,
+        resetExpires: null,
+      },
+    });
+  } else if (!user) {
     if (!body.password) {
       return NextResponse.json(
         { error: "Choose a password (at least 8 characters) to create your account." },
