@@ -27,6 +27,18 @@ import {
 // the billing anchor. Existing billing values are overwritten and the change
 // is logged on the member's migration timeline. Nothing is ever auto-charged.
 
+// Bulk import can do several writes per row. A strictly sequential row-by-row
+// loop through the cold serverless→pooler path could exceed the platform's
+// default ~10s function limit even for ~90 rows — surfaced to the user as a
+// generic "Import failed". Raise the ceiling (host clamps to the plan max) and
+// pair it with the prefetch + batching below, which is the real fix.
+export const maxDuration = 60;
+
+// How many member updates to run concurrently. Small enough to stay within the
+// Prisma/pooler connection budget, large enough to collapse the wall-clock from
+// "N sequential round-trips" to "N / CONCURRENCY".
+const IMPORT_CONCURRENCY = 10;
+
 const rowSchema = z.object({
   legacyMemberId:      z.string().optional().nullable(),
   email:               z.string().optional().nullable(),
@@ -44,6 +56,26 @@ const rowSchema = z.object({
 const importSchema = z.object({
   rows: z.array(rowSchema).min(1).max(2000),
 });
+
+type MemberLite = {
+  id: string;
+  email: string | null;
+  legacyMemberId: string | null;
+  firstName: string;
+  lastName: string;
+  status: string;
+  migrationStatus: string | null;
+  paymentSetupStatus: string | null;
+  importedAt: Date | null;
+  legacyMembershipName: string | null;
+  legacyMembershipPrice: unknown;
+};
+
+function pushTo(map: Map<string, string[]>, key: string, value: string) {
+  const arr = map.get(key);
+  if (arr) arr.push(value);
+  else map.set(key, [value]);
+}
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -70,6 +102,49 @@ export async function POST(req: Request) {
       errors: [] as string[],
     };
 
+    // ── Prefetch every non-deleted member for the club ONCE, then match in
+    // memory. This removes the ~3 match queries + findUnique that previously ran
+    // per row (the sequential round-trips that timed the function out). ──
+    const allMembers = (await prisma.member.findMany({
+      where: { clubId, deletedAt: null },
+      select: {
+        id: true, email: true, legacyMemberId: true, firstName: true, lastName: true,
+        status: true, migrationStatus: true, paymentSetupStatus: true, importedAt: true,
+        legacyMembershipName: true, legacyMembershipPrice: true,
+      },
+    })) as MemberLite[];
+
+    const byLegacy = new Map<string, string[]>();
+    const byEmail = new Map<string, string[]>();
+    const byName = new Map<string, string[]>();
+    const memberById = new Map<string, MemberLite>();
+    for (const m of allMembers) {
+      memberById.set(m.id, m);
+      if (m.legacyMemberId) pushTo(byLegacy, m.legacyMemberId.trim(), m.id);
+      if (m.email) pushTo(byEmail, m.email.toLowerCase(), m.id);
+      const nameKey = `${m.firstName.toLowerCase().trim()}|${m.lastName.toLowerCase().trim()}`;
+      if (nameKey !== "|") pushTo(byName, nameKey, m.id);
+    }
+
+    // Members with a live subscription — used to avoid demoting them to PROSPECT.
+    const activeSubMemberIds = new Set(
+      (
+        await prisma.memberSubscription.findMany({
+          where: { status: "active", member: { clubId } },
+          select: { memberId: true },
+        })
+      ).map((s) => s.memberId),
+    );
+
+    // ── Pass 1 (no DB writes): match rows in memory + build the update list. ──
+    type UpdateTask = {
+      memberId: string;
+      label: string;
+      data: Record<string, unknown>;
+      message: string;
+    };
+    const tasks: UpdateTask[] = [];
+
     for (const r of rows) {
       const { firstName, lastName, display } = resolveName({
         athleteName: r.athleteName,
@@ -81,143 +156,115 @@ export async function POST(req: Request) {
         r.email?.trim() ||
         (r.legacyMemberId ? `Legacy #${r.legacyMemberId.trim()}` : "A row");
 
-      try {
-        // ── Match cascade ────────────────────────────────────────────────
-        let matches: { id: string }[] = [];
-        const legacyId = r.legacyMemberId?.trim();
-        const email = r.email?.trim().toLowerCase();
+      const legacyId = r.legacyMemberId?.trim();
+      const email = r.email?.trim().toLowerCase();
 
-        if (legacyId) {
-          matches = await prisma.member.findMany({
-            where: { clubId, deletedAt: null, legacyMemberId: legacyId },
-            select: { id: true },
-            take: 2,
-          });
-        }
-        if (matches.length !== 1 && email) {
-          matches = await prisma.member.findMany({
-            where: { clubId, deletedAt: null, email },
-            select: { id: true },
-            take: 2,
-          });
-        }
-        if (matches.length !== 1 && (firstName || lastName) && display) {
-          matches = await prisma.member.findMany({
-            where: {
-              clubId,
-              deletedAt: null,
-              firstName: { equals: firstName, mode: "insensitive" },
-              lastName: { equals: lastName, mode: "insensitive" },
-            },
-            select: { id: true },
-            take: 2,
-          });
-        }
+      let ids: string[] = [];
+      if (legacyId) ids = byLegacy.get(legacyId) ?? [];
+      if (ids.length !== 1 && email) ids = byEmail.get(email) ?? [];
+      if (ids.length !== 1 && display && (firstName || lastName)) {
+        ids = byName.get(`${firstName.toLowerCase()}|${lastName.toLowerCase()}`) ?? [];
+      }
 
-        if (matches.length === 0) {
-          results.unmatched++;
-          results.errors.push(`${label}: no matching member found — skipped`);
-          continue;
-        }
-        if (matches.length > 1) {
-          results.unmatched++;
-          results.errors.push(`${label}: multiple members match — skipped (add a Legacy ID or email column to disambiguate)`);
-          continue;
-        }
+      if (ids.length === 0) {
+        results.unmatched++;
+        results.errors.push(`${label}: no matching member found — skipped`);
+        continue;
+      }
+      if (ids.length > 1) {
+        results.unmatched++;
+        results.errors.push(`${label}: multiple members match — skipped (add a Legacy ID or email column to disambiguate)`);
+        continue;
+      }
 
-        // ── Apply billing data ───────────────────────────────────────────
-        const membershipStartDate = parseFlexibleDate(r.membershipStartDate);
-        const nextBillingDate = parseFlexibleDate(r.nextBillingDate);
-        const commitmentEndDate = parseFlexibleDate(r.commitmentEndDate);
-        const frequency = normalizeFrequency(r.billingFrequency);
-        const price = parseMoney(r.membershipPrice);
-        const billingAnchorDate = resolveBillingAnchor({
-          nextBillingDate,
-          membershipStartDate,
-          frequency,
-          now,
-        });
-
-        const existing = await prisma.member.findUnique({
-          where: { id: matches[0].id },
-          select: {
-            status: true,
-            migrationStatus: true,
-            paymentSetupStatus: true,
-            importedAt: true,
-            legacyMembershipName: true,
-            legacyMembershipPrice: true,
-            legacyMemberId: true,
-          },
-        });
-        if (!existing) {
-          results.failed++;
-          results.errors.push(`${label}: member disappeared mid-import`);
-          continue;
-        }
-
-        // Migrated members must start as PROSPECT — they only become ACTIVE
-        // after completing onboarding/activation. This second pass pulls a
-        // member into the migration pipeline; if they were left ACTIVE by a
-        // prior non-migration import, downgrade them so they aren't counted
-        // active before activating. Guard rails: only touch a currently-ACTIVE
-        // member with NO active subscription that hasn't already activated or
-        // completed migration — never demote someone mid/post-onboarding or
-        // with a live subscription.
-        const hasActiveSub =
-          (await prisma.memberSubscription.count({
-            where: { memberId: matches[0].id, status: "active" },
-          })) > 0;
-        const downgradeToProspect =
-          existing.status === "ACTIVE" &&
-          !hasActiveSub &&
-          existing.migrationStatus !== MIGRATION_STATUS.ACTIVATED &&
-          existing.migrationStatus !== MIGRATION_STATUS.COMPLETED;
-
-        await prisma.member.update({
-          where: { id: matches[0].id },
-          data: {
-            legacyMembershipName: r.membershipName?.trim() || null,
-            legacyMembershipPrice: price,
-            legacyBillingFrequency: frequency,
-            membershipStartDate,
-            nextBillingDate,
-            commitmentEndDate,
-            billingAnchorDate,
-            legacyMemberId: existing.legacyMemberId ?? legacyId ?? null,
-            // Pull into the migration pipeline without clobbering progress:
-            // keep an existing status, otherwise mark IMPORTED; never reset a
-            // COMPLETE payment setup back to REQUIRED.
-            migrationStatus: existing.migrationStatus ?? MIGRATION_STATUS.IMPORTED,
-            importedAt: existing.importedAt ?? now,
-            paymentSetupStatus:
-              existing.paymentSetupStatus === PAYMENT_SETUP.COMPLETE
-                ? PAYMENT_SETUP.COMPLETE
-                : PAYMENT_SETUP.REQUIRED,
-            // Reset a stale ACTIVE (no live sub, pre-activation) back to PROSPECT.
-            ...(downgradeToProspect ? { status: "PROSPECT" } : {}),
-          },
-        });
-
-        const overwrote = existing.legacyMembershipName || existing.legacyMembershipPrice != null;
-        await prisma.memberMigrationEvent.create({
-          data: {
-            clubId,
-            memberId: matches[0].id,
-            type: "BILLING_IMPORTED",
-            message: `Membership CSV: ${r.membershipName?.trim() || "—"}${
-              price != null ? ` · $${price}` : ""
-            }${frequency ? ` · ${frequency}` : ""}${
-              billingAnchorDate ? ` · next bill ${billingAnchorDate.toISOString().slice(0, 10)}` : ""
-            }${overwrote ? " (overwrote previous billing info)" : ""}`,
-            actorUserId: session.user.id,
-          },
-        });
-
-        results.updated++;
-      } catch {
+      const memberId = ids[0];
+      const existing = memberById.get(memberId);
+      if (!existing) {
         results.failed++;
-        results.errors.push(`${label}: failed to save`);
+        results.errors.push(`${label}: member disappeared mid-import`);
+        continue;
+      }
+
+      const membershipStartDate = parseFlexibleDate(r.membershipStartDate);
+      const nextBillingDate = parseFlexibleDate(r.nextBillingDate);
+      const commitmentEndDate = parseFlexibleDate(r.commitmentEndDate);
+      const frequency = normalizeFrequency(r.billingFrequency);
+      const price = parseMoney(r.membershipPrice);
+      const billingAnchorDate = resolveBillingAnchor({
+        nextBillingDate,
+        membershipStartDate,
+        frequency,
+        now,
+      });
+
+      // Migrated members must start as PROSPECT until they complete activation.
+      // Only demote a currently-ACTIVE member with NO live sub that hasn't
+      // already activated/completed — never someone mid/post-onboarding.
+      const downgradeToProspect =
+        existing.status === "ACTIVE" &&
+        !activeSubMemberIds.has(memberId) &&
+        existing.migrationStatus !== MIGRATION_STATUS.ACTIVATED &&
+        existing.migrationStatus !== MIGRATION_STATUS.COMPLETED;
+
+      const overwrote = !!existing.legacyMembershipName || existing.legacyMembershipPrice != null;
+
+      tasks.push({
+        memberId,
+        label,
+        data: {
+          legacyMembershipName: r.membershipName?.trim() || null,
+          legacyMembershipPrice: price,
+          legacyBillingFrequency: frequency,
+          membershipStartDate,
+          nextBillingDate,
+          commitmentEndDate,
+          billingAnchorDate,
+          legacyMemberId: existing.legacyMemberId ?? legacyId ?? null,
+          migrationStatus: existing.migrationStatus ?? MIGRATION_STATUS.IMPORTED,
+          importedAt: existing.importedAt ?? now,
+          paymentSetupStatus:
+            existing.paymentSetupStatus === PAYMENT_SETUP.COMPLETE
+              ? PAYMENT_SETUP.COMPLETE
+              : PAYMENT_SETUP.REQUIRED,
+          ...(downgradeToProspect ? { status: "PROSPECT" } : {}),
+        },
+        message: `Membership CSV: ${r.membershipName?.trim() || "—"}${
+          price != null ? ` · $${price}` : ""
+        }${frequency ? ` · ${frequency}` : ""}${
+          billingAnchorDate ? ` · next bill ${billingAnchorDate.toISOString().slice(0, 10)}` : ""
+        }${overwrote ? " (overwrote previous billing info)" : ""}`,
+      });
+    }
+
+    // ── Pass 2: apply updates in small concurrent batches so the wall-clock is
+    // N / IMPORT_CONCURRENCY round-trips instead of N. ──
+    for (let i = 0; i < tasks.length; i += IMPORT_CONCURRENCY) {
+      const slice = tasks.slice(i, i + IMPORT_CONCURRENCY);
+      const outcomes = await Promise.all(
+        slice.map(async (t): Promise<"ok" | string> => {
+          try {
+            await prisma.member.update({ where: { id: t.memberId }, data: t.data });
+            await prisma.memberMigrationEvent.create({
+              data: {
+                clubId,
+                memberId: t.memberId,
+                type: "BILLING_IMPORTED",
+                message: t.message,
+                actorUserId: session.user.id,
+              },
+            });
+            return "ok";
+          } catch {
+            return `${t.label}: failed to save`;
+          }
+        }),
+      );
+      for (const o of outcomes) {
+        if (o === "ok") results.updated++;
+        else {
+          results.failed++;
+          results.errors.push(o);
+        }
       }
     }
 
