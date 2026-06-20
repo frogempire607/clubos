@@ -153,6 +153,7 @@ export default function MigrationPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [showImport, setShowImport] = useState(false);
+  const [showMembershipImport, setShowMembershipImport] = useState(false);
   const [historyFor, setHistoryFor] = useState<Row | null>(null);
   const [drawerFor, setDrawerFor] = useState<Row | null>(null);
   const [showFamilies, setShowFamilies] = useState(false);
@@ -253,6 +254,12 @@ export default function MigrationPage() {
         </div>
         <div className="flex gap-2 flex-shrink-0">
           <button
+            onClick={() => setShowMembershipImport(true)}
+            className="text-sm px-4 py-2 border border-app-border text-text-primary rounded-lg hover:bg-app-bg transition"
+          >
+            Match Memberships CSV
+          </button>
+          <button
             onClick={() => setShowImport(true)}
             className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition"
           >
@@ -261,25 +268,45 @@ export default function MigrationPage() {
         </div>
       </div>
 
-      {/* One importer — everything in a single upload */}
-      <div className="bg-surface border border-app-border rounded-xl p-4 mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-text-primary mb-1">Import your whole roster in one upload</p>
-          <p className="text-[13px] text-text-muted">
-            Upload everyone from your old system in a single CSV — active or not. Map any columns you
-            have: contact info, address, guardian details, your custom fields, and (optionally) each
-            member&apos;s <strong className="text-text-primary">membership, price, and billing date</strong> so
-            their plan attaches automatically. Everyone comes in as a Prospect and is
-            <strong className="text-text-primary"> never charged</strong> until they activate. One contact
-            email/phone is enough; for a minor it&apos;s the guardian&apos;s.
+      {/* Two-step import — members first, then (optionally) match their memberships */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div className="bg-surface border border-app-border rounded-xl p-4 flex flex-col">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-5 h-5 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">1</span>
+            <p className="text-sm font-semibold text-text-primary">Import all your clients</p>
+          </div>
+          <p className="text-[13px] text-text-muted flex-1">
+            Upload your <strong className="text-text-primary">full roster</strong> in one CSV — active or not.
+            Map any columns you have: contact info, address, guardian details, and your custom fields.
+            You can also include each member&apos;s membership, price &amp; billing date here. Everyone comes
+            in as a Prospect and is <strong className="text-text-primary">never charged</strong> until they
+            activate. One contact email/phone is enough; for a minor it&apos;s the guardian&apos;s.
           </p>
+          <button
+            onClick={() => setShowImport(true)}
+            className="mt-3 self-start text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover"
+          >
+            Import / Migrate Members
+          </button>
         </div>
-        <button
-          onClick={() => setShowImport(true)}
-          className="self-start text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover whitespace-nowrap"
-        >
-          Import / Migrate Members
-        </button>
+        <div className="bg-surface border border-app-border rounded-xl p-4 flex flex-col">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-5 h-5 rounded-full bg-brand/15 text-brand text-xs font-semibold flex items-center justify-center flex-shrink-0">2</span>
+            <p className="text-sm font-semibold text-text-primary">Match memberships (separate file)</p>
+          </div>
+          <p className="text-[13px] text-text-muted flex-1">
+            If your old system exports <strong className="text-text-primary">clients and memberships as
+            separate files</strong>, upload the memberships CSV here. It matches each one (by email or
+            name) to a client from step 1 and attaches their plan, price &amp; billing date so they keep
+            their existing cycle.
+          </p>
+          <button
+            onClick={() => setShowMembershipImport(true)}
+            className="mt-3 self-start text-sm px-3 py-1.5 border border-app-border text-text-primary rounded-lg hover:bg-app-bg"
+          >
+            Match Memberships CSV
+          </button>
+        </div>
       </div>
 
       {/* Owner guidance */}
@@ -501,6 +528,7 @@ export default function MigrationPage() {
       </div>
 
       {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
+      {showMembershipImport && <MembershipImportWizard onClose={() => setShowMembershipImport(false)} onDone={() => { setShowMembershipImport(false); load(); }} />}
       {historyFor && <HistoryDrawer row={historyFor} onClose={() => setHistoryFor(null)} />}
       {drawerFor && (
         <MigrationDrawer
