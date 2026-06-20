@@ -805,7 +805,14 @@ function BookingModal({
             )}
             <div className="flex justify-between">
               <span className="text-text-muted">Payment</span>
-              <span>{booking.paymentType ?? "—"}{booking.pricePaid != null ? ` · $${Number(booking.pricePaid).toFixed(2)}` : ""}</span>
+              <span>
+                {booking.paymentType ?? "—"}{booking.pricePaid != null ? ` · $${Number(booking.pricePaid).toFixed(2)}` : ""}
+                {(booking.paymentType === "CASH" || booking.paymentType === "CHECK") && (
+                  <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${booking.ownerApproved ? "bg-lime-accent/25 text-charcoal" : "bg-orange-accent/20 text-text-primary"}`}>
+                    {booking.ownerApproved ? "payment confirmed" : "payment pending"}
+                  </span>
+                )}
+              </span>
             </div>
             {booking.creditLedger && (
               <div className="flex justify-between">
@@ -892,6 +899,13 @@ function BookingModal({
                   Confirm or change time
                 </button>
               )}
+              {(booking.paymentType === "CASH" || booking.paymentType === "CHECK") &&
+                !booking.ownerApproved &&
+                !["CANCELED", "DECLINED"].includes(booking.status) && (
+                  <button onClick={() => send({ action: "CONFIRM_PAYMENT" })} disabled={saving} className="px-3 py-1.5 text-sm bg-lime-accent text-charcoal font-medium rounded-md hover:opacity-90 disabled:opacity-50">
+                    {saving ? "…" : `Confirm ${booking.paymentType === "CHECK" ? "check" : "cash"} payment`}
+                  </button>
+                )}
               {booking.status === "CONFIRMED" && !booking.ownerApproved && (
                 <button onClick={() => send({ action: "APPROVE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
                   {saving ? "…" : "Approve"}

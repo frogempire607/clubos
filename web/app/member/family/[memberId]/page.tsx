@@ -28,6 +28,9 @@ type Data = {
   parentControls: Controls | null;
 };
 
+type Purchase = { type: "subscription" | "sale"; id: string; label: string; status: string };
+type Target = { id: string; firstName: string; lastName: string; kind: string };
+
 export default function FamilyControlsPage() {
   const params = useParams<{ memberId: string }>();
   const router = useRouter();
@@ -46,6 +49,41 @@ export default function FamilyControlsPage() {
   const [saved, setSaved] = useState(false);
   const [openingBilling, setOpeningBilling] = useState(false);
   const [billingMsg, setBillingMsg] = useState("");
+  const [ownLogin, setOwnLogin] = useState<{ hasLogin: boolean; email: string | null }>({ hasLogin: false, email: null });
+  const [childEmail, setChildEmail] = useState("");
+  const [invitingLogin, setInvitingLogin] = useState(false);
+  const [loginMsg, setLoginMsg] = useState("");
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [targets, setTargets] = useState<Target[]>([]);
+  const [moveTo, setMoveTo] = useState<Record<string, string>>({});
+  const [movingKey, setMovingKey] = useState<string | null>(null);
+  const [purchaseMsg, setPurchaseMsg] = useState("");
+
+  function loadPurchases() {
+    fetch(`/api/member/family/${params.memberId}/purchases`)
+      .then((r) => (r.ok ? r.json() : { purchases: [], targets: [] }))
+      .then((d) => { setPurchases(d.purchases || []); setTargets(d.targets || []); });
+  }
+  useEffect(() => { loadPurchases(); }, [params.memberId]);
+
+  async function reassign(p: Purchase) {
+    const key = `${p.type}:${p.id}`;
+    const target = moveTo[key];
+    if (!target) return;
+    setMovingKey(key);
+    setPurchaseMsg("");
+    const res = await fetch(`/api/member/family/${params.memberId}/purchases`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: p.type, id: p.id, targetMemberId: target }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setMovingKey(null);
+    if (!res.ok) { setPurchaseMsg(typeof d.error === "string" ? d.error : "Could not move purchase."); return; }
+    const name = targets.find((t) => t.id === target);
+    setPurchaseMsg(`Moved "${p.label}"${name ? ` to ${name.firstName}` : ""}.`);
+    loadPurchases();
+  }
 
   useEffect(() => {
     fetch(`/api/member/family/${params.memberId}/controls`).then(async (r) => {
@@ -66,9 +104,31 @@ export default function FamilyControlsPage() {
       setDailySpendLimit(
         typeof c.dailySpendLimit === "number" ? String(c.dailySpendLimit) : "",
       );
+      const ol = (d as Data & { ownLogin?: { hasLogin: boolean; email: string | null } }).ownLogin;
+      if (ol) { setOwnLogin(ol); setChildEmail(ol.email ?? ""); }
       setLoading(false);
     });
   }, [params.memberId]);
+
+  async function inviteChildLogin() {
+    setInvitingLogin(true);
+    setLoginMsg("");
+    const res = await fetch(`/api/member/family/${params.memberId}/invite-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: childEmail.trim(),
+        requirePaymentApproval,
+        allowOwnMessaging,
+        allowPackagePurchase,
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setInvitingLogin(false);
+    if (!res.ok) { setLoginMsg(typeof d.error === "string" ? d.error : "Could not send invite."); return; }
+    setLoginMsg(d.message || "Invite sent.");
+    setOwnLogin({ hasLogin: true, email: childEmail.trim().toLowerCase() });
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -176,6 +236,93 @@ export default function FamilyControlsPage() {
           </div>
         )}
       </section>
+
+      {/* Child's own login — optional. Parent stays guardian + billing manager. */}
+      <section className="bg-white border border-stone-200 rounded-xl p-4 mb-4">
+        <h2 className="text-sm font-semibold text-stone-900 mb-1">{data.member.firstName}&apos;s own login</h2>
+        <p className="text-xs text-stone-500 mb-3">
+          Optionally give {data.member.firstName} their own login so they can sign in themselves.
+          You stay the guardian and billing manager, and the controls below decide what they can do
+          on their own.
+        </p>
+        {ownLogin.hasLogin ? (
+          <div className="text-sm text-stone-700 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 mb-2">
+            Has their own login{ownLogin.email ? <> · <strong>{ownLogin.email}</strong></> : null}.
+          </div>
+        ) : null}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="email"
+            value={childEmail}
+            onChange={(e) => setChildEmail(e.target.value)}
+            placeholder={`${data.member.firstName}'s email`}
+            className="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+          />
+          <button
+            type="button"
+            onClick={inviteChildLogin}
+            disabled={invitingLogin || !childEmail.trim()}
+            className="text-sm px-4 py-2 bg-stone-900 text-white rounded-lg hover:bg-stone-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            {invitingLogin ? "Sending…" : ownLogin.hasLogin ? "Resend invite" : "Send login invite"}
+          </button>
+        </div>
+        <p className="text-[11px] text-stone-400 mt-2">
+          They&apos;ll get an email to set their own password. Save the controls below first if you
+          changed them — the invite uses your current settings.
+        </p>
+        {loginMsg && (
+          <div className="mt-2 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+            {loginMsg}
+          </div>
+        )}
+      </section>
+
+      {/* Purchases — move one to another profile if it was bought under the wrong athlete. */}
+      {purchases.length > 0 && targets.length > 0 && (
+        <section className="bg-white border border-stone-200 rounded-xl p-4 mb-4">
+          <h2 className="text-sm font-semibold text-stone-900 mb-1">Purchases</h2>
+          <p className="text-xs text-stone-500 mb-3">
+            Bought something under the wrong athlete? Move it to the right profile.
+          </p>
+          <div className="space-y-2">
+            {purchases.map((p) => {
+              const key = `${p.type}:${p.id}`;
+              return (
+                <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2 border border-stone-200 rounded-lg px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-stone-800 truncate">{p.label}</p>
+                    <p className="text-[11px] text-stone-400">{p.type === "subscription" ? "Membership" : "Product"} · {p.status}</p>
+                  </div>
+                  <select
+                    value={moveTo[key] ?? ""}
+                    onChange={(e) => setMoveTo((s) => ({ ...s, [key]: e.target.value }))}
+                    className="text-sm px-2 py-1.5 border border-stone-300 rounded-lg"
+                  >
+                    <option value="">Move to…</option>
+                    {targets.map((t) => (
+                      <option key={t.id} value={t.id}>{t.firstName} {t.lastName}{t.kind === "self" ? " (you)" : ""}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => reassign(p)}
+                    disabled={!moveTo[key] || movingKey === key}
+                    className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-40 whitespace-nowrap"
+                  >
+                    {movingKey === key ? "Moving…" : "Move"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {purchaseMsg && (
+            <div className="mt-2 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+              {purchaseMsg}
+            </div>
+          )}
+        </section>
+      )}
 
       <form onSubmit={save} className="space-y-3">
         {/* Birthday lock */}

@@ -106,6 +106,52 @@ export async function sendActivation(
   return { ok: true };
 }
 
+// Ensure a member has a valid activation token + INVITED status WITHOUT sending
+// an email. Used for family onboarding: when one invite is emailed to a guardian
+// for the whole family, every sibling still needs a token so the activation page
+// can surface them and the guardian can "set up the next athlete" from the one
+// email. Never downgrades ACTIVATED/COMPLETED.
+export async function ensureActivationToken(
+  memberId: string,
+  clubId: string,
+  actorUserId: string | null,
+): Promise<{ ok: boolean; reason?: string }> {
+  const member = await prisma.member.findFirst({
+    where: { id: memberId, clubId, deletedAt: null },
+  });
+  if (!member) return { ok: false, reason: "not found" };
+  if (
+    member.migrationStatus === MIGRATION_STATUS.COMPLETED ||
+    member.migrationStatus === MIGRATION_STATUS.ACTIVATED
+  ) {
+    return { ok: true }; // already past the invite stage — leave it.
+  }
+
+  let token = member.activationToken;
+  const expires = member.activationTokenExpires;
+  if (!token || !expires || expires < new Date()) {
+    token = newActivationToken();
+  }
+  await prisma.member.update({
+    where: { id: member.id },
+    data: {
+      activationToken: token,
+      activationTokenExpires: new Date(Date.now() + TOKEN_TTL_DAYS * 86400000),
+      migrationStatus: MIGRATION_STATUS.INVITED,
+    },
+  });
+  await prisma.memberMigrationEvent.create({
+    data: {
+      clubId,
+      memberId: member.id,
+      type: "ACTIVATION_SENT",
+      message: "Included in a family onboarding invite (no separate email sent)",
+      actorUserId,
+    },
+  });
+  return { ok: true };
+}
+
 // #7: send a free-join registration link to a NON-member. Reuses the activation
 // token machinery but flags activationKind=JOIN and sends the "join the club"
 // email. Skips anyone who already has an active membership.

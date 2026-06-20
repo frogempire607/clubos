@@ -142,6 +142,7 @@ export default function MigrationPage() {
   const [showMembershipImport, setShowMembershipImport] = useState(false);
   const [historyFor, setHistoryFor] = useState<Row | null>(null);
   const [drawerFor, setDrawerFor] = useState<Row | null>(null);
+  const [showFamilies, setShowFamilies] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -187,6 +188,25 @@ export default function MigrationPage() {
     }
     setBusy(false);
     setMsg(`Done — ${totalSent} ${reminder ? "reminder" : "activation"} email(s) sent${totalFailed ? `, ${totalFailed} failed` : ""}.`);
+    setSelected(new Set());
+    load();
+  }
+
+  // Send to an explicit set of member ids (used by the family panel to send one
+  // invite per family). The server collapses a family to a single guardian email.
+  async function sendBulkIds(memberIds: string[], reminder: boolean) {
+    if (memberIds.length === 0) return;
+    setBusy(true);
+    setMsg("");
+    const res = await fetch("/api/members/migration/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "selected", memberIds, reminder }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setMsg(typeof d.error === "string" ? d.error : "Send failed"); return; }
+    setMsg(`Sent ${d.sent || 0} invite(s)${d.membersInvited ? ` covering ${d.membersInvited} sibling(s)` : ""}.`);
     setSelected(new Set());
     load();
   }
@@ -338,8 +358,28 @@ export default function MigrationPage() {
         >
           Send reminders to all pending
         </button>
+        <button
+          onClick={() => setShowFamilies((v) => !v)}
+          className={`text-xs px-3 py-1.5 rounded-lg border transition ${
+            showFamilies ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"
+          }`}
+        >
+          {showFamilies ? "Hide family groups" : "Family onboarding groups"}
+        </button>
         {msg && <span className="text-xs text-text-muted">{msg}</span>}
       </div>
+
+      {showFamilies && (
+        <FamiliesPanel
+          busy={busy}
+          onSendFamily={async (childIds) => {
+            setSelected(new Set(childIds));
+            // Defer so the selection state is applied before send reads it.
+            await new Promise((r) => setTimeout(r, 0));
+            await sendBulkIds(childIds, false);
+          }}
+        />
+      )}
 
       {/* Table */}
       <div className="bg-surface border border-app-border rounded-xl overflow-hidden">
@@ -478,6 +518,115 @@ export default function MigrationPage() {
           onClose={() => setDrawerFor(null)}
           onChanged={() => { setDrawerFor(null); load(); }}
         />
+      )}
+    </div>
+  );
+}
+
+// ── Family onboarding groups — same guardian email = one family ──────────────
+type FamilyChild = {
+  id: string; firstName: string; lastName: string;
+  migrationStatus: string; approvalStatus: string | null; emailsSent: number;
+  membership: string | null; price: number | null; frequency: string | null;
+};
+type Family = {
+  guardianEmail: string; guardianName: string | null;
+  childCount: number; pendingCount: number; completedCount: number; children: FamilyChild[];
+};
+
+function FamiliesPanel({
+  busy,
+  onSendFamily,
+}: {
+  busy: boolean;
+  onSendFamily: (childIds: string[]) => Promise<void>;
+}) {
+  const [families, setFamilies] = useState<Family[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/members/migration/families")
+      .then((r) => (r.ok ? r.json() : { families: [] }))
+      .then((d) => { setFamilies(d.families || []); setLoading(false); });
+  }, []);
+
+  const pendingIds = (f: Family) =>
+    f.children.filter((c) => c.migrationStatus !== "COMPLETED").map((c) => c.id);
+
+  return (
+    <div className="bg-surface border border-app-border rounded-xl p-4 mb-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <p className="text-sm font-semibold text-text-primary">Family onboarding</p>
+          <p className="text-[13px] text-text-muted">
+            Members sharing a guardian email are grouped. Send <strong>one invite per family</strong> — the
+            guardian sets a password once and onboards every child in the same flow.
+          </p>
+        </div>
+        {families.length > 0 && (
+          <button
+            onClick={() => onSendFamily(families.flatMap((f) => pendingIds(f)))}
+            disabled={busy}
+            className="text-xs px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+          >
+            Send one invite to every family
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-text-muted py-4 text-center">Loading families…</p>
+      ) : families.length === 0 ? (
+        <p className="text-sm text-text-muted py-4 text-center">
+          No same-email family groups detected yet. Import a roster where siblings share a guardian email.
+        </p>
+      ) : (
+        <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+          {families.map((f) => {
+            const pend = pendingIds(f);
+            return (
+              <div key={f.guardianEmail} className="border border-app-border rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-text-primary truncate">
+                      {f.guardianName || "Guardian"}{" "}
+                      <span className="text-text-muted font-normal">· {f.guardianEmail}</span>
+                    </p>
+                    <p className="text-[11px] text-text-muted">
+                      {f.childCount} athlete{f.childCount === 1 ? "" : "s"} ·{" "}
+                      {f.pendingCount} pending · {f.completedCount} done
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onSendFamily(pend)}
+                    disabled={busy || pend.length === 0}
+                    className="text-xs px-3 py-1.5 border border-brand text-brand rounded-lg hover:bg-brand/10 disabled:opacity-40 whitespace-nowrap flex-shrink-0"
+                  >
+                    {pend.length === 0 ? "All set up" : "Send one invite"}
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {f.children.map((c) => (
+                    <span
+                      key={c.id}
+                      className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                        c.migrationStatus === "COMPLETED"
+                          ? "border-lime-accent/40 bg-lime-accent/15 text-text-primary"
+                          : c.approvalStatus === "PENDING_APPROVAL"
+                            ? "border-orange-accent/40 bg-orange-accent/15 text-text-primary"
+                            : "border-app-border text-text-muted"
+                      }`}
+                      title={c.membership ? `${c.membership}${c.price != null ? ` · $${c.price.toFixed(2)}` : ""}` : undefined}
+                    >
+                      {c.firstName} {c.lastName}
+                      {c.migrationStatus === "COMPLETED" ? " ✓" : ""}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

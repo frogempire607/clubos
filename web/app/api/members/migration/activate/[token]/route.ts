@@ -7,6 +7,7 @@ import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
+import { inviteChildLogin } from "@/lib/childLogin";
 
 // NO AUTH — token-gated public activation endpoint.
 
@@ -271,6 +272,10 @@ const postSchema = z.object({
   // Path B: a final-period-paid member can optionally save a card now (no
   // charge, no subscription) so re-enrolling later is one tap.
   addCardOnFile: z.boolean().optional(),
+  // Optional: give this minor their own login. The guardian stays guardian +
+  // billing manager; childRequireApproval gates the child's paid bookings.
+  childLoginEmail: z.string().email().optional().nullable(),
+  childRequireApproval: z.boolean().optional(),
 });
 
 // POST — complete activation: set password, confirm profile, accept autopay,
@@ -525,8 +530,41 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   const validRequested = requestedDate && !isNaN(requestedDate.getTime()) ? requestedDate : null;
 
   // #6: a member the owner marked as already paid through their final period
-  // collects no card and creates no subscription — they just activate.
+  // collects no card — but we STILL attach their membership + a non-renewing
+  // subscription so the owner-side profile shows the plan (previously this path
+  // marked them ACTIVE with membershipId=null and zero subscriptions: the
+  // "ACTIVE but no membership attached" bug).
   const finalPaid = !!member.migrationFinalPeriodPaid;
+
+  // Resolve the plan to attach when completing a final-period-paid member.
+  let finalMembershipId: string | null = null;
+  let finalPlanName = member.legacyMembershipName || "Continued membership";
+  let finalPlanPrice = member.legacyMembershipPrice ? Number(member.legacyMembershipPrice) : 0;
+  let finalPlanPeriod = member.legacyBillingFrequency || "MONTHLY";
+  if (finalPaid) {
+    const plan = await resolvePlan(member);
+    if (plan.name) finalPlanName = plan.name;
+    if (plan.price != null) finalPlanPrice = plan.price;
+    if (plan.frequency) finalPlanPeriod = plan.frequency;
+    if (member.migrationPriceOverride != null) finalPlanPrice = Number(member.migrationPriceOverride);
+    if (plan.membershipId) {
+      finalMembershipId = plan.membershipId;
+    } else {
+      // No owner-assigned plan — synthesize one from the legacy snapshot so the
+      // membership is real and cancelable like any other (mirrors the approve
+      // route's behavior for unmatched members).
+      const createdPlan = await prisma.membership.create({
+        data: {
+          clubId: club.id,
+          name: finalPlanName,
+          options: JSON.stringify([
+            { label: "Continued", price: finalPlanPrice, billingPeriod: finalPlanPeriod },
+          ]),
+        },
+      });
+      finalMembershipId = createdPlan.id;
+    }
+  }
 
   // #5: how the member chose to pay. CASH/CHECK collect no card and send the
   // whole registration to the owner to approve. CARD keeps the secure redirect.
@@ -728,6 +766,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
             migrationCompletedAt: new Date(),
             status: "ACTIVE",
             approvalStatus: "APPROVED",
+            // Attach the membership so the owner profile shows it (not blank).
+            ...(finalMembershipId ? { membershipId: finalMembershipId } : {}),
           }
         : {
             migrationStatus: MIGRATION_STATUS.ACTIVATED,
@@ -741,6 +781,57 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
 
   // Grant the guardian access to this minor (no-op for own-login members).
   await linkGuardianIfManaged();
+
+  // Final-period-paid: record the non-renewing membership so the owner profile
+  // shows the plan (and event/member pricing treats them as an active member)
+  // without any recurring charge. Idempotent in practice — a replay 409s above.
+  if (finalPaid && finalMembershipId) {
+    const existingSub = await prisma.memberSubscription.findFirst({
+      where: { memberId: member.id, membershipId: finalMembershipId, status: "active" },
+      select: { id: true },
+    });
+    if (!existingSub) {
+      await prisma.memberSubscription.create({
+        data: {
+          memberId: member.id,
+          membershipId: finalMembershipId,
+          optionLabel: finalPlanName,
+          price: finalPlanPrice,
+          billingPeriod: finalPlanPeriod,
+          billingType: "MANUAL",
+          autoRenew: false,
+          status: "active",
+          startDate: member.membershipStartDate ?? new Date(),
+          ...(member.commitmentEndDate ? { endDate: member.commitmentEndDate } : {}),
+          notes: "Final period already paid — non-renewing; ends on the commitment date.",
+        },
+      });
+    }
+  }
+
+  // Optional child login: the guardian chose to give this minor their own
+  // sign-in. Non-blocking — a failure here never fails activation.
+  if (guardianManaged && body.childLoginEmail) {
+    try {
+      await inviteChildLogin({
+        member: {
+          id: member.id,
+          clubId: club.id,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          isMinor: member.isMinor,
+          userId: null, // guardian-managed minors aren't linked to the guardian's user
+          guardianEmail: member.guardianEmail,
+        },
+        childEmail: body.childLoginEmail,
+        controls: { requirePaymentApproval: body.childRequireApproval ?? true },
+        club: { name: club.name, slug: club.slug },
+        actorUserId: user.id,
+      });
+    } catch (e) {
+      console.error("[activate] child login invite failed", e);
+    }
+  }
 
   // Required-document signatures (one or many). Record one signature row per
   // acknowledged document, attributed to the signer (guardian for a minor).

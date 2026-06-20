@@ -312,6 +312,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         parentControls: member.parentControls,
       },
       bookerUserId: session.user.id,
+      // The resolved member is a guardianed child when its own login isn't the
+      // booker (own profile → userId === booker; child → null or the child's
+      // own userId). A guardian booking for their child is the oversight.
+      bookerIsGuardian: member.userId !== session.user.id,
       kind: "EVENT_REGISTER",
       amount: priceCents / 100,
       payload: { eventId: event.id, pricingType, memberId: member.id },

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { UserCheck } from "lucide-react";
 import { packageAllowsLessonType, privateDurationLabel } from "@/lib/privateLessonRules";
+import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
 type LessonType = {
@@ -225,6 +226,8 @@ export default function MemberPrivatesPage() {
   const [availability, setAvailability] = useState<CoachAvailability[]>([]);
   const [packages, setPackages] = useState<ShopPackage[]>([]);
   const [hasProfile, setHasProfile] = useState(true);
+  const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [typeId, setTypeId] = useState("");
@@ -233,6 +236,7 @@ export default function MemberPrivatesPage() {
   const [partners, setPartners] = useState<PartnerDraft[]>([]);
   const [slots, setSlots] = useState<Slot[]>([{ date: "", startTime: "" }]);
   const [notes, setNotes] = useState("");
+  const [payMethod, setPayMethod] = useState<"CARD" | "CASH" | "CHECK">("CARD");
   const [saving, setSaving] = useState(false);
   const [buyingPackageId, setBuyingPackageId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -246,8 +250,11 @@ export default function MemberPrivatesPage() {
 
   function load() {
     setLoading(true);
+    // Bookings + credits are scoped to the selected athlete (self or a child the
+    // viewer guardians); omit on first load to take the default profile.
+    const mq = selectedMemberId ? `?memberId=${encodeURIComponent(selectedMemberId)}` : "";
     Promise.all([
-      fetch("/api/member/privates").then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/member/privates${mq}`).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/member/privates/partner-response").then((r) => (r.ok ? r.json() : [])),
       fetch("/api/member/private-packages").then((r) => (r.ok ? r.json() : { packages: [] })),
     ]).then(([d, inv, pk]) => {
@@ -258,13 +265,16 @@ export default function MemberPrivatesPage() {
         setCredits(d.credits || []);
         setAvailability(Array.isArray(d.availability) ? d.availability : []);
         setHasProfile(d.hasMemberProfile);
+        setAccessible(d.accessible || []);
+        if (!selectedMemberId && d.contextMemberId) setSelectedMemberId(d.contextMemberId);
       }
       setInvites(Array.isArray(inv) ? inv : []);
       setPackages(Array.isArray(pk?.packages) ? pk.packages : []);
       setLoading(false);
     });
   }
-  useEffect(() => { load(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [selectedMemberId]);
 
   // Drop the bought/canceled query params from the URL so a refresh
   // doesn't re-show the banner.
@@ -449,11 +459,13 @@ export default function MemberPrivatesPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        memberId: selectedMemberId,
         lessonTypeId: typeId,
         priceOptionId: optionId || null,
         coachId: coachId || null,
         requestedSlots: validSlots,
         notes: notes || null,
+        paymentMethod: payMethod,
         partners: partners
           .filter((p) => p.kind !== null)
           .map((p) => ({
@@ -511,6 +523,13 @@ export default function MemberPrivatesPage() {
           All purchase options →
         </Link>
       </div>
+
+      <ProfileSwitcher
+        accessible={accessible}
+        value={selectedMemberId}
+        onChange={setSelectedMemberId}
+        label="Lesson for"
+      />
 
       {!hasProfile && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800">
@@ -950,6 +969,25 @@ export default function MemberPrivatesPage() {
                   placeholder="What do you want to work on?"
                 />
               </div>
+
+              {!usableCredit && (
+                <div className="mt-4">
+                  <label className="block text-[11px] text-stone-500 mb-1">How will you pay?</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["CARD", "CASH", "CHECK"] as const).map((m) => (
+                      <button key={m} type="button" onClick={() => setPayMethod(m)}
+                        className={`px-3 py-2 border rounded-lg text-sm font-medium ${payMethod === m ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 text-stone-700"}`}>
+                        {m === "CARD" ? "Card" : m === "CASH" ? "Cash" : "Check"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-stone-400 mt-1">
+                    {payMethod === "CARD"
+                      ? "Your club bills you after the lesson is confirmed."
+                      : `Pay your coach by ${payMethod.toLowerCase()} — they confirm it when collected.`}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

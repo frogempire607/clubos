@@ -7,9 +7,12 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
+import { resolveFamilyContext } from "@/lib/memberContext";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
+  // Which profile this purchase is for (self or a child the viewer guardians).
+  memberId: z.string().optional(),
 });
 
 // POST /api/member/products/[id]/buy
@@ -19,7 +22,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { quantity } = schema.parse(await req.json().catch(() => ({})));
+    const { quantity, memberId } = schema.parse(await req.json().catch(() => ({})));
 
     const product = await prisma.product.findFirst({
       where: {
@@ -46,9 +49,19 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       );
     }
 
-    const member = await prisma.member.findFirst({
-      where: { userId: session.user.id, clubId: session.user.clubId, deletedAt: null },
+    // Family-aware: resolve which profile this purchase is for (self or a child
+    // the viewer guardians).
+    const sessionUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { email: true },
     });
+    const resolved = sessionUser
+      ? await resolveFamilyContext(session.user.id, session.user.clubId, sessionUser.email, memberId)
+      : null;
+    if (resolved === "FORBIDDEN") {
+      return NextResponse.json({ error: "You can't manage that profile." }, { status: 403 });
+    }
+    const member = resolved?.context ?? null;
     if (!member) {
       return NextResponse.json(
         { error: "Your account isn't linked to a member profile yet. Contact your club." },
@@ -77,9 +90,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         parentControls: member.parentControls,
       },
       bookerUserId: session.user.id,
+      bookerIsGuardian: resolved?.bookerIsGuardian ?? false,
       kind: "PRODUCT_BUY",
       amount: totalAmount,
-      payload: { productId: product.id, quantity },
+      payload: { productId: product.id, quantity, memberId: member.id },
     });
     if (gate.kind === "block") {
       return NextResponse.json(gate.body, { status: gate.status });

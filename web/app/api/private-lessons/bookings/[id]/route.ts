@@ -7,7 +7,7 @@ import { sendMemberMessage } from "@/lib/memberMessaging";
 import { activatePartnersOnAccept } from "@/lib/privatePartners";
 
 const schema = z.object({
-  action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "CANCEL", "ASSIGN_COACH", "APPROVE"]),
+  action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "CANCEL", "ASSIGN_COACH", "APPROVE", "CONFIRM_PAYMENT"]),
   // For ACCEPT / PROPOSE
   confirmedStartAt: z.string().optional().nullable(),
   confirmedEndAt:   z.string().optional().nullable(),
@@ -142,6 +142,21 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       case "APPROVE": {
         if (!isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = { ownerApproved: true };
+        break;
+      }
+
+      case "CONFIRM_PAYMENT": {
+        // The ASSIGNED coach (or owner) confirms a cash/check payment was
+        // collected for this private. Routes the cash/check approval to the
+        // specific staff member running the lesson.
+        if (!isCoach && !isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        updateData = { ownerApproved: true };
+        await sendMemberMessage({
+          clubId: session.user.clubId,
+          senderId: session.user.id,
+          memberId: booking.memberId,
+          body: `Your ${booking.paymentType === "CHECK" ? "check" : "cash"} payment for "${booking.lessonType.title}" has been confirmed. Thanks!`,
+        }).catch(() => {});
         break;
       }
     }

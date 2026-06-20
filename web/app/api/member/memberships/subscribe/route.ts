@@ -7,10 +7,14 @@ import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/l
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
+import { resolveFamilyContext } from "@/lib/memberContext";
 
 const schema = z.object({
   membershipId: z.string(),
   optionLabel:  z.string(),
+  // Which profile this is for — the guardian's own, or one of their children.
+  // Omitted = act on the viewer's default profile (self, else first child).
+  memberId: z.string().optional(),
 });
 
 type Option = { label: string; price: number; billingPeriod: string };
@@ -35,7 +39,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { membershipId, optionLabel } = schema.parse(await req.json());
+    const { membershipId, optionLabel, memberId } = schema.parse(await req.json());
 
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
     if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
@@ -43,9 +47,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
     }
 
-    const member = await prisma.member.findFirst({
-      where: { userId: session.user.id, clubId: club.id, deletedAt: null },
+    // Family-aware: resolve the profile this purchase is for (self OR a child
+    // the viewer guardians). A guardian with no membership of their own can buy
+    // for a child by passing that child's memberId.
+    const sessionUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { email: true },
     });
+    const resolved = sessionUser
+      ? await resolveFamilyContext(session.user.id, club.id, sessionUser.email, memberId)
+      : null;
+    if (resolved === "FORBIDDEN") {
+      return NextResponse.json({ error: "You can't manage that profile." }, { status: 403 });
+    }
+    const member = resolved?.context ?? null;
     if (!member) {
       return NextResponse.json(
         { error: "Your account isn't linked to a member profile yet. Contact your club." },
@@ -82,9 +97,10 @@ export async function POST(req: Request) {
         parentControls: member.parentControls,
       },
       bookerUserId: session.user.id,
+      bookerIsGuardian: resolved?.bookerIsGuardian ?? false,
       kind: "MEMBERSHIP_SUBSCRIBE",
       amount: option.price,
-      payload: { membershipId, optionLabel },
+      payload: { membershipId, optionLabel, memberId: member.id },
     });
     if (gate.kind === "block") {
       return NextResponse.json(gate.body, { status: gate.status });

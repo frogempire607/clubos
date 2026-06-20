@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { resolveFamilyContext } from "@/lib/memberContext";
 
 // GET /api/member/products
 export async function GET() {
@@ -31,10 +32,22 @@ export async function GET() {
     },
   });
 
-  const member = await prisma.member.findFirst({
-    where: { userId: session.user.id, clubId: session.user.clubId, deletedAt: null },
-    select: { id: true },
+  // Family-aware: the viewer can buy for their own profile or any child they
+  // guardian, so report all accessible profiles for the switcher.
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { email: true },
   });
+  const resolved = user
+    ? await resolveFamilyContext(session.user.id, session.user.clubId, user.email)
+    : null;
+  const accessible = resolved && resolved !== "FORBIDDEN" ? resolved.accessible : [];
+  const defaultMemberId = resolved && resolved !== "FORBIDDEN" ? resolved.context?.id ?? null : null;
 
-  return NextResponse.json({ products, hasMemberProfile: !!member });
+  return NextResponse.json({
+    products,
+    accessible,
+    defaultMemberId,
+    hasMemberProfile: accessible.length > 0,
+  });
 }

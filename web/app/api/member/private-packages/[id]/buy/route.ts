@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
-import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { resolveFamilyContext } from "@/lib/memberContext";
 import { applyParentalControls } from "@/lib/parentalControls";
 
 // POST /api/member/private-packages/[id]/buy
@@ -15,7 +15,7 @@ import { applyParentalControls } from "@/lib/parentalControls";
 // a PrivateCreditLedger row here — credits get granted only after the
 // webhook confirms payment, so the member can't see (or use) credits
 // they haven't paid for if checkout abandons.
-export async function POST(_req: Request, context: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -24,13 +24,20 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   }
 
   const clubId = session.user.clubId;
+  const body = (await req.json().catch(() => ({}))) as { memberId?: string };
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { email: true },
   });
-  const member = user
-    ? await findOrAutoLinkMember(session.user.id, clubId, user.email)
+  // Family-aware: buy a package for the viewer's own profile or a child they
+  // guardian.
+  const resolved = user
+    ? await resolveFamilyContext(session.user.id, clubId, user.email, body.memberId)
     : null;
+  if (resolved === "FORBIDDEN") {
+    return NextResponse.json({ error: "You can't manage that profile." }, { status: 403 });
+  }
+  const member = resolved?.context ?? null;
   if (!member) {
     return NextResponse.json(
       { error: "Your account isn't linked to a member profile yet. Contact your club." },
@@ -81,9 +88,10 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
       parentControls: member.parentControls,
     },
     bookerUserId: session.user.id,
+    bookerIsGuardian: resolved?.bookerIsGuardian ?? false,
     kind: "PACKAGE_BUY",
     amount: Number(pkg.price),
-    payload: { packageId: pkg.id },
+    payload: { packageId: pkg.id, memberId: member.id },
   });
   if (gate.kind === "block") {
     return NextResponse.json(gate.body, { status: gate.status });

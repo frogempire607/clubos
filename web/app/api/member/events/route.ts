@@ -2,16 +2,17 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { resolveFamilyContext } from "@/lib/memberContext";
 
 // GET /api/member/events
 // Upcoming events visible to members. Filters out STAFF_ONLY visibility,
 // staff-only purchase access, and respects publish/unpublish windows.
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const now = new Date();
+  const requestedMemberId = new URL(req.url).searchParams.get("memberId");
 
   const [events, user] = await Promise.all([
     prisma.event.findMany({
@@ -37,10 +38,12 @@ export async function GET() {
     prisma.user.findUnique({ where: { id: session.user.id }, select: { email: true } }),
   ]);
 
-  // Auto-link by email if no userId-linked member exists yet
-  const member = user
-    ? await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email)
+  // Family-aware: self or a child the viewer guardians (chosen via memberId).
+  const resolved = user
+    ? await resolveFamilyContext(session.user.id, session.user.clubId, user.email, requestedMemberId)
     : null;
+  const accessible = resolved && resolved !== "FORBIDDEN" ? resolved.accessible : [];
+  const member = resolved && resolved !== "FORBIDDEN" ? resolved.context : null;
 
   // Fetch bookings + subscriptions after resolving the member record
   const [bookings, subscriptions] = member
@@ -66,6 +69,8 @@ export async function GET() {
     bookings,
     activeMembershipIds: subscriptions.map((s) => s.membershipId),
     isActiveMember,
-    hasMemberProfile: !!member,
+    accessible,
+    contextMemberId: member?.id ?? null,
+    hasMemberProfile: accessible.length > 0,
   });
 }

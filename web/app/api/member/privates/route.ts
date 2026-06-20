@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { resolveFamilyContext } from "@/lib/memberContext";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 import { sendPrivateLessonRequestedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -19,18 +19,23 @@ function optionCoachIds(option: Opt, eligibleCoachIds: string[], allCoachIds: st
 
 // GET /api/member/privates — lesson types (+ price options), the coaches who
 // teach them, and this member's existing private bookings.
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const clubId = session.user.clubId;
+  const requestedMemberId = new URL(req.url).searchParams.get("memberId");
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { email: true },
   });
-  const member = user
-    ? await findOrAutoLinkMember(session.user.id, clubId, user.email)
+  // Family-aware: the booking context is the viewer's own profile or whichever
+  // child (they guardian) was requested.
+  const resolved = user
+    ? await resolveFamilyContext(session.user.id, clubId, user.email, requestedMemberId)
     : null;
+  const accessible = resolved && resolved !== "FORBIDDEN" ? resolved.accessible : [];
+  const member = resolved && resolved !== "FORBIDDEN" ? resolved.context : null;
 
   const [types, staff, bookings, credits, availability] = await Promise.all([
     prisma.privateLessonType.findMany({
@@ -102,7 +107,9 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
-    hasMemberProfile: !!member,
+    hasMemberProfile: accessible.length > 0,
+    accessible,
+    contextMemberId: member?.id ?? null,
     types: types.map((t) => ({
       ...t,
       basePrice: Number(t.basePrice),
@@ -151,6 +158,11 @@ const schema = z.object({
   requestedSlots: z.array(slotSchema).min(1).max(16),
   notes: z.string().max(500).optional().nullable(),
   partners: z.array(partnerSchema).max(10).optional().default([]),
+  // Which athlete this private is for (self or a child the viewer guardians).
+  memberId: z.string().optional(),
+  // How they intend to pay. CASH/CHECK surface a payment-confirm step to the
+  // assigned coach. CARD = owner bills later via Stripe (booking stays UNPAID).
+  paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional().default("CARD"),
 });
 
 // POST /api/member/privates — member requests a private for THEMSELVES.
@@ -175,9 +187,15 @@ export async function POST(req: Request) {
     where: { id: session.user.id },
     select: { email: true },
   });
-  const member = user
-    ? await findOrAutoLinkMember(session.user.id, clubId, user.email)
+  // Family-aware: request the private for the viewer's own profile or the
+  // child they chose.
+  const resolved = user
+    ? await resolveFamilyContext(session.user.id, clubId, user.email, data.memberId)
     : null;
+  if (resolved === "FORBIDDEN") {
+    return NextResponse.json({ error: "You can't manage that profile." }, { status: 403 });
+  }
+  const member = resolved?.context ?? null;
   if (!member) {
     return NextResponse.json(
       { error: "Your account isn't linked to a member profile yet. Contact your club." },
@@ -278,6 +296,7 @@ export async function POST(req: Request) {
         parentControls: member.parentControls,
       },
       bookerUserId: session.user.id,
+      bookerIsGuardian: resolved?.bookerIsGuardian ?? false,
       kind: "PRIVATE_REQUEST",
       amount: price,
       payload: {
@@ -340,7 +359,13 @@ export async function POST(req: Request) {
         coachId: data.coachId || null,
         requestedSlots: creditLedger ? [slot] : normalizedSlots,
         creditLedgerId: creditLedger?.id ?? null,
-        paymentType: creditLedger ? "CREDIT" : "UNPAID",
+        paymentType: creditLedger
+          ? "CREDIT"
+          : data.paymentMethod === "CASH"
+            ? "CASH"
+            : data.paymentMethod === "CHECK"
+              ? "CHECK"
+              : "UNPAID",
         pricePaid: creditLedger ? 0 : price,
         allowUnpaid: true,
         notes: data.notes || null,

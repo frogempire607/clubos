@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Ticket, Sparkles } from "lucide-react";
+import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 
 type Option = { label: string; price: number; billingPeriod: string };
 type Membership = {
@@ -30,7 +31,9 @@ const periodLabel: Record<string, string> = {
 
 export default function MemberMembershipsPage() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
-  const [activeSubs, setActiveSubs] = useState<ActiveSub[]>([]);
+  const [activeByMember, setActiveByMember] = useState<Record<string, ActiveSub[]>>({});
+  const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [hasMemberProfile, setHasMemberProfile] = useState(true);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
@@ -42,12 +45,17 @@ export default function MemberMembershipsPage() {
       .then((d) => {
         if (d) {
           setMemberships(d.memberships || []);
-          setActiveSubs(d.activeSubscriptions || []);
+          setActiveByMember(d.activeByMember || {});
+          setAccessible(d.accessible || []);
+          setSelectedMemberId(d.defaultMemberId ?? d.accessible?.[0]?.id ?? null);
           setHasMemberProfile(d.hasMemberProfile);
         }
         setLoading(false);
       });
   }, []);
+
+  // Subscriptions for the currently selected profile (self or chosen child).
+  const activeSubs: ActiveSub[] = selectedMemberId ? activeByMember[selectedMemberId] ?? [] : [];
 
   async function subscribe(membershipId: string, optionLabel: string) {
     const key = `${membershipId}:${optionLabel}`;
@@ -56,7 +64,7 @@ export default function MemberMembershipsPage() {
     const res = await fetch("/api/member/memberships/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ membershipId, optionLabel }),
+      body: JSON.stringify({ membershipId, optionLabel, memberId: selectedMemberId }),
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok || !d.url) {
@@ -76,6 +84,13 @@ export default function MemberMembershipsPage() {
         </div>
         <Link href="/member/shop" className="text-xs text-stone-500 hover:text-stone-900">All purchase options →</Link>
       </div>
+
+      <ProfileSwitcher
+        accessible={accessible}
+        value={selectedMemberId}
+        onChange={setSelectedMemberId}
+        label="Membership for"
+      />
 
       {!hasMemberProfile && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800">

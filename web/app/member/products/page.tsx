@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Package, ImageIcon } from "lucide-react";
+import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 
 type Product = {
   id: string;
@@ -34,6 +35,8 @@ function fmtPrice(p: string | number) {
 
 export default function MemberProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [hasMemberProfile, setHasMemberProfile] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -45,6 +48,8 @@ export default function MemberProductsPage() {
       .then((d) => {
         if (d) {
           setProducts(d.products || []);
+          setAccessible(d.accessible || []);
+          setSelectedMemberId(d.defaultMemberId ?? d.accessible?.[0]?.id ?? null);
           setHasMemberProfile(d.hasMemberProfile);
         }
         setLoading(false);
@@ -57,7 +62,7 @@ export default function MemberProductsPage() {
     const res = await fetch(`/api/member/products/${productId}/buy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ quantity: 1 }),
+      body: JSON.stringify({ quantity: 1, memberId: selectedMemberId }),
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok || !d.url) {
@@ -86,6 +91,13 @@ export default function MemberProductsPage() {
         </div>
         <Link href="/member/shop" className="text-xs text-stone-500 hover:text-stone-900">All purchase options →</Link>
       </div>
+
+      <ProfileSwitcher
+        accessible={accessible}
+        value={selectedMemberId}
+        onChange={setSelectedMemberId}
+        label="Buying for"
+      />
 
       {!hasMemberProfile && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800">

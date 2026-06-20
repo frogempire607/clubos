@@ -72,6 +72,13 @@ export type GateInput = {
   kind: ApprovalKind;
   amount: number; // dollars; 0 for free actions
   payload: Record<string, unknown>;
+  // True when the caller already proved the booker is a guardian acting for
+  // this member (resolved via MemberGuardianUser). Needed because a
+  // guardian-managed minor has member.userId = null, so the "booker != the
+  // minor's own login" check below can't distinguish a guardian from a stranger
+  // on its own. A guardian taking the action IS the oversight → never queue it
+  // (which would otherwise deadlock the guardian against their own controls).
+  bookerIsGuardian?: boolean;
 };
 
 export type GateResult =
@@ -104,6 +111,13 @@ export function readControls(raw: Prisma.JsonValue | null): ParentControls {
  */
 export async function applyParentalControls(input: GateInput): Promise<GateResult> {
   const { member, bookerUserId, kind, amount, payload } = input;
+
+  // The caller resolved this booker as a guardian acting for the member
+  // (guardian-managed minors have userId = null, so the userId check below
+  // can't see it). A guardian taking the action IS the oversight. No gate.
+  if (input.bookerIsGuardian) {
+    return { kind: "allow" };
+  }
 
   // Booker is the guardian, not the minor → guardian is exercising
   // oversight by definition. No gate.

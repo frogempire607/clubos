@@ -29,6 +29,8 @@ async function loadGuardianChild(userId: string, memberId: string, clubId: strin
               birthdayLockedAt: true,
               parentControls: true,
               dateOfBirth: true,
+              userId: true,
+              email: true,
             },
           },
         },
@@ -62,6 +64,9 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
     },
     birthdayLockedAt: child.birthdayLockedAt,
     parentControls: child.parentControls ?? null,
+    // Whether this child already has their own portal login (so the page can
+    // show "send invite" vs "has their own login").
+    ownLogin: { hasLogin: !!child.userId, email: child.email ?? null },
   });
 }
 

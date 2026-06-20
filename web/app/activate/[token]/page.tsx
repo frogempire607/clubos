@@ -53,6 +53,8 @@ export default function ActivatePage() {
   const [cancelDate, setCancelDate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CARD" | "CASH" | "CHECK" | "LATER">("CARD");
   const [addCardOnFile, setAddCardOnFile] = useState(false);
+  const [childLoginEmail, setChildLoginEmail] = useState("");
+  const [childRequireApproval, setChildRequireApproval] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -148,6 +150,8 @@ export default function ActivatePage() {
         selectedOptionLabel: selectedChoice && selectedChoice.key !== "__current__" ? selectedChoice.key : null,
         paymentMethod: finalPaid ? "CARD" : paymentMethod,
         addCardOnFile: finalPaid ? addCardOnFile : undefined,
+        childLoginEmail: data?.member.isMinor && childLoginEmail.trim() ? childLoginEmail.trim() : null,
+        childRequireApproval,
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -417,6 +421,33 @@ export default function ActivatePage() {
                   </div>
                 )}
               </div>
+
+              {/* Optional: give the minor their own login */}
+              {data.member.isMinor && (
+                <div className="mb-5 rounded-lg border border-stone-200 bg-stone-50 p-3">
+                  <p className="text-sm font-medium text-stone-700 mb-1">
+                    Give {data.member.firstName} their own login <span className="text-stone-400 font-normal">(optional)</span>
+                  </p>
+                  <p className="text-[11px] text-stone-500 mb-2">
+                    Add {data.member.firstName}&apos;s email so they can sign in themselves. You stay the
+                    guardian and billing manager — you can change what they&apos;re allowed to do anytime.
+                  </p>
+                  <input
+                    type="email"
+                    value={childLoginEmail}
+                    onChange={(e) => setChildLoginEmail(e.target.value)}
+                    placeholder={`${data.member.firstName}'s email (leave blank to skip)`}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                  />
+                  {childLoginEmail.trim() && (
+                    <label className="flex items-start gap-2 text-[13px] text-stone-700 mt-2">
+                      <input type="checkbox" checked={childRequireApproval}
+                        onChange={(e) => setChildRequireApproval(e.target.checked)} className="mt-0.5" />
+                      <span>Require my approval before {data.member.firstName} makes any paid booking.</span>
+                    </label>
+                  )}
+                </div>
+              )}
 
               {/* Required documents — rendered as readable documents, one ack each */}
               {reqDocs.map((doc) => (

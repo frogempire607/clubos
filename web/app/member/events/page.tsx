@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CalendarRange, Package } from "lucide-react";
+import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 
 type EventCard = {
   id: string;
@@ -65,6 +66,8 @@ export default function MemberEventsPage() {
   const [activeMembershipIds, setActiveMembershipIds] = useState<string[]>([]);
   const [isActiveMember, setIsActiveMember] = useState(false);
   const [hasMemberProfile, setHasMemberProfile] = useState(true);
+  const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -73,8 +76,9 @@ export default function MemberEventsPage() {
 
   function load() {
     setLoading(true);
+    const mq = selectedMemberId ? `?memberId=${encodeURIComponent(selectedMemberId)}` : "";
     Promise.all([
-      fetch("/api/member/events").then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/member/events${mq}`).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/member/event-bundles").then((r) => (r.ok ? r.json() : [])),
     ]).then(([d, b]) => {
       if (d) {
@@ -83,12 +87,15 @@ export default function MemberEventsPage() {
         setActiveMembershipIds(d.activeMembershipIds || []);
         setIsActiveMember(!!d.isActiveMember);
         setHasMemberProfile(d.hasMemberProfile);
+        setAccessible(d.accessible || []);
+        if (!selectedMemberId && d.contextMemberId) setSelectedMemberId(d.contextMemberId);
       }
       setBundles(Array.isArray(b) ? b : []);
       setLoading(false);
     });
   }
-  useEffect(() => { load(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [selectedMemberId]);
 
   async function register(eventId: string, pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" = "MEMBER") {
     setBusy(eventId);
@@ -97,7 +104,7 @@ export default function MemberEventsPage() {
     const res = await fetch(`/api/member/events/${eventId}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pricingType }),
+      body: JSON.stringify({ pricingType, memberId: selectedMemberId }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
@@ -132,7 +139,7 @@ export default function MemberEventsPage() {
     const res = await fetch(`/api/member/event-bundles/${bundleId}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ memberId: selectedMemberId }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
@@ -151,6 +158,13 @@ export default function MemberEventsPage() {
         </div>
         <Link href="/member/shop" className="text-xs text-stone-500 hover:text-stone-900">All purchase options →</Link>
       </div>
+
+      <ProfileSwitcher
+        accessible={accessible}
+        value={selectedMemberId}
+        onChange={setSelectedMemberId}
+        label="Registering"
+      />
 
       {!hasMemberProfile && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800">

@@ -208,6 +208,8 @@ export async function POST(req: Request) {
         parentControls: member.parentControls,
       },
       bookerUserId: session.user.id,
+      // A guardian booking for a child (member isn't the booker's own login).
+      bookerIsGuardian: member.userId !== session.user.id,
       kind: "CLASS_BOOK",
       amount: priced.price,
       payload: { classSessionId, memberId: member.id, pricingType: priced.pricingType },
