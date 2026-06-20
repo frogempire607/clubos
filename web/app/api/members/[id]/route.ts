@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
+import { validateMemberContact } from "@/lib/memberValidation";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -152,20 +153,18 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     // already excludes birthdayLocked/parentControls so any stray field
     // from an old client just gets stripped by Zod's default behavior.)
 
-    // If marking as a minor, validate required guardian fields per spec
+    // If marking as a minor, validate required guardian fields per spec.
+    // If marking as an adult, require at least one direct contact method.
     const willBeMinor = data.isMinor ?? member.isMinor;
-    if (willBeMinor && (data.isMinor !== undefined || data.guardianName !== undefined || data.guardianEmail !== undefined || data.guardianPhone !== undefined)) {
-      const guardianName = data.guardianName ?? member.guardianName;
-      const guardianEmail = data.guardianEmail ?? member.guardianEmail;
-      const guardianPhone = data.guardianPhone ?? member.guardianPhone;
-      if (!guardianName?.trim()) {
-        return NextResponse.json({ error: "Guardian name is required for minors." }, { status: 400 });
-      }
-      if (!guardianEmail?.trim()) {
-        return NextResponse.json({ error: "Guardian email is required for minors." }, { status: 400 });
-      }
-      // Guardian phone is optional — we only require one email + one phone, and
-      // the guardian email covers the required contact for a minor.
+    const contactError = validateMemberContact({
+      isMinor: willBeMinor,
+      email: data.email ?? member.email,
+      phone: data.phone ?? member.phone,
+      guardianName: data.guardianName ?? member.guardianName,
+      guardianEmail: data.guardianEmail ?? member.guardianEmail,
+    });
+    if (contactError) {
+      return NextResponse.json({ error: contactError }, { status: 400 });
     }
 
     // Upsert/relink guardian profile when guardian fields change

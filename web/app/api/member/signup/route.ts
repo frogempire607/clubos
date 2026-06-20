@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import { requestGuardianLink } from "@/lib/guardianLink";
+import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
 
 const schema = z.object({
   clubSlug: z.string().min(1),
@@ -25,7 +26,43 @@ const schema = z.object({
   acceptedTerms: z.literal(true),
   termsVersion: z.string().min(1),
   privacyVersion: z.string().min(1),
+  signedDocumentIds: z.array(z.string()).optional().default([]),
 });
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const clubSlug = url.searchParams.get("clubSlug")?.trim().toLowerCase();
+  if (!clubSlug) return NextResponse.json({ error: "clubSlug is required" }, { status: 400 });
+
+  const club = await prisma.club.findUnique({ where: { slug: clubSlug }, select: { id: true, name: true, slug: true } });
+  if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
+
+  const now = new Date();
+  const documents = await prisma.document.findMany({
+    where: {
+      clubId: club.id,
+      deletedAt: null,
+      AND: [
+        requiredDocumentSurfaceWhere("SIGNUP"),
+        { OR: [{ publishAt: null }, { publishAt: { lte: now } }] },
+        { OR: [{ unpublishAt: null }, { unpublishAt: { gt: now } }] },
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+      ],
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      body: true,
+      required: true,
+      requiredAt: true,
+      requiresGuardianSignature: true,
+    },
+  });
+
+  return NextResponse.json({ club, documents });
+}
 
 export async function POST(req: Request) {
   // 10 member signups per 10 minutes per IP. A family signing up
@@ -40,6 +77,31 @@ export async function POST(req: Request) {
     const club = await prisma.club.findUnique({ where: { slug: data.clubSlug } });
     if (!club) {
       return NextResponse.json({ error: "Club not found. Check the club URL and try again." }, { status: 404 });
+    }
+
+    const signupDocs = await prisma.document.findMany({
+      where: {
+        clubId: club.id,
+        deletedAt: null,
+        AND: [
+          requiredDocumentSurfaceWhere("SIGNUP"),
+          { OR: [{ publishAt: null }, { publishAt: { lte: new Date() } }] },
+          { OR: [{ unpublishAt: null }, { unpublishAt: { gt: new Date() } }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+        ],
+      },
+      select: { id: true, title: true, required: true, requiredAt: true, requiresGuardianSignature: true },
+    });
+    const missingDocIds = missingRequiredDocumentIds(signupDocs, data.signedDocumentIds, "SIGNUP");
+    if (missingDocIds.length > 0) {
+      const titles = signupDocs
+        .filter((doc) => missingDocIds.includes(doc.id))
+        .map((doc) => doc.title)
+        .join(", ");
+      return NextResponse.json(
+        { error: `Please review and acknowledge all required signup documents${titles ? `: ${titles}` : ""}.` },
+        { status: 400 },
+      );
     }
 
     // Check for existing user account in this club
@@ -245,6 +307,39 @@ export async function POST(req: Request) {
       });
     } catch (err) {
       console.error("Failed to persist legal acceptance (member signup):", err);
+    }
+
+    if (signupDocs.length > 0 && user.memberProfile) {
+      const signed = new Set(data.signedDocumentIds);
+      const ipAddress = ipFromRequest(req);
+      const signedAt = new Date();
+      for (const doc of signupDocs.filter((d) => signed.has(d.id))) {
+        const signerIsGuardian = user.memberProfile.isMinor && doc.requiresGuardianSignature;
+        const signerName = signerIsGuardian
+          ? data.guardianName || `${data.firstName} ${data.lastName}`.trim()
+          : `${data.firstName} ${data.lastName}`.trim();
+        await prisma.documentSignature.upsert({
+          where: { documentId_memberId: { documentId: doc.id, memberId: user.memberProfile.id } },
+          update: {
+            signerUserId: user.id,
+            signerName,
+            relationship: signerIsGuardian ? "GUARDIAN" : "SELF",
+            ipAddress,
+            userAgent: req.headers.get("user-agent"),
+            signedAt,
+          },
+          create: {
+            documentId: doc.id,
+            memberId: user.memberProfile.id,
+            signerUserId: user.id,
+            signerName,
+            relationship: signerIsGuardian ? "GUARDIAN" : "SELF",
+            ipAddress,
+            userAgent: req.headers.get("user-agent"),
+            signedAt,
+          },
+        });
+      }
     }
 
     return NextResponse.json({ ok: true, clubSlug: club.slug, guardianLinkPending }, { status: 201 });

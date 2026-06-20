@@ -7,6 +7,7 @@ import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { expireStaleProspects } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { validateMemberContact } from "@/lib/memberValidation";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -117,17 +118,17 @@ export async function POST(req: Request) {
       }
     }
 
-    // Minors are reached through their guardian, so we require guardian name +
-    // guardian email and treat that as the member's one email/phone on file.
-    // The minor's OWN email/phone are optional (and may be null) — saving a
-    // minor without their own email must never error.
-    if (data.isMinor) {
-      if (!data.guardianName?.trim()) {
-        return NextResponse.json({ error: "Guardian name is required for minors." }, { status: 400 });
-      }
-      if (!data.guardianEmail?.trim()) {
-        return NextResponse.json({ error: "Guardian email is required for minors." }, { status: 400 });
-      }
+    // Minors are reached through their guardian; adult members need their own
+    // contact path. A minor's OWN email/phone are optional and may be null.
+    const contactError = validateMemberContact({
+      isMinor: data.isMinor,
+      email: data.email,
+      phone: data.phone,
+      guardianName: data.guardianName,
+      guardianEmail: data.guardianEmail,
+    });
+    if (contactError) {
+      return NextResponse.json({ error: contactError }, { status: 400 });
     }
 
     // Upsert Guardian profile when guardian info is provided (always for minors,

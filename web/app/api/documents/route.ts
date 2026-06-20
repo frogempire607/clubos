@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
+import { REQUIRED_DOCUMENT_SURFACES } from "@/lib/documents";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -17,8 +18,6 @@ export async function GET() {
   return NextResponse.json(docs);
 }
 
-const REQUIRED_SURFACES = ["ONBOARDING", "SIGNUP", "PURCHASE", "EVENT"] as const;
-
 const createSchema = z.object({
   title: z.string().min(1),
   type: z.enum(["Waiver", "Policy", "Agreement", "Handbook", "Other"]),
@@ -26,7 +25,7 @@ const createSchema = z.object({
   required: z.boolean().default(false),
   // Where a signature is mandatory. When omitted, falls back to the legacy
   // `required` flag (treated as ONBOARDING) so older callers still work.
-  requiredAt: z.array(z.enum(REQUIRED_SURFACES)).optional(),
+  requiredAt: z.array(z.enum(REQUIRED_DOCUMENT_SURFACES)).optional(),
   requiresGuardianSignature: z.boolean().default(false),
   deliveryTrigger: z.enum(["MANUAL", "MEMBERSHIP", "EVENT", "MESSAGE"]).default("MANUAL"),
   expiresAt: z.string().nullable().optional(),

@@ -6,6 +6,7 @@ import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
+import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
 
 // NO AUTH — token-gated public activation endpoint.
 
@@ -110,11 +111,15 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     where: {
       clubId: m.clubId,
       deletedAt: null,
-      OR: [{ required: true }, { requiredAt: { has: "ONBOARDING" } }],
-      AND: [{ OR: [{ publishAt: null }, { publishAt: { lte: new Date() } }] }],
+      AND: [
+        requiredDocumentSurfaceWhere("ONBOARDING"),
+        { OR: [{ publishAt: null }, { publishAt: { lte: new Date() } }] },
+        { OR: [{ unpublishAt: null }, { unpublishAt: { gt: new Date() } }] },
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+      ],
     },
     orderBy: { createdAt: "asc" },
-    select: { id: true, title: true, body: true },
+    select: { id: true, title: true, body: true, required: true, requiredAt: true },
   });
   const requiredDoc = onboardingDocs[0] ?? null;
 
@@ -312,6 +317,37 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   if (!contactEmail) {
     return NextResponse.json(
       { error: "No email on file. Contact your club to finish setup." },
+      { status: 400 },
+    );
+  }
+
+  const docIdsToSign = Array.from(
+    new Set([
+      ...(body.signedDocumentIds ?? []),
+      ...(body.signedDocumentId ? [body.signedDocumentId] : []),
+    ]),
+  );
+  const requiredOnboardingDocs = await prisma.document.findMany({
+    where: {
+      clubId: club.id,
+      deletedAt: null,
+      AND: [
+        requiredDocumentSurfaceWhere("ONBOARDING"),
+        { OR: [{ publishAt: null }, { publishAt: { lte: new Date() } }] },
+        { OR: [{ unpublishAt: null }, { unpublishAt: { gt: new Date() } }] },
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+      ],
+    },
+    select: { id: true, title: true, required: true, requiredAt: true },
+  });
+  const missingDocIds = missingRequiredDocumentIds(requiredOnboardingDocs, docIdsToSign, "ONBOARDING");
+  if (missingDocIds.length > 0) {
+    const titles = requiredOnboardingDocs
+      .filter((doc) => missingDocIds.includes(doc.id))
+      .map((doc) => doc.title)
+      .join(", ");
+    return NextResponse.json(
+      { error: `Please review and sign all required onboarding documents${titles ? `: ${titles}` : ""}.` },
       { status: 400 },
     );
   }
@@ -702,12 +738,6 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
 
   // Required-document signatures (one or many). Record one signature row per
   // acknowledged document, attributed to the signer (guardian for a minor).
-  const docIdsToSign = Array.from(
-    new Set([
-      ...(body.signedDocumentIds ?? []),
-      ...(body.signedDocumentId ? [body.signedDocumentId] : []),
-    ]),
-  );
   if (docIdsToSign.length > 0) {
     const validDocs = await prisma.document.findMany({
       where: { id: { in: docIdsToSign }, clubId: club.id, deletedAt: null },
@@ -716,7 +746,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
     const sig = {
       signerUserId: user.id,
-      signerName: `${member.firstName} ${member.lastName}`.trim(),
+      signerName: guardianManaged
+        ? `${accountFirstName} ${accountLastName}`.trim()
+        : `${member.firstName} ${member.lastName}`.trim(),
       relationship: member.isMinor ? "GUARDIAN" : "SELF",
       ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
       userAgent: req.headers.get("user-agent"),

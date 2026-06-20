@@ -4,15 +4,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
-
-const REQUIRED_SURFACES = ["ONBOARDING", "SIGNUP", "PURCHASE", "EVENT"] as const;
+import { REQUIRED_DOCUMENT_SURFACES } from "@/lib/documents";
 
 const updateSchema = z.object({
   title: z.string().min(1).optional(),
   type: z.enum(["Waiver", "Policy", "Agreement", "Handbook", "Other"]).optional(),
   body: z.string().nullable().optional(),
   required: z.boolean().optional(),
-  requiredAt: z.array(z.enum(REQUIRED_SURFACES)).optional(),
+  requiredAt: z.array(z.enum(REQUIRED_DOCUMENT_SURFACES)).optional(),
   requiresGuardianSignature: z.boolean().optional(),
   deliveryTrigger: z.enum(["MANUAL", "MEMBERSHIP", "EVENT", "MESSAGE"]).optional(),
   expiresAt: z.string().nullable().optional(),

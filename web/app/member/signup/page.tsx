@@ -7,6 +7,13 @@ import { User, Baby, Users, type LucideIcon } from "lucide-react";
 import { TERMS_VERSION, PRIVACY_VERSION } from "@/legal/versions";
 
 type AccountType = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "PARENT";
+type SignupDocument = {
+  id: string;
+  title: string;
+  type: string;
+  body: string | null;
+  requiresGuardianSignature: boolean;
+};
 
 export default function MemberSignupPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -35,6 +42,8 @@ export default function MemberSignupPage() {
   const [relationship, setRelationship] = useState("Parent");
 
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [signupDocs, setSignupDocs] = useState<SignupDocument[]>([]);
+  const [signedDocIds, setSignedDocIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -63,6 +72,10 @@ export default function MemberSignupPage() {
       setError("You must agree to the Terms of Service and Privacy Policy.");
       return;
     }
+    if (signupDocs.some((doc) => !signedDocIds.includes(doc.id))) {
+      setError("Please review and acknowledge all required club documents.");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -87,6 +100,7 @@ export default function MemberSignupPage() {
         acceptedTerms: true,
         termsVersion: TERMS_VERSION,
         privacyVersion: PRIVACY_VERSION,
+        signedDocumentIds: signedDocIds,
       }),
     });
 
@@ -144,6 +158,26 @@ export default function MemberSignupPage() {
       Icon: Users,
     },
   ];
+
+  useEffect(() => {
+    if (step !== 3 || !clubSlug.trim()) return;
+    const controller = new AbortController();
+    fetch(`/api/member/signup?clubSlug=${encodeURIComponent(clubSlug.trim().toLowerCase())}`, {
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { documents?: SignupDocument[] } | null) => {
+        const docs = d?.documents ?? [];
+        setSignupDocs(docs);
+        setSignedDocIds((ids) => ids.filter((id) => docs.some((doc) => doc.id === id)));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [step, clubSlug]);
+
+  function toggleSignedDoc(id: string) {
+    setSignedDocIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  }
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center px-4 py-12">
@@ -364,6 +398,44 @@ export default function MemberSignupPage() {
                   </div>
                 )}
 
+                {signupDocs.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-stone-900">Required club documents</p>
+                    {signupDocs.map((doc) => (
+                      <div key={doc.id} className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-stone-900">{doc.title}</p>
+                          <span className="text-[10px] uppercase tracking-wide text-stone-500">{doc.type}</span>
+                        </div>
+                        {doc.body ? (
+                          <div
+                            className="doc-prose max-h-44 overflow-y-auto rounded-md border border-stone-200 bg-white p-3 text-sm"
+                            dangerouslySetInnerHTML={{ __html: doc.body }}
+                          />
+                        ) : (
+                          <p className="rounded-md border border-stone-200 bg-white p-3 text-sm text-stone-500">
+                            No document content added.
+                          </p>
+                        )}
+                        <label className="mt-3 flex items-start gap-2 text-sm text-stone-700">
+                          <input
+                            type="checkbox"
+                            checked={signedDocIds.includes(doc.id)}
+                            onChange={() => toggleSignedDoc(doc.id)}
+                            required
+                            className="mt-1 h-4 w-4 rounded border-stone-300 text-[#534AB7] focus:ring-[#534AB7]"
+                          />
+                          <span>
+                            {accountType === "MINOR_ATHLETE" && doc.requiresGuardianSignature
+                              ? "My parent or guardian has read and agrees to this document."
+                              : "I have read and agree to this document."}
+                          </span>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <label className="flex items-start gap-2 text-sm text-stone-700">
                   <input
                     type="checkbox"
@@ -392,7 +464,7 @@ export default function MemberSignupPage() {
                     className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">
                     Back
                   </button>
-                  <button type="submit" disabled={loading || !acceptedTerms}
+                  <button type="submit" disabled={loading || !acceptedTerms || signupDocs.some((doc) => !signedDocIds.includes(doc.id))}
                     className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
                     {loading ? "Creating account…" : "Create account"}
                   </button>

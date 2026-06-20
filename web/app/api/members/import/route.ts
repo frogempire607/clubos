@@ -5,12 +5,12 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { upsertGuardianProfile, type GuardianInput } from "@/lib/guardian";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
+import { normalizeImportedMemberContact, validateMemberContact } from "@/lib/memberValidation";
 import {
   resolveName,
   parseFlexibleDate,
   normalizeFrequency,
   parseMoney,
-  isValidEmail,
   resolveBillingAnchor,
   MIGRATION_STATUS,
   PAYMENT_SETUP,
@@ -149,13 +149,7 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const rawEmail = m.email?.trim() || "";
-      const memberEmailRaw = isValidEmail(rawEmail) ? rawEmail.toLowerCase() : null;
-      const memberPhoneRaw = m.phone?.trim() || null;
-      const providedGuardianEmail = m.guardianEmail?.trim().toLowerCase() || null;
-      const providedGuardianPhone = m.guardianPhone?.trim() || null;
-
-      const isMinor = m.isMinor ?? !!(m.guardianName || providedGuardianEmail);
+      const isMinor = m.isMinor ?? !!(m.guardianName || m.guardianEmail);
 
       // Most other gym/CRM exports keep ONE contact column and never separate
       // the parent from the child. For a minor, that single email/phone is
@@ -163,14 +157,14 @@ export async function POST(req: Request) {
       // default the guardian contact from the member's contact, and DON'T also
       // keep it as the child's own (keeps logins + duplicate-detection clean,
       // and means we only ever require one email + one phone per member).
-      let guardianEmail = providedGuardianEmail;
-      let guardianPhone = providedGuardianPhone;
-      let email = memberEmailRaw;
-      let phone = memberPhoneRaw;
-      if (isMinor) {
-        if (!guardianEmail && memberEmailRaw) { guardianEmail = memberEmailRaw; email = null; }
-        if (!guardianPhone && memberPhoneRaw) { guardianPhone = memberPhoneRaw; phone = null; }
-      }
+      const normalizedContact = normalizeImportedMemberContact({
+        email: m.email,
+        phone: m.phone,
+        guardianEmail: m.guardianEmail,
+        guardianPhone: m.guardianPhone,
+        isMinor,
+      });
+      const { email, phone, guardianEmail, guardianPhone } = normalizedContact;
 
       // Never overwrite an existing member silently — skip duplicates (also
       // catches a second row carrying the same email within this import).
@@ -180,25 +174,24 @@ export async function POST(req: Request) {
         continue;
       }
 
-      // Require ONE email + ONE phone on the right party: the guardian for a
-      // minor (guardian name + a guardian email/phone), the member themselves
-      // for an adult (their own email or phone). Migration NEVER hard-fails —
-      // it flags NEEDS_REVIEW so nobody is lost in the switch.
-      const hasRequiredContact = isMinor
-        ? !!(m.guardianName?.trim() && (guardianEmail || guardianPhone))
-        : !!(email || phone);
+      // Require contact on the right party: guardian name + email for a minor,
+      // member email or phone for an adult. Migration NEVER hard-fails — it
+      // flags NEEDS_REVIEW so nobody is lost in the switch.
+      const contactError = validateMemberContact({
+        isMinor,
+        email,
+        phone,
+        guardianName: m.guardianName,
+        guardianEmail,
+      });
       let migrationStatus: string | null = migration ? MIGRATION_STATUS.IMPORTED : null;
-      if (!hasRequiredContact) {
+      if (contactError) {
         if (migration) {
           migrationStatus = MIGRATION_STATUS.NEEDS_REVIEW;
           results.needsReview++;
         } else {
           results.failed++;
-          results.errors.push(
-            isMinor
-              ? `${display}: a minor needs a guardian name and a guardian email or phone`
-              : `${display}: needs an email or phone`,
-          );
+          results.errors.push(`${display}: ${contactError}`);
           continue;
         }
       }

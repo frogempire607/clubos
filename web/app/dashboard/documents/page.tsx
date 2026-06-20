@@ -336,6 +336,34 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
   const [fontSize, setFontSize] = useState("14px");
   const [color, setColor] = useState("#111111");
 
+  // Remember the last selection inside the editor. Toolbar controls that take
+  // focus — the size <select>, the color picker, the bullet-style <select> —
+  // collapse the editor's selection before the handler runs, which is exactly
+  // why changing the size of already-selected text did nothing. We restore the
+  // saved range before applying any formatting.
+  const lastRange = useRef<Range | null>(null);
+  function saveSelection() {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const r = sel.getRangeAt(0);
+      if (editorRef.current && editorRef.current.contains(r.commonAncestorContainer)) {
+        lastRange.current = r.cloneRange();
+      }
+    }
+  }
+  function restoreSelection(): Selection | null {
+    const sel = window.getSelection();
+    if (!sel) return null;
+    const inEditor =
+      sel.rangeCount > 0 &&
+      !!editorRef.current?.contains(sel.getRangeAt(0).commonAncestorContainer);
+    if (!inEditor && lastRange.current) {
+      sel.removeAllRanges();
+      sel.addRange(lastRange.current);
+    }
+    return sel;
+  }
+
   function exec(cmd: FormatCmd) {
     document.execCommand(cmd, false);
     editorRef.current?.focus();
@@ -345,7 +373,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
   function applySize(size: string) {
     setFontSize(size);
     editorRef.current?.focus();
-    const sel = window.getSelection();
+    const sel = restoreSelection();
     // Wrap the exact selection in a span with the chosen px size. execCommand
     // "fontSize" only accepts 1–7 (rendered as xx-small…xx-large), which is why
     // changing it before only ever made text huge regardless of the number.
@@ -360,6 +388,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
       const r = document.createRange();
       r.selectNodeContents(span);
       sel.addRange(r);
+      lastRange.current = r.cloneRange();
     } catch {
       /* selection spanned multiple blocks — skip rather than corrupt markup */
     }
@@ -379,6 +408,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
 
   function applyList(ordered: boolean, styleType?: string) {
     editorRef.current?.focus();
+    restoreSelection();
     document.execCommand(ordered ? "insertOrderedList" : "insertUnorderedList", false);
     const list = currentListEl();
     if (list) {
@@ -392,6 +422,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
 
   function setBulletStyle(styleType: string) {
     editorRef.current?.focus();
+    restoreSelection();
     let list = currentListEl();
     if (!list) {
       document.execCommand("insertUnorderedList", false);
@@ -406,9 +437,11 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
 
   function applyColor(c: string) {
     setColor(c);
+    editorRef.current?.focus();
+    restoreSelection();
     document.execCommand("styleWithCSS", false, "true");
     document.execCommand("foreColor", false, c);
-    editorRef.current?.focus();
+    saveSelection();
     sync();
   }
 
@@ -527,7 +560,9 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
         contentEditable
         suppressContentEditableWarning
         onInput={sync}
-        className="rich-editor min-h-[240px] p-4 text-sm text-text-primary leading-relaxed focus:outline-none"
+        onMouseUp={saveSelection}
+        onKeyUp={saveSelection}
+        className="rich-editor min-h-[240px] max-h-[55vh] overflow-y-auto p-4 text-sm text-text-primary leading-relaxed focus:outline-none"
         style={{ fontFamily: "inherit" }}
         data-placeholder="Write the full document content here…"
       />
