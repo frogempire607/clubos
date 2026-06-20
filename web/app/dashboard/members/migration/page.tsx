@@ -763,7 +763,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                 <span>
                   Final period already paid — no further billing
                   <span className="block text-[11px] text-text-muted font-normal mt-0.5">
-                    For a member whose membership is ending: the activation link shows “active through {endDate ? new Date(endDate).toLocaleDateString() : "the end date above"}”, collects no card, and creates no subscription. Set the end / commitment date above.
+                    For a member whose membership is ending: the activation link shows “active through {endDate ? new Date(endDate).toLocaleDateString() : "the end date above"}”, charges nothing, and creates no subscription. They can <strong>optionally save a card on file</strong> so re-enrolling later is one tap. Set the end / commitment date above.
                   </span>
                 </span>
               </label>

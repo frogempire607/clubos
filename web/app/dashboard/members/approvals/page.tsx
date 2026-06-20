@@ -196,7 +196,9 @@ export default function MembersApprovalsPage() {
                         ? "Paying by cash"
                         : a.paymentMethod === "CHECK"
                           ? "Paying by check"
-                          : "Card on file"}
+                          : a.paymentMethod === "LATER"
+                            ? "Will add a card later"
+                            : "Card on file"}
                       {a.requestedBillingDate ? ` · requested billing ${fmtDate(a.requestedBillingDate)}` : ""}
                       {a.requestedCancellationDate ? ` · ends ${fmtDate(a.requestedCancellationDate)}` : ""}
                       {" · "}activated {fmtDate(a.requestedAt)}

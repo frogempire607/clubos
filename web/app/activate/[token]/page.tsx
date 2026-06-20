@@ -51,7 +51,8 @@ export default function ActivatePage() {
   const [note, setNote] = useState("");
   const [selectedOptionLabel, setSelectedOptionLabel] = useState("");
   const [cancelDate, setCancelDate] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"CARD" | "CASH" | "CHECK">("CARD");
+  const [paymentMethod, setPaymentMethod] = useState<"CARD" | "CASH" | "CHECK" | "LATER">("CARD");
+  const [addCardOnFile, setAddCardOnFile] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -146,6 +147,7 @@ export default function ActivatePage() {
         useCurrentRate: selectedChoice?.key === "__current__",
         selectedOptionLabel: selectedChoice && selectedChoice.key !== "__current__" ? selectedChoice.key : null,
         paymentMethod: finalPaid ? "CARD" : paymentMethod,
+        addCardOnFile: finalPaid ? addCardOnFile : undefined,
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -442,20 +444,24 @@ export default function ActivatePage() {
               {/* Payment method choice */}
               {!finalPaid && data.editable.paymentChoice && data.paymentEnabled && (
                 <div className="mb-5">
-                  <label className="block text-sm font-medium text-stone-700 mb-2">How would you like to pay?</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(["CARD", "CASH", "CHECK"] as const).map((m) => (
+                  <label className="block text-sm font-medium text-stone-700 mb-2">How would you like to pay? <span className="text-stone-400 font-normal">(a card is optional)</span></label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(["CARD", "CASH", "CHECK", "LATER"] as const).map((m) => (
                       <button key={m} type="button" onClick={() => setPaymentMethod(m)}
                         className={`px-3 py-2 border rounded-lg text-sm font-medium ${paymentMethod === m ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 text-stone-700"}`}>
-                        {m === "CARD" ? "Card" : m === "CASH" ? "Cash" : "Check"}
+                        {m === "CARD" ? "Card" : m === "CASH" ? "Cash" : m === "CHECK" ? "Check" : "Later"}
                       </button>
                     ))}
                   </div>
-                  {paymentMethod !== "CARD" && (
+                  {paymentMethod === "LATER" ? (
+                    <p className="text-[11px] text-stone-500 mt-2">
+                      No card needed now — you can add one anytime from your member portal, and you won&apos;t be charged until you do.
+                    </p>
+                  ) : paymentMethod !== "CARD" ? (
                     <p className="text-[11px] text-stone-500 mt-2">
                       Paying by {paymentMethod.toLowerCase()} — your club confirms the payment and approves your membership before it goes active.
                     </p>
-                  )}
+                  ) : null}
                 </div>
               )}
 
@@ -465,6 +471,19 @@ export default function ActivatePage() {
                   <input type="checkbox" checked={reuseCard} onChange={(e) => setReuseCard(e.target.checked)} className="mt-0.5" />
                   <span>Use the card already on file for your family — no need to re-enter it for {data.member.firstName}.</span>
                 </label>
+              )}
+
+              {/* Final period paid: optional card on file for an easy restart later */}
+              {finalPaid && data.paymentEnabled && (
+                <div className="mb-5 rounded-lg border border-stone-200 bg-stone-50 p-3">
+                  <label className="flex items-start gap-2 text-sm text-stone-700">
+                    <input type="checkbox" checked={addCardOnFile} onChange={(e) => setAddCardOnFile(e.target.checked)} className="mt-0.5" />
+                    <span>
+                      Add a card on file now so {data.member.firstName} is ready to re-enroll later.{" "}
+                      <strong>You won&apos;t be charged today</strong> — it just saves the card securely for next time.
+                    </span>
+                  </label>
+                </div>
               )}
 
               {/* Autopay — only when paying by card */}
@@ -491,7 +510,7 @@ export default function ActivatePage() {
                 {submitting
                   ? "Activating…"
                   : finalPaid
-                    ? "Activate my account"
+                    ? (addCardOnFile && data.paymentEnabled ? "Activate & add card" : "Activate my account")
                     : paymentMethod === "CARD" && data.paymentEnabled
                       ? offerFamilyCard && reuseCard
                         ? "Activate my account"

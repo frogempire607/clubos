@@ -265,9 +265,12 @@ const postSchema = z.object({
   // #5: member-chosen plan option, cancellation date, and payment method.
   requestedCancellationDate: z.string().optional().nullable(),
   selectedOptionLabel: z.string().max(200).optional().nullable(),
-  paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional().default("CARD"),
+  paymentMethod: z.enum(["CARD", "CASH", "CHECK", "LATER"]).optional().default("CARD"),
   // #5 v2: continue at the member's imported/grandfathered rate.
   useCurrentRate: z.boolean().optional(),
+  // Path B: a final-period-paid member can optionally save a card now (no
+  // charge, no subscription) so re-enrolling later is one tap.
+  addCardOnFile: z.boolean().optional(),
 });
 
 // POST — complete activation: set password, confirm profile, accept autopay,
@@ -560,8 +563,11 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     }
   }
   const reuseFamilyCard = !!reusedCustomerId && !!reusedPaymentMethodId;
+  // Path B: a fully-paid final-period member can opt to save a card now — no
+  // charge, no subscription, just a card on file for an easy re-enroll later.
+  const wantFinalCard = finalPaid && !!body.addCardOnFile && !!stripeAccount;
   // Open a new Stripe SETUP redirect only when collecting a fresh card.
-  const collectCardNow = collectCard && !reuseFamilyCard;
+  const collectCardNow = (collectCard && !reuseFamilyCard) || wantFinalCard;
 
   // Autopay consent is only meaningful for card billing. Cash/check and
   // fully-paid members aren't on autopay.
@@ -776,7 +782,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
               ? " — paying by cash (awaiting club approval)"
               : method === "CHECK"
                 ? " — paying by check (awaiting club approval)"
-                : "") +
+                : method === "LATER"
+                  ? " — will add a card later"
+                  : "") +
           (selectedOption ? ` · chose “${selectedOption.label}”` : "") +
           (validRequested ? ` · requested billing on ${validRequested.toLocaleDateString()}` : "") +
           (validCancel ? ` · requested end on ${validCancel.toLocaleDateString()}` : "") +
@@ -784,7 +792,14 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     },
   });
 
-  // #6 fully-paid final period: activated, nothing due, no subscription.
+  // Card path (incl. a final-period member who opted to save a card now):
+  // collection happens on the Stripe-hosted SETUP page prepared above (before
+  // any state was mutated), so a Stripe failure can never strand the member.
+  if (collectCardNow) {
+    return NextResponse.json({ ok: true, url: checkoutUrl });
+  }
+
+  // #6 fully-paid final period (no card requested): activated, nothing due.
   if (finalPaid) {
     const endStr = member.commitmentEndDate
       ? new Date(member.commitmentEndDate).toLocaleDateString()
@@ -798,15 +813,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     });
   }
 
-  // Card path: collection happens on the Stripe-hosted SETUP page prepared
-  // above (before any state was mutated), so a Stripe failure can never strand
-  // the member mid-activation.
-  if (collectCardNow) {
-    return NextResponse.json({ ok: true, url: checkoutUrl });
-  }
-
-  // Cash/check, a reused family card, or a club with no online payments →
-  // activated; the owner confirms payment and approves. No charge here.
+  // Cash/check/later, a reused family card, or no online payments → activated;
+  // the owner confirms and approves. No charge here.
   return NextResponse.json({
     ok: true,
     noPayment: true,
@@ -814,6 +822,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       ? `Activated using the card already on file for your family — no need to re-enter it. ${club.name} will review and confirm billing; you have not been charged.`
       : method === "CASH" || method === "CHECK"
         ? `Your account is activated. ${club.name} will confirm your ${method.toLowerCase()} payment and approve your membership — you have not been charged.`
-        : "Your account is activated. Your club will confirm billing details — you have not been charged.",
+        : method === "LATER"
+          ? `Your account is activated. You can add a card anytime from your member portal — you have not been charged.`
+          : "Your account is activated. Your club will confirm billing details — you have not been charged.",
   });
 }
