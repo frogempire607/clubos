@@ -155,7 +155,6 @@ export default function MembersPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [subscribing, setSubscribing] = useState<Member | null>(null);
-  const [showImport, setShowImport] = useState(false);
   const [filter, setFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("");
@@ -327,9 +326,6 @@ export default function MembersPage() {
               Custom fields
             </a>
             <ExportMenu baseUrl="/api/export/members" label="Export" />
-            <button onClick={() => setShowImport(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
-              Import CSV
-            </button>
             <Link href="/dashboard/members/migration" className="text-sm px-3 py-2 rounded-lg border border-brand text-brand hover:bg-brand/10">
               Import / Migrate
             </Link>
@@ -418,9 +414,9 @@ export default function MembersPage() {
               <Users className="h-7 w-7" strokeWidth={2} />
             </div>
             <h3 className="text-lg font-medium text-text-primary mb-1">No members yet</h3>
-            <p className="text-sm text-text-muted mb-4">Add your first member or import from a CSV file.</p>
+            <p className="text-sm text-text-muted mb-4">Add your first member or import your roster from a CSV file.</p>
             <div className="flex gap-2 justify-center">
-              <button onClick={() => setShowImport(true)} className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Import CSV</button>
+              <Link href="/dashboard/members/migration" className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Import / Migrate</Link>
               <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">+ Add member</button>
             </div>
           </div>
@@ -529,8 +525,6 @@ export default function MembersPage() {
       )}
 
   {subscribing && <PurchaseMembershipModal member={subscribing} onClose={() => setSubscribing(null)} />}
-
-      {showImport && <ImportCSVModal customFields={customFields} formConfig={formConfig} onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
 
       {bulkMessaging && (
         <BulkMessageModal

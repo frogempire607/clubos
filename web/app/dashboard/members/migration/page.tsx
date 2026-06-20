@@ -31,6 +31,8 @@ function parseCSV(text: string): string[][] {
 }
 
 // Target fields the wizard can map to. `athleteName` makes first/last optional.
+type CustomFieldDef = { id: string; label: string; required: boolean };
+
 const FIELDS: { key: string; label: string; group: string }[] = [
   { key: "athleteName", label: "Athlete name (full)", group: "Identity" },
   { key: "firstName", label: "First name", group: "Identity" },
@@ -39,12 +41,18 @@ const FIELDS: { key: string; label: string; group: string }[] = [
   { key: "phone", label: "Phone", group: "Contact" },
   { key: "dateOfBirth", label: "Date of birth", group: "Profile" },
   { key: "gender", label: "Gender", group: "Profile" },
+  { key: "streetAddress", label: "Street address", group: "Address" },
+  { key: "city", label: "City", group: "Address" },
+  { key: "state", label: "State / Region", group: "Address" },
+  { key: "zipCode", label: "Zip code", group: "Address" },
   { key: "status", label: "Status", group: "Profile" },
+  { key: "isMinor", label: "Minor (yes/no)", group: "Profile" },
   { key: "tags", label: "Tags", group: "Profile" },
   { key: "notes", label: "Notes", group: "Profile" },
   { key: "guardianName", label: "Guardian name", group: "Guardian" },
   { key: "guardianEmail", label: "Guardian email", group: "Guardian" },
   { key: "guardianPhone", label: "Guardian phone", group: "Guardian" },
+  { key: "guardianRelationship", label: "Guardian relationship", group: "Guardian" },
   { key: "membershipName", label: "Membership name", group: "Membership" },
   { key: "membershipPrice", label: "Membership price", group: "Membership" },
   { key: "billingFrequency", label: "Billing frequency", group: "Membership" },
@@ -61,6 +69,7 @@ function autoMap(header: string): string {
   if (h.includes("guardian") && h.includes("name")) return "guardianName";
   if (h.includes("guardian") && h.includes("email")) return "guardianEmail";
   if (h.includes("guardian") && h.includes("phone")) return "guardianPhone";
+  if ((h.includes("guardian") || h.includes("parent")) && h.includes("relation")) return "guardianRelationship";
   if ((h.includes("parent") || h.includes("guardian")) && !h.includes("email") && !h.includes("phone")) return "guardianName";
   if (h.includes("firstname") || h === "first" || h === "fname") return "firstName";
   if (h.includes("lastname") || h === "last" || h === "lname" || h === "surname") return "lastName";
@@ -69,6 +78,11 @@ function autoMap(header: string): string {
   if (h.includes("phone") || h === "mobile" || h === "cell") return "phone";
   if (h.includes("dob") || h.includes("birth")) return "dateOfBirth";
   if (h.includes("gender") || h === "sex") return "gender";
+  if (h.includes("street") || h === "address" || h.includes("addressline") || h.includes("address1")) return "streetAddress";
+  if (h === "city" || h.includes("town")) return "city";
+  if (h === "state" || h === "province" || h === "region") return "state";
+  if (h.includes("zip") || h.includes("postal")) return "zipCode";
+  if (h.includes("minor") || h.includes("under18")) return "isMinor";
   if (h.includes("status") || h.includes("active")) return "status";
   if (h.includes("tag")) return "tags";
   if (h.includes("note") || h.includes("comment")) return "notes";
@@ -139,7 +153,6 @@ export default function MigrationPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [showImport, setShowImport] = useState(false);
-  const [showMembershipImport, setShowMembershipImport] = useState(false);
   const [historyFor, setHistoryFor] = useState<Row | null>(null);
   const [drawerFor, setDrawerFor] = useState<Row | null>(null);
   const [showFamilies, setShowFamilies] = useState(false);
@@ -240,12 +253,6 @@ export default function MigrationPage() {
         </div>
         <div className="flex gap-2 flex-shrink-0">
           <button
-            onClick={() => setShowMembershipImport(true)}
-            className="text-sm px-4 py-2 border border-app-border text-text-primary rounded-lg hover:bg-app-bg transition"
-          >
-            Match Memberships CSV
-          </button>
-          <button
             onClick={() => setShowImport(true)}
             className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition"
           >
@@ -254,41 +261,25 @@ export default function MigrationPage() {
         </div>
       </div>
 
-      {/* Two-step import explainer — what each upload is for */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-        <div className="bg-surface border border-app-border rounded-xl p-4 flex flex-col">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-5 h-5 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">1</span>
-            <p className="text-sm font-semibold text-text-primary">Import all your clients</p>
-          </div>
-          <p className="text-[13px] text-text-muted flex-1">
-            Start here. Upload your <strong className="text-text-primary">full roster</strong> — everyone from your old system, active or not.
-            Each person comes in as a Prospect and is <strong className="text-text-primary">never charged</strong> until they activate.
-            One contact email/phone is enough; for a minor it&apos;s the guardian&apos;s.
+      {/* One importer — everything in a single upload */}
+      <div className="bg-surface border border-app-border rounded-xl p-4 mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-text-primary mb-1">Import your whole roster in one upload</p>
+          <p className="text-[13px] text-text-muted">
+            Upload everyone from your old system in a single CSV — active or not. Map any columns you
+            have: contact info, address, guardian details, your custom fields, and (optionally) each
+            member&apos;s <strong className="text-text-primary">membership, price, and billing date</strong> so
+            their plan attaches automatically. Everyone comes in as a Prospect and is
+            <strong className="text-text-primary"> never charged</strong> until they activate. One contact
+            email/phone is enough; for a minor it&apos;s the guardian&apos;s.
           </p>
-          <button
-            onClick={() => setShowImport(true)}
-            className="mt-3 self-start text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover"
-          >
-            Import / Migrate Members
-          </button>
         </div>
-        <div className="bg-surface border border-app-border rounded-xl p-4 flex flex-col">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-5 h-5 rounded-full bg-brand/15 text-brand text-xs font-semibold flex items-center justify-center flex-shrink-0">2</span>
-            <p className="text-sm font-semibold text-text-primary">Add active members&apos; memberships</p>
-          </div>
-          <p className="text-[13px] text-text-muted flex-1">
-            Optional second pass. Upload a CSV of just your <strong className="text-text-primary">active</strong> members with their plan, price, and billing date.
-            It matches each one (by email or name) to a client from step 1 and attaches billing so they keep their existing cycle.
-          </p>
-          <button
-            onClick={() => setShowMembershipImport(true)}
-            className="mt-3 self-start text-sm px-3 py-1.5 border border-app-border text-text-primary rounded-lg hover:bg-app-bg"
-          >
-            Match Memberships CSV
-          </button>
-        </div>
+        <button
+          onClick={() => setShowImport(true)}
+          className="self-start text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover whitespace-nowrap"
+        >
+          Import / Migrate Members
+        </button>
       </div>
 
       {/* Owner guidance */}
@@ -510,7 +501,6 @@ export default function MigrationPage() {
       </div>
 
       {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
-      {showMembershipImport && <MembershipImportWizard onClose={() => setShowMembershipImport(false)} onDone={() => { setShowMembershipImport(false); load(); }} />}
       {historyFor && <HistoryDrawer row={historyFor} onClose={() => setHistoryFor(null)} />}
       {drawerFor && (
         <MigrationDrawer
@@ -1016,6 +1006,44 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ created: number; skipped: number; failed: number; needsReview: number; errors: string[] } | null>(null);
+  const [customFields, setCustomFields] = useState<CustomFieldDef[]>([]);
+  const [dateFormat, setDateFormat] = useState<"auto" | "mdy" | "dmy" | "ymd">("mdy");
+
+  useEffect(() => {
+    fetch("/api/custom-fields")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((fs) =>
+        setCustomFields(
+          Array.isArray(fs)
+            ? fs.map((f: { id: string; label: string; required?: boolean }) => ({ id: f.id, label: f.label, required: !!f.required }))
+            : [],
+        ),
+      )
+      .catch(() => {});
+  }, []);
+
+  // Column mapper options: built-in fields + the club's custom fields + skip last.
+  const mappingFields = [
+    ...FIELDS.filter((f) => f.key !== "skip"),
+    ...customFields.map((f) => ({ key: `custom:${f.id}`, label: `Custom: ${f.label}`, group: "Custom" })),
+    FIELDS[FIELDS.length - 1],
+  ];
+
+  // Convert a date from the chosen format to ISO so the server can't misread
+  // dd/mm as mm/dd. Unparseable values pass through untouched.
+  function convertDate(raw: string): string {
+    const v = (raw || "").trim();
+    if (!v || dateFormat === "auto") return v;
+    const m = v.match(/^(\d{1,4})[/\-.](\d{1,2})[/\-.](\d{1,4})$/);
+    if (!m) return v;
+    let day: number, month: number, year: number;
+    if (dateFormat === "mdy") { month = +m[1]; day = +m[2]; year = +m[3]; }
+    else if (dateFormat === "dmy") { day = +m[1]; month = +m[2]; year = +m[3]; }
+    else { year = +m[1]; month = +m[2]; day = +m[3]; }
+    if (year < 100) year += 2000;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return v;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -1027,7 +1055,15 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
       setHeaders(parsed[0]);
       setData(parsed.slice(1));
       const am: Record<number, string> = {};
-      parsed[0].forEach((h, i) => { am[i] = autoMap(h); });
+      parsed[0].forEach((h, i) => {
+        let key = autoMap(h);
+        if (key === "skip") {
+          const lh = h.toLowerCase().replace(/\s+/g, "").replace(/_/g, "");
+          const cf = customFields.find((f) => f.label.toLowerCase().replace(/\s+/g, "").replace(/_/g, "") === lh);
+          if (cf) key = `custom:${cf.id}`;
+        }
+        am[i] = key;
+      });
       setMapping(am);
       setError("");
       setStep("map");
@@ -1081,22 +1117,35 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
       lastName: m.lastName || undefined,
       email: m.email || undefined,
       phone: m.phone || undefined,
-      dateOfBirth: m.dateOfBirth || undefined,
+      dateOfBirth: m.dateOfBirth ? convertDate(m.dateOfBirth) : undefined,
       gender: m.gender || undefined,
+      streetAddress: m.streetAddress || undefined,
+      city: m.city || undefined,
+      state: m.state || undefined,
+      zipCode: m.zipCode || undefined,
       status: m.status || undefined,
       tags: m.tags || undefined,
       notes: m.notes || undefined,
       guardianName: m.guardianName || undefined,
       guardianEmail: m.guardianEmail || undefined,
       guardianPhone: m.guardianPhone || undefined,
+      guardianRelationship: m.guardianRelationship || undefined,
       membershipName: m.membershipName || undefined,
       membershipPrice: m.membershipPrice || undefined,
       billingFrequency: m.billingFrequency || undefined,
-      nextBillingDate: m.nextBillingDate || undefined,
-      membershipStartDate: m.membershipStartDate || undefined,
-      commitmentEndDate: m.commitmentEndDate || undefined,
+      nextBillingDate: m.nextBillingDate ? convertDate(m.nextBillingDate) : undefined,
+      membershipStartDate: m.membershipStartDate ? convertDate(m.membershipStartDate) : undefined,
+      commitmentEndDate: m.commitmentEndDate ? convertDate(m.commitmentEndDate) : undefined,
       legacyMemberId: m.legacyMemberId || undefined,
-      isMinor: !!(m.guardianName || m.guardianEmail),
+      customFieldValues: Object.fromEntries(
+        Object.entries(m)
+          .filter(([k]) => k.startsWith("custom:"))
+          .map(([k, v]) => [k.replace("custom:", ""), v]),
+      ),
+      // Honor an explicit Minor column when mapped; else infer from guardian info.
+      isMinor: m.isMinor
+        ? ["yes", "true", "minor", "y", "1", "under18", "under 18"].includes(m.isMinor.toLowerCase())
+        : !!(m.guardianName || m.guardianEmail),
     }));
     const res = await fetch("/api/members/import", {
       method: "POST",
@@ -1140,7 +1189,7 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                 <p className="font-medium text-text-primary">What to include</p>
                 <p>• One email and one phone per person is enough.</p>
                 <p>• For a minor, use the <strong className="text-text-primary">guardian&apos;s</strong> name + email — a single contact column is treated as the guardian&apos;s automatically.</p>
-                <p>• Membership plan &amp; billing dates are optional here; you can add them in step 2 (&quot;Match Memberships CSV&quot;).</p>
+                <p>• Membership plan, price &amp; billing dates are optional columns — map them here to attach each member&apos;s plan automatically.</p>
               </div>
               <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} className="hidden" />
               <button onClick={() => fileRef.current?.click()} className="text-sm px-5 py-2.5 bg-brand text-white rounded-lg hover:bg-brand-hover">Choose CSV file</button>
@@ -1155,6 +1204,17 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                   placeholder="e.g. Jackrabbit, Mindbody, spreadsheet"
                   className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
               </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text-primary mb-1">Date format in your file</label>
+                <select value={dateFormat} onChange={(e) => setDateFormat(e.target.value as typeof dateFormat)}
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+                  <option value="mdy">US — MM/DD/YYYY (e.g. 08/25/2015)</option>
+                  <option value="dmy">International — DD/MM/YYYY (e.g. 25/08/2015)</option>
+                  <option value="ymd">ISO — YYYY-MM-DD (e.g. 2015-08-25)</option>
+                  <option value="auto">Let the system guess</option>
+                </select>
+                <p className="text-[11px] text-text-muted mt-1">Applies to date of birth, billing, start &amp; commitment dates.</p>
+              </div>
               <p className="text-sm font-medium text-text-primary mb-2">Map your columns</p>
               <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                 {headers.map((h, i) => (
@@ -1165,7 +1225,7 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                       onChange={(e) => setMapping((p) => ({ ...p, [i]: e.target.value }))}
                       className="flex-1 px-2 py-1.5 border border-app-border rounded-lg text-sm bg-surface"
                     >
-                      {FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                      {mappingFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
                     <span className="text-[10px] text-text-muted w-28 truncate">{data[0]?.[i] || ""}</span>
                   </div>
