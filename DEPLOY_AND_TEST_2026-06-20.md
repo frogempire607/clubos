@@ -30,21 +30,25 @@ After the deploy is "Published" in Netlify, hard-refresh the app (Cmd/Ctrl-Shift
 You're testing as the owner (`jramirez@frogempire607.com`) plus a guardian email
 you control (use a real inbox you can open, e.g. your own + a `+alias`).
 
-### A. Consolidated importer (new)
+### A. Importers (consolidated to the migration tool)
 1. **Members tab** → confirm there's **no "Import CSV"** button anymore; only
    **Import / Migrate** (which opens the migration tool).
-2. **Migration tool** → confirm there's a **single** "Import / Migrate Members"
-   button (no separate "Match Memberships CSV") and a one-paragraph explainer.
-3. Click **Import / Migrate Members** → upload a CSV. In **Map columns** confirm
-   the dropdown now includes: address (Street/City/State-Region/Zip), **Minor
-   (yes/no)**, **Guardian relationship**, the membership/billing/legacy fields,
-   **and your Custom fields** (e.g. Graduating Class, USAW Membership). Set the
-   **Date format** to match your file.
-4. Map a CSV that has, in one file: athlete name, guardian name/email, address,
-   a membership + price + billing date, and a custom field. Import.
-5. Confirm members import as **PROSPECT**, addresses/custom values are saved
-   (open a member on the Members tab), and membership/price shows on the
-   migration row.
+2. **Migration tool** → confirm there are **two** imports: **Import / Migrate
+   Members** (step 1) and **Match Memberships CSV** (step 2), with a two-step
+   explainer. (The old Members-tab importer is now folded into step 1.)
+3. **Step 1 — Import / Migrate Members:** upload a clients CSV. In **Map columns**
+   confirm the dropdown now includes address (Street/City/State-Region/Zip),
+   **Minor (yes/no)**, **Guardian relationship**, the membership/billing/legacy
+   fields, **and your Custom fields** (e.g. Graduating Class, USAW Membership).
+   Set the **Date format** to match your file.
+4. Map a clients CSV with: athlete name, guardian name/email, address, a custom
+   field (and optionally membership/price/billing). Import.
+5. Confirm members import as **PROSPECT**, and addresses/custom values are saved
+   (open a member on the Members tab).
+6. **Step 2 — Match Memberships CSV:** if your old system exports memberships in a
+   **separate** file, upload it here. Confirm it matches each row (by email or
+   name) to a client from step 1 and attaches the plan/price/billing date (shows
+   on the migration row).
 
 > Use a small file first (5–10 rows) to confirm mapping, then the full roster.
 

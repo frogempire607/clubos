@@ -193,10 +193,14 @@ export default function MemberProfilePage() {
     load();
   }
 
-  async function openBillingPortal() {
+  async function openBillingPortal(memberId?: string) {
     setOpeningPortal(true);
     setError("");
-    const res = await fetch("/api/member/billing-portal", { method: "POST" });
+    const res = await fetch("/api/member/billing-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(memberId ? { memberId } : {}),
+    });
     const d = await res.json().catch(() => ({}));
     setOpeningPortal(false);
     if (!res.ok || !d.url) {
@@ -468,7 +472,7 @@ export default function MemberProfilePage() {
             <div className="flex flex-wrap items-center gap-2">
               {showInvoices && me.memberProfile?.stripeCustomerId && (
                 <button
-                  onClick={openBillingPortal}
+                  onClick={() => openBillingPortal()}
                   disabled={openingPortal}
                   className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
                 >
@@ -494,6 +498,29 @@ export default function MemberProfilePage() {
               You can update your payment method and view invoices here.
               Cancellations are reviewed by your club before billing stops.
             </p>
+
+            {/* Guardians manage each linked athlete's card/invoices from here. */}
+            {extras?.user?.guardianOf && extras.user.guardianOf.length > 0 && (
+              <div className="mt-4 border-t border-stone-100 pt-4">
+                <p className="text-xs font-medium text-stone-700 mb-2">Manage each athlete&apos;s payment method</p>
+                <div className="space-y-2">
+                  {extras.user.guardianOf.map((g) => (
+                    <div key={g.member.id} className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-stone-700">{g.member.firstName} {g.member.lastName}</span>
+                      <button
+                        type="button"
+                        onClick={() => openBillingPortal(g.member.id)}
+                        disabled={openingPortal}
+                        className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                      >
+                        {openingPortal ? "Opening…" : "Manage billing"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-2">Opens a secure page to update the card or view invoices for that athlete.</p>
+              </div>
+            )}
           </div>
         );
       })()}

@@ -161,7 +161,10 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
         deletedAt: null,
         isMinor: true,
         guardianEmail: { equals: guardianEmailLc, mode: "insensitive" },
-        activationKind: { not: "JOIN" },
+        // Migrated members have a NULL activationKind; `not: "JOIN"` would drop
+        // them (SQL `<> 'JOIN'` excludes NULLs), so siblings never appeared and
+        // only one child showed during family onboarding. Include NULLs here.
+        OR: [{ activationKind: null }, { activationKind: { not: "JOIN" } }],
       },
       orderBy: { createdAt: "asc" },
       select: {

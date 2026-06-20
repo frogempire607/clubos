@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -42,6 +43,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 
 const patchSchema = z.object({
   migrationMembershipId: z.string().optional().nullable(),
+  // Which purchase option under the chosen membership (e.g. Monthly / Upfront /
+  // 1 Year). Resolved server-side to its real price + billing period.
+  selectedOptionLabel: z.string().optional().nullable(),
   billingAnchorDate: z.string().optional().nullable(),
   billingFrequency: z.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMI_ANNUAL", "ANNUAL"]).optional().nullable(),
   commitmentEndDate: z.string().optional().nullable(),
@@ -74,7 +78,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   const member = await prisma.member.findFirst({
     where: { id, clubId: session.user.clubId, deletedAt: null },
-    select: { id: true, clubId: true },
+    select: { id: true, clubId: true, migrationMembershipId: true },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -93,6 +97,38 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       select: { id: true },
     });
     if (!plan) return NextResponse.json({ error: "Membership plan not found" }, { status: 400 });
+  }
+
+  // Resolve the chosen purchase option → its exact price + billing period, so
+  // activation/approval bill that option (the owner's priceOverride still wins).
+  let selectedOption: { label: string; price: number; billingPeriod: string } | null | undefined;
+  if (data.selectedOptionLabel !== undefined) {
+    const effectiveMembershipId =
+      data.migrationMembershipId !== undefined ? data.migrationMembershipId : member.migrationMembershipId;
+    if (!data.selectedOptionLabel || !effectiveMembershipId) {
+      selectedOption = null; // cleared / no plan to resolve against
+    } else {
+      const plan = await prisma.membership.findFirst({
+        where: { id: effectiveMembershipId, clubId: member.clubId, deletedAt: null },
+        select: { options: true },
+      });
+      selectedOption = null;
+      try {
+        const opts = JSON.parse((plan?.options as unknown as string) || "[]");
+        const match = Array.isArray(opts)
+          ? opts.find((o) => o && String(o.label ?? "") === data.selectedOptionLabel && typeof o.price === "number")
+          : null;
+        if (match) {
+          selectedOption = {
+            label: String(match.label ?? "Membership"),
+            price: Number(match.price),
+            billingPeriod: String(match.billingPeriod || "MONTHLY"),
+          };
+        }
+      } catch {
+        selectedOption = null;
+      }
+    }
   }
 
   const parseDate = (s: string | null | undefined) => {
@@ -128,6 +164,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       ...(data.finalPeriodPaid !== undefined
         ? { migrationFinalPeriodPaid: data.finalPeriodPaid }
         : {}),
+      ...(selectedOption !== undefined
+        ? { migrationSelectedOption: selectedOption === null ? Prisma.JsonNull : selectedOption }
+        : {}),
+      // Keep the billing frequency in sync with the chosen option.
+      ...(selectedOption ? { legacyBillingFrequency: selectedOption.billingPeriod } : {}),
     },
     select: { id: true, migrationMembershipId: true, billingAnchorDate: true, commitmentEndDate: true },
   });

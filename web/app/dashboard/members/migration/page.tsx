@@ -681,13 +681,14 @@ function dInput(iso: string | null | undefined) {
 function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; onClose: () => void; onChanged: () => void }) {
   const [d, setD] = useState<Detail | null>(null);
   const [activationUrl, setActivationUrl] = useState<string | null>(null);
-  const [memberships, setMemberships] = useState<{ id: string; name: string }[]>([]);
+  const [memberships, setMemberships] = useState<{ id: string; name: string; options: { label: string; price: number; billingPeriod: string }[] }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
 
   const [planId, setPlanId] = useState("");
+  const [selectedOptionLabel, setSelectedOptionLabel] = useState("");
   const [priceOverride, setPriceOverride] = useState("");
   const [discountNote, setDiscountNote] = useState("");
   const [anchor, setAnchor] = useState("");
@@ -710,6 +711,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
         setD(m);
         setActivationUrl(detail.activationUrl || null);
         setPlanId(m.migrationMembershipId || "");
+        setSelectedOptionLabel(m.migrationSelectedOption?.label || "");
         setPriceOverride(
           m.migrationPriceOverride != null ? String(m.migrationPriceOverride) : "",
         );
@@ -730,7 +732,28 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
           });
         }
       }
-      setMemberships(Array.isArray(mships) ? mships.map((x: { id: string; name: string }) => ({ id: x.id, name: x.name })) : []);
+      setMemberships(
+        Array.isArray(mships)
+          ? mships.map((x: { id: string; name: string; options?: string }) => {
+              let options: { label: string; price: number; billingPeriod: string }[] = [];
+              try {
+                const o = JSON.parse(x.options || "[]");
+                if (Array.isArray(o)) {
+                  options = o
+                    .filter((it) => it && typeof it.price === "number")
+                    .map((it) => ({
+                      label: String(it.label ?? "Membership"),
+                      price: Number(it.price),
+                      billingPeriod: String(it.billingPeriod || "MONTHLY"),
+                    }));
+                }
+              } catch {
+                /* options not JSON — leave empty */
+              }
+              return { id: x.id, name: x.name, options };
+            })
+          : [],
+      );
       setLoading(false);
     });
   }, [memberId]);
@@ -742,6 +765,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         migrationMembershipId: planId || null,
+        selectedOptionLabel: selectedOptionLabel || null,
         priceOverride: priceOverride.trim() === "" ? null : Number(priceOverride),
         discountNote: discountNote.trim() || null,
         billingAnchorDate: anchor || null,
@@ -863,6 +887,28 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                   {d.legacyBillingFrequency ? ` / ${d.legacyBillingFrequency.toLowerCase()}` : ""}
                 </p>
               </div>
+
+              {/* Purchase option under the chosen membership (Monthly / Upfront / 1 Year …) */}
+              {(() => {
+                const planOpts = memberships.find((m) => m.id === planId)?.options ?? [];
+                if (!planId || planOpts.length === 0) return null;
+                return (
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary mb-1">Purchase option</label>
+                    <select value={selectedOptionLabel} onChange={(e) => setSelectedOptionLabel(e.target.value)} className="inp">
+                      <option value="">— Default (first option) —</option>
+                      {planOpts.map((o) => (
+                        <option key={o.label} value={o.label}>
+                          {o.label} — ${o.price.toFixed(2)} / {o.billingPeriod.toLowerCase()}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-text-muted mt-1">
+                      Which option under this membership the client continues on. Set a custom price below if theirs differs.
+                    </p>
+                  </div>
+                );
+              })()}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

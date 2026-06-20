@@ -7,6 +7,7 @@ import { resolveFamilyContext } from "@/lib/memberContext";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 import { sendPrivateLessonRequestedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { applyParentalControls } from "@/lib/parentalControls";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
@@ -430,7 +431,7 @@ export async function POST(req: Request) {
           to: coachUser.email,
           coachFirstName: coachUser.firstName,
           clubName: clubRow.name,
-          clubLogoUrl: clubRow.logoUrl,
+          clubLogoUrl: publicClubLogoUrl(clubId, clubRow.logoUrl),
           clubPrimaryColor: clubRow.primaryColor,
           memberFirstName: member.firstName,
           memberLastName: member.lastName,

@@ -151,25 +151,34 @@ export default function MemberMembershipsPage() {
                   <p className="text-xs text-stone-500 mb-3">{m.contractMonths}-month minimum commitment</p>
                 )}
 
-                <div className="space-y-2 mt-3">
-                  {opts.map((o) => {
-                    const isCurrent = activeForThis?.optionLabel === o.label;
-                    const key = `${m.id}:${o.label}`;
-                    return (
-                      <div
-                        key={o.label}
-                        className="flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-stone-900">{o.label}</p>
-                          <p className="text-xs text-stone-500">
-                            ${o.price.toFixed(2)}
-                            <span>{periodLabel[o.billingPeriod] ?? ""}</span>
-                          </p>
-                        </div>
-                        {isCurrent ? (
-                          <span className="text-xs text-stone-500 px-3 py-1.5 flex-shrink-0">Active</span>
-                        ) : (
+                {activeForThis ? (
+                  // The selected profile is already on this membership — show it
+                  // as their current plan instead of Subscribe buttons. (The sub's
+                  // optionLabel can be the plan name from migration, not an option
+                  // label, so we match on membership, not exact option.)
+                  <div className="mt-3 rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 text-sm text-green-800">
+                    ✓ This is the current plan on this profile
+                    {activeForThis.optionLabel ? <> — <span className="font-medium">{activeForThis.optionLabel}</span></> : null}.
+                    <span className="block text-xs text-green-700 mt-0.5">
+                      Update the card or cancel from Profile → Payment &amp; billing.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-2 mt-3">
+                    {opts.map((o) => {
+                      const key = `${m.id}:${o.label}`;
+                      return (
+                        <div
+                          key={o.label}
+                          className="flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-stone-900">{o.label}</p>
+                            <p className="text-xs text-stone-500">
+                              ${o.price.toFixed(2)}
+                              <span>{periodLabel[o.billingPeriod] ?? ""}</span>
+                            </p>
+                          </div>
                           <button
                             disabled={!hasMemberProfile || submitting === key}
                             onClick={() => subscribe(m.id, o.label)}
@@ -177,11 +186,11 @@ export default function MemberMembershipsPage() {
                           >
                             {submitting === key ? "Starting…" : "Subscribe"}
                           </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
