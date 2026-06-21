@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "next-env.d.ts",
+    "lib/friendlyDate.ts",
+    "components/member/**/*.ts",
+    "components/member/**/*.tsx",
+    "app/member/**/*.ts",
+    "app/member/**/*.tsx"
+  ]
+}

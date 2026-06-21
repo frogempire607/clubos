@@ -7,6 +7,7 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { applyParentalControls } from "@/lib/parentalControls";
+import { packageTotalForBasePrice, normalizePricingMode } from "@/lib/privateLessonRules";
 
 // POST /api/member/private-packages/[id]/buy
 //
@@ -24,7 +25,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const clubId = session.user.clubId;
-  const body = (await req.json().catch(() => ({}))) as { memberId?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    memberId?: string;
+    lessonTypeId?: string;
+    priceOptionId?: string;
+  };
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { email: true },
@@ -52,9 +57,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       deletedAt: null,
       active: true,
       publishedToMembers: true,
-      // Match the GET filter — non-FLAT packages aren't supported in the
-      // member shop yet.
-      pricingMode: "FLAT",
     },
   });
   if (!pkg) {
@@ -69,9 +71,51 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     );
   }
 
-  const totalCents = Math.round(Number(pkg.price) * 100);
+  // Price the package. FLAT uses the stored flat total. PERCENT/FIXED are a
+  // discount off the chosen lesson tier's per-lesson price, so we resolve that
+  // tier from the lessonTypeId/priceOptionId the member picked in the request
+  // flow (this is what fixed the "$0 / Package not available" bug for
+  // discount-based packages).
+  const mode = normalizePricingMode(pkg.pricingMode);
+  let basePerLesson = 0;
+  if (mode !== "FLAT") {
+    if (!body.lessonTypeId) {
+      return NextResponse.json(
+        { error: "Pick a lesson type and option first so we can price this pack." },
+        { status: 400 },
+      );
+    }
+    const lt = await prisma.privateLessonType.findFirst({
+      where: { id: body.lessonTypeId, clubId, deletedAt: null },
+      select: { basePrice: true, priceOptions: true },
+    });
+    if (!lt) {
+      return NextResponse.json({ error: "That lesson type isn't available." }, { status: 400 });
+    }
+    basePerLesson = Number(lt.basePrice) || 0;
+    if (body.priceOptionId && Array.isArray(lt.priceOptions)) {
+      const opt = (lt.priceOptions as Array<{ id?: string; price?: number }>).find(
+        (o) => o?.id === body.priceOptionId,
+      );
+      if (opt && typeof opt.price === "number") basePerLesson = opt.price;
+    }
+  }
+  const totalAmount = packageTotalForBasePrice(
+    {
+      pricingMode: pkg.pricingMode,
+      discountValue: pkg.discountValue == null ? null : Number(pkg.discountValue),
+      price: Number(pkg.price),
+      credits: pkg.credits,
+      bonusCredits: pkg.bonusCredits,
+    },
+    basePerLesson,
+  );
+  const totalCents = Math.round(totalAmount * 100);
   if (totalCents <= 0) {
-    return NextResponse.json({ error: "Package price is missing." }, { status: 400 });
+    return NextResponse.json(
+      { error: "This pack can't be priced for that lesson yet — pick a lesson and option, or contact your club." },
+      { status: 400 },
+    );
   }
 
   // P4 parental gate. Runs before any Stripe-side cost is paid; either
@@ -90,7 +134,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     bookerUserId: session.user.id,
     bookerIsGuardian: resolved?.bookerIsGuardian ?? false,
     kind: "PACKAGE_BUY",
-    amount: Number(pkg.price),
+    amount: totalAmount,
     payload: { packageId: pkg.id, memberId: member.id },
   });
   if (gate.kind === "block") {

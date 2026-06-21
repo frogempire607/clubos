@@ -14,9 +14,12 @@ import {
   Phone,
   ExternalLink,
   ChevronRight,
+  Heart,
   type LucideIcon,
 } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
+import { Skeleton } from "@/components/member/ui";
+import { friendlyDateTime } from "@/lib/friendlyDate";
 
 type Booking = {
   id: string;
@@ -98,6 +101,7 @@ type ClubBannerData = {
   websiteUrl: string | null;
   socialLinks: { label: string; url: string }[] | null;
   hoursOfOperation: Record<string, string> | null;
+  donationLinks?: { id: string; title: string; description: string | null; url: string | null }[] | null;
 };
 
 function ClubBanner() {
@@ -111,14 +115,15 @@ function ClubBanner() {
   }, []);
 
   if (!club) return null;
-  if (!club.logoUrl && !club.aboutUs && !club.tagline && !club.coverImageUrl) return null;
+  const donations = (club.donationLinks ?? []).filter((d) => d.url);
+  if (!club.logoUrl && !club.aboutUs && !club.tagline && !club.coverImageUrl && donations.length === 0) return null;
 
   const aboutShort = club.aboutUs && club.aboutUs.length > 280 ? club.aboutUs.slice(0, 280) + "…" : club.aboutUs;
   const hours = club.hoursOfOperation && Object.values(club.hoursOfOperation).some((v) => v?.trim()) ? club.hoursOfOperation : null;
   const socials = (club.socialLinks ?? []).filter((l) => l?.url?.trim());
 
   return (
-    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden mb-4">
+    <div className="pcard overflow-hidden mb-4">
       {club.coverImageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={club.coverImageUrl} alt="" className="w-full aspect-[3/1] object-cover" />
@@ -208,6 +213,29 @@ function ClubBanner() {
             )}
           </div>
         )}
+
+        {donations.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-stone-100">
+            <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-2">
+              Support {club.name}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {donations.map((d) => (
+                <a
+                  key={d.id}
+                  href={d.url ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="pbtn-accent inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl"
+                  title={d.description ?? undefined}
+                >
+                  <Heart size={14} strokeWidth={2.5} />
+                  {d.title}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -231,12 +259,15 @@ function TileLink({
   return (
     <Link
       href={href}
-      className="bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition text-center min-w-0"
+      className="pcard pcard-hover p-4 text-center min-w-0 block"
     >
-      <div className="mx-auto mb-2 w-9 h-9 rounded-full bg-lime-100 text-lime-800 flex items-center justify-center">
+      <div
+        className="mx-auto mb-2 w-10 h-10 rounded-xl flex items-center justify-center"
+        style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
+      >
         <Icon size={18} strokeWidth={2} />
       </div>
-      <p className="text-sm font-medium text-stone-900 truncate">{label}</p>
+      <p className="text-sm font-semibold text-stone-900 truncate">{label}</p>
       <p className="text-xs text-stone-500 line-clamp-2 mt-0.5">{desc}</p>
     </Link>
   );
@@ -335,7 +366,7 @@ function UpcomingBookings({ bookings, label }: { bookings: Booking[]; label?: st
   const upcoming = bookings.filter((b) => UPCOMING_STATUSES.has(b.status));
 
   return (
-    <div className="bg-white rounded-xl border border-stone-200 p-5">
+    <div className="pcard p-5">
       <h3 className="text-sm font-semibold text-stone-900 mb-3">{label || "Upcoming Bookings"}</h3>
       {upcoming.length === 0 ? (
         <p className="text-sm text-stone-400">No upcoming bookings.</p>
@@ -350,10 +381,7 @@ function UpcomingBookings({ bookings, label }: { bookings: Booking[]; label?: st
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-stone-900 truncate">{b.event.name}</p>
                   <p className="text-xs text-stone-400">
-                    {new Date(b.event.startsAt).toLocaleDateString("en-US", {
-                      weekday: "short", month: "short", day: "numeric",
-                    })}{" · "}
-                    {new Date(b.event.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    {friendlyDateTime(b.event.startsAt)}
                   </p>
                 </div>
                 <span
@@ -405,19 +433,19 @@ function AdultAthleteView({ data }: { data: PortalData }) {
       <ClubBanner />
 
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-stone-200 p-4">
+        <div className="pcard p-4">
           <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Status</p>
           <p className={`text-sm font-semibold ${member?.status === "ACTIVE" ? "text-green-700" : "text-stone-600"}`}>
             {member?.status || "No profile"}
           </p>
         </div>
-        <div className="bg-white rounded-xl border border-stone-200 p-4">
+        <div className="pcard p-4">
           <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Membership</p>
           <p className="text-sm font-semibold text-stone-900">
             {activeSub?.membership.name || member?.membership?.name || "None"}
           </p>
         </div>
-        <div className="bg-white rounded-xl border border-stone-200 p-4">
+        <div className="pcard p-4">
           <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Bookings</p>
           <p className="text-sm font-semibold text-stone-900">
             {upcomingCount} upcoming
@@ -433,12 +461,12 @@ function AdultAthleteView({ data }: { data: PortalData }) {
 
       <Link
         href="/member/schedule"
-        className="block mt-4 bg-stone-900 text-white rounded-xl p-5 hover:bg-stone-800 transition"
+        className="block mt-4 rounded-2xl p-5 pbtn-accent"
       >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold mb-0.5">View the full schedule</p>
-            <p className="text-xs text-stone-300">Classes · Events · Private lessons</p>
+            <p className="text-xs opacity-75">Classes · Events · Private lessons</p>
           </div>
           <ChevronRight size={24} strokeWidth={2} className="flex-shrink-0" />
         </div>
@@ -476,7 +504,7 @@ function RecentAnnouncements() {
   if (items.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-stone-200 p-5">
+    <div className="pcard p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-stone-900">Latest from your club</h3>
         <Link href="/member/announcements" className="text-xs text-stone-500 hover:text-stone-900">See all →</Link>
@@ -522,13 +550,13 @@ function MinorAthleteView({ data }: { data: PortalData }) {
       )}
 
       <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-stone-200 p-4">
+        <div className="pcard p-4">
           <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">My Status</p>
           <p className={`text-sm font-semibold ${member?.status === "ACTIVE" ? "text-green-700" : "text-stone-600"}`}>
             {member?.status || "Active"}
           </p>
         </div>
-        <div className="bg-white rounded-xl border border-stone-200 p-4">
+        <div className="pcard p-4">
           <p className="text-xs text-stone-500 uppercase tracking-wide mb-1">Upcoming</p>
           <p className="text-sm font-semibold text-stone-900">
             {minorAllBookings.filter((b) => UPCOMING_STATUSES.has(b.status)).length}
@@ -723,22 +751,25 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
       <ClubBanner />
 
       {children.length === 0 && !self ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-8 text-center mb-4">
-          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-lime-100 text-lime-800 flex items-center justify-center">
+        <div className="pcard p-8 text-center mb-4">
+          <div
+            className="mx-auto mb-3 w-12 h-12 rounded-2xl flex items-center justify-center"
+            style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
+          >
             <UsersIcon size={22} strokeWidth={2} />
           </div>
-          <h3 className="text-base font-medium text-stone-900 mb-1">No children linked yet</h3>
+          <h3 className="text-base font-semibold text-stone-900 mb-1">No children linked yet</h3>
           <p className="text-sm text-stone-500 mb-4">
             Enter your child's email address to link their account.
           </p>
-          <button onClick={() => setShowLinkChild(true)} className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700">
+          <button onClick={() => setShowLinkChild(true)} className="pbtn-accent px-4 py-2.5 rounded-xl text-sm font-semibold">
             Link a child
           </button>
         </div>
       ) : (
         activeProfile && (
           <>
-            <div className="bg-white rounded-xl border border-stone-200 p-4 mb-4">
+            <div className="pcard p-4 mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center text-sm font-bold text-stone-700">
                   {activeProfile.firstName[0]}
@@ -791,6 +822,37 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
   );
 }
 
+/* ─── Loading skeleton ─── */
+function HomeSkeleton() {
+  return (
+    <div className="pfade">
+      <Skeleton className="h-7 w-48 mb-2" />
+      <Skeleton className="h-4 w-32 mb-6" />
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="pcard p-4">
+            <Skeleton className="h-3 w-16 mb-2" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+        ))}
+      </div>
+      <div className="pcard p-5 mb-4">
+        <Skeleton className="h-4 w-40 mb-3" />
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-2/3" />
+          <Skeleton className="h-3 w-5/6" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-24 w-full" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main ─── */
 export default function MemberHome() {
   const [data, setData] = useState<PortalData | null>(null);
@@ -804,7 +866,7 @@ export default function MemberHome() {
 
   useEffect(() => { load(); }, []);
 
-  if (loading) return <div className="text-center py-16 text-stone-400 text-sm">Loading…</div>;
+  if (loading) return <HomeSkeleton />;
   if (!data) return <div className="text-center py-16 text-stone-400 text-sm">Could not load your profile.</div>;
 
   const member = data.user.memberProfile;

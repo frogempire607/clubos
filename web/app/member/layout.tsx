@@ -130,16 +130,32 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const inactiveNav = branded?.navigation.inactiveIconColor || "#a8a29e";
   const clubName = club?.name || "";
   // Branded-app personalization: font + alignment flow from owner settings.
-  const brandedStyle: React.CSSProperties = {
+  // We also publish the club accent as CSS variables on the portal root so the
+  // shared member UI kit (components/member/ui.tsx + the `.member-portal` layer
+  // in globals.css) brands every card, button, badge and switcher from one
+  // source of truth. Only append alpha when the accent is a real 6-digit hex.
+  const isHex6 = /^#[0-9a-fA-F]{6}$/.test(accent);
+  // CSS custom properties aren't part of the typed CSSProperties surface, so we
+  // build them as a plain record and cast the merged style once.
+  const accentVars: Record<string, string> = isHex6
+    ? {
+        "--club-accent": accent,
+        "--club-accent-contrast": headerText,
+        "--club-accent-soft": `${accent}14`,
+        "--club-accent-ring": `${accent}2E`,
+      }
+    : { "--club-accent-contrast": headerText };
+  const brandedStyle = {
+    ...accentVars,
     ...(club?.appFontFamily ? { fontFamily: club.appFontFamily } : {}),
     ...(club?.appTextAlign
       ? { textAlign: club.appTextAlign as "left" | "center" | "right" }
       : {}),
-  };
+  } as React.CSSProperties;
   const portalNav = buildPortalNav(branded);
 
   return (
-    <div className="min-h-screen bg-stone-50 native-shell-root" style={brandedStyle}>
+    <div className="min-h-screen bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
       {/* Preview-mode banner. Only visible to owner/staff sessions that
           activated preview from the dashboard; members never see this. */}
       {previewMode && (

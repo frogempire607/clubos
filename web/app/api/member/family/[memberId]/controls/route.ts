@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizeEmail, normalizePhone } from "@/lib/memberValidation";
 
 // Parent-controls API. Scoped to GUARDIAN sessions only — the parent
 // opens it for one of their linked minor children. We never let a
@@ -31,6 +32,9 @@ async function loadGuardianChild(userId: string, memberId: string, clubId: strin
               dateOfBirth: true,
               userId: true,
               email: true,
+              phone: true,
+              stripeCustomerId: true,
+              stripeSetupCustomerId: true,
             },
           },
         },
@@ -61,12 +65,17 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
       lastName: child.lastName,
       isMinor: child.isMinor,
       dateOfBirth: child.dateOfBirth,
+      email: child.email,
+      phone: child.phone,
     },
     birthdayLockedAt: child.birthdayLockedAt,
     parentControls: child.parentControls ?? null,
     // Whether this child already has their own portal login (so the page can
     // show "send invite" vs "has their own login").
     ownLogin: { hasLogin: !!child.userId, email: child.email ?? null },
+    // Whether a Stripe billing account exists — the page hides "Manage billing"
+    // for cash/check athletes so the button never 400s.
+    hasBilling: !!(child.stripeSetupCustomerId || child.stripeCustomerId),
   });
 }
 
@@ -81,6 +90,19 @@ const patchSchema = z.object({
       dailySpendLimit:        z.number().nonnegative().optional(),
     })
     .nullable()
+    .optional(),
+  // Parent-editable athlete details (#12). The guardian may update the child's
+  // name, DOB, and own contact. Contact is optional for minors (guardian
+  // contact lives elsewhere). The guardian can edit DOB even when locked — the
+  // lock only stops the CHILD from editing it.
+  profile: z
+    .object({
+      firstName:   z.string().trim().min(1).max(100).optional(),
+      lastName:    z.string().trim().max(100).optional(),
+      dateOfBirth: z.string().trim().nullable().optional(), // "YYYY-MM-DD" or null
+      email:       z.string().trim().nullable().optional(),
+      phone:       z.string().trim().nullable().optional(),
+    })
     .optional(),
 });
 
@@ -106,6 +128,36 @@ export async function PATCH(req: Request, context: { params: Promise<{ memberId:
         data.parentControls === null
           ? Prisma.JsonNull
           : (data.parentControls as Prisma.InputJsonValue);
+    }
+
+    // Parent-editable athlete details (#12).
+    if (data.profile) {
+      const p = data.profile;
+      if (p.firstName !== undefined) update.firstName = p.firstName;
+      if (p.lastName !== undefined) update.lastName = p.lastName;
+      if (p.email !== undefined) {
+        if (p.email === null || p.email === "") {
+          update.email = null;
+        } else {
+          const e = normalizeEmail(p.email);
+          if (!e) return NextResponse.json({ error: "Enter a valid email." }, { status: 400 });
+          update.email = e;
+        }
+      }
+      if (p.phone !== undefined) update.phone = p.phone ? normalizePhone(p.phone) : null;
+      if (p.dateOfBirth !== undefined) {
+        if (!p.dateOfBirth) {
+          update.dateOfBirth = null;
+        } else {
+          // Store as UTC midnight so the displayed day matches what was entered
+          // (the portal renders DOB with timeZone:"UTC").
+          const d = new Date(`${p.dateOfBirth}T00:00:00.000Z`);
+          if (Number.isNaN(d.getTime())) {
+            return NextResponse.json({ error: "Enter a valid date of birth." }, { status: 400 });
+          }
+          update.dateOfBirth = d;
+        }
+      }
     }
 
     await prisma.member.update({

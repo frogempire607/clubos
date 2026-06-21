@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import ImageUpload from "@/components/ImageUpload";
 
 type Me = {
   role: string;
@@ -34,6 +35,56 @@ export default function MyAccountPage() {
   const [savingPw, setSavingPw] = useState(false);
   const [pwError, setPwError] = useState("");
   const [pwSaved, setPwSaved] = useState(false);
+
+  // Member-portal profile (#10) — owner/staff publish a bio + contact + photo.
+  const [portalShow, setPortalShow] = useState(false);
+  const [portalBio, setPortalBio] = useState("");
+  const [portalEmail, setPortalEmail] = useState("");
+  const [portalPhone, setPortalPhone] = useState("");
+  const [portalPhoto, setPortalPhoto] = useState("");
+  const [savingPortal, setSavingPortal] = useState(false);
+  const [portalSaved, setPortalSaved] = useState(false);
+  const [portalError, setPortalError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/me/portal-profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        setPortalShow(!!d.showOnPortal);
+        setPortalBio(d.bio || "");
+        setPortalEmail(d.publicEmail || "");
+        setPortalPhone(d.publicPhone || "");
+        setPortalPhoto(d.photoUrl || "");
+      })
+      .catch(() => {});
+  }, []);
+
+  async function savePortalProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setPortalError("");
+    setPortalSaved(false);
+    setSavingPortal(true);
+    const res = await fetch("/api/me/portal-profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        showOnPortal: portalShow,
+        bio: portalBio || null,
+        publicEmail: portalEmail || null,
+        publicPhone: portalPhone || null,
+        photoUrl: portalPhoto || null,
+      }),
+    });
+    setSavingPortal(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setPortalError(typeof d.error === "string" ? d.error : "Save failed");
+      return;
+    }
+    setPortalSaved(true);
+    setTimeout(() => setPortalSaved(false), 2500);
+  }
 
   useEffect(() => {
     fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((d) => setMe(d));
@@ -212,6 +263,70 @@ export default function MyAccountPage() {
               className="px-5 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
             >
               {savingPw ? "Updating…" : "Update password"}
+            </button>
+          </div>
+        </form>
+
+        {/* Member-portal profile (#10) — owners AND staff publish themselves
+            on the portal "Our team" page. Fixes owners having no way to appear. */}
+        <form onSubmit={savePortalProfile} className="bg-surface border border-app-border rounded-xl p-5 space-y-3">
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">Member portal profile</p>
+            <p className="text-xs text-text-muted">
+              Show your photo, bio, and contact on the member portal&apos;s &ldquo;Our team&rdquo; page.
+              {me?.role === "OWNER" ? " As the owner, this is how members see you." : ""}
+            </p>
+          </div>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" checked={portalShow} onChange={(e) => setPortalShow(e.target.checked)} className="mt-1" />
+            <span>
+              <span className="block text-sm font-medium text-text-primary">Show me on the member portal</span>
+              <span className="block text-xs text-text-muted mt-0.5">
+                Members will see your name{me?.role === "OWNER" ? " (Owner)" : ""}, photo, bio, and the contact info below.
+              </span>
+            </span>
+          </label>
+          <ImageUpload label="Photo" value={portalPhoto || null} onChange={setPortalPhoto} shape="circle" />
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Bio</label>
+            <textarea
+              value={portalBio}
+              onChange={(e) => setPortalBio(e.target.value)}
+              rows={3}
+              maxLength={2000}
+              placeholder="A short intro members will see"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Public email (optional)</label>
+              <input
+                type="email"
+                value={portalEmail}
+                onChange={(e) => setPortalEmail(e.target.value)}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Public phone (optional)</label>
+              <input
+                type="tel"
+                value={portalPhone}
+                onChange={(e) => setPortalPhone(e.target.value)}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+            </div>
+          </div>
+          {portalError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{portalError}</div>}
+          {portalSaved && <div className="text-sm text-text-primary bg-lime-accent border border-lime-accent/40 rounded-lg px-3 py-2">Saved.</div>}
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={savingPortal}
+              className="px-5 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+            >
+              {savingPortal ? "Saving…" : "Save portal profile"}
             </button>
           </div>
         </form>

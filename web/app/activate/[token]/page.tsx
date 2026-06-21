@@ -14,7 +14,7 @@ type Data = {
   joined?: boolean;
   member: {
     firstName: string; lastName: string; email: string | null; phone: string | null;
-    isMinor: boolean; guardianName: string | null; guardianEmail: string | null;
+    isMinor: boolean; guardianName: string | null; guardianEmail: string | null; guardianPhone: string | null;
   };
   club: { name: string; slug: string; logoUrl: string | null; primaryColor: string | null };
   membership: {
@@ -43,6 +43,7 @@ export default function ActivatePage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
   const [autopay, setAutopay] = useState(false);
   const [signedDocs, setSignedDocs] = useState<Record<string, boolean>>({});
   const [reuseCard, setReuseCard] = useState(true);
@@ -65,8 +66,19 @@ export default function ActivatePage() {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { setLoadErr(d.error || "This link is no longer valid."); setLoading(false); return; }
         setData(d);
-        setPhone(d.member?.phone || "");
-        setEmail(d.member?.email || "");
+        // #1 contact mapping: for a guardian-managed minor the contact shown is
+        // the GUARDIAN's, so prefer guardian contact. And never let an email
+        // value pre-fill the phone box (the reported bug came from a bad import
+        // that put the parent email into the member phone column).
+        const rawPhone = d.member?.isMinor
+          ? d.member?.guardianPhone || d.member?.phone || ""
+          : d.member?.phone || "";
+        setPhone(rawPhone.includes("@") ? "" : rawPhone);
+        setEmail(
+          d.member?.isMinor
+            ? d.member?.guardianEmail || d.member?.email || ""
+            : d.member?.email || "",
+        );
         const planOpts: PlanOption[] = d.membership?.options || [];
         setSelectedOptionLabel(
           d.membership?.selectedOption?.label ||
@@ -117,6 +129,9 @@ export default function ActivatePage() {
     // (e.g. a guardian activating another child), it's left untouched.
     if (!data?.hasAccount && password.length < 8) {
       setError("Choose a password with at least 8 characters."); return;
+    }
+    if (!data?.hasAccount && password !== password2) {
+      setError("Those passwords don't match — please re-enter them."); return;
     }
     // Autopay only applies to recurring card billing.
     if (!finalPaid && !isJoin && paymentMethod === "CARD" && !autopay) {
@@ -260,6 +275,9 @@ export default function ActivatePage() {
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
                   <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
                     value={data.editable.email ? email : data.member.email || data.member.guardianEmail || ""}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={!data.editable.email}
@@ -268,7 +286,7 @@ export default function ActivatePage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Phone</label>
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)}
+                  <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
                     disabled={!data.editable.phone}
                     className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
                     placeholder="(555) 555-5555" />
@@ -281,7 +299,12 @@ export default function ActivatePage() {
                   <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
                     <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" autoComplete="new-password" />
+                    <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm mt-2" placeholder="Confirm password" autoComplete="new-password" />
+                    {password2 && password !== password2 && (
+                      <p className="text-[11px] text-red-500 mt-1">Passwords don&apos;t match yet.</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -364,6 +387,9 @@ export default function ActivatePage() {
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
                   <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
                     value={data.editable.email ? email : data.member.email || data.member.guardianEmail || ""}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={!data.editable.email}
@@ -372,7 +398,7 @@ export default function ActivatePage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Phone</label>
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)}
+                  <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
                     disabled={!data.editable.phone}
                     className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
                     placeholder="(555) 555-5555" />
@@ -385,7 +411,12 @@ export default function ActivatePage() {
                   <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">Create a password</label>
                     <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" />
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm" placeholder="At least 8 characters" autoComplete="new-password" />
+                    <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm mt-2" placeholder="Confirm password" autoComplete="new-password" />
+                    {password2 && password !== password2 && (
+                      <p className="text-[11px] text-red-500 mt-1">Passwords don&apos;t match yet.</p>
+                    )}
                   </div>
                 )}
                 {!finalPaid && data.editable.billingDateRequest && (

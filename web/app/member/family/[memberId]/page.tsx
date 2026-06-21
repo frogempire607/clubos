@@ -23,9 +23,13 @@ type Data = {
     lastName: string;
     isMinor: boolean;
     dateOfBirth: string | null;
+    email: string | null;
+    phone: string | null;
   };
   birthdayLockedAt: string | null;
   parentControls: Controls | null;
+  hasBilling?: boolean;
+  ownLogin?: { hasLogin: boolean; email: string | null };
 };
 
 type Purchase = { type: "subscription" | "sale"; id: string; label: string; status: string };
@@ -58,6 +62,15 @@ export default function FamilyControlsPage() {
   const [moveTo, setMoveTo] = useState<Record<string, string>>({});
   const [movingKey, setMovingKey] = useState<string | null>(null);
   const [purchaseMsg, setPurchaseMsg] = useState("");
+  // Athlete details (#12) — parent edits name/DOB/contact.
+  const [dFirst, setDFirst] = useState("");
+  const [dLast, setDLast] = useState("");
+  const [dDob, setDDob] = useState("");
+  const [dEmail, setDEmail] = useState("");
+  const [dPhone, setDPhone] = useState("");
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [detailsSaved, setDetailsSaved] = useState(false);
+  const [detailsErr, setDetailsErr] = useState("");
 
   function loadPurchases() {
     fetch(`/api/member/family/${params.memberId}/purchases`)
@@ -94,6 +107,11 @@ export default function FamilyControlsPage() {
       }
       const d: Data = await r.json();
       setData(d);
+      setDFirst(d.member.firstName || "");
+      setDLast(d.member.lastName || "");
+      setDDob(d.member.dateOfBirth ? new Date(d.member.dateOfBirth).toISOString().slice(0, 10) : "");
+      setDEmail(d.member.email || "");
+      setDPhone(d.member.phone || "");
       setBirthdayLocked(!!d.birthdayLockedAt);
       const c = d.parentControls ?? {};
       setRequirePaymentApproval(c.requirePaymentApproval === true);
@@ -166,6 +184,36 @@ export default function FamilyControlsPage() {
     router.refresh();
   }
 
+  // Save parent-editable athlete details (name / DOB / contact). (#12)
+  async function saveDetails(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingDetails(true);
+    setDetailsErr("");
+    setDetailsSaved(false);
+    const res = await fetch(`/api/member/family/${params.memberId}/controls`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile: {
+          firstName: dFirst.trim(),
+          lastName: dLast.trim(),
+          dateOfBirth: dDob || null,
+          email: dEmail.trim() || null,
+          phone: dPhone.trim() || null,
+        },
+      }),
+    });
+    const dd = await res.json().catch(() => ({}));
+    setSavingDetails(false);
+    if (!res.ok) {
+      setDetailsErr(typeof dd.error === "string" ? dd.error : "Could not save details.");
+      return;
+    }
+    setDetailsSaved(true);
+    setTimeout(() => setDetailsSaved(false), 2000);
+    router.refresh();
+  }
+
   // Open the Stripe billing portal for THIS child (the API authorizes via the
   // guardian link). Lets a parent update the card / view invoices for their
   // child's membership. Cancellation stays gated behind club approval.
@@ -215,21 +263,108 @@ export default function FamilyControlsPage() {
         </p>
       </div>
 
+      {/* Athlete details — parent edits name / DOB / contact (#12). */}
+      <form onSubmit={saveDetails} className="pcard p-4 mb-4">
+        <h2 className="text-sm font-semibold text-stone-900 mb-1">Athlete details</h2>
+        <p className="text-xs text-stone-500 mb-3">
+          Update {data.member.firstName}&apos;s name, date of birth, and contact info.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">First name</label>
+            <input
+              value={dFirst}
+              onChange={(e) => setDFirst(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Last name</label>
+            <input
+              value={dLast}
+              onChange={(e) => setDLast(e.target.value)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Date of birth</label>
+            <input
+              type="date"
+              value={dDob}
+              onChange={(e) => setDDob(e.target.value)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+            />
+            {birthdayLocked && (
+              <p className="text-[11px] text-stone-400 mt-1">
+                Locked for {data.member.firstName} — you can still update it here.
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-stone-600 mb-1">Phone (optional)</label>
+            <input
+              type="tel"
+              value={dPhone}
+              onChange={(e) => setDPhone(e.target.value)}
+              placeholder="(555) 555-5555"
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+            />
+          </div>
+        </div>
+        <div className="mt-3">
+          <label className="block text-xs font-medium text-stone-600 mb-1">Email (optional)</label>
+          <input
+            type="email"
+            value={dEmail}
+            onChange={(e) => setDEmail(e.target.value)}
+            placeholder={`${data.member.firstName}'s email`}
+            className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+          />
+          <p className="text-[11px] text-stone-400 mt-1">
+            Used for {data.member.firstName}&apos;s own login if you invite them below.
+          </p>
+        </div>
+        {detailsErr && (
+          <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{detailsErr}</div>
+        )}
+        {detailsSaved && (
+          <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">Saved.</div>
+        )}
+        <div className="flex justify-end mt-3">
+          <button
+            type="submit"
+            disabled={savingDetails}
+            className="pbtn-accent px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50"
+          >
+            {savingDetails ? "Saving…" : "Save details"}
+          </button>
+        </div>
+      </form>
+
       {/* Billing — parent manages the child's card/invoices via Stripe. */}
-      <section className="bg-white border border-stone-200 rounded-xl p-4 mb-4">
+      <section className="pcard p-4 mb-4">
         <h2 className="text-sm font-semibold text-stone-900 mb-1">Billing</h2>
         <p className="text-xs text-stone-500 mb-3">
           Update the card on file and view invoices for {data.member.firstName}&apos;s membership.
           To cancel, your club reviews the request first.
         </p>
-        <button
-          type="button"
-          onClick={openChildBilling}
-          disabled={openingBilling}
-          className="text-sm px-4 py-2 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-        >
-          {openingBilling ? "Opening…" : "Manage billing"}
-        </button>
+        {data.hasBilling ? (
+          <button
+            type="button"
+            onClick={openChildBilling}
+            disabled={openingBilling}
+            className="text-sm px-4 py-2 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+          >
+            {openingBilling ? "Opening…" : "Manage billing"}
+          </button>
+        ) : (
+          <p className="text-sm text-stone-500 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+            No card on file. {data.member.firstName} is billed at the club (cash or check), so there&apos;s nothing to manage here yet.
+          </p>
+        )}
         {billingMsg && (
           <div className="mt-3 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
             {billingMsg}
@@ -238,7 +373,7 @@ export default function FamilyControlsPage() {
       </section>
 
       {/* Child's own login — optional. Parent stays guardian + billing manager. */}
-      <section className="bg-white border border-stone-200 rounded-xl p-4 mb-4">
+      <section className="pcard p-4 mb-4">
         <h2 className="text-sm font-semibold text-stone-900 mb-1">{data.member.firstName}&apos;s own login</h2>
         <p className="text-xs text-stone-500 mb-3">
           Optionally give {data.member.firstName} their own login so they can sign in themselves.
@@ -262,7 +397,7 @@ export default function FamilyControlsPage() {
             type="button"
             onClick={inviteChildLogin}
             disabled={invitingLogin || !childEmail.trim()}
-            className="text-sm px-4 py-2 bg-stone-900 text-white rounded-lg hover:bg-stone-700 disabled:opacity-50 whitespace-nowrap"
+            className="pbtn-accent text-sm px-4 py-2.5 rounded-xl disabled:opacity-50 whitespace-nowrap"
           >
             {invitingLogin ? "Sending…" : ownLogin.hasLogin ? "Resend invite" : "Send login invite"}
           </button>
@@ -280,7 +415,7 @@ export default function FamilyControlsPage() {
 
       {/* Purchases — move one to another profile if it was bought under the wrong athlete. */}
       {purchases.length > 0 && targets.length > 0 && (
-        <section className="bg-white border border-stone-200 rounded-xl p-4 mb-4">
+        <section className="pcard p-4 mb-4">
           <h2 className="text-sm font-semibold text-stone-900 mb-1">Purchases</h2>
           <p className="text-xs text-stone-500 mb-3">
             Bought something under the wrong athlete? Move it to the right profile.
@@ -326,7 +461,7 @@ export default function FamilyControlsPage() {
 
       <form onSubmit={save} className="space-y-3">
         {/* Birthday lock */}
-        <section className="bg-white border border-stone-200 rounded-xl p-4">
+        <section className="pcard p-4">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -347,7 +482,7 @@ export default function FamilyControlsPage() {
         </section>
 
         {/* Payment approval */}
-        <section className="bg-white border border-stone-200 rounded-xl p-4">
+        <section className="pcard p-4">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -370,7 +505,7 @@ export default function FamilyControlsPage() {
         </section>
 
         {/* Daily spend limit */}
-        <section className="bg-white border border-stone-200 rounded-xl p-4">
+        <section className="pcard p-4">
           <label htmlFor="dsl" className="block text-sm font-medium text-stone-900 mb-1">
             Daily spend limit (optional)
           </label>
@@ -397,7 +532,7 @@ export default function FamilyControlsPage() {
         </section>
 
         {/* Package purchases */}
-        <section className="bg-white border border-stone-200 rounded-xl p-4">
+        <section className="pcard p-4">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -418,7 +553,7 @@ export default function FamilyControlsPage() {
         </section>
 
         {/* Own messaging */}
-        <section className="bg-white border border-stone-200 rounded-xl p-4">
+        <section className="pcard p-4">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -442,7 +577,7 @@ export default function FamilyControlsPage() {
         </section>
 
         {/* Monitored messaging */}
-        <section className="bg-white border border-stone-200 rounded-xl p-4">
+        <section className="pcard p-4">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -478,7 +613,7 @@ export default function FamilyControlsPage() {
           <button
             type="submit"
             disabled={saving}
-            className="px-5 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+            className="pbtn-accent px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save controls"}
           </button>

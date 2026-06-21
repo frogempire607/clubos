@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { onActiveProfileChange, resolveActiveProfileId } from "@/lib/activeProfile";
+import {
+  onActiveProfileChange,
+  resolveActiveProfileId,
+  setActiveProfileId,
+} from "@/lib/activeProfile";
+import { friendlyDate, friendlyTimeRange } from "@/lib/friendlyDate";
+import { Avatar } from "@/components/member/ui";
 
 type ScheduleMember = {
   id: string;
@@ -56,17 +62,28 @@ const filters = [
 ] as const;
 
 function formatTimeRange(item: ScheduleItem) {
-  const start = new Date(item.startsAt);
-  const end = new Date(item.endsAt);
-  return `${start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+  return friendlyTimeRange(item.startsAt, item.endsAt);
 }
 
+// Group/section header — friendly + relative ("Today", "Tomorrow", "Sat, Jun 21").
 function formatLongDate(item: ScheduleItem) {
-  return new Date(item.startsAt).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  return friendlyDate(item.startsAt, { relative: true, weekday: true });
+}
+
+// Day-window quick filters so parents can answer "what's on this week?" fast.
+const windows = [
+  { key: "all", label: "All" },
+  { key: "week", label: "Next 7 days" },
+  { key: "month", label: "Next 30 days" },
+] as const;
+
+function withinWindow(startsAt: string, key: (typeof windows)[number]["key"]): boolean {
+  if (key === "all") return true;
+  const start = new Date(startsAt).getTime();
+  if (Number.isNaN(start)) return true;
+  const now = Date.now();
+  const days = key === "week" ? 7 : 30;
+  return start <= now + days * 86_400_000;
 }
 
 function priceLabel(item: ScheduleItem) {
@@ -86,6 +103,7 @@ export default function MemberSchedulePage() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [filter, setFilter] = useState<(typeof filters)[number]["key"]>("all");
+  const [windowKey, setWindowKey] = useState<(typeof windows)[number]["key"]>("all");
   const [selected, setSelected] = useState<ScheduleItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -128,8 +146,10 @@ export default function MemberSchedulePage() {
 
   const items = useMemo(() => {
     const list = data?.items ?? [];
-    return filter === "all" ? list : list.filter((item) => item.kind === filter);
-  }, [data, filter]);
+    return list
+      .filter((item) => (filter === "all" ? true : item.kind === filter))
+      .filter((item) => withinWindow(item.startsAt, windowKey));
+  }, [data, filter, windowKey]);
 
   const grouped = useMemo(() => {
     const groups: { label: string; items: ScheduleItem[] }[] = [];
@@ -229,17 +249,33 @@ export default function MemberSchedulePage() {
         </Link>
       </div>
 
-      {activeMember && data?.accessibleMembers && data.accessibleMembers.length > 1 && (
-        <p className="text-sm text-stone-500 -mt-3 mb-4">
-          Showing schedule for{" "}
-          <span className="font-medium text-stone-900">
-            {activeMember.kind === "self" ? "you" : `${activeMember.firstName} ${activeMember.lastName}`}
+      {data?.accessibleMembers && data.accessibleMembers.length > 1 && (
+        <div className="-mt-2 mb-4 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold flex-shrink-0">
+            Athlete
           </span>
-        </p>
+          {data.accessibleMembers.map((m) => {
+            const isActive = m.id === activeId;
+            const name = m.kind === "self" ? "You" : `${m.firstName} ${m.lastName}`;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setActiveProfileId(m.id)}
+                aria-pressed={isActive}
+                className={`flex items-center gap-1.5 pl-1 pr-3 py-1 rounded-full border text-sm font-medium whitespace-nowrap flex-shrink-0 transition ${
+                  isActive ? "pseg-active border-transparent" : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+                }`}
+              >
+                <Avatar name={name} size={22} />
+                {name}
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {data?.activeMembershipNames.length ? (
-        <div className="bg-white border border-stone-200 rounded-xl p-4 mb-4">
+        <div className="pcard p-4 mb-4">
           <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">
             Active membership
           </p>
@@ -250,29 +286,44 @@ export default function MemberSchedulePage() {
       {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
       {info && <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 mb-4">{info}</div>}
 
-      <div className="flex gap-1 bg-stone-100 rounded-lg p-1 mb-5 w-fit">
-        {filters.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            className={`text-sm px-4 py-1.5 rounded-md transition ${
-              filter === f.key ? "bg-white shadow-sm text-stone-900 font-medium" : "text-stone-600"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <div className="flex gap-1 bg-stone-100 rounded-lg p-1 w-fit">
+          {filters.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`text-sm px-4 py-1.5 rounded-md transition ${
+                filter === f.key ? "bg-white shadow-sm text-stone-900 font-medium" : "text-stone-600"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 bg-stone-100 rounded-lg p-1 w-fit">
+          {windows.map((w) => (
+            <button
+              key={w.key}
+              onClick={() => setWindowKey(w.key)}
+              className={`text-sm px-3 py-1.5 rounded-md transition ${
+                windowKey === w.key ? "bg-white shadow-sm text-stone-900 font-medium" : "text-stone-600"
+              }`}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
         <div className="text-center py-10 text-stone-400 text-sm">Loading schedule…</div>
       ) : !activeMember ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-10 text-center">
+        <div className="pcard p-10 text-center">
           <p className="text-base font-medium text-stone-900 mb-1">No member profile linked</p>
           <p className="text-sm text-stone-500">Contact your club to connect this login to an athlete profile.</p>
         </div>
       ) : grouped.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-10 text-center">
+        <div className="pcard p-10 text-center">
           <p className="text-base font-medium text-stone-900 mb-1">Nothing scheduled yet</p>
           <p className="text-sm text-stone-500">Check back soon for upcoming classes, events, and lessons.</p>
         </div>
@@ -288,7 +339,7 @@ export default function MemberSchedulePage() {
                     <button
                       key={item.id}
                       onClick={() => setSelected(item)}
-                      className="w-full text-left bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
+                      className="w-full text-left pcard pcard-hover p-4"
                     >
                       <div className="flex items-start gap-4">
                         <div className="w-14 rounded-lg py-2 flex flex-col items-center justify-center flex-shrink-0" style={c}>
@@ -325,7 +376,7 @@ export default function MemberSchedulePage() {
       )}
 
       {data?.privateOfferings.length ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-5 mt-6">
+        <div className="pcard p-5 mt-6">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
               <h2 className="text-sm font-semibold text-stone-900">Private lessons</h2>
@@ -419,7 +470,7 @@ export default function MemberSchedulePage() {
                     type="button"
                     disabled={!selected.canBook || busy === selected.id}
                     onClick={() => register(selected)}
-                    className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+                    className="flex-1 px-4 py-2 pbtn-accent rounded-lg text-sm font-semibold disabled:opacity-50"
                   >
                     {busy === selected.id ? "Registering..." : selected.canBook ? "Register" : selected.statusText}
                   </button>
@@ -429,7 +480,7 @@ export default function MemberSchedulePage() {
                     type="button"
                     disabled={!selected.canBook || busy === selected.id}
                     onClick={() => bookClass(selected)}
-                    className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+                    className="flex-1 px-4 py-2 pbtn-accent rounded-lg text-sm font-semibold disabled:opacity-50"
                   >
                     {busy === selected.id
                       ? "Booking..."

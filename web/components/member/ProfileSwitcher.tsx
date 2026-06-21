@@ -7,12 +7,15 @@ import {
   onActiveProfileChange,
   resolveActiveProfileId,
 } from "@/lib/activeProfile";
+import { Avatar } from "@/components/member/ui";
 
 type Profile = { id: string; name: string; kind: "self" | "child" };
 
-// Account-level athlete switcher. Renders only when the account can manage
-// more than one profile (a guardian with linked children). The selected
-// profile is persisted via lib/activeProfile so every portal page reflects it.
+// Account-level athlete switcher. Renders whenever the account can manage more
+// than one profile (a guardian with their own profile + linked children, or a
+// guardian managing 2+ children). The selected profile is persisted via
+// lib/activeProfile so every portal page reflects it. Visual redesign only —
+// the resolution logic is unchanged.
 export default function ProfileSwitcher() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -54,31 +57,44 @@ export default function ProfileSwitcher() {
 
   if (profiles.length < 2) return null;
 
+  const active = profiles.find((p) => p.id === activeId);
+
   return (
-    <div className="mb-4 -mt-1">
-      <div className="bg-white border border-stone-200 rounded-xl px-3 py-2.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs uppercase tracking-wider text-stone-500 font-medium mr-1">
+    <div className="mb-4 pfade">
+      <div className="pcard px-3 py-3">
+        <div className="flex items-center justify-between mb-2 px-0.5">
+          <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">
             Managing
           </span>
+          {active && (
+            <span className="text-[11px] text-stone-400">
+              {active.kind === "self" ? "Your account" : "Child account"}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto -mx-1 px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {profiles.map((p) => {
-            const active = p.id === activeId;
+            const isActive = p.id === activeId;
             return (
               <button
                 key={p.id}
                 onClick={() => setActiveProfileId(p.id)}
-                className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                  active
-                    ? "border-stone-900 bg-stone-900 text-white"
-                    : "border-stone-200 text-stone-600 bg-white hover:bg-stone-50"
+                aria-pressed={isActive}
+                className={`group flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full border transition flex-shrink-0 ${
+                  isActive
+                    ? "pseg-active border-transparent"
+                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
                 }`}
               >
-                {p.name}
-                {p.kind === "self" && (
-                  <span className={`ml-1.5 text-[10px] ${active ? "text-white/60" : "text-stone-400"}`}>
-                    you
-                  </span>
-                )}
+                <Avatar name={p.name} size={26} />
+                <span className="text-sm font-semibold whitespace-nowrap">
+                  {p.name}
+                  {p.kind === "self" && (
+                    <span className={`ml-1.5 text-[10px] font-medium ${isActive ? "opacity-70" : "text-stone-400"}`}>
+                      You
+                    </span>
+                  )}
+                </span>
               </button>
             );
           })}

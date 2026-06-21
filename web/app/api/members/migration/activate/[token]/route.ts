@@ -219,6 +219,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       isMinor: m.isMinor,
       guardianName: m.guardianName,
       guardianEmail: m.guardianEmail,
+      guardianPhone: m.guardianPhone,
     },
     club: { name: m.club.name, slug: m.club.slug, logoUrl: publicClubLogoUrl(m.clubId, m.club.logoUrl), primaryColor: m.club.primaryColor },
     membership: {

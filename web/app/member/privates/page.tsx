@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { UserCheck } from "lucide-react";
-import { packageAllowsLessonType, privateDurationLabel } from "@/lib/privateLessonRules";
+import {
+  packageAllowsLessonType,
+  privateDurationLabel,
+  packageTotalForBasePrice,
+  normalizePricingMode,
+} from "@/lib/privateLessonRules";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 
 type Opt = { id: string; label: string; price: number; coachIds: string[] };
@@ -214,6 +219,8 @@ type ShopPackage = {
   credits: number;
   bonusCredits: number;
   price: number;
+  pricingMode?: string | null;
+  discountValue?: number | null;
   expiresAfterDays: number | null;
 };
 
@@ -305,6 +312,14 @@ export default function MemberPrivatesPage() {
     try {
       const res = await fetch(`/api/member/private-packages/${id}/buy`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Pass the chosen lesson + tier so the server prices discount-based
+        // packs off the same base price the member is looking at.
+        body: JSON.stringify({
+          memberId: selectedMemberId,
+          lessonTypeId: typeId || null,
+          priceOptionId: optionId || null,
+        }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d?.url) {
@@ -645,80 +660,8 @@ export default function MemberPrivatesPage() {
             </div>
           </div>
 
-          {/* Inline lesson-package offers. Surfaced after the athlete
-              picks a lesson type so the relevant packages can be
-              pre-filtered (only show packages that cover this lesson
-              type, plus any whole-catalog packages). The athlete can
-              either keep going with the normal single-lesson request
-              below, OR pre-buy a pack now and come back to use the
-              credits. After purchase, Stripe redirects back to this
-              same page and the credits granted by the webhook appear
-              as a usable balance (see "Request package lesson dates"
-              section below). */}
-          {type && packages.length > 0 && (() => {
-            // packageAllowsLessonType handles the legacy lessonTypeId
-            // shape too; same matcher used server-side in the booking
-            // route, so the eligibility logic stays consistent.
-            const relevant = packages.filter((p) =>
-              packageAllowsLessonType(p.lessonTypeIds, null, type.id),
-            );
-            if (relevant.length === 0) return null;
-            return (
-              <div className="border border-stone-200 rounded-lg p-3 bg-stone-50/60">
-                <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">
-                  Bundle option (optional)
-                </p>
-                <p className="text-xs text-stone-500 mb-3">
-                  Your club offers prepaid lesson packs — buy a pack now to
-                  save on this lesson and the next few. Or skip this and
-                  request a single lesson below.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {relevant.map((p) => {
-                    const total = p.credits + (p.bonusCredits || 0);
-                    const perLesson = total > 0 ? p.price / total : p.price;
-                    return (
-                      <div
-                        key={p.id}
-                        className="bg-white rounded-lg border border-stone-200 p-3 flex flex-col"
-                      >
-                        <p className="text-sm font-semibold text-stone-900">{p.title}</p>
-                        {p.description && (
-                          <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">
-                            {p.description}
-                          </p>
-                        )}
-                        <p className="text-xs text-stone-600 mt-2 tabular-nums">
-                          <span className="font-medium">{p.credits} lessons</span>
-                          {p.bonusCredits > 0 && (
-                            <span className="text-stone-400"> + {p.bonusCredits} bonus</span>
-                          )}
-                          {" · "}
-                          <span className="font-medium">${p.price.toFixed(2)}</span>
-                        </p>
-                        {total > 0 && (
-                          <p className="text-[11px] text-stone-400 tabular-nums">
-                            About ${perLesson.toFixed(2)} per lesson
-                            {p.expiresAfterDays
-                              ? ` · expires ${p.expiresAfterDays} day${p.expiresAfterDays === 1 ? "" : "s"} after purchase`
-                              : ""}
-                          </p>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => buyPackage(p.id)}
-                          disabled={buyingPackageId === p.id || !hasProfile}
-                          className="mt-3 w-full px-3 py-2 bg-stone-900 text-white rounded-md text-xs font-medium hover:bg-stone-700 disabled:opacity-50"
-                        >
-                          {buyingPackageId === p.id ? "Opening checkout…" : `Buy pack — $${p.price.toFixed(2)}`}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
+          {/* Lesson packs are shown after the pricing option (below) so that
+              discount-based packs reflect the tier the athlete actually picks. */}
 
           {/* 2. Coach */}
           {type && (
@@ -800,6 +743,91 @@ export default function MemberPrivatesPage() {
               )}
             </div>
           )}
+
+          {/* Lesson packs (optional) — placed after the pricing option so a
+              discount-based pack prices off the tier the athlete chose. */}
+          {type && packages.length > 0 && (() => {
+            const relevant = packages.filter((p) =>
+              packageAllowsLessonType(p.lessonTypeIds, null, type.id),
+            );
+            if (relevant.length === 0) return null;
+            // The per-lesson base price the discount applies to: the chosen
+            // option's price, else the lesson's base price.
+            const basePerLesson = price;
+            return (
+              <div className="border border-stone-200 rounded-lg p-3 bg-stone-50/60">
+                <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">
+                  Save with a lesson pack <span className="normal-case font-normal text-stone-400">(optional)</span>
+                </p>
+                <p className="text-xs text-stone-500 mb-3">
+                  Prepay a pack to save on this lesson and the next few — or skip it and
+                  request a single lesson below. Pack prices reflect{" "}
+                  {option ? <strong>{option.label}</strong> : "the base rate"}.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {relevant.map((p) => {
+                    const totalCredits = p.credits + (p.bonusCredits || 0);
+                    const packTotal = packageTotalForBasePrice(
+                      {
+                        pricingMode: p.pricingMode,
+                        discountValue: p.discountValue,
+                        price: p.price,
+                        credits: p.credits,
+                        bonusCredits: p.bonusCredits,
+                      },
+                      basePerLesson,
+                    );
+                    const perLesson = totalCredits > 0 ? packTotal / totalCredits : packTotal;
+                    const tierBased = normalizePricingMode(p.pricingMode) !== "FLAT";
+                    const priceable = packTotal > 0;
+                    return (
+                      <div key={p.id} className="bg-white rounded-lg border border-stone-200 p-3 flex flex-col">
+                        <p className="text-sm font-semibold text-stone-900">{p.title}</p>
+                        {p.description && (
+                          <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">{p.description}</p>
+                        )}
+                        <p className="text-xs text-stone-600 mt-2 tabular-nums">
+                          <span className="font-medium">{p.credits} lessons</span>
+                          {p.bonusCredits > 0 && (
+                            <span className="text-stone-400"> + {p.bonusCredits} bonus</span>
+                          )}
+                          {priceable && (
+                            <>
+                              {" · "}
+                              <span className="font-medium">${packTotal.toFixed(2)}</span>
+                            </>
+                          )}
+                        </p>
+                        {priceable && totalCredits > 0 && (
+                          <p className="text-[11px] text-stone-400 tabular-nums">
+                            About ${perLesson.toFixed(2)} per lesson
+                            {p.expiresAfterDays
+                              ? ` · expires ${p.expiresAfterDays} day${p.expiresAfterDays === 1 ? "" : "s"} after purchase`
+                              : ""}
+                          </p>
+                        )}
+                        {tierBased && !priceable && (
+                          <p className="text-[11px] text-stone-400 mt-1">Pick a pricing option above to see this pack&apos;s price.</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => buyPackage(p.id)}
+                          disabled={buyingPackageId === p.id || !hasProfile || !priceable}
+                          className="mt-3 w-full px-3 py-2 pbtn-accent rounded-md text-xs font-semibold disabled:opacity-50"
+                        >
+                          {buyingPackageId === p.id
+                            ? "Opening checkout…"
+                            : priceable
+                              ? `Buy pack — $${packTotal.toFixed(2)}`
+                              : "Choose an option to price"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* 4. Partners — only when the lesson type supports more than one athlete */}
           {type && (options.length === 0 || option) && type.maxAthletes > 1 && (

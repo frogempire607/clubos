@@ -30,6 +30,14 @@ export async function GET() {
       appTextAlign: true,
       appHomeContent: true,
       brandedAppConfig: true,
+      // Active donation/support links so the member home can surface a
+      // "Support the club" card. Only links with a destination URL are
+      // shown (clickable). Read-only — members never edit these.
+      donationLinks: {
+        where: { active: true, url: { not: null } },
+        select: { id: true, title: true, description: true, url: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 

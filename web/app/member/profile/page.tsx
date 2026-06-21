@@ -26,6 +26,9 @@ type MeProfile = {
   profileImageUrl: string | null;
   status: string;
   stripeCustomerId: string | null;
+  // Migrated members store their saved card on stripeSetupCustomerId; older
+  // flows on stripeCustomerId. Either means a Stripe billing portal exists.
+  stripeSetupCustomerId?: string | null;
   // Parental controls (P4). Server enforces; UI uses these to disable
   // the DOB input and explain why.
   birthdayLockedAt?: string | null;
@@ -61,6 +64,8 @@ type PortalExtras = {
       status: string;
       dateOfBirth?: string | null;
       isMinor?: boolean;
+      stripeCustomerId?: string | null;
+      stripeSetupCustomerId?: string | null;
       subscriptions?: PortalSubscription[];
     } | null;
     guardianOf: {
@@ -72,6 +77,8 @@ type PortalExtras = {
         status: string;
         dateOfBirth?: string | null;
         isMinor?: boolean;
+        stripeCustomerId?: string | null;
+        stripeSetupCustomerId?: string | null;
       };
     }[];
   };
@@ -126,6 +133,10 @@ export default function MemberProfilePage() {
   const [relationship, setRelationship] = useState("");
   const [linkingChild, setLinkingChild] = useState(false);
   const [familyMessage, setFamilyMessage] = useState("");
+  // Billing portal feedback is shown inline (soft) next to the billing
+  // controls instead of as an alarming page-level red banner.
+  const [billingMsg, setBillingMsg] = useState("");
+  const [addingSelf, setAddingSelf] = useState(false);
 
   function hydrate(data: MeUser) {
     setMe(data);
@@ -195,7 +206,7 @@ export default function MemberProfilePage() {
 
   async function openBillingPortal(memberId?: string) {
     setOpeningPortal(true);
-    setError("");
+    setBillingMsg("");
     const res = await fetch("/api/member/billing-portal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -204,10 +215,32 @@ export default function MemberProfilePage() {
     const d = await res.json().catch(() => ({}));
     setOpeningPortal(false);
     if (!res.ok || !d.url) {
-      setError(typeof d.error === "string" ? d.error : "Could not open billing portal");
+      // Soft, contextual message — not the alarming top-of-page red banner.
+      setBillingMsg(
+        typeof d.error === "string"
+          ? d.error
+          : "Could not open billing right now. Please contact your club.",
+      );
       return;
     }
     window.location.href = d.url;
+  }
+
+  // Parent opt-in: create their OWN athlete profile so they can buy adult
+  // memberships/products for themselves and appear in the profile switcher.
+  // Safe + idempotent server-side (links an existing same-email member or
+  // creates a fresh adult profile; never touches billing).
+  async function addSelfAsAthlete() {
+    setAddingSelf(true);
+    setError("");
+    const res = await fetch("/api/member/self-profile", { method: "POST" });
+    setAddingSelf(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not set up your athlete profile.");
+      return;
+    }
+    load();
   }
 
   async function requestCancellation(subscriptionId: string) {
@@ -308,7 +341,7 @@ export default function MemberProfilePage() {
       )}
 
       {/* Account info */}
-      <div className="bg-white rounded-xl border border-stone-200 p-6 mb-4">
+      <div className="pcard p-6 mb-4">
         <h2 className="text-sm font-semibold text-stone-900 mb-4">Account</h2>
 
         {editing ? (
@@ -444,7 +477,7 @@ export default function MemberProfilePage() {
         const anyVisible = showPlan || showNextBilling || showPrice || showInvoices;
         if (!anyVisible) return null;
         return (
-          <div className="bg-white rounded-xl border border-stone-200 p-6 mb-4">
+          <div className="pcard p-6 mb-4">
             <h2 className="text-sm font-semibold text-stone-900 mb-3">Payment &amp; billing</h2>
             {active && (showPlan || showPrice || showNextBilling) ? (
               <dl className="space-y-2 mb-3">
@@ -470,7 +503,7 @@ export default function MemberProfilePage() {
               </dl>
             ) : null}
             <div className="flex flex-wrap items-center gap-2">
-              {showInvoices && me.memberProfile?.stripeCustomerId && (
+              {showInvoices && memberHasBilling(me.memberProfile) && (
                 <button
                   onClick={() => openBillingPortal()}
                   disabled={openingPortal}
@@ -494,6 +527,11 @@ export default function MemberProfilePage() {
                 {cancelMsg}
               </div>
             )}
+            {billingMsg && (
+              <div className="mt-3 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+                {billingMsg}
+              </div>
+            )}
             <p className="text-xs text-stone-500 mt-3">
               You can update your payment method and view invoices here.
               Cancellations are reviewed by your club before billing stops.
@@ -507,18 +545,24 @@ export default function MemberProfilePage() {
                   {extras.user.guardianOf.map((g) => (
                     <div key={g.member.id} className="flex items-center justify-between gap-2">
                       <span className="text-sm text-stone-700">{g.member.firstName} {g.member.lastName}</span>
-                      <button
-                        type="button"
-                        onClick={() => openBillingPortal(g.member.id)}
-                        disabled={openingPortal}
-                        className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-                      >
-                        {openingPortal ? "Opening…" : "Manage billing"}
-                      </button>
+                      {memberHasBilling(g.member) ? (
+                        <button
+                          type="button"
+                          onClick={() => openBillingPortal(g.member.id)}
+                          disabled={openingPortal}
+                          className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                        >
+                          {openingPortal ? "Opening…" : "Manage billing"}
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-stone-400 italic flex-shrink-0">No card on file</span>
+                      )}
                     </div>
                   ))}
                 </div>
-                <p className="text-[11px] text-stone-400 mt-2">Opens a secure page to update the card or view invoices for that athlete.</p>
+                <p className="text-[11px] text-stone-400 mt-2">
+                  Athletes paying by cash or check are billed at the club — there&apos;s nothing to manage here.
+                </p>
               </div>
             )}
           </div>
@@ -546,7 +590,7 @@ export default function MemberProfilePage() {
 
       {/* Family / managed athlete access */}
       {extras && (
-        <div className="bg-white rounded-xl border border-stone-200 p-6 mb-4">
+        <div className="pcard p-6 mb-4">
           <h2 className="text-sm font-semibold text-stone-900 mb-1">Family &amp; athlete access</h2>
           <p className="text-xs text-stone-500 mb-4">
             Parents can switch between linked athletes. Each child profile stays scoped to its own schedule, documents, and bookings.
@@ -570,7 +614,10 @@ export default function MemberProfilePage() {
               return (
                 <div key={g.member.id} className="py-2 border-b border-stone-100 last:border-0">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs font-bold text-stone-700">
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                      style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
+                    >
                       {g.member.firstName[0]}{g.member.lastName[0]}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -602,7 +649,7 @@ export default function MemberProfilePage() {
                             })()}
                           </>
                         ) : null}
-                        {g.member.isMinor ? " · Minor" : null}
+                        {showsAsMinor(g.member) ? " · Minor" : null}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -614,7 +661,7 @@ export default function MemberProfilePage() {
                           href={`/member/family/${g.member.id}`}
                           className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
                         >
-                          Controls
+                          Manage
                         </Link>
                       )}
                       <button
@@ -624,9 +671,7 @@ export default function MemberProfilePage() {
                           setActiveProfileIdState(g.member.id);
                         }}
                         className={`text-xs px-3 py-1.5 rounded-lg border ${
-                          active
-                            ? "border-stone-900 bg-stone-900 text-white"
-                            : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                          active ? "pseg-active border-transparent" : "border-stone-200 text-stone-600 hover:bg-stone-50"
                         }`}
                       >
                         {active ? "Selected" : "Switch"}
@@ -655,6 +700,24 @@ export default function MemberProfilePage() {
               );
             })}
           </div>
+
+          {!isMinor && !extras.user.memberProfile && (
+            <div className="rounded-lg border border-dashed border-stone-300 p-3 mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-stone-900">Add yourself as an athlete</p>
+                <p className="text-xs text-stone-500">
+                  Create your own profile so you can book classes or buy adult memberships and products for yourself.
+                </p>
+              </div>
+              <button
+                onClick={addSelfAsAthlete}
+                disabled={addingSelf}
+                className="pbtn-accent text-sm px-4 py-2 rounded-xl font-semibold whitespace-nowrap disabled:opacity-50"
+              >
+                {addingSelf ? "Setting up…" : "Add me"}
+              </button>
+            </div>
+          )}
 
           {!isMinor && (
             <form onSubmit={linkChild} className="rounded-lg border border-stone-200 p-3 space-y-3">
@@ -698,7 +761,7 @@ export default function MemberProfilePage() {
       )}
 
       {/* Account actions */}
-      <div className="bg-white rounded-xl border border-stone-200 p-6">
+      <div className="pcard p-6">
         <h2 className="text-sm font-semibold text-stone-900 mb-3">Account actions</h2>
         <div className="flex flex-wrap gap-2">
           <button
@@ -753,6 +816,31 @@ export default function MemberProfilePage() {
       )}
     </>
   );
+}
+
+// A member can open the Stripe billing portal only if a Stripe customer exists
+// (saved card). Cash/check members have neither — gate the button so it never
+// 400s. Migrated members keep the card on stripeSetupCustomerId.
+function memberHasBilling(
+  m?: { stripeCustomerId?: string | null; stripeSetupCustomerId?: string | null } | null,
+): boolean {
+  return !!(m && (m.stripeCustomerId || m.stripeSetupCustomerId));
+}
+
+// Display-honest minor check: trust the DOB age when present (so a 25-year-old
+// who was linked as an "athlete" isn't mislabeled "Minor"), else the stored flag.
+function showsAsMinor(m: { dateOfBirth?: string | null; isMinor?: boolean }): boolean {
+  if (m.dateOfBirth) {
+    const d = new Date(m.dateOfBirth);
+    if (!Number.isNaN(d.getTime())) {
+      const now = new Date();
+      let age = now.getUTCFullYear() - d.getUTCFullYear();
+      const mo = now.getUTCMonth() - d.getUTCMonth();
+      if (mo < 0 || (mo === 0 && now.getUTCDate() < d.getUTCDate())) age -= 1;
+      return age < 18;
+    }
+  }
+  return !!m.isMinor;
 }
 
 function ProfileRow({ label, value }: { label: string; value: string }) {
