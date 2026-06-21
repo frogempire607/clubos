@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { isValidSignatureDataUrl } from "@/lib/signature";
 import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -261,6 +263,8 @@ const postSchema = z.object({
   // Multiple onboarding documents can be required; the page sends every id it
   // showed. signedDocumentId (singular) is kept for backward compatibility.
   signedDocumentIds: z.array(z.string()).optional(),
+  // Drawn signature (PNG data URL) applied to the acknowledged onboarding docs.
+  signatureDataUrl: z.string().optional(),
   // Family flow: reuse the card a sibling already saved instead of re-entering.
   reuseFamilyCard: z.boolean().optional(),
   // Client requests — owner reviews these before billing starts.
@@ -845,6 +849,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       select: { id: true },
     });
     const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
+    const onboardingSignature = isValidSignatureDataUrl(body.signatureDataUrl)
+      ? body.signatureDataUrl
+      : null;
     const sig = {
       signerUserId: user.id,
       signerName: guardianManaged
@@ -853,12 +860,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       relationship: member.isMinor ? "GUARDIAN" : "SELF",
       ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
       userAgent: req.headers.get("user-agent"),
+      signatureDataUrl: onboardingSignature,
     };
     for (const doc of validDocs) {
       await prisma.documentSignature.upsert({
         where: { documentId_memberId: { documentId: doc.id, memberId: member.id } },
-        update: { ...sig, signedAt: new Date() },
-        create: { documentId: doc.id, memberId: member.id, ...sig },
+        update: { ...sig, signedAt: new Date() } as Prisma.DocumentSignatureUncheckedUpdateInput,
+        create: { documentId: doc.id, memberId: member.id, ...sig } as Prisma.DocumentSignatureUncheckedCreateInput,
       });
     }
   }

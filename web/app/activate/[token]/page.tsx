@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import SignaturePad from "@/components/member/SignaturePad";
 
 type PlanOption = { label: string; price: number; billingPeriod: string };
 type Data = {
@@ -46,6 +47,7 @@ export default function ActivatePage() {
   const [password2, setPassword2] = useState("");
   const [autopay, setAutopay] = useState(false);
   const [signedDocs, setSignedDocs] = useState<Record<string, boolean>>({});
+  const [sigDataUrl, setSigDataUrl] = useState<string | null>(null);
   const [reuseCard, setReuseCard] = useState(true);
   const [reqDate, setReqDate] = useState("");
   const [reqNote, setReqNote] = useState("");
@@ -145,6 +147,10 @@ export default function ActivatePage() {
       );
       return;
     }
+    if (!isJoin && reqDocs.length > 0 && !sigDataUrl) {
+      setError("Please add your signature in the box to continue.");
+      return;
+    }
     setSubmitting(true);
     const res = await fetch(`/api/members/migration/activate/${token}`, {
       method: "POST",
@@ -156,6 +162,7 @@ export default function ActivatePage() {
         autopayAccepted: !finalPaid && paymentMethod === "CARD" ? autopay : false,
         signedDocumentId: reqDocs[0]?.id || null,
         signedDocumentIds: reqDocs.map((d) => d.id),
+        signatureDataUrl: sigDataUrl || undefined,
         reuseFamilyCard: offerFamilyCard ? reuseCard : undefined,
         requestedBillingDate: !finalPaid && data?.editable.billingDateRequest && reqDate ? reqDate : null,
         requestedBillingNote: !finalPaid && data?.editable.billingDateRequest && reqNote ? reqNote : null,
@@ -502,6 +509,16 @@ export default function ActivatePage() {
                   </label>
                 </div>
               ))}
+
+              {/* One drawn signature applied to the acknowledged documents. */}
+              {reqDocs.length > 0 && (
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-stone-700 mb-2">
+                    Your signature
+                  </label>
+                  <SignaturePad accent={accent} onChange={setSigDataUrl} />
+                </div>
+              )}
 
               {/* Payment method choice */}
               {!finalPaid && data.editable.paymentChoice && data.paymentEnabled && (

@@ -192,6 +192,7 @@ type SignatureRow = {
   relationship: string;
   signedAt: string;
   ipAddress: string | null;
+  signatureDataUrl?: string | null;
   member: { id: string; firstName: string; lastName: string; isMinor: boolean; email: string | null };
 };
 
@@ -248,6 +249,7 @@ function SignaturesModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
                 <tr className="text-left text-xs uppercase tracking-wider text-text-muted border-b border-app-border">
                   <th className="pb-2 font-medium">Member</th>
                   <th className="pb-2 font-medium">Signed by</th>
+                  <th className="pb-2 font-medium">Signature</th>
                   <th className="pb-2 font-medium">Date</th>
                 </tr>
               </thead>
@@ -270,6 +272,18 @@ function SignaturesModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
                       <p className="text-xs text-text-muted">
                         {s.relationship === "GUARDIAN" ? "Guardian" : "Self"}
                       </p>
+                    </td>
+                    <td className="py-2.5">
+                      {s.signatureDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={s.signatureDataUrl}
+                          alt={`Signature of ${s.signerName}`}
+                          className="h-10 w-auto max-w-[140px] rounded border border-app-border bg-white object-contain"
+                        />
+                      ) : (
+                        <span className="text-xs text-text-muted/70">Typed acknowledgement</span>
+                      )}
                     </td>
                     <td className="py-2.5 text-text-muted">
                       {new Date(s.signedAt).toLocaleString("en-US", {

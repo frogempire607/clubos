@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { isValidSignatureDataUrl } from "@/lib/signature";
 
 const schema = z.object({
   memberId: z.string().optional(),
+  // Drawn signature image (PNG data URL). Optional for back-compat with the
+  // typed-acknowledgement flow.
+  signatureDataUrl: z.string().optional(),
 });
 
 // POST /api/member/documents/[id]/sign
@@ -92,25 +97,29 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const ipAddress = ipHeader ? ipHeader.split(",")[0].trim() : null;
   const userAgent = req.headers.get("user-agent");
 
+  // Drawn signature is optional but, when present, must be a valid PNG data URL.
+  const signatureDataUrl = isValidSignatureDataUrl(body.signatureDataUrl) ? body.signatureDataUrl : null;
+  if (body.signatureDataUrl && !signatureDataUrl) {
+    return NextResponse.json(
+      { error: "That signature image looks invalid — please re-draw and try again." },
+      { status: 400 },
+    );
+  }
+
+  // `signatureDataUrl` is cast in (the cached Prisma client predates the column;
+  // the build regenerates the client, where the field is first-class).
+  const base = {
+    signerUserId: session.user.id,
+    signerName,
+    relationship,
+    ipAddress,
+    userAgent,
+    signatureDataUrl,
+  };
   const signature = await prisma.documentSignature.upsert({
     where: { documentId_memberId: { documentId: document.id, memberId: targetMemberId } },
-    update: {
-      signerUserId: session.user.id,
-      signerName,
-      relationship,
-      signedAt: new Date(),
-      ipAddress,
-      userAgent,
-    },
-    create: {
-      documentId: document.id,
-      memberId: targetMemberId,
-      signerUserId: session.user.id,
-      signerName,
-      relationship,
-      ipAddress,
-      userAgent,
-    },
+    update: { ...base, signedAt: new Date() } as Prisma.DocumentSignatureUncheckedUpdateInput,
+    create: { documentId: document.id, memberId: targetMemberId, ...base } as Prisma.DocumentSignatureUncheckedCreateInput,
   });
 
   return NextResponse.json({ ok: true, signature });

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { FileText } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
+import SignaturePad from "@/components/member/SignaturePad";
 
 type Signature = {
   signerName: string;
@@ -83,14 +84,14 @@ export default function MemberDocumentsPage() {
   // Follow the account-level switcher (shared across all portal pages).
   useEffect(() => onActiveProfileChange((id) => id && setActiveMemberId(id)), []);
 
-  async function signDocument(doc: Doc) {
+  async function signDocument(doc: Doc, signatureDataUrl: string) {
     if (!activeMemberId) return;
     setSigning(true);
     setSignError(null);
     const res = await fetch(`/api/member/documents/${doc.id}/sign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId: activeMemberId }),
+      body: JSON.stringify({ memberId: activeMemberId, signatureDataUrl }),
     });
     const result = await res.json().catch(() => ({}));
     setSigning(false);
@@ -145,7 +146,7 @@ export default function MemberDocumentsPage() {
       )}
 
       {docs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
+        <div className="pcard p-12 text-center">
           <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
             <FileText className="h-7 w-7" strokeWidth={2} />
           </div>
@@ -197,7 +198,7 @@ export default function MemberDocumentsPage() {
           contextIsMinor={!!contextMember?.isMinor}
           contextName={contextMember ? `${contextMember.firstName} ${contextMember.lastName}` : ""}
           onClose={() => { setViewing(null); setSignError(null); }}
-          onSign={() => signDocument(viewing)}
+          onSign={(sig) => signDocument(viewing, sig)}
           signing={signing}
           signError={signError}
         />
@@ -220,7 +221,7 @@ function DocCard({
   const signed = !!doc.signature && !doc.signature.expired;
   const expired = !!doc.signature?.expired;
   return (
-    <div className="bg-white rounded-xl border border-stone-200 p-4 flex items-center gap-4">
+    <div className="pcard p-4 flex items-center gap-4">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <h3 className="text-sm font-semibold text-stone-900">{doc.title}</h3>
@@ -287,7 +288,7 @@ function DocViewer({
   contextIsMinor: boolean;
   contextName: string;
   onClose: () => void;
-  onSign: () => void;
+  onSign: (signatureDataUrl: string) => void;
   signing: boolean;
   signError: string | null;
 }) {
@@ -296,7 +297,7 @@ function DocViewer({
   const expired = !!doc.signature?.expired;
   const needsSignature = !doc.signature || expired;
   const guardianRequired = doc.requiresGuardianSignature && contextIsMinor;
-  const [confirming, setConfirming] = useState(false);
+  const [sig, setSig] = useState<string | null>(null);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
@@ -359,42 +360,29 @@ function DocViewer({
 
           {needsSignature && (
             <div className="mt-6 border-t border-stone-100 pt-5">
-              {!confirming ? (
-                <>
-                  <p className="text-sm text-stone-500 mb-4">
-                    By clicking sign below, you confirm you have read and agree to this document
-                    {contextName ? ` on behalf of ${contextName}` : ""}.
-                  </p>
-                  <button
-                    onClick={() => setConfirming(true)}
-                    className="w-full sm:w-auto px-6 py-2.5 bg-stone-900 text-white rounded-xl text-sm font-semibold hover:bg-stone-700 transition"
-                  >
-                    {expired ? "Re-sign document" : guardianRequired ? "Sign as guardian" : "I have read and acknowledge"}
-                  </button>
-                </>
-              ) : (
-                <div className="space-y-4">
-                  <p className="text-sm text-stone-700">
-                    This action will be recorded with your name, the current date and time, and your IP address as legal proof of agreement. Continue?
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setConfirming(false)}
-                      disabled={signing}
-                      className="flex-1 sm:flex-none px-5 py-2.5 border border-stone-300 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={onSign}
-                      disabled={signing}
-                      className="flex-1 sm:flex-none px-6 py-2.5 bg-stone-900 text-white rounded-xl text-sm font-semibold hover:bg-stone-700 transition disabled:opacity-60"
-                    >
-                      {signing ? "Recording…" : "Yes, record my signature"}
-                    </button>
-                  </div>
-                </div>
-              )}
+              <p className="text-sm font-medium text-stone-900 mb-1">
+                {guardianRequired ? `Sign as guardian of ${contextName || "this athlete"}` : "Sign below"}
+              </p>
+              <p className="text-sm text-stone-500 mb-3">
+                By signing, you confirm you have read and agree to this document
+                {contextName ? ` on behalf of ${contextName}` : ""}. Your signature is recorded
+                with your name, the date and time, and your IP address as proof of agreement.
+              </p>
+              <SignaturePad accent="var(--club-accent)" onChange={setSig} disabled={signing} />
+              <button
+                onClick={() => sig && onSign(sig)}
+                disabled={!sig || signing}
+                className="mt-4 w-full sm:w-auto px-6 py-2.5 pbtn-accent rounded-xl text-sm font-semibold disabled:opacity-50"
+              >
+                {signing
+                  ? "Recording…"
+                  : expired
+                    ? "Re-sign document"
+                    : guardianRequired
+                      ? "Sign as guardian"
+                      : "Agree & sign"}
+              </button>
+              {!sig && <p className="text-[11px] text-stone-400 mt-2">Draw your signature above to enable the button.</p>}
             </div>
           )}
         </div>

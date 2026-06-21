@@ -1204,6 +1204,10 @@ model DocumentSignature {
   signedAt      DateTime @default(now())
   ipAddress     String?
   userAgent     String?
+  // Drawn-signature image (PNG data URL). Null for legacy / typed-only
+  // acknowledgements. Stored inline so it works for both authenticated portal
+  // signing and the public onboarding/activation flow (no auth-gated upload).
+  signatureDataUrl String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
