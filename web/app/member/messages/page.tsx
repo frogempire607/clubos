@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Users as UsersIcon, Mail as MailIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Users as UsersIcon, Mail as MailIcon, PenSquare } from "lucide-react";
 
 // Lime accent for child-thread visual markers. Defined as constants so
 // every consumer in this file uses the exact same color even when the
@@ -77,12 +78,18 @@ function relTime(iso: string) {
 }
 
 type LinkedChild = { id: string; firstName: string; lastName: string; hasOwnLogin: boolean };
+type Subject = { id: string; name: string; kind: "self" | "child" };
+type Recipient = { id: string; firstName: string; lastName: string; role: string; title: string | null };
 
 export default function MemberMessagesPage() {
+  const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [childConversations, setChildConversations] = useState<Conversation[]>([]);
   const [childGroups, setChildGroups] = useState<ChildGroup[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [composeOpen, setComposeOpen] = useState(false);
   // Linked-children list pulled from /api/member/portal so the page can
   // tell the parent "this is where messages for <kid> show up" even
   // before any messages exist — otherwise the section is invisible and
@@ -112,9 +119,16 @@ export default function MemberMessagesPage() {
           setGroups(d.groups || []);
           setChildConversations(d.childConversations || []);
           setChildGroups(d.childGroups || []);
+          setSubjects(d.subjects || []);
         }
         setLoading(false);
       });
+
+    // Coaches/owners the member can start a new conversation with.
+    fetch("/api/member/messages/recipients")
+      .then((r) => (r.ok ? r.json() : { recipients: [] }))
+      .then((d) => setRecipients(Array.isArray(d?.recipients) ? d.recipients : []))
+      .catch(() => {});
 
     // Best-effort fetch — used only for the empty-state "no child
     // messages yet" copy. Failure is silent.
@@ -147,9 +161,20 @@ export default function MemberMessagesPage() {
 
   return (
     <>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-stone-900 mb-1">Messages</h1>
-        <p className="text-sm text-stone-500">Conversations with your club.</p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-stone-900 mb-1">Messages</h1>
+          <p className="text-sm text-stone-500">Conversations with your club.</p>
+        </div>
+        {!messagingDisabled && recipients.length > 0 && (
+          <button
+            onClick={() => setComposeOpen(true)}
+            className="pbtn-accent inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl flex-shrink-0"
+          >
+            <PenSquare size={15} strokeWidth={2.25} />
+            New message
+          </button>
+        )}
       </div>
 
       {error && (
@@ -282,7 +307,7 @@ export default function MemberMessagesPage() {
                       key={`${c.forMember?.id}:${c.user.id}`}
                       href={
                         c.forMember
-                          ? `/member/messages/dm/${c.user.id}?for=${c.forMember.id}&forName=${encodeURIComponent(c.forMember.firstName)}`
+                          ? `/member/messages/dm/${c.user.id}?about=${c.forMember.id}&forName=${encodeURIComponent(c.forMember.firstName)}`
                           : `/member/messages/dm/${c.user.id}`
                       }
                       className="block bg-white rounded-xl border border-stone-200 p-4 hover:shadow-sm transition"
@@ -363,6 +388,132 @@ export default function MemberMessagesPage() {
           )}
         </div>
       )}
+
+      {composeOpen && (
+        <NewMessageModal
+          recipients={recipients}
+          subjects={subjects}
+          onClose={() => setComposeOpen(false)}
+          onSent={(recipientId, about, forName) => {
+            setComposeOpen(false);
+            const q = new URLSearchParams();
+            if (about) q.set("about", about);
+            if (forName) q.set("forName", forName);
+            const qs = q.toString();
+            router.push(`/member/messages/dm/${recipientId}${qs ? `?${qs}` : ""}`);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function NewMessageModal({
+  recipients,
+  subjects,
+  onClose,
+  onSent,
+}: {
+  recipients: Recipient[];
+  subjects: Subject[];
+  onClose: () => void;
+  onSent: (recipientId: string, about: string, forName: string) => void;
+}) {
+  const [recipientId, setRecipientId] = useState(recipients[0]?.id ?? "");
+  const [about, setAbout] = useState(
+    subjects.find((s) => s.kind === "self")?.id ?? subjects[0]?.id ?? "",
+  );
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function send() {
+    if (!recipientId || !body.trim()) return;
+    setSending(true);
+    setErr("");
+    const subj = subjects.find((s) => s.id === about);
+    const childAbout = subj && subj.kind === "child" ? about : null;
+    const res = await fetch(`/api/member/messages/dm/${recipientId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: body.trim(), about: childAbout }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSending(false);
+    if (!res.ok) {
+      setErr(typeof d.error === "string" ? d.error : "Could not send your message.");
+      return;
+    }
+    onSent(recipientId, childAbout ?? "", subj && subj.kind === "child" ? subj.name : "");
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md">
+        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-stone-900">New message</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">To</label>
+            <select
+              value={recipientId}
+              onChange={(e) => setRecipientId(e.target.value)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
+            >
+              {recipients.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.firstName} {r.lastName}
+                  {r.role === "OWNER" ? " (Owner)" : r.title ? ` · ${r.title}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          {subjects.length > 1 && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">About</label>
+              <select
+                value={about}
+                onChange={(e) => setAbout(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
+              >
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.kind === "self" ? "Me" : s.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-stone-400 mt-1">
+                The coach sees which athlete this conversation is about.
+              </p>
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Message</label>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={4}
+              placeholder="Write your message…"
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+            />
+          </div>
+          {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</div>}
+          <div className="flex gap-2 justify-end">
+            <button onClick={onClose} className="px-4 py-2 border border-stone-300 text-stone-700 rounded-xl text-sm hover:bg-stone-50">
+              Cancel
+            </button>
+            <button
+              onClick={send}
+              disabled={sending || !recipientId || !body.trim()}
+              className="pbtn-accent px-5 py-2 rounded-xl text-sm font-semibold disabled:opacity-50"
+            >
+              {sending ? "Sending…" : "Send"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

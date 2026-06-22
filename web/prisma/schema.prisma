@@ -958,6 +958,10 @@ model Message {
   body        String
   readAt      DateTime?
   createdAt   DateTime  @default(now())
+  // Which athlete this DM is "about" — lets a guardian ↔ coach thread be scoped
+  // to a specific child (even one with no login). Null = the participant's own
+  // thread. Scalar only (no FK) so historical messages survive member deletes.
+  subjectMemberId String?
 
   club      Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
   sender    User @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
@@ -965,6 +969,7 @@ model Message {
 
   @@index([clubId])
   @@index([recipientId, readAt])
+  @@index([subjectMemberId])
   @@map("messages")
 }
 

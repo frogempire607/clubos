@@ -40,6 +40,10 @@ function MemberDmThreadInner() {
   // parent never loses context about which kid the conversation is
   // for. Decoded explicitly because Next can hand back raw strings.
   const forName = searchParams.get("forName");
+  // Which athlete this thread is about (subjectMemberId). Scopes the thread so
+  // a guardian's conversation with the same coach about different kids stays
+  // separate. Omitted = the viewer's own thread.
+  const about = searchParams.get("about");
   const { data: session } = useSession();
   const myId = session?.user?.id;
 
@@ -52,7 +56,9 @@ function MemberDmThreadInner() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   async function load() {
-    const res = await fetch(`/api/member/messages/dm/${userId}`);
+    const res = await fetch(
+      `/api/member/messages/dm/${userId}${about ? `?about=${encodeURIComponent(about)}` : ""}`,
+    );
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       setError(d.error || "Could not load thread");
@@ -68,7 +74,8 @@ function MemberDmThreadInner() {
 
   useEffect(() => {
     if (userId) load();
-  }, [userId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, about]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
@@ -78,7 +85,7 @@ function MemberDmThreadInner() {
     const res = await fetch(`/api/member/messages/dm/${userId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: draft.trim() }),
+      body: JSON.stringify({ body: draft.trim(), about: about ?? undefined }),
     });
     setSending(false);
     if (!res.ok) {
@@ -201,7 +208,7 @@ function MemberDmThreadInner() {
         <button
           type="submit"
           disabled={sending || !draft.trim()}
-          className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+          className="pbtn-accent px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50"
         >
           {sending ? "…" : "Send"}
         </button>

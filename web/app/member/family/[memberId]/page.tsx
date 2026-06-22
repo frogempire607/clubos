@@ -71,6 +71,12 @@ export default function FamilyControlsPage() {
   const [savingDetails, setSavingDetails] = useState(false);
   const [detailsSaved, setDetailsSaved] = useState(false);
   const [detailsErr, setDetailsErr] = useState("");
+  // Co-guardian invite (#8b)
+  const [coEmail, setCoEmail] = useState("");
+  const [coName, setCoName] = useState("");
+  const [coRel, setCoRel] = useState("");
+  const [invitingGuardian, setInvitingGuardian] = useState(false);
+  const [guardianMsg, setGuardianMsg] = useState("");
 
   function loadPurchases() {
     fetch(`/api/member/family/${params.memberId}/purchases`)
@@ -182,6 +188,34 @@ export default function FamilyControlsPage() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     router.refresh();
+  }
+
+  // Invite a co-guardian (#8b) — owner approves before access is granted.
+  async function inviteGuardian(e: React.FormEvent) {
+    e.preventDefault();
+    setInvitingGuardian(true);
+    setGuardianMsg("");
+    const res = await fetch(`/api/member/family/${params.memberId}/invite-guardian`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: coEmail.trim(),
+        name: coName.trim() || null,
+        relationship: coRel || null,
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setInvitingGuardian(false);
+    if (!res.ok) {
+      setGuardianMsg(typeof d.error === "string" ? d.error : "Could not send the invite.");
+      return;
+    }
+    setGuardianMsg(d.message || "Request sent.");
+    if (d.status === "pending" || d.status === "already") {
+      setCoEmail("");
+      setCoName("");
+      setCoRel("");
+    }
   }
 
   // Save parent-editable athlete details (name / DOB / contact). (#12)
@@ -409,6 +443,64 @@ export default function FamilyControlsPage() {
         {loginMsg && (
           <div className="mt-2 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
             {loginMsg}
+          </div>
+        )}
+      </section>
+
+      {/* Add another guardian (#8b) — owner-approved co-parent access. */}
+      <section className="pcard p-4 mb-4">
+        <h2 className="text-sm font-semibold text-stone-900 mb-1">Add another guardian</h2>
+        <p className="text-xs text-stone-500 mb-3">
+          Invite a co-parent or guardian to help manage {data.member.firstName} — useful for
+          separated households. Your club approves new guardians before they get access.
+        </p>
+        <form onSubmit={inviteGuardian} className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input
+              type="email"
+              value={coEmail}
+              onChange={(e) => setCoEmail(e.target.value)}
+              required
+              placeholder="Their email"
+              className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+            />
+            <input
+              type="text"
+              value={coName}
+              onChange={(e) => setCoName(e.target.value)}
+              placeholder="Their name (optional)"
+              className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+            <select
+              value={coRel}
+              onChange={(e) => setCoRel(e.target.value)}
+              className="px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
+            >
+              <option value="">Relationship (optional)</option>
+              <option value="Parent">Parent</option>
+              <option value="Mother">Mother</option>
+              <option value="Father">Father</option>
+              <option value="Legal guardian">Legal guardian</option>
+              <option value="Grandparent">Grandparent</option>
+              <option value="Other">Other</option>
+            </select>
+            <button
+              type="submit"
+              disabled={invitingGuardian || !coEmail.trim()}
+              className="pbtn-accent text-sm px-4 py-2.5 rounded-xl disabled:opacity-50 whitespace-nowrap"
+            >
+              {invitingGuardian ? "Sending…" : "Invite guardian"}
+            </button>
+          </div>
+        </form>
+        <p className="text-[11px] text-stone-400 mt-2">
+          They need their own club account first. We&apos;ll send the request to your club to approve.
+        </p>
+        {guardianMsg && (
+          <div className="mt-2 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+            {guardianMsg}
           </div>
         )}
       </section>

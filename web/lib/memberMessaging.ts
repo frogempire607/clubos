@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type MemberMessageTarget = {
@@ -5,6 +6,9 @@ type MemberMessageTarget = {
   athleteIncluded: boolean;
   guardianIncluded: boolean;
   missingGuardianReason?: string;
+  // Which athlete the thread is about — set for minors so a guardian's copy is
+  // tagged "about {child}". Null for adults messaging on their own behalf.
+  subjectMemberId: string | null;
 };
 
 export async function getMemberMessageTargets(memberId: string, clubId: string): Promise<MemberMessageTarget | null> {
@@ -28,7 +32,7 @@ export async function getMemberMessageTargets(memberId: string, clubId: string):
       ids.add(member.userId);
       athleteIncluded = true;
     }
-    return { recipientIds: [...ids], athleteIncluded, guardianIncluded: false };
+    return { recipientIds: [...ids], athleteIncluded, guardianIncluded: false, subjectMemberId: null };
   }
 
   if (member.userId) {
@@ -59,6 +63,8 @@ export async function getMemberMessageTargets(memberId: string, clubId: string):
     athleteIncluded,
     guardianIncluded,
     missingGuardianReason: guardianIncluded ? undefined : "Minor members need a linked guardian portal account before direct messages can be sent.",
+    // Tag the thread with the child so guardians see "about {child}".
+    subjectMemberId: member.id,
   };
 }
 
@@ -93,12 +99,15 @@ export async function sendMemberMessage(params: {
   const messages = await prisma.$transaction(
     uniqueRecipients.map((recipientId) =>
       prisma.message.create({
+        // subjectMemberId cast in — cached Prisma client predates the column;
+        // the build regenerates it as a first-class field.
         data: {
           clubId: params.clubId,
           senderId: params.senderId,
           recipientId,
           body: params.body,
-        },
+          subjectMemberId: targets.subjectMemberId,
+        } as Prisma.MessageUncheckedCreateInput,
         include: { recipient: { select: { id: true, firstName: true, lastName: true, role: true } } },
       })
     )
