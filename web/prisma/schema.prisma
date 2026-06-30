@@ -829,6 +829,12 @@ model Event {
   variableCostEstimatedTotal  Decimal?  @db.Decimal(10, 2)
   variableCostBilledAt        DateTime?
 
+  // P1 tournament invoicing: when invoices should go out.
+  //   null / past  = invoice immediately (owner sends now).
+  //   future date  = a reminder surfaces in the Action Center on/after this date.
+  // There is no cron in the app, so this is a prompt to send — never an auto-charge.
+  invoiceScheduledAt          DateTime?
+
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
@@ -841,10 +847,37 @@ model Event {
   staffAssignments EventStaffAssignment[]
   registrations    EventRegistration[]
   bundleItems      EventBundleItem[]
+  expenseItems     EventExpenseItem[]
 
   @@index([clubId])
   @@index([startsAt])
   @@map("events")
+}
+
+// P1 tournament invoicing: an itemized cost line so parents see exactly what
+// makes up an event's price. Items sum into the amount billed via
+// /api/events/[id]/bill-registrants. `perAthlete` items are charged in full to
+// each registrant (e.g. entry fee, uniform); shared items are split across
+// attendees (e.g. hotel, transportation). Optional receipt via receiptFileId
+// (an /api/files/[id] upload).
+model EventExpenseItem {
+  id            String   @id @default(cuid())
+  eventId       String
+  clubId        String
+  label         String
+  kind          String   @default("MISC") // ENTRY | COACHING | HOTEL | TRANSPORT | UNIFORM | MISC
+  amount        Decimal  @db.Decimal(10, 2)
+  description   String?
+  perAthlete    Boolean  @default(false)
+  receiptFileId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([clubId])
+  @@map("event_expense_items")
 }
 
 model EventSession {
@@ -1854,6 +1887,36 @@ model ContractorPayment {
   @@index([clubId])
   @@index([contractorId])
   @@map("contractor_payments")
+}
+
+// P2 unified payout ledger. Tracks money the club intends to pay (PENDING) or
+// has paid (PAID) to staff, guest clinicians, contractors, or event workers —
+// separate from payroll computation and from per-staff compensation plans. We
+// never move money here; the owner records and marks payouts PAID. Foreign keys
+// are scalar-only (resolved by the API) so deleting a payee or event never
+// cascades a payout away, and `payeeName` is denormalized so history survives.
+model Payout {
+  id           String    @id @default(cuid())
+  clubId       String
+  payeeType    String    @default("STAFF") // STAFF | GUEST | CONTRACTOR | EVENT_WORKER
+  payeeUserId  String? // set when paying a staff User
+  contractorId String? // set when paying a Contractor / guest clinician on file
+  payeeName    String // denormalized display name (always set)
+  kind         String    @default("OTHER") // PAYROLL | CLINIC | CAMP | TOURNAMENT | GUEST | CONTRACTOR | EVENT | OTHER
+  eventId      String? // optional link to the event this payout is for
+  amount       Decimal   @db.Decimal(10, 2)
+  status       String    @default("PENDING") // PENDING | PAID | VOID
+  method       String? // CASH | CHECK | TRANSFER | OTHER
+  paidAt       DateTime?
+  notes        String?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([clubId])
+  @@index([status])
+  @@index([eventId])
+  @@map("payouts")
 }
 
 model CompensationBonus {

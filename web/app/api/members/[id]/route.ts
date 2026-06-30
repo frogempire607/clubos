@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 import { validateMemberContact } from "@/lib/memberValidation";
@@ -215,6 +216,27 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       data: updateData,
     });
 
+    // Owner-vouched guardian link (same as the create path): when a minor has a
+    // guardian email matching an existing portal account, link them so the child
+    // shows in that guardian's portal immediately.
+    if (updated.isMinor && updated.guardianEmail) {
+      const guardianUser = await prisma.user.findFirst({
+        where: { clubId: session.user.clubId, email: updated.guardianEmail, deletedAt: null },
+        select: { id: true },
+      });
+      if (guardianUser) {
+        await prisma.memberGuardianUser.upsert({
+          where: { userId_memberId: { userId: guardianUser.id, memberId: updated.id } },
+          update: {},
+          create: {
+            userId: guardianUser.id,
+            memberId: updated.id,
+            relationship: updated.guardianRelationship || null,
+          },
+        });
+      }
+    }
+
     return NextResponse.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -227,9 +249,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Staff with full Members access can delete — not owner-only.
+  const denied = requirePermission(session, "members", "full");
+  if (denied) return denied;
 
   const member = await requireMember(params.id, session.user.clubId);
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });

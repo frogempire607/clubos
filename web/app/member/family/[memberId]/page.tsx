@@ -211,7 +211,7 @@ export default function FamilyControlsPage() {
       return;
     }
     setGuardianMsg(d.message || "Request sent.");
-    if (d.status === "pending" || d.status === "already") {
+    if (d.status === "pending" || d.status === "already" || d.status === "invited") {
       setCoEmail("");
       setCoName("");
       setCoRel("");

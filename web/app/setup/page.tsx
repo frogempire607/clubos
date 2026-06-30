@@ -105,8 +105,21 @@ function SetupForm() {
         </div>
 
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-            {error}
+          <div className="space-y-2">
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+            <p className="text-xs text-stone-500">
+              Setup links are single-use and expire after 14 days. Ask your club owner to resend
+              your invite, or{" "}
+              <Link
+                href={`/forgot-password${clubSlug ? `?club=${encodeURIComponent(clubSlug)}` : ""}`}
+                className="underline text-stone-700"
+              >
+                email yourself a fresh link
+              </Link>
+              .
+            </p>
           </div>
         )}
 

@@ -538,6 +538,7 @@ export async function sendPrivateLessonRequestedEmail({
   dashboardUrl,
   fromName,
   replyTo,
+  unassigned = false,
 }: {
   to: string;
   coachFirstName: string;
@@ -553,6 +554,9 @@ export async function sendPrivateLessonRequestedEmail({
   dashboardUrl: string;
   fromName?: string | null;
   replyTo?: string | null;
+  // When true, this request has no coach assigned yet (fan-out to every eligible
+  // coach + owner). Adjusts the subject/heading to say it needs a coach claimed.
+  unassigned?: boolean;
 }) {
   // Render requested slots in the same "Thu, Jun 15 · 2:30 PM – 3:30 PM"
   // shape the athlete sees in the portal — coaches and athletes refer to
@@ -584,7 +588,9 @@ export async function sendPrivateLessonRequestedEmail({
 
   await sendEmail({
     to,
-    subject: `New private request from ${athlete} — ${lessonTitle}`,
+    subject: unassigned
+      ? `Unassigned private request from ${athlete} — ${lessonTitle}`
+      : `New private request from ${athlete} — ${lessonTitle}`,
     fromName,
     replyTo,
     html: clubBrandedLayout({
@@ -593,11 +599,14 @@ export async function sendPrivateLessonRequestedEmail({
       clubPrimaryColor,
       content: `
         <h2 style="color:#1c1917;margin:0 0 6px;font-size:20px;font-weight:700">
-          New private request
+          ${unassigned ? "Private request — needs a coach" : "New private request"}
         </h2>
         <p style="color:#57534e;line-height:1.6;margin:0 0 18px;font-size:14px">
-          Hi ${safeCoach}, <strong>${safeAthlete}</strong> just requested a private
-          lesson with you.
+          ${
+            unassigned
+              ? `Hi ${safeCoach}, <strong>${safeAthlete}</strong> requested a private lesson but hasn’t been assigned a coach yet. If you’re available, open the dashboard to claim it.`
+              : `Hi ${safeCoach}, <strong>${safeAthlete}</strong> just requested a private lesson with you.`
+          }
         </p>
         <div style="background:#F5F3EE;border-radius:10px;padding:16px;margin:0 0 20px">
           <p style="color:#1c1917;margin:0 0 8px;font-weight:600;font-size:15px">

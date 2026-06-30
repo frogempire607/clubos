@@ -446,6 +446,80 @@ export async function POST(req: Request) {
     } catch (err) {
       console.error("[private-request] coach email failed", err);
     }
+  } else {
+    // UNASSIGNED request (no coach chosen) — make it highly visible so it does
+    // NOT sit unseen: DM + email EVERY eligible coach and the owner so anyone
+    // can claim/assign it. Eligibility = the coaches valid for the chosen option
+    // (validCoachIds), always including owners. Best-effort; a failure here must
+    // never break the request.
+    try {
+      const recipients = await prisma.user.findMany({
+        where: {
+          clubId,
+          deletedAt: null,
+          role: { in: ["OWNER", "STAFF"] },
+          ...(validCoachIds.length > 0
+            ? { OR: [{ id: { in: validCoachIds } }, { role: "OWNER" }] }
+            : {}),
+        },
+        select: { id: true, email: true, firstName: true },
+      });
+      const targets = recipients.filter((u) => u.id !== session.user.id);
+
+      // In-app DMs to each eligible coach + owner (independent best-effort).
+      await Promise.allSettled(
+        targets.map((u) =>
+          prisma.message.create({
+            data: {
+              clubId,
+              senderId: session.user.id,
+              recipientId: u.id,
+              body: `Unassigned private lesson request: ${lessonType.title} from ${member.firstName} ${member.lastName}. Open Privates to assign a coach.`,
+            },
+          }),
+        ),
+      );
+
+      // Emails to every eligible coach + owner (independent best-effort).
+      const clubRow = await prisma.club.findUnique({
+        where: { id: clubId },
+        select: {
+          name: true,
+          logoUrl: true,
+          primaryColor: true,
+          emailFromName: true,
+          emailReplyTo: true,
+        },
+      });
+      if (clubRow) {
+        const logo = publicClubLogoUrl(clubId, clubRow.logoUrl);
+        const dashUrl = `${getAppBaseUrl()}/dashboard/privates`;
+        await Promise.allSettled(
+          targets
+            .filter((u) => !!u.email)
+            .map((u) =>
+              sendPrivateLessonRequestedEmail({
+                to: u.email as string,
+                coachFirstName: u.firstName,
+                clubName: clubRow.name,
+                clubLogoUrl: logo,
+                clubPrimaryColor: clubRow.primaryColor,
+                memberFirstName: member.firstName,
+                memberLastName: member.lastName,
+                lessonTitle: lessonType.title,
+                requestedSlots: normalizedSlots,
+                notes: data.notes,
+                dashboardUrl: dashUrl,
+                fromName: clubRow.emailFromName || clubRow.name,
+                replyTo: clubRow.emailReplyTo || null,
+                unassigned: true,
+              }),
+            ),
+        );
+      }
+    } catch (err) {
+      console.error("[private-request] unassigned fan-out failed", err);
+    }
   }
 
   return NextResponse.json({ ok: true, bookingIds: bookings.map((b) => b.id) }, { status: 201 });

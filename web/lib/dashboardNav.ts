@@ -48,7 +48,8 @@ export const NAV: NavItem[] = [
       { id: "staff-contractors", label: "Guest & Contractors", href: "/dashboard/staff/contractors" },
       { id: "staff-schedule", label: "Schedule", href: "/dashboard/staff/schedule" },
       { id: "staff-availability", label: "Availability", href: "/dashboard/staff/availability" },
-      { id: "staff-payroll", label: "Payroll / Payouts", href: "/dashboard/staff/payroll" },
+      { id: "staff-payroll", label: "Payroll", href: "/dashboard/staff/payroll" },
+      { id: "staff-payouts", label: "Payouts", href: "/dashboard/staff/payouts" },
     ],
   },
   {

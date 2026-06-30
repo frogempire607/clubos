@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
@@ -94,9 +95,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Staff with full Messaging access can delete groups — not owner-only.
+  const denied = requirePermission(session, "messages", "full");
+  if (denied) return denied;
   // Scope to the caller's club — deleteMany returns count instead of throwing,
   // and the clubId predicate prevents cross-tenant deletion by guessed id.
   const deleted = await prisma.messageGroup.deleteMany({

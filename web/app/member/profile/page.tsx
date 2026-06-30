@@ -133,6 +133,9 @@ export default function MemberProfilePage() {
   const [relationship, setRelationship] = useState("");
   const [linkingChild, setLinkingChild] = useState(false);
   const [familyMessage, setFamilyMessage] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState("");
   // Billing portal feedback is shown inline (soft) next to the billing
   // controls instead of as an alarming page-level red banner.
   const [billingMsg, setBillingMsg] = useState("");
@@ -276,6 +279,21 @@ export default function MemberProfilePage() {
       setDeleting(false);
       setError("Failed to delete account");
     }
+  }
+
+  async function sendInvite(e: React.FormEvent) {
+    e.preventDefault();
+    setInviting(true);
+    setInviteMsg("");
+    const res = await fetch("/api/member/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: inviteEmail }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setInviting(false);
+    setInviteMsg(res.ok ? data.message || "Invite sent." : data.error || "Could not send invite.");
+    if (res.ok) setInviteEmail("");
   }
 
   async function linkChild(e: React.FormEvent) {
@@ -759,6 +777,32 @@ export default function MemberProfilePage() {
           )}
         </div>
       )}
+
+      {/* Invite someone to the club — any member can share the join link */}
+      <div className="pcard p-6">
+        <h2 className="text-sm font-semibold text-stone-900 mb-1">Invite someone to the club</h2>
+        <p className="text-xs text-stone-500 mb-3">
+          Share your club&apos;s join link by email — they&apos;ll set up their own account.
+        </p>
+        <form onSubmit={sendInvite} className="grid sm:grid-cols-[1fr_auto] gap-2">
+          <input
+            type="email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            placeholder="friend@example.com"
+            required
+            className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+          />
+          <button
+            type="submit"
+            disabled={inviting}
+            className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+          >
+            {inviting ? "Sending…" : "Send invite"}
+          </button>
+        </form>
+        {inviteMsg && <p className="text-xs text-stone-600 mt-2">{inviteMsg}</p>}
+      </div>
 
       {/* Account actions */}
       <div className="pcard p-6">

@@ -22,7 +22,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   }
 
   const staff = await prisma.user.findFirst({
-    where: { id: params.id, clubId: session.user.clubId, role: "STAFF" },
+    where: { id: params.id, clubId: session.user.clubId, role: { in: ["STAFF", "OWNER"] } },
     include: { club: { select: { name: true, slug: true } } },
   });
   if (!staff) return NextResponse.json({ error: "Not found" }, { status: 404 });

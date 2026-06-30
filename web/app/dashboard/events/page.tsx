@@ -7,6 +7,7 @@ import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
+import EventExpenseEditor from "@/components/EventExpenseEditor";
 
 type BuiltInType = "CLASS" | "PRIVATE" | "CLINIC" | "CAMP" | "TOURNAMENT" | "OTHER";
 
@@ -688,6 +689,9 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   const [varCostEstTotal, setVarCostEstTotal] = useState<string>(
     ev?.variableCostEstimatedTotal != null ? String(ev.variableCostEstimatedTotal) : ""
   );
+  const [invoiceScheduledAt, setInvoiceScheduledAt] = useState<string>(
+    ev?.invoiceScheduledAt ? new Date(ev.invoiceScheduledAt).toISOString().slice(0, 10) : ""
+  );
 
   const isTournament = typeKey === "TOURNAMENT";
   const publicSlug: string | null = ev?.publicSlug || null;
@@ -785,7 +789,10 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
             .filter((f) => f.label.trim() && f.id !== PARTICIPANT_FIELD_ID)
             .map((f) => ({ ...f, label: f.label.trim() })),
         ],
-        variableCostEnabled: type === "TOURNAMENT" && tournamentMode === "ATTEND" ? varCostEnabled : false,
+        // Shared-cost / estimated-vs-official invoicing is available for any
+        // event type (clinic, camp, host/attend tournament, other). For
+        // tournaments only the ATTEND mode uses it.
+        variableCostEnabled: (type !== "TOURNAMENT" || tournamentMode === "ATTEND") ? varCostEnabled : false,
         variableCostMode: varCostEnabled ? varCostMode : null,
         variableCostTotal: varCostEnabled && varCostTotal ? parseFloat(varCostTotal) : null,
         variableCostEstimatedSignups:
@@ -795,6 +802,10 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
         variableCostEstimatedTotal:
           varCostEnabled && varCostMode === "OFFICIAL" && varCostEstTotal
             ? parseFloat(varCostEstTotal)
+            : null,
+        invoiceScheduledAt:
+          (type !== "TOURNAMENT" || tournamentMode === "ATTEND") && varCostEnabled && invoiceScheduledAt
+            ? new Date(invoiceScheduledAt).toISOString()
             : null,
         sessions: sessions.length > 0
           ? sessions.map((s, i) => ({ name: s.name || null, startsAt: new Date(s.startsAt).toISOString(), endsAt: new Date(s.endsAt).toISOString(), sortOrder: i }))
@@ -924,10 +935,16 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                   </>
                 )}
               </div>
+            </div>
+          )}
 
-              {/* ATTEND → variable cost */}
-              {tournamentMode === "ATTEND" && (
-                <div className="border-t border-app-border pt-3 space-y-3">
+          {/* Shared cost & invoicing — available for any event type. For ATTEND
+              tournaments it's the "split a trip cost" case; for clinics, camps,
+              host tournaments & other events it lets you collect signups now and
+              post an estimated or official invoice later. */}
+          {(!isTournament || tournamentMode === "ATTEND") && (
+            <div className="border border-app-border rounded-lg p-4 space-y-3 bg-app-bg/40">
+              <p className="text-xs uppercase tracking-wider text-text-muted font-medium">Shared cost &amp; invoicing</p>
                   <label className="flex items-center justify-between">
                     <span className="text-sm text-text-primary">Split a shared cost across attendees</span>
                     <button
@@ -1005,12 +1022,37 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                             ? `Signups register now (no charge yet). Parents see an estimate of ~$${Number(varCostEstTotal).toFixed(2)} total. After the event, set the official total and use Registrations → "Invoice all unpaid" to split it across actual registrants.`
                             : "Signups register now (no charge at registration). After the event, set the official total and send invoices from Registrations to split it across actual registrants."}
                       </p>
+
+                      {/* Send-invoice date + itemized expense breakdown (P1) */}
+                      <div className="border-t border-app-border pt-3 space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-text-primary mb-1">
+                            Send invoices on (optional)
+                          </label>
+                          <input
+                            type="date"
+                            value={invoiceScheduledAt}
+                            onChange={(e) => setInvoiceScheduledAt(e.target.value)}
+                            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+                          />
+                          <p className="text-[11px] text-text-muted mt-1">
+                            Leave blank to invoice whenever you choose. If set, a reminder appears in
+                            your dashboard Action Center on/after this date — it never auto-charges.
+                          </p>
+                        </div>
+                        {isEdit && ev?.id ? (
+                          <EventExpenseEditor eventId={ev.id} />
+                        ) : (
+                          <p className="text-[11px] text-text-muted">
+                            Save the event first to add an itemized expense breakdown (entry fee,
+                            hotel, travel, etc.) that parents see on their invoice.
+                          </p>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
               )}
-            </div>
-          )}
 
           {/* Public / non-member registration */}
           <div className="border border-app-border rounded-lg p-4 space-y-3 bg-app-bg/40">

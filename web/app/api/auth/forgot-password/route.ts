@@ -16,7 +16,23 @@ export async function POST(req: Request) {
 
   try {
     const { email, clubSlug } = schema.parse(await req.json());
-    const club = await prisma.club.findUnique({ where: { slug: clubSlug } });
+    // Be forgiving about what the user types in the "Club" box: try the exact
+    // slug first, then fall back to a case-insensitive slug/name match. Staff
+    // often type the club's display name ("Frog Empire") instead of the slug
+    // ("frogempire607"); without this, the reset silently no-ops and the email
+    // never arrives — the "forgot password never worked for staff" report.
+    const clubInput = clubSlug.trim();
+    let club = await prisma.club.findUnique({ where: { slug: clubInput.toLowerCase() } });
+    if (!club) {
+      club = await prisma.club.findFirst({
+        where: {
+          OR: [
+            { slug: { equals: clubInput, mode: "insensitive" } },
+            { name: { equals: clubInput, mode: "insensitive" } },
+          ],
+        },
+      });
+    }
     if (!club) return NextResponse.json({ ok: true });
 
     const user = await prisma.user.findUnique({

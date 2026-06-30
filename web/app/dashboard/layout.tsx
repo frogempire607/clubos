@@ -7,6 +7,7 @@ import { Menu } from "lucide-react";
 import GlobalSearch from "@/components/GlobalSearch";
 import BackButton from "@/components/BackButton";
 import UserMenu from "@/components/UserMenu";
+import NotificationBell from "@/components/NotificationBell";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import DashboardMobileDrawer from "@/components/DashboardMobileDrawer";
 import DashboardBottomNav from "@/components/DashboardBottomNav";
@@ -143,7 +144,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               AthletixOS
             </span>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 flex items-center gap-1">
+            <NotificationBell variant="onDark" />
             <UserMenu name={displayName} email={email} initials={initials} />
           </div>
         </div>
@@ -168,6 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex-1 min-w-0">
             <GlobalSearch />
           </div>
+          <NotificationBell variant="onSurface" />
           <UserMenu name={displayName} email={email} initials={initials} />
         </div>
 

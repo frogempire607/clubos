@@ -18,11 +18,19 @@ type SignupDocument = {
 export default function MemberSignupPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [clubSlug, setClubSlug] = useState("");
+  // When arriving from a public membership link (/join/[slug]?m=…) the slug is
+  // passed as ?club and the chosen plan as ?membership — remember the plan so we
+  // can deep-link to it after the account is created.
+  const [membershipId, setMembershipId] = useState("");
 
-  // Prefill the club when arriving from a kiosk QR (/c/[id] → ?club=slug).
+  // Prefill from a kiosk QR (/c/[id] → ?club=slug) or a public registration
+  // link (/join/[slug]?m=… → ?club=slug&membership=…).
   useEffect(() => {
-    const c = new URLSearchParams(window.location.search).get("club");
+    const sp = new URLSearchParams(window.location.search);
+    const c = sp.get("club");
     if (c) setClubSlug(c.toLowerCase());
+    const m = sp.get("membership");
+    if (m) setMembershipId(m);
   }, []);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -128,7 +136,11 @@ export default function MemberSignupPage() {
 
     setLoading(false);
     if (loginRes?.ok) {
-      window.location.href = "/member";
+      // Came from a public membership link → deep-link to that plan to finish
+      // the purchase; otherwise land on the portal home.
+      window.location.href = membershipId
+        ? `/member/memberships?plan=${encodeURIComponent(membershipId)}`
+        : "/member";
     } else {
       // Account exists now — send them to login rather than a dead end.
       setError("Account created! Redirecting you to sign in…");

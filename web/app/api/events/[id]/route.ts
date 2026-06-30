@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 const sessionSchema = z.object({
   id: z.string().optional(),
@@ -54,6 +55,7 @@ const updateSchema = z.object({
   variableCostTotal: z.number().min(0).optional().nullable(),
   variableCostEstimatedSignups: z.number().int().positive().optional().nullable(),
   variableCostEstimatedTotal: z.number().min(0).optional().nullable(),
+  invoiceScheduledAt: z.string().optional().nullable(),
 });
 
 function slugify(name: string): string {
@@ -158,6 +160,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         endsAt: rest.endsAt ? new Date(rest.endsAt) : undefined,
         publishAt: rest.publishAt ? new Date(rest.publishAt) : rest.publishAt === null ? null : undefined,
         unpublishAt: rest.unpublishAt ? new Date(rest.unpublishAt) : rest.unpublishAt === null ? null : undefined,
+        invoiceScheduledAt: rest.invoiceScheduledAt
+          ? new Date(rest.invoiceScheduledAt)
+          : rest.invoiceScheduledAt === null
+            ? null
+            : undefined,
       },
     });
 
@@ -203,9 +210,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Staff with full Events access can delete — not owner-only.
+  const denied = requirePermission(session, "events", "full");
+  if (denied) return denied;
 
   const event = await requireEvent(params.id, session.user.clubId);
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });

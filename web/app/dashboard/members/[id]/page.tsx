@@ -110,6 +110,16 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.fg }}>
               {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
             </span>
+            {/* Distinguish an activated account from a paying member: ACTIVE with
+                no active subscription means the account exists but isn't on a plan. */}
+            {m.status === "ACTIVE" && !activeSub && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full bg-orange-accent/20 text-text-primary"
+                title="This account is activated but has no active paid membership."
+              >
+                No membership
+              </span>
+            )}
             {m.isMinor && <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Minor</span>}
           </div>
           <div className="text-sm text-text-muted mt-1 flex flex-wrap gap-x-4 gap-y-0.5">

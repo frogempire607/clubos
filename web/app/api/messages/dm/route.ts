@@ -7,6 +7,12 @@ import { getTierFeatures } from "@/lib/tier";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 
+// Read subjectMemberId off a message row without depending on the cached Prisma
+// type (the column is newer than the generated client in some builds).
+function subjectOf(m: unknown): string | null {
+  return (m as { subjectMemberId?: string | null })?.subjectMemberId ?? null;
+}
+
 async function requireGrowth(clubId: string) {
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });
   const features = getTierFeatures(club?.tier ?? "growth");
@@ -30,10 +36,11 @@ export async function GET() {
   const gate = await requireGrowth(session.user.clubId);
   if (gate) return gate;
 
+  const uid = session.user.id;
   const messages = await prisma.message.findMany({
     where: {
       clubId: session.user.clubId,
-      OR: [{ senderId: session.user.id }, { recipientId: session.user.id }],
+      OR: [{ senderId: uid }, { recipientId: uid }],
     },
     include: {
       sender:    { select: { id: true, firstName: true, lastName: true, role: true } },
@@ -42,19 +49,45 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  // Group into conversations — unique other-party per conversation
+  // A message can be "about" a specific athlete (subjectMemberId) — e.g. a
+  // parent messaging a coach about their kid. Split conversations by
+  // (other party, subject) and resolve the athlete's name, so a parent's
+  // message about a child shows as its own "For {child}" thread instead of
+  // collapsing behind the parent's own thread (the "message went missing" bug).
+  const subjectIds = Array.from(
+    new Set(messages.map(subjectOf).filter((s): s is string => !!s)),
+  );
+  const subjectMembers = subjectIds.length
+    ? await prisma.member.findMany({
+        where: { id: { in: subjectIds }, clubId: session.user.clubId },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : [];
+  const subjectById = new Map(subjectMembers.map((m) => [m.id, m]));
+
   const seen = new Set<string>();
   const conversations: any[] = [];
   for (const m of messages) {
-    const otherId = m.senderId === session.user.id ? m.recipientId : m.senderId;
-    if (!seen.has(otherId)) {
-      seen.add(otherId);
-      const other = m.senderId === session.user.id ? m.recipient : m.sender;
-      const unread = messages.filter(
-        (x) => x.senderId === otherId && x.recipientId === session.user.id && !x.readAt
-      ).length;
-      conversations.push({ user: other, lastMessage: m, unread });
-    }
+    const otherId = m.senderId === uid ? m.recipientId : m.senderId;
+    const about = subjectOf(m);
+    const key = `${otherId}:${about ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const other = m.senderId === uid ? m.recipient : m.sender;
+    const unread = messages.filter(
+      (x) =>
+        x.senderId === otherId &&
+        x.recipientId === uid &&
+        !x.readAt &&
+        (subjectOf(x) ?? "") === (about ?? ""),
+    ).length;
+    conversations.push({
+      user: other,
+      forMember: about ? subjectById.get(about) ?? null : null,
+      about: about ?? null,
+      lastMessage: m,
+      unread,
+    });
   }
 
   return NextResponse.json(conversations);

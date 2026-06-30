@@ -1,6 +1,12 @@
 @import "tailwindcss";
 
 :root {
+  /* Match native form controls (the iOS/Android <select> popup, date pickers,
+   * etc.) to the app theme. Without this, a phone set to dark mode renders the
+   * native dropdown as an unreadable dark popover even though the app is light
+   * — the "dark, hard to read" recipient picker reported across staff + client. */
+  color-scheme: light;
+
   /* AthletixOS design tokens — light (default) */
   --color-primary:    #6D5DF6;
   --color-primary-dk: #5948E8;
@@ -19,6 +25,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --color-bg:      #0F0F12;
   --color-surface: #1A1A1F;
   --color-border:  #2A2A30;

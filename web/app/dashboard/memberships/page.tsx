@@ -58,6 +58,8 @@ export default function MembershipsPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Membership | null>(null);
+  const [clubSlug, setClubSlug] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [showAddDiscount, setShowAddDiscount] = useState(false);
@@ -65,9 +67,17 @@ export default function MembershipsPage() {
 
   async function load() {
     setLoading(true);
-    const [mRes, dRes] = await Promise.all([fetch("/api/memberships"), fetch("/api/discounts")]);
+    const [mRes, dRes, cRes] = await Promise.all([
+      fetch("/api/memberships"),
+      fetch("/api/discounts"),
+      fetch("/api/club/info"),
+    ]);
     if (mRes.ok) setMemberships(await mRes.json());
     if (dRes.ok) setDiscounts(await dRes.json());
+    if (cRes.ok) {
+      const c = await cRes.json().catch(() => null);
+      if (c?.slug) setClubSlug(c.slug);
+    }
     setLoading(false);
   }
 
@@ -107,6 +117,28 @@ export default function MembershipsPage() {
       body: JSON.stringify({ active: !m.active }),
     });
     load();
+  }
+
+  // Copy the public registration link for a membership. Owners drop this on a
+  // website / email / social post; it opens /join/[slug]?m=<id>, which shows the
+  // plan with club branding and funnels into the existing signup/onboarding.
+  function copyPublicLink(m: Membership) {
+    if (!clubSlug) {
+      alert("Set your club URL (slug) in Settings → Club first so the public link works.");
+      return;
+    }
+    const url = `${window.location.origin}/join/${clubSlug}?m=${m.id}`;
+    const done = () => {
+      setCopiedId(m.id);
+      setTimeout(() => setCopiedId((c) => (c === m.id ? null : c)), 1800);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(done, () =>
+        window.prompt("Copy this public registration link:", url),
+      );
+    } else {
+      window.prompt("Copy this public registration link:", url);
+    }
   }
 
   return (
@@ -168,7 +200,16 @@ export default function MembershipsPage() {
 
                 <div className="flex items-center justify-between pt-3 border-t border-app-border">
                   <span className="text-xs text-text-muted">{m._count.members} member{m._count.members === 1 ? "" : "s"}</span>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-wrap justify-end">
+                    {m.active && m.purchaseAccess !== "STAFF_ONLY" && (
+                      <button
+                        onClick={() => copyPublicLink(m)}
+                        title="Copy a public registration link for this plan"
+                        className="text-xs text-brand hover:bg-brand/10 px-2 py-1 rounded font-medium"
+                      >
+                        {copiedId === m.id ? "Copied!" : "Copy link"}
+                      </button>
+                    )}
                     <button onClick={() => handleToggleActive(m)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
                       {m.active ? "Deactivate" : "Activate"}
                     </button>

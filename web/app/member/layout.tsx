@@ -55,12 +55,29 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const [club, setClub] = useState<ClubInfo | null>(null);
   const [previewMode, setPreviewMode] = useState<"member" | "public" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [navHidden, setNavHidden] = useState(false);
 
   // Close the More sheet whenever the route changes so the overlay
   // doesn't linger across navigation.
   useEffect(() => {
     setMoreOpen(false);
   }, [pathname]);
+
+  // Hide the bottom tab bar on scroll-down, reveal on scroll-up (and near the
+  // top) so it doesn't cover content while browsing on a phone.
+  useEffect(() => {
+    let lastY = window.scrollY;
+    function onScroll() {
+      const y = window.scrollY;
+      const dy = y - lastY;
+      if (Math.abs(dy) < 6) return;
+      if (y < 40) setNavHidden(false);
+      else setNavHidden(dy > 0);
+      lastY = y;
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     fetch("/api/preview").then((r) => (r.ok ? r.json() : { mode: null })).then((d) => setPreviewMode(d?.mode ?? null)).catch(() => {});
@@ -276,7 +293,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       </main>
 
       {/* ── Mobile bottom tab bar ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-stone-200 md:hidden safe-area-bottom" style={{ background: navBg }}>
+      <nav className={`fixed bottom-0 left-0 right-0 z-40 border-t border-stone-200 md:hidden safe-area-bottom transition-transform duration-300 ${navHidden ? "translate-y-full" : "translate-y-0"}`} style={{ background: navBg }}>
         <div className="grid" style={{ height: "60px", gridTemplateColumns: `repeat(${portalNav.length}, minmax(0, 1fr))` }}>
           {portalNav.map((item) => {
             const active = "kind" in item && item.kind === "more" ? moreOpen : isActive(item);

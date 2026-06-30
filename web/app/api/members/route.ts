@@ -172,6 +172,29 @@ export async function POST(req: Request) {
       },
     });
 
+    // Owner-vouched guardian link: if a portal account already exists for the
+    // guardian's email, link them to this child right away so it appears in
+    // their portal. The owner adding the child IS the approval, so no separate
+    // guardian-link request is needed. (Fixes: manually adding a 2nd child not
+    // showing up for the guardian.)
+    if (member.isMinor && member.guardianEmail) {
+      const guardianUser = await prisma.user.findFirst({
+        where: { clubId: session.user.clubId, email: member.guardianEmail, deletedAt: null },
+        select: { id: true },
+      });
+      if (guardianUser) {
+        await prisma.memberGuardianUser.upsert({
+          where: { userId_memberId: { userId: guardianUser.id, memberId: member.id } },
+          update: {},
+          create: {
+            userId: guardianUser.id,
+            memberId: member.id,
+            relationship: data.guardianRelationship || null,
+          },
+        });
+      }
+    }
+
     // Fire-and-forget welcome email so the member (or guardian for minors) can set
     // up portal access. Skips silently if no email is on file.
     const portalRecipient = data.isMinor

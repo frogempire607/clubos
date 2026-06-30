@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 const schema = z.object({
   name:          z.string().min(1).max(100).optional(),
@@ -46,9 +47,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Staff with full Events/purchase-options access can delete — not owner-only.
+  const denied = requirePermission(session, "events", "full");
+  if (denied) return denied;
 
   const existing = await prisma.product.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },

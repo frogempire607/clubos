@@ -68,18 +68,43 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "No active registrations to invoice." }, { status: 400 });
   }
 
-  // Resolve the per-head amount based on mode.
+  // Divisor: actual attendees (OFFICIAL) or expected signups (ESTIMATED).
+  const divisor =
+    mode === "OFFICIAL"
+      ? activeCount
+      : event.variableCostEstimatedSignups && event.variableCostEstimatedSignups > 0
+        ? event.variableCostEstimatedSignups
+        : activeCount;
+
+  // Itemized expense breakdown (P1) takes precedence when present: per-athlete
+  // items are charged in full to each registrant; shared items are split across
+  // the divisor. With no items, behavior is unchanged (single variableCostTotal).
+  const expenseItems = await prisma.eventExpenseItem.findMany({
+    where: { eventId: event.id, clubId: event.clubId },
+    orderBy: { createdAt: "asc" },
+  });
+  const perAthleteSum = expenseItems
+    .filter((i) => i.perAthlete)
+    .reduce((s, i) => s + Number(i.amount), 0);
+  const sharedSum = expenseItems
+    .filter((i) => !i.perAthlete)
+    .reduce((s, i) => s + Number(i.amount), 0);
+  const itemsSum = perAthleteSum + sharedSum;
+
   let total: number;
-  let divisor: number;
-  if (mode === "OFFICIAL") {
+  let perHead: number;
+  if (itemsSum > 0) {
+    perHead = +(perAthleteSum + sharedSum / divisor).toFixed(2);
+    total = +(perAthleteSum * divisor + sharedSum).toFixed(2);
+  } else if (mode === "OFFICIAL") {
     if (!event.variableCostTotal || Number(event.variableCostTotal) <= 0) {
       return NextResponse.json(
-        { error: "Set the official total cost on the event before sending invoices." },
+        { error: "Set the official total cost (or add expense items) before sending invoices." },
         { status: 400 },
       );
     }
     total = Number(event.variableCostTotal);
-    divisor = activeCount;
+    perHead = +(total / divisor).toFixed(2);
   } else {
     // ESTIMATED: prefer the entered total, fall back to the display estimate.
     const estTotal =
@@ -90,18 +115,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           : 0;
     if (estTotal <= 0) {
       return NextResponse.json(
-        { error: "Set an estimated total cost on the event before sending invoices." },
+        { error: "Set an estimated total cost (or add expense items) before sending invoices." },
         { status: 400 },
       );
     }
     total = estTotal;
-    divisor =
-      event.variableCostEstimatedSignups && event.variableCostEstimatedSignups > 0
-        ? event.variableCostEstimatedSignups
-        : activeCount;
+    perHead = +(total / divisor).toFixed(2);
   }
 
-  const perHead = +(total / divisor).toFixed(2);
   const amountCents = Math.round(perHead * 100);
   if (amountCents <= 0) {
     return NextResponse.json({ error: "Computed share is $0 — check the total and split." }, { status: 400 });
@@ -126,9 +147,31 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const baseUrl = getAppBaseUrl();
   const splitNote =
-    mode === "OFFICIAL"
-      ? `Official split: $${total.toFixed(2)} ÷ ${activeCount} attendees`
-      : `Estimated split: $${total.toFixed(2)} ÷ ${divisor} attendees`;
+    itemsSum > 0
+      ? `Your share across ${divisor} attendee${divisor === 1 ? "" : "s"}`
+      : mode === "OFFICIAL"
+        ? `Official split: $${total.toFixed(2)} ÷ ${activeCount} attendees`
+        : `Estimated split: $${total.toFixed(2)} ÷ ${divisor} attendees`;
+
+  // Parent-facing breakdown (same per-head for every registrant): per-athlete
+  // items at full price, shared items shown as their per-head split.
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const breakdownHtml = expenseItems.length
+    ? `<table style="width:100%;border-collapse:collapse;margin:4px 0 16px;font-size:14px"><tbody>${expenseItems
+        .map((i) => {
+          const each = i.perAthlete ? Number(i.amount) : Number(i.amount) / divisor;
+          const tag = i.perAthlete ? "per athlete" : `split ÷ ${divisor}`;
+          return `<tr><td style="padding:4px 0;color:#57534e">${esc(i.label)}${
+            i.description ? ` <span style="color:#a8a29e">— ${esc(i.description)}</span>` : ""
+          } <span style="color:#a8a29e">(${tag})</span></td><td style="padding:4px 0;text-align:right;color:#1c1917;white-space:nowrap">$${each.toFixed(2)}</td></tr>`;
+        })
+        .join(
+          "",
+        )}</tbody><tfoot><tr><td style="padding-top:8px;border-top:1px solid #e7e5e4;color:#1c1917;font-weight:600">Your total</td><td style="padding-top:8px;border-top:1px solid #e7e5e4;text-align:right;color:#1c1917;font-weight:600">$${perHead.toFixed(
+        2,
+      )}</td></tr></tfoot></table>`
+    : "";
 
   let billed = 0;
   let skipped = 0;
@@ -198,6 +241,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                 Hi ${reg.name}, your share for <strong>${event.name}</strong> is
                 <strong>$${perHead.toFixed(2)}</strong> (${splitNote}).
               </p>
+              ${breakdownHtml}
               <p><a href="${checkout.url}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Pay now</a></p>
             </div>`,
         });

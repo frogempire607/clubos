@@ -94,6 +94,7 @@ export type NavRule = { key: PermissionKey; level: PermissionLevel } | { ownerOn
 export const PATH_PERMISSIONS: { prefix: string; rule: NavRule }[] = [
   { prefix: "/dashboard/settings", rule: { ownerOnly: true } },
   { prefix: "/dashboard/staff/payroll", rule: { key: "finances", level: "view" } },
+  { prefix: "/dashboard/staff/payouts", rule: { key: "finances", level: "view" } },
   { prefix: "/dashboard/staff/schedule", rule: { key: "schedule", level: "view" } },
   { prefix: "/dashboard/staff/availability", rule: { key: "schedule", level: "view" } },
   { prefix: "/dashboard/staff/contractors", rule: { key: "staff", level: "full" } },

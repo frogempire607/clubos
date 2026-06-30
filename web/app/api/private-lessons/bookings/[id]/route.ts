@@ -7,7 +7,7 @@ import { sendMemberMessage } from "@/lib/memberMessaging";
 import { activatePartnersOnAccept } from "@/lib/privatePartners";
 
 const schema = z.object({
-  action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "CANCEL", "ASSIGN_COACH", "APPROVE", "CONFIRM_PAYMENT"]),
+  action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "REOPEN", "CANCEL", "ASSIGN_COACH", "APPROVE", "CONFIRM_PAYMENT"]),
   // For ACCEPT / PROPOSE
   confirmedStartAt: z.string().optional().nullable(),
   confirmedEndAt:   z.string().optional().nullable(),
@@ -108,7 +108,17 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         break;
       }
 
+      case "REOPEN": {
+        // Undo an accidental "Mark complete" — return the lesson to confirmed so
+        // staff can re-handle it. Only the owner or the assigned coach can.
+        if (!isOwner && !isCoach) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        updateData = { status: "CONFIRMED" };
+        break;
+      }
+
       case "CANCEL": {
+        // Staff-side cancel. Members cancel via /api/member/privates/[id].
+        if (!isOwner && !isCoach) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = {
           status: "CANCELED",
           canceledAt:   new Date(),

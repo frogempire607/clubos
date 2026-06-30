@@ -70,6 +70,10 @@ type DMMessage = {
 
 type Conversation = {
   user: DMUser;
+  // Set when the thread is "about" a specific athlete (e.g. a parent messaging
+  // a coach about their kid). Null for the participant's own thread.
+  forMember?: { id: string; firstName: string; lastName: string } | null;
+  about?: string | null;
   lastMessage: { body: string; createdAt: string };
   unread: number;
 };
@@ -626,7 +630,7 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 function DMsTab() {
   const { data: session } = useSession();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeUser, setActiveUser] = useState<DMUser | null>(null);
+  const [active, setActive] = useState<{ user: DMUser; about: string | null; forMember?: { firstName: string; lastName: string } | null } | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [msgBody, setMsgBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -641,30 +645,30 @@ function DMsTab() {
     setLoading(false);
   }
 
-  async function loadMessages(userId: string) {
-    const res = await fetch(`/api/messages/dm/${userId}`);
+  async function loadMessages(userId: string, about: string | null) {
+    const res = await fetch(`/api/messages/dm/${userId}${about ? `?about=${about}` : ""}`);
     if (res.ok) setMessages(await res.json());
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   }
 
   useEffect(() => { loadConversations(); }, []);
-  useEffect(() => { if (activeUser) loadMessages(activeUser.id); }, [activeUser]);
+  useEffect(() => { if (active) loadMessages(active.user.id, active.about); }, [active]);
 
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
-    if (!activeUser || !msgBody.trim()) return;
+    if (!active || !msgBody.trim()) return;
     setSending(true);
     setStatus(null);
-    const res = await fetch(`/api/messages/dm/${activeUser.id}`, {
+    const res = await fetch(`/api/messages/dm/${active.user.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: msgBody.trim() }),
+      body: JSON.stringify({ body: msgBody.trim(), about: active.about }),
     });
     setSending(false);
     if (res.ok) {
       setMsgBody("");
       setStatus({ type: "success", text: "Message sent." });
-      loadMessages(activeUser.id);
+      loadMessages(active.user.id, active.about);
       loadConversations();
     } else {
       const data = await res.json().catch(() => ({}));
@@ -694,9 +698,9 @@ function DMsTab() {
             ) : (
               conversations.map((c) => (
                 <button
-                  key={c.user.id}
-                  onClick={() => setActiveUser(c.user)}
-                  className={`w-full text-left px-4 py-3 border-b border-app-border hover:bg-app-bg ${activeUser?.id === c.user.id ? "bg-app-bg" : ""}`}
+                  key={`${c.user.id}:${c.about ?? ""}`}
+                  onClick={() => setActive({ user: c.user, about: c.about ?? null, forMember: c.forMember })}
+                  className={`w-full text-left px-4 py-3 border-b border-app-border hover:bg-app-bg ${active?.user.id === c.user.id && (active?.about ?? "") === (c.about ?? "") ? "bg-app-bg" : ""}`}
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary flex-shrink-0">
@@ -709,6 +713,11 @@ function DMsTab() {
                           <span className="text-[10px] bg-brand text-white rounded-full w-4 h-4 flex items-center justify-center">{c.unread}</span>
                         )}
                       </div>
+                      {c.forMember && (
+                        <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium mb-0.5">
+                          For {c.forMember.firstName} {c.forMember.lastName}
+                        </span>
+                      )}
                       <p className="text-[10px] text-text-muted truncate">{c.lastMessage.body}</p>
                     </div>
                   </div>
@@ -720,7 +729,7 @@ function DMsTab() {
 
         {/* Thread */}
         <div className="flex-1 flex flex-col min-w-0">
-          {!activeUser ? (
+          {!active ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
                 <MessageSquare className="h-7 w-7 text-text-muted mx-auto mb-2" strokeWidth={2} />
@@ -731,10 +740,14 @@ function DMsTab() {
             <>
               <div className="px-4 py-3 border-b border-app-border flex items-center gap-2">
                 <div className="w-7 h-7 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary">
-                  {activeUser.firstName[0]}{activeUser.lastName[0]}
+                  {active.user.firstName[0]}{active.user.lastName[0]}
                 </div>
-                <span className="text-sm font-semibold text-text-primary">{activeUser.firstName} {activeUser.lastName}</span>
-                <span className="text-xs text-text-muted">{activeUser.role.charAt(0) + activeUser.role.slice(1).toLowerCase()}</span>
+                <span className="text-sm font-semibold text-text-primary">{active.user.firstName} {active.user.lastName}</span>
+                {active.forMember ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">For {active.forMember.firstName} {active.forMember.lastName}</span>
+                ) : (
+                  <span className="text-xs text-text-muted">{active.user.role.charAt(0) + active.user.role.slice(1).toLowerCase()}</span>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -795,7 +808,7 @@ function DMsTab() {
       {showCompose && (
         <DMComposeModal
           onClose={() => setShowCompose(false)}
-          onSent={(user) => { setShowCompose(false); setActiveUser(user); loadConversations(); }}
+          onSent={(user) => { setShowCompose(false); setActive({ user, about: null }); loadConversations(); }}
         />
       )}
     </div>

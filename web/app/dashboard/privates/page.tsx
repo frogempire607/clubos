@@ -907,13 +907,18 @@ function BookingModal({
                   </button>
                 )}
               {booking.status === "CONFIRMED" && !booking.ownerApproved && (
-                <button onClick={() => send({ action: "APPROVE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
-                  {saving ? "…" : "Approve"}
+                <button onClick={() => send({ action: "APPROVE" })} disabled={saving} title="Approve this booking. This does NOT mark the lesson finished." className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
+                  {saving ? "…" : "Approve booking"}
                 </button>
               )}
               {booking.status === "CONFIRMED" && (
-                <button onClick={() => send({ action: "COMPLETE" })} disabled={saving} className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
-                  {saving ? "…" : "Mark complete"}
+                <button onClick={() => send({ action: "COMPLETE" })} disabled={saving} title="Mark the lesson as finished. You can reopen it if this was a mistake." className="px-3 py-1.5 text-sm bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50">
+                  {saving ? "…" : "Mark lesson completed"}
+                </button>
+              )}
+              {booking.status === "COMPLETED" && (
+                <button onClick={() => send({ action: "REOPEN" })} disabled={saving} title="Undo — return this lesson to Confirmed." className="px-3 py-1.5 text-sm bg-app-bg text-text-primary border border-app-border rounded-md hover:bg-app-border/40 disabled:opacity-50">
+                  {saving ? "…" : "Reopen"}
                 </button>
               )}
               {!["CANCELED", "DECLINED", "COMPLETED"].includes(booking.status) && (

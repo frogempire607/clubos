@@ -82,6 +82,7 @@ const eventFields = {
   variableCostTotal: z.number().min(0).optional().nullable(),
   variableCostEstimatedSignups: z.number().int().positive().optional().nullable(),
   variableCostEstimatedTotal: z.number().min(0).optional().nullable(),
+  invoiceScheduledAt: z.string().optional().nullable(),
 };
 
 const createSchema = z.object({
@@ -180,6 +181,10 @@ export async function POST(req: Request) {
         variableCostEstimatedTotal: data.variableCostEnabled
           ? (data.variableCostEstimatedTotal ?? null)
           : null,
+        invoiceScheduledAt:
+          data.variableCostEnabled && data.invoiceScheduledAt
+            ? new Date(data.invoiceScheduledAt)
+            : null,
         sessions: data.sessions?.length
           ? {
               create: data.sessions.map((s, i) => ({

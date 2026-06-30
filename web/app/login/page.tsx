@@ -217,7 +217,7 @@ function LoginInner() {
 
           <div className="mt-6 pt-5 border-t border-app-border">
             <Link
-              href="/forgot-password"
+              href={`/forgot-password${clubSlug ? `?club=${encodeURIComponent(clubSlug)}` : ""}`}
               className="block text-sm text-center text-text-muted hover:text-text-primary mb-3"
             >
               Forgot password?

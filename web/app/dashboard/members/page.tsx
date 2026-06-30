@@ -60,6 +60,12 @@ type Member = {
     allowPackagePurchase?: boolean;
     dailySpendLimit?: number;
   } | null;
+  // Onboarding / activation tracking (returned by /api/members).
+  migrationStatus?: string | null;
+  activationKind?: string | null;
+  activatedAt?: string | null;
+  migrationCompletedAt?: string | null;
+  activationEmailSentAt?: string | null;
 };
 
 type CustomField = { id: string; label: string; fieldType: string; required: boolean; options: string };
@@ -71,6 +77,27 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
   PROSPECT: { bg: "var(--color-primary)", fg: "#fff" },
   INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   PAUSED: { bg: "var(--color-warning)", fg: "#fff" },
+};
+
+// ── Onboarding status (derived from migration/activation fields) ────────────
+type OnboardingStatus = "NONE" | "INVITED" | "ACTIVATED" | "COMPLETED";
+function onboardingStatusOf(m: Member): OnboardingStatus {
+  if (m.migrationCompletedAt || m.migrationStatus === "COMPLETED") return "COMPLETED";
+  if (m.activatedAt || m.migrationStatus === "ACTIVATED") return "ACTIVATED";
+  if (m.migrationStatus === "INVITED" || m.activationEmailSentAt) return "INVITED";
+  return "NONE";
+}
+const onboardingLabels: Record<OnboardingStatus, string> = {
+  NONE: "Not invited",
+  INVITED: "Invited",
+  ACTIVATED: "Activated",
+  COMPLETED: "Completed",
+};
+const onboardingColors: Record<OnboardingStatus, { bg: string; fg: string }> = {
+  NONE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
+  INVITED: { bg: "var(--color-warning)", fg: "#fff" },
+  ACTIVATED: { bg: "var(--color-primary)", fg: "#fff" },
+  COMPLETED: { bg: "var(--color-success)", fg: "#1F1F23" },
 };
 
 // ── API error formatter ────────────────────────────────────────────────────
@@ -163,6 +190,7 @@ export default function MembersPage() {
   const [ageFilter, setAgeFilter] = useState("");
   const [customFieldFilter, setCustomFieldFilter] = useState("");
   const [customFieldValue, setCustomFieldValue] = useState("");
+  const [onboardingFilter, setOnboardingFilter] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMessaging, setBulkMessaging] = useState(false);
   const [formConfig, setFormConfig] = useState<MemberFormConfig>(DEFAULT_MEMBER_FORM_CONFIG);
@@ -195,6 +223,7 @@ export default function MembersPage() {
     if (genderFilter && m.gender !== genderFilter) return false;
     if (ageFilter === "minor" && !m.isMinor) return false;
     if (ageFilter === "adult" && m.isMinor) return false;
+    if (onboardingFilter && onboardingStatusOf(m) !== onboardingFilter) return false;
     if (customFieldFilter && customFieldValue) {
       let values: Record<string, string> = {};
       try { values = JSON.parse(m.customFieldValues || "{}"); } catch {}
@@ -249,10 +278,13 @@ export default function MembersPage() {
     else alert("Bulk delete failed");
   }
 
-  // #7: send a free-join registration link to selected non-members.
-  async function bulkSendRegistration() {
+  // Send the FREE, no-payment onboarding link (activationKind=JOIN) to the
+  // selected members. Reuses the existing /api/members/bulk send_registration_link
+  // path so there is a single bulk-onboarding implementation. No membership
+  // purchase is forced — this is for existing families verifying/updating info.
+  async function bulkSendOnboarding() {
     const n = selectedIds.size;
-    if (!confirm(`Send a free-join registration link to ${n} selected ${n === 1 ? "person" : "people"}? Anyone who already has an active membership is skipped.`)) return;
+    if (!confirm(`Send a no-payment onboarding link to ${n} selected ${n === 1 ? "person" : "people"}? They can verify their info and set up a free account — no membership purchase required. Anyone who already has an active membership is skipped.`)) return;
     const res = await fetch("/api/members/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -261,12 +293,23 @@ export default function MembersPage() {
     const d = await res.json().catch(() => ({}));
     if (res.ok) {
       const skipped = Array.isArray(d.skipped) ? d.skipped.length : 0;
-      alert(`Sent ${d.sent ?? 0} registration link${(d.sent ?? 0) === 1 ? "" : "s"}.${skipped ? ` ${skipped} skipped (already a member or no email on file).` : ""}`);
+      alert(`Sent ${d.sent ?? 0} onboarding link${(d.sent ?? 0) === 1 ? "" : "s"}.${skipped ? ` ${skipped} skipped (already a member or no email on file).` : ""}`);
       setSelectedIds(new Set());
       load();
     } else {
-      alert(typeof d.error === "string" ? d.error : "Failed to send registration links");
+      alert(typeof d.error === "string" ? d.error : "Failed to send onboarding links");
     }
+  }
+
+  // Quick-select helpers for onboarding outreach: one click selects everyone in
+  // a segment so the owner can "Send onboarding link" without hand-picking rows.
+  function selectAllProspects() {
+    setFilter("PROSPECT");
+    setSelectedIds(new Set(members.filter((m) => m.status === "PROSPECT").map((m) => m.id)));
+  }
+  function selectAllNonActive() {
+    setFilter("ALL");
+    setSelectedIds(new Set(members.filter((m) => m.status !== "ACTIVE").map((m) => m.id)));
   }
 
   async function acceptDefaults() {
@@ -347,7 +390,7 @@ export default function MembersPage() {
         <input type="text" placeholder="Search name, email, phone, guardian…" value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 max-w-xs px-3 py-1.5 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
         <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
           <option value="">All tags</option>
           {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -365,6 +408,13 @@ export default function MembersPage() {
           <option value="minor">Minors</option>
           <option value="adult">Adults</option>
         </select>
+        <select value={onboardingFilter} onChange={(e) => setOnboardingFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
+          <option value="">All onboarding</option>
+          <option value="NONE">Not invited</option>
+          <option value="INVITED">Invited</option>
+          <option value="ACTIVATED">Activated</option>
+          <option value="COMPLETED">Completed</option>
+        </select>
         <select value={customFieldFilter} onChange={(e) => { setCustomFieldFilter(e.target.value); setCustomFieldValue(""); }} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
           <option value="">Custom field</option>
           {customFields.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
@@ -372,6 +422,19 @@ export default function MembersPage() {
         {customFieldFilter && (
           <input value={customFieldValue} onChange={(e) => setCustomFieldValue(e.target.value)} placeholder="Custom field value" className="px-3 py-2 border border-app-border rounded-lg text-sm" />
         )}
+      </div>
+
+      {/* Onboarding outreach quick-select — one click selects a whole segment so
+          the owner can send the no-payment onboarding link without hand-picking. */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <span className="text-xs text-text-muted">Onboarding outreach:</span>
+        <button onClick={selectAllProspects} className="text-xs px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg">
+          Select all prospects ({counts.PROSPECT})
+        </button>
+        <button onClick={selectAllNonActive} className="text-xs px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg">
+          Select all non-active ({counts.ALL - counts.ACTIVE})
+        </button>
+        <span className="text-[11px] text-text-muted">then “Send onboarding link”.</span>
       </div>
 
       {selectedIds.size > 0 && (
@@ -390,10 +453,10 @@ export default function MembersPage() {
             Message selected
           </button>
           <button
-            onClick={bulkSendRegistration}
+            onClick={bulkSendOnboarding}
             className="text-sm px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg"
           >
-            Send registration link
+            Send onboarding link
           </button>
           <button
             onClick={bulkDelete}
@@ -433,6 +496,7 @@ export default function MembersPage() {
                 </Th>
                 <Th>Name</Th>
                 <Th>Status</Th>
+                <Th>Onboarding</Th>
                 <Th>Tags</Th>
                 <Th>Membership</Th>
                 <Th>Joined</Th>
@@ -480,9 +544,28 @@ export default function MembersPage() {
                       </div>
                     </Td>
                     <Td>
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
-                        {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
+                          {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
+                        </span>
+                        {/* Activated account vs paying member: flag ACTIVE rows with no active plan. */}
+                        {m.status === "ACTIVE" && !m.subscriptions?.some((s) => s.status === "active") && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-accent/20 text-text-primary whitespace-nowrap" title="Activated account, no active membership.">
+                            no plan
+                          </span>
+                        )}
+                      </div>
+                    </Td>
+                    <Td>
+                      {(() => {
+                        const os = onboardingStatusOf(m);
+                        const oc = onboardingColors[os];
+                        return (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: oc.bg, color: oc.fg }}>
+                            {onboardingLabels[os]}
+                          </span>
+                        );
+                      })()}
                     </Td>
                     <Td>
                       <div className="flex gap-1 flex-wrap">

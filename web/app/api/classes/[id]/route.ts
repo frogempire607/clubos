@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { z } from "zod";
 import { buildSessions, type DayOverride } from "@/lib/classSessions";
 
@@ -139,9 +140,9 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // Staff with full Classes access can delete — not owner-only.
+  const denied = requirePermission(session, "classes", "full");
+  if (denied) return denied;
 
   const cls = await findClass(params.id, session.user.clubId);
   if (!cls) return NextResponse.json({ error: "Not found" }, { status: 404 });

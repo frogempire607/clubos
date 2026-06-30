@@ -180,6 +180,12 @@ export default function MemberBookingsPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"upcoming" | "past" | "all">("upcoming");
+  // Manage-booking sheet (private lessons): cancel or request a time change.
+  const [manage, setManage] = useState<{ id: string; name: string } | null>(null);
+  const [manageMode, setManageMode] = useState<"menu" | "cancel" | "change">("menu");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -257,6 +263,43 @@ export default function MemberBookingsPage() {
       return true;
     })
     .sort((a, b) => new Date(a.event.startsAt).getTime() - new Date(b.event.startsAt).getTime());
+
+  async function submitManage() {
+    if (!manage) return;
+    setBusy(true);
+    const action = manageMode === "cancel" ? "CANCEL" : "REQUEST_CHANGE";
+    const res = await fetch(`/api/member/privates/${manage.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, reason: reason.trim() || null }),
+    });
+    setBusy(false);
+    if (res.ok) {
+      if (action === "CANCEL") {
+        setMembers((prev) =>
+          prev.map((m) =>
+            m.id === activeId
+              ? {
+                  ...m,
+                  bookings: m.bookings.map((b) =>
+                    b.kind === "private" && b.event.id === manage.id ? { ...b, status: "CANCELED" } : b,
+                  ),
+                }
+              : m,
+          ),
+        );
+        setToast("Booking canceled — your coach has been notified.");
+      } else {
+        setToast("Change request sent to your coach.");
+      }
+      setManage(null);
+      setReason("");
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setToast(d.error || "Something went wrong. Please try again.");
+    }
+    setTimeout(() => setToast(null), 3500);
+  }
 
   return (
     <>
@@ -357,9 +400,85 @@ export default function MemberBookingsPage() {
                     </p>
                   </div>
                 </div>
+                {b.kind === "private" && !TERMINAL.has(b.status) && (
+                  <div className="mt-3 pt-3 border-t border-stone-100 flex justify-end">
+                    <button
+                      onClick={() => { setManage({ id: b.event.id, name: b.event.name }); setManageMode("menu"); setReason(""); }}
+                      className="text-xs px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50"
+                    >
+                      Manage booking
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {manage && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4"
+          onClick={() => setManage(null)}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-stone-900 mb-0.5">Manage booking</h3>
+            <p className="text-xs text-stone-500 mb-4">{manage.name}</p>
+            {manageMode === "menu" ? (
+              <div className="space-y-2">
+                <button
+                  onClick={() => setManageMode("change")}
+                  className="w-full text-left px-3 py-2.5 rounded-lg border border-stone-200 text-sm text-stone-800 hover:bg-stone-50"
+                >
+                  Request a time change
+                </button>
+                <button
+                  onClick={() => setManageMode("cancel")}
+                  className="w-full text-left px-3 py-2.5 rounded-lg border border-red-200 text-sm text-red-700 hover:bg-red-50"
+                >
+                  Cancel this booking
+                </button>
+                <button onClick={() => setManage(null)} className="w-full px-3 py-2 text-sm text-stone-500">
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="block text-xs font-medium text-stone-700">
+                  {manageMode === "cancel" ? "Reason for cancelling (optional)" : "What change do you need?"}
+                </label>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  rows={3}
+                  placeholder={manageMode === "cancel" ? "Let your coach know why…" : "e.g. Can we move to Thursday evening?"}
+                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setManageMode("menu")}
+                    className="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-sm text-stone-700 hover:bg-stone-50"
+                  >
+                    Back
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={submitManage}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${
+                      manageMode === "cancel" ? "bg-red-600 hover:bg-red-700" : "bg-stone-900 hover:bg-stone-700"
+                    }`}
+                  >
+                    {busy ? "Sending…" : manageMode === "cancel" ? "Cancel booking" : "Send request"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-stone-900 text-white text-sm px-4 py-2 rounded-lg z-50 shadow-lg">
+          {toast}
         </div>
       )}
     </>

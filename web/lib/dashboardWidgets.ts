@@ -24,6 +24,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
   { key: "failedPayments", label: "Failed payments", kind: "stat", description: "Failed charges this month" },
   { key: "unreadMessages", label: "Unread messages", kind: "stat", description: "Direct messages to you" },
   { key: "docsNeedingSignatures", label: "Docs needing signatures", kind: "stat", description: "Outstanding required signatures" },
+  { key: "actionCenter", label: "Action center", kind: "section", description: "Everything that needs your attention right now" },
   { key: "calendar", label: "Mini calendar", kind: "section", description: "Month grid with event dots" },
   { key: "quickNav", label: "Quick navigation", kind: "section", description: "Shortcut cards to each section" },
   { key: "quickActions", label: "Quick actions", kind: "section", description: "Common create actions" },
@@ -40,6 +41,7 @@ export const ALL_WIDGET_KEYS = WIDGET_CATALOG.map((w) => w.key);
 // Sensible defaults that mirror the original fixed dashboard so existing
 // clubs see no regression. Everything else is available but hidden.
 export const DEFAULT_ORDER: string[] = [
+  "actionCenter",
   "activeMembers",
   "todayEvents",
   "revenueMonth",

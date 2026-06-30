@@ -149,9 +149,10 @@ function QuickAddForm({
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
-  const [payMethod, setPayMethod] = useState<"CASH" | "COMP" | "INVOICE">("CASH");
+  const [payMethod, setPayMethod] = useState<"CASH" | "CHECK" | "CREDIT" | "COMP" | "INVOICE">("CASH");
   const [payStatus, setPayStatus] = useState<"DROP_IN" | "TRIAL" | "PRESENT">("DROP_IN");
   const [payNotes, setPayNotes] = useState("");
+  const [payEmailReceipt, setPayEmailReceipt] = useState(false);
 
   const memberPrice    = pricingOptions.find((o) => o.type === "member")    as { type: "member"; price: number } | undefined;
   const nonMemberPrice = pricingOptions.find((o) => o.type === "nonmember") as { type: "nonmember"; price: number } | undefined;
@@ -196,6 +197,7 @@ function QuickAddForm({
     setPayMethod("CASH");
     setPayStatus("DROP_IN");
     setPayNotes("");
+    setPayEmailReceipt(false);
     setError("");
     setRegisteringId(null);
     setPayingId(memberId);
@@ -215,8 +217,9 @@ function QuickAddForm({
         memberId,
         status: payStatus,
         paymentMethod: payMethod,
-        amount: payMethod === "COMP" ? Number(payAmount || 0) : Number(payAmount || 0),
+        amount: Number(payAmount || 0),
         notes: payNotes || null,
+        emailReceipt: payEmailReceipt,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -453,7 +456,7 @@ function QuickAddForm({
               {payingId === m.id && classId && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                   <div className="grid grid-cols-3 gap-1.5">
-                    {(["CASH", "COMP", "INVOICE"] as const).map((pm) => (
+                    {(["CASH", "CHECK", "CREDIT", "COMP", "INVOICE"] as const).map((pm) => (
                       <button
                         key={pm}
                         type="button"
@@ -462,7 +465,7 @@ function QuickAddForm({
                           payMethod === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
                         }`}
                       >
-                        {pm === "CASH" ? "Cash" : pm === "COMP" ? "Comp / Free" : "Invoice"}
+                        {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Credit" : pm === "COMP" ? "Comp / Free" : "Invoice"}
                       </button>
                     ))}
                   </div>
@@ -490,6 +493,15 @@ function QuickAddForm({
                     placeholder="Notes (optional)"
                     className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
                   />
+                  <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                    <input
+                      type="checkbox"
+                      checked={payEmailReceipt}
+                      onChange={(e) => setPayEmailReceipt(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-brand"
+                    />
+                    Email a receipt to the member
+                  </label>
                   <button
                     disabled={saving}
                     onClick={() => recordPay(m.id)}
@@ -501,7 +513,7 @@ function QuickAddForm({
                         ? "Record comped attendance"
                         : payMethod === "INVOICE"
                           ? "Record as unpaid invoice"
-                          : `Record cash payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
+                          : `Record ${payMethod === "CHECK" ? "check" : payMethod === "CREDIT" ? "card" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
                   </button>
                   {error && <p className="text-red-600 text-xs">{error}</p>}
                 </div>

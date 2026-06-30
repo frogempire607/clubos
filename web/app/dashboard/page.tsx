@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { WidgetDef, WidgetPrefs } from "@/lib/dashboardWidgets";
 import { fmtTime, kindIsWallClockUTC, dayNumber, sameMonth } from "@/lib/datetime";
+import ActionCenterWidget from "@/components/ActionCenterWidget";
 
 type CalItem = { kind: string; id: string; name: string; startsAt: string };
 
@@ -245,6 +246,8 @@ export default function DashboardPage() {
 
   function sectionWidget(key: string): React.ReactNode {
     switch (key) {
+      case "actionCenter":
+        return <ActionCenterWidget key={key} />;
       case "calendar": {
         // Sorted list of items in the current month, used by the mobile
         // upcoming-items view (replaces the 7-col grid below sm:). 7

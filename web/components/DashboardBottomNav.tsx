@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BOTTOM_NAV, isItemActive } from "@/lib/dashboardNav";
 import { canAccessPath } from "@/lib/permissions";
@@ -31,6 +32,24 @@ export default function DashboardBottomNav({
 }) {
   const isStaff = role === "STAFF";
 
+  // Hide on scroll-down, reveal on scroll-up (and near the top) so the bar
+  // doesn't cover content while browsing — the requested mobile behavior.
+  const [hidden, setHidden] = useState(false);
+  const lastY = useRef(0);
+  useEffect(() => {
+    lastY.current = window.scrollY;
+    function onScroll() {
+      const y = window.scrollY;
+      const dy = y - lastY.current;
+      if (Math.abs(dy) < 6) return;
+      if (y < 40) setHidden(false);
+      else setHidden(dy > 0);
+      lastY.current = y;
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   const visibleItems = BOTTOM_NAV.filter((item) => {
     if (item.kind === "more") return true; // always visible
     if (!isStaff) return true; // owners see everything
@@ -39,7 +58,7 @@ export default function DashboardBottomNav({
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[var(--color-sidebar-bg)] border-t border-white/10"
+      className={`md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[var(--color-sidebar-bg)] border-t border-white/10 transition-transform duration-300 ${hidden ? "translate-y-full" : "translate-y-0"}`}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <ul className="flex items-stretch">

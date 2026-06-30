@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { sendEmail } from "@/lib/email";
 
 // POST /api/attendance/charge
 // Record attendance + a non-Stripe payment for a (possibly non-member /
@@ -19,11 +20,12 @@ const schema = z.object({
   eventId: z.string().optional().nullable(),
   memberId: z.string().min(1),
   status: z.enum(["PRESENT", "TRIAL", "DROP_IN"]).default("DROP_IN"),
-  paymentMethod: z.enum(["CASH", "COMP", "INVOICE"]),
+  paymentMethod: z.enum(["CASH", "CHECK", "CREDIT", "COMP", "INVOICE"]),
   amount: z.number().min(0),
   category: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   legalEntityId: z.string().optional().nullable(),
+  emailReceipt: z.boolean().optional().default(false),
 });
 
 export async function POST(req: Request) {
@@ -50,7 +52,7 @@ export async function POST(req: Request) {
 
   const member = await prisma.member.findFirst({
     where: { id: data.memberId, clubId, deletedAt: null },
-    select: { id: true, firstName: true, lastName: true },
+    select: { id: true, firstName: true, lastName: true, email: true, guardianEmail: true },
   });
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
@@ -109,8 +111,14 @@ export async function POST(req: Request) {
 
   // Authoritative money record. Comp/cash settle now; invoice is outstanding.
   const txStatus = data.paymentMethod === "INVOICE" ? "PENDING" : "SUCCEEDED";
-  const label =
-    data.paymentMethod === "COMP" ? "Comped" : data.paymentMethod === "INVOICE" ? "Invoice" : "Cash payment";
+  const methodLabels: Record<string, string> = {
+    CASH: "Cash payment",
+    CHECK: "Check payment",
+    CREDIT: "Card payment",
+    COMP: "Comped",
+    INVOICE: "Invoice",
+  };
+  const label = methodLabels[data.paymentMethod] ?? "Payment";
   await prisma.transaction.create({
     data: {
       clubId,
@@ -129,5 +137,44 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, record });
+  // Optional emailed receipt to the attendee (or their guardian for a minor).
+  let receiptSent = false;
+  if (data.emailReceipt) {
+    const to = (member.email || member.guardianEmail || "").trim();
+    if (to) {
+      const club = await prisma.club.findUnique({
+        where: { id: clubId },
+        select: { name: true, emailFromName: true, emailReplyTo: true },
+      });
+      const amountStr = `$${data.amount.toFixed(2)}`;
+      const paidLine =
+        data.paymentMethod === "INVOICE"
+          ? `${amountStr} — Invoice (unpaid)`
+          : data.paymentMethod === "COMP"
+            ? "No charge (comped)"
+            : `${amountStr} — ${label}`;
+      await sendEmail({
+        to,
+        subject: `Receipt — ${contextName || "Attendance"}`,
+        fromName: club?.emailFromName || club?.name || null,
+        replyTo: club?.emailReplyTo || null,
+        html: `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px;color:#111">
+            <h2 style="margin:0 0 12px">Payment receipt</h2>
+            <p style="margin:0 0 16px;color:#444">Hi ${member.firstName}, here's your receipt from ${club?.name ?? "your club"}.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px">
+              <tr><td style="padding:6px 0;color:#666">For</td><td style="padding:6px 0;text-align:right">${contextName || "Attendance"}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Date</td><td style="padding:6px 0;text-align:right">${now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Amount</td><td style="padding:6px 0;text-align:right;font-weight:600">${paidLine}</td></tr>
+            </table>
+            ${data.notes ? `<p style="margin:16px 0 0;color:#666;font-size:13px">Note: ${data.notes}</p>` : ""}
+          </div>`,
+      })
+        .then(() => {
+          receiptSent = true;
+        })
+        .catch(() => {});
+    }
+  }
+
+  return NextResponse.json({ ok: true, record, receiptSent });
 }

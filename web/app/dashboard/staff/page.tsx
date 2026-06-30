@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Shield } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
@@ -26,6 +27,7 @@ type StaffUser = {
   firstName: string;
   lastName: string;
   email: string;
+  role: string;
   createdAt: string;
   staffProfile: StaffProfile | null;
 };
@@ -54,10 +56,12 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<StaffUser | null>(null);
+  const { data: session } = useSession();
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/staff");
+    // Include owners so a club can see (and resend setup links to) co-owners.
+    const res = await fetch("/api/staff?includeOwners=true");
     if (res.ok) setStaff(await res.json());
     setLoading(false);
   }
@@ -97,7 +101,8 @@ export default function StaffPage() {
         />
       ) : (
         <div className="space-y-3">
-          {staff.map((s) => {
+          {staff.filter((s) => s.id !== session?.user?.id).map((s) => {
+            const isOwner = s.role === "OWNER";
             const perms = s.staffProfile?.permissions || {};
             const activePerms = PERMISSION_DEFS.filter((p) => perms[p.key] && perms[p.key] !== "none");
             return (
@@ -114,10 +119,15 @@ export default function StaffPage() {
                       {s.staffProfile?.title && (
                         <span className="text-xs text-text-muted">· {s.staffProfile.title}</span>
                       )}
+                      {isOwner && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand/10 text-brand">Owner</span>
+                      )}
                     </div>
                     <p className="text-xs text-text-muted mb-2">{s.email}</p>
                     <div className="flex flex-wrap gap-1">
-                      {activePerms.length === 0 ? (
+                      {isOwner ? (
+                        <span className="text-xs text-text-muted">Full access (owner)</span>
+                      ) : activePerms.length === 0 ? (
                         <span className="text-xs text-text-muted">No permissions set</span>
                       ) : (
                         activePerms.map((p) => {
@@ -135,12 +145,14 @@ export default function StaffPage() {
                     </div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => setEditing(s)}
-                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
-                    >
-                      Edit
-                    </button>
+                    {!isOwner && (
+                      <button
+                        onClick={() => setEditing(s)}
+                        className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                      >
+                        Edit
+                      </button>
+                    )}
                     <button
                       onClick={async () => {
                         const res = await fetch(`/api/staff/${s.id}/setup-link`, { method: "POST" });
@@ -159,12 +171,14 @@ export default function StaffPage() {
                     >
                       Setup link
                     </button>
-                    <button
-                      onClick={() => handleRemove(s.id)}
-                      className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded"
-                    >
-                      Remove
-                    </button>
+                    {!isOwner && (
+                      <button
+                        onClick={() => handleRemove(s.id)}
+                        className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -230,6 +244,7 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   // "temp" lets the owner hand over a temporary password they pick.
   const [mode, setMode] = useState<"invite" | "temp">("invite");
   const [title, setTitle] = useState("");
+  const [accountRole, setAccountRole] = useState<"STAFF" | "OWNER">("STAFF");
   const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>(defaultPermissions());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -247,8 +262,8 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     setError("");
     const body =
       mode === "invite"
-        ? { firstName, lastName, email, sendSetupLink: true, title, permissions }
-        : { firstName, lastName, email, password, title, permissions };
+        ? { firstName, lastName, email, sendSetupLink: true, title, permissions, accountRole }
+        : { firstName, lastName, email, password, title, permissions, accountRole };
     const res = await fetch("/api/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -387,6 +402,32 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Account type</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setAccountRole("STAFF")}
+                className={`text-left px-3 py-2 rounded-lg border text-sm ${accountRole === "STAFF" ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"}`}
+              >
+                <span className="font-medium block">Staff</span>
+                <span className="text-[11px] text-text-muted">Access limited by permissions</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccountRole("OWNER")}
+                className={`text-left px-3 py-2 rounded-lg border text-sm ${accountRole === "OWNER" ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"}`}
+              >
+                <span className="font-medium block">Owner</span>
+                <span className="text-[11px] text-text-muted">Full access, incl. settings &amp; billing</span>
+              </button>
+            </div>
+            {accountRole === "OWNER" && (
+              <p className="text-[11px] text-text-muted mt-1.5">Owners can manage everything, including other staff, settings, and billing.</p>
+            )}
+          </div>
+
+          {accountRole !== "OWNER" && (
           <div className="pt-2 border-t border-app-border">
             <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Permissions</p>
             <div className="space-y-3">
@@ -400,6 +441,7 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               ))}
             </div>
           </div>
+          )}
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 

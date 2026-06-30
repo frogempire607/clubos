@@ -45,6 +45,10 @@ const inviteSchema = z.object({
   // Accept any subset of permission keys; resolvePermissions normalizes and
   // fills defaults so the editor can evolve without schema churn.
   permissions: z.record(z.string(), permissionLevel).optional(),
+  // Account type for the invited user. "OWNER" grants full access (bypasses the
+  // permission grid and can reach settings/billing) — this is how a club adds a
+  // second owner. Defaults to STAFF.
+  accountRole: z.enum(["STAFF", "OWNER"]).optional().default("STAFF"),
 });
 
 export async function POST(req: Request) {
@@ -93,7 +97,7 @@ export async function POST(req: Request) {
             deletedAt: null,
             firstName: data.firstName,
             lastName: data.lastName,
-            role: "STAFF",
+            role: data.accountRole,
             passwordHash,
             resetToken,
             resetExpires,
@@ -120,7 +124,7 @@ export async function POST(req: Request) {
             passwordHash,
             firstName: data.firstName,
             lastName: data.lastName,
-            role: "STAFF",
+            role: data.accountRole,
             resetToken,
             resetExpires,
             staffProfile: {
