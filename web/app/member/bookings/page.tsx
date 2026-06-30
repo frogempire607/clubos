@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { CheckSquare } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
@@ -303,11 +304,19 @@ export default function MemberBookingsPage() {
 
   return (
     <>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-stone-900 mb-1">My Bookings</h1>
-        <p className="text-sm text-stone-500">
-          Classes, events, and private lessons — all in one place.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-stone-900 mb-1">My Bookings</h1>
+          <p className="text-sm text-stone-500">
+            Classes, events, and private lessons — all in one place.
+          </p>
+        </div>
+        <Link
+          href="/member/privates"
+          className="flex-shrink-0 px-3 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 whitespace-nowrap"
+        >
+          Request a private
+        </Link>
       </div>
 
       {/* Profile selection is handled account-wide by the ProfileSwitcher in

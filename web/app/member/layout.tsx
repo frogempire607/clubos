@@ -56,11 +56,21 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const [previewMode, setPreviewMode] = useState<"member" | "public" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(false);
+  const [unread, setUnread] = useState(0);
 
   // Close the More sheet whenever the route changes so the overlay
   // doesn't linger across navigation.
   useEffect(() => {
     setMoreOpen(false);
+  }, [pathname]);
+
+  // Unread-message count for the Messages tab badge. Refetched on navigation so
+  // it clears after the member opens their inbox.
+  useEffect(() => {
+    fetch("/api/member/messages/unread")
+      .then((r) => (r.ok ? r.json() : { count: 0 }))
+      .then((d) => setUnread(typeof d?.count === "number" ? d.count : 0))
+      .catch(() => {});
   }, [pathname]);
 
   // Hide the bottom tab bar on scroll-down, reveal on scroll-up (and near the
@@ -301,10 +311,15 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
             const inner = (
               <>
                 <span
-                  className="flex items-center justify-center rounded-xl transition-all"
+                  className="relative flex items-center justify-center rounded-xl transition-all"
                   style={active ? { background: `${activeNav}18`, padding: "5px 10px", borderRadius: branded?.style.borderRadius } : { padding: "5px 10px" }}
                 >
                   <Icon size={20} />
+                  {"href" in item && item.href === "/member/messages" && unread > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      {unread > 9 ? "9+" : unread}
+                    </span>
+                  )}
                 </span>
                 <span className="text-[10px] font-medium leading-none">{item.label}</span>
               </>
