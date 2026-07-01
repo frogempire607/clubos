@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateInviteToken } from "@/lib/privatePartners";
+import { hasPermission } from "@/lib/permissions";
 
 const schema = z.object({
   kind: z.enum(["MEMBER", "OUTSIDE", "NEEDS_HELP"]),
@@ -31,7 +32,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const isOwner = session.user.role === "OWNER";
   const isCoach = booking.coachId === session.user.id;
-  if (!isOwner && !isCoach) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const perms = (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null;
+  if (!isOwner && !isCoach && !hasPermission(perms, "events", "edit")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let data: z.infer<typeof schema>;
   try {

@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { activatePartnersOnAccept } from "@/lib/privatePartners";
+import { hasPermission } from "@/lib/permissions";
 
 const schema = z.object({
   action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "REOPEN", "CANCEL", "ASSIGN_COACH", "APPROVE", "CONFIRM_PAYMENT"]),
@@ -33,6 +34,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   const isOwner = session.user.role === "OWNER";
   const isCoach = booking.coachId === session.user.id;
+  const perms = (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null;
+  // A staff member with Events access manages privates too — not just the
+  // assigned coach or the owner. Fixes "unauthorized" for full-perm staff (Sal).
+  const canManage = isOwner || isCoach || hasPermission(perms, "events", "edit");
+  const canAdminister = isOwner || hasPermission(perms, "events", "full");
 
   try {
     const { action, confirmedStartAt, confirmedEndAt, proposedSlots, coachId, cancelReason, notes } = schema.parse(await req.json());
@@ -41,7 +47,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
     switch (action) {
       case "ACCEPT": {
-        if (!isCoach && !isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canManage) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         if (!confirmedStartAt || !confirmedEndAt) {
           return NextResponse.json({ error: "confirmedStartAt and confirmedEndAt required" }, { status: 400 });
         }
@@ -87,13 +93,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       }
 
       case "DECLINE": {
-        if (!isCoach && !isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canManage) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = { status: "DECLINED", canceledAt: new Date(), canceledById: session.user.id, cancelReason: cancelReason || null };
         break;
       }
 
       case "PROPOSE": {
-        if (!isCoach && !isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canManage) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = {
           status: "PENDING_COACH",
           requestedSlots: proposedSlots || booking.requestedSlots,
@@ -103,7 +109,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       }
 
       case "COMPLETE": {
-        if (!isOwner && !isCoach) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canManage) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = { status: "COMPLETED" };
         break;
       }
@@ -111,14 +117,14 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       case "REOPEN": {
         // Undo an accidental "Mark complete" — return the lesson to confirmed so
         // staff can re-handle it. Only the owner or the assigned coach can.
-        if (!isOwner && !isCoach) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canManage) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = { status: "CONFIRMED" };
         break;
       }
 
       case "CANCEL": {
         // Staff-side cancel. Members cancel via /api/member/privates/[id].
-        if (!isOwner && !isCoach) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canManage) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = {
           status: "CANCELED",
           canceledAt:   new Date(),
@@ -129,7 +135,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       }
 
       case "ASSIGN_COACH": {
-        if (!isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canAdminister) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = { coachId: coachId || null, status: coachId ? "PENDING_COACH" : "REQUESTED" };
 
         // Notify coach
@@ -150,7 +156,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       }
 
       case "APPROVE": {
-        if (!isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canAdminister) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = { ownerApproved: true };
         break;
       }
@@ -159,7 +165,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         // The ASSIGNED coach (or owner) confirms a cash/check payment was
         // collected for this private. Routes the cash/check approval to the
         // specific staff member running the lesson.
-        if (!isCoach && !isOwner) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        if (!canManage) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         updateData = { ownerApproved: true };
         await sendMemberMessage({
           clubId: session.user.clubId,

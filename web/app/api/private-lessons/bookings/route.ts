@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
+import { hasPermission } from "@/lib/permissions";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -17,8 +18,12 @@ export async function GET(req: Request) {
 
   const where: Record<string, unknown> = { clubId: session.user.clubId };
   if (statusFilter) where.status = statusFilter;
-  // Staff only see their own assigned bookings
-  if (isStaff && !isOwner) where.coachId = session.user.id;
+  // Coaches see their own assigned bookings; a staff member with full Events
+  // access (a manager) sees and manages every club private.
+  const perms = (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null;
+  if (isStaff && !isOwner && !hasPermission(perms, "events", "full")) {
+    where.coachId = session.user.id;
+  }
 
   const bookings = await prisma.privateBooking.findMany({
     where,

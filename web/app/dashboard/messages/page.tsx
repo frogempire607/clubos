@@ -197,8 +197,8 @@ function GroupsTab() {
       ) : (
         <div className="bg-white rounded-xl border border-app-border overflow-hidden" style={{ height: 560 }}>
           <div className="flex h-full">
-            {/* Group list */}
-            <div className="w-64 border-r border-app-border flex flex-col flex-shrink-0">
+            {/* Group list — full width on mobile; hidden once a group is open. */}
+            <div className={`w-full md:w-64 border-r border-app-border flex-col flex-shrink-0 ${activeGroup ? "hidden md:flex" : "flex"}`}>
               <div className="px-4 py-3 border-b border-app-border">
                 <span className="text-sm font-semibold text-text-primary">Groups ({groups.length})</span>
               </div>
@@ -237,8 +237,8 @@ function GroupsTab() {
               </div>
             </div>
 
-            {/* Thread */}
-            <div className="flex-1 flex flex-col min-w-0">
+            {/* Thread — hidden on mobile until a group is picked. */}
+            <div className={`flex-1 flex-col min-w-0 ${activeGroup ? "flex" : "hidden md:flex"}`}>
               {!activeGroup ? (
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
@@ -249,7 +249,9 @@ function GroupsTab() {
               ) : (
                 <>
                   <div className="px-4 py-3 border-b border-app-border flex items-center justify-between">
-                    <div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button onClick={() => setActiveGroup(null)} className="md:hidden text-text-muted hover:text-text-primary text-xl leading-none flex-shrink-0" aria-label="Back to groups">‹</button>
+                      <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-text-primary">{activeGroup.name}</span>
                         {activeGroup.type === "BROADCAST" && (
@@ -259,6 +261,7 @@ function GroupsTab() {
                       <p className="text-xs text-text-muted">
                         {activeGroup.members.map((m) => `${m.user.firstName} ${m.user.lastName}`).join(", ")}
                       </p>
+                      </div>
                     </div>
                     <button
                       onClick={() => deleteGroup(activeGroup.id)}
@@ -471,8 +474,8 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     });
     setSaving(false);
     if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Failed to create group");
+      const data = await res.json().catch(() => ({}));
+      setError(typeof data.error === "string" ? data.error : "Failed to create group");
       return;
     }
     onSaved();
@@ -679,8 +682,9 @@ function DMsTab() {
   return (
     <div className="bg-white rounded-xl border border-app-border overflow-hidden" style={{ height: 520 }}>
       <div className="flex h-full">
-        {/* Sidebar */}
-        <div className="w-64 border-r border-app-border flex flex-col flex-shrink-0">
+        {/* Sidebar — full width on mobile; hidden once a thread is open so the
+            conversation isn't squeezed into a tiny column. */}
+        <div className={`w-full md:w-64 border-r border-app-border flex-col flex-shrink-0 ${active ? "hidden md:flex" : "flex"}`}>
           <div className="px-4 py-3 border-b border-app-border flex items-center justify-between">
             <span className="text-sm font-semibold text-text-primary">Direct Messages</span>
             <button
@@ -727,8 +731,8 @@ function DMsTab() {
           </div>
         </div>
 
-        {/* Thread */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Thread — hidden on mobile until a conversation is picked, then full width. */}
+        <div className={`flex-1 flex-col min-w-0 ${active ? "flex" : "hidden md:flex"}`}>
           {!active ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -739,6 +743,7 @@ function DMsTab() {
           ) : (
             <>
               <div className="px-4 py-3 border-b border-app-border flex items-center gap-2">
+                <button onClick={() => setActive(null)} className="md:hidden text-text-muted hover:text-text-primary -ml-1 pr-1 text-xl leading-none" aria-label="Back to conversations">‹</button>
                 <div className="w-7 h-7 rounded-full bg-app-border flex items-center justify-center text-xs font-medium text-text-primary">
                   {active.user.firstName[0]}{active.user.lastName[0]}
                 </div>

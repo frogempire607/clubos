@@ -40,8 +40,10 @@ const createSchema = z.object({
   name: z.string().min(1),
   type: z.enum(["GROUP", "BROADCAST"]).default("GROUP"),
   memberUserIds: z.array(z.string()).min(1),
-  filterType: z.string().optional(),
-  filterValue: z.string().optional(),
+  // Manual selection sends these as null — accept null as well as undefined so a
+  // manually-picked group doesn't fail validation ("[object Object]" error).
+  filterType: z.string().optional().nullable(),
+  filterValue: z.string().optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -76,7 +78,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(group, { status: 201 });
   } catch (err) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0]?.message || "Invalid request." }, { status: 400 });
     console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }

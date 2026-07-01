@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateInviteToken } from "@/lib/privatePartners";
+import { hasPermission } from "@/lib/permissions";
 
 const patchSchema = z.object({
   // Owner/coach: convert NEEDS_HELP → MEMBER (or change other fields).
@@ -18,7 +19,7 @@ const patchSchema = z.object({
   regenerateToken: z.boolean().optional(),
 });
 
-type SessionUser = { id: string; clubId: string; role: string };
+type SessionUser = { id: string; clubId: string; role: string; permissions?: Record<string, unknown> | null };
 
 async function loadAuthorized(
   partnerId: string,
@@ -34,7 +35,7 @@ async function loadAuthorized(
 
   const isOwner = user.role === "OWNER";
   const isCoach = partner.booking.coachId === user.id;
-  if (!isOwner && !isCoach) {
+  if (!isOwner && !isCoach && !hasPermission(user.permissions ?? null, "events", "edit")) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
   return { partner };
@@ -47,7 +48,7 @@ export async function PATCH(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   const sessionUser = session?.user
-    ? { id: session.user.id, clubId: session.user.clubId, role: session.user.role }
+    ? { id: session.user.id, clubId: session.user.clubId, role: session.user.role, permissions: (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null }
     : null;
   const { partner, error } = await loadAuthorized(params.partnerId, params.id, sessionUser);
   if (error || !partner) return error!;
@@ -133,7 +134,7 @@ export async function DELETE(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   const sessionUser = session?.user
-    ? { id: session.user.id, clubId: session.user.clubId, role: session.user.role }
+    ? { id: session.user.id, clubId: session.user.clubId, role: session.user.role, permissions: (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null }
     : null;
   const { partner, error } = await loadAuthorized(params.partnerId, params.id, sessionUser);
   if (error || !partner) return error!;

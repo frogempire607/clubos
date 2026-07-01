@@ -807,7 +807,7 @@ function BookingModal({
               <span className="text-text-muted">Payment</span>
               <span>
                 {booking.paymentType ?? "—"}{booking.pricePaid != null ? ` · $${Number(booking.pricePaid).toFixed(2)}` : ""}
-                {(booking.paymentType === "CASH" || booking.paymentType === "CHECK") && (
+                {(booking.paymentType === "CASH" || booking.paymentType === "CHECK") && !["CANCELED", "DECLINED"].includes(booking.status) && (
                   <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${booking.ownerApproved ? "bg-lime-accent/25 text-charcoal" : "bg-orange-accent/20 text-text-primary"}`}>
                     {booking.ownerApproved ? "payment confirmed" : "payment pending"}
                   </span>
@@ -839,7 +839,7 @@ function BookingModal({
                 return (
                   <div key={i} className="flex items-center justify-between gap-3 bg-orange-accent/10 px-3 py-2 rounded">
                     <span className="text-sm text-text-primary">{pretty}</span>
-                    {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
+                    {["REQUESTED", "PENDING_COACH", "CONFIRMED"].includes(booking.status) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -860,10 +860,16 @@ function BookingModal({
             </div>
           </div>
 
-          {/* Confirmed time (if any) */}
-          {booking.confirmedStartAt && (
+          {/* Confirmed time (if any) — not for terminal (canceled/declined) bookings */}
+          {booking.confirmedStartAt && !["CANCELED", "DECLINED"].includes(booking.status) && (
             <div className="text-sm bg-lime-accent text-charcoal font-medium px-3 py-2 rounded">
               Confirmed: {fmt(booking.confirmedStartAt)} – {booking.confirmedEndAt ? fmt(booking.confirmedEndAt) : ""}
+            </div>
+          )}
+          {["CANCELED", "DECLINED"].includes(booking.status) && (
+            <div className="text-sm bg-app-bg text-text-muted px-3 py-2 rounded border border-app-border">
+              {booking.status === "DECLINED" ? "Declined" : "Canceled"}
+              {booking.cancelReason ? ` — ${booking.cancelReason}` : ""}
             </div>
           )}
 
@@ -875,12 +881,12 @@ function BookingModal({
           {/* Actions */}
           {!action && (
             <div className="flex flex-wrap gap-2 pt-2">
-              {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
+              {["REQUESTED", "PENDING_COACH", "CONFIRMED"].includes(booking.status) && (
                 <button onClick={() => setAction("assign")} className="px-3 py-1.5 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">
                   Assign / reassign coach
                 </button>
               )}
-              {["REQUESTED", "PENDING_COACH"].includes(booking.status) && (
+              {["REQUESTED", "PENDING_COACH", "CONFIRMED"].includes(booking.status) && (
                 <button
                   onClick={() => {
                     // Pre-fill with the first requested slot so "Confirm" is

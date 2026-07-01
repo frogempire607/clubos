@@ -612,7 +612,7 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   // type here, so the default is OTHER.
   const initTypeKey = event?.customEventTypeId
     ? `custom:${event.customEventTypeId}`
-    : (event?.type && event.type !== "CLASS" ? event.type : "OTHER");
+    : (event?.type && event.type !== "CLASS" && event.type !== "PRIVATE" ? event.type : "OTHER");
 
   const [typeKey, setTypeKey] = useState<string>(initTypeKey);
   const [name, setName] = useState(event?.name || "");
@@ -849,7 +849,6 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
             <label className="block text-sm font-medium text-text-primary mb-1">Event type</label>
             <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
               <optgroup label="Built-in types">
-                <option value="PRIVATE">Private session</option>
                 <option value="CLINIC">Clinic</option>
                 <option value="CAMP">Camp</option>
                 <option value="TOURNAMENT">Tournament</option>
