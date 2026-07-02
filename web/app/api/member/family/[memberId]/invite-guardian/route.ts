@@ -6,7 +6,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
+import { GUARDIAN_LINK_KIND, isPrimaryGuardian } from "@/lib/guardianLink";
 import { normalizeEmail } from "@/lib/memberValidation";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendClubJoinInviteEmail } from "@/lib/email";
@@ -42,6 +42,15 @@ export async function POST(req: Request, context: { params: Promise<{ memberId: 
   const child = viewer?.guardianOf.find((g) => g.member.id === memberId)?.member;
   if (!child || child.clubId !== session.user.clubId) {
     return NextResponse.json({ error: "Not a linked child" }, { status: 403 });
+  }
+
+  // Only the PRIMARY guardian may extend access to more guardians — a
+  // co-guardian shouldn't be able to invite further adults onto the child.
+  if (!(await isPrimaryGuardian(session.user.id, child.id))) {
+    return NextResponse.json(
+      { error: "Only the primary guardian can invite another guardian for this athlete." },
+      { status: 403 },
+    );
   }
 
   let data: z.infer<typeof schema>;

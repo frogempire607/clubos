@@ -1,11 +1,15 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Role = "staff" | "member";
+
+// Standalone-login club prefill: a club link (?club=slug) always wins, but a
+// returning user who opens /login directly gets their last-used club back.
+const LAST_CLUB_KEY = "athletixos-last-club";
 
 function LoginInner() {
   const searchParams = useSearchParams();
@@ -16,6 +20,19 @@ function LoginInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [clubSlug, setClubSlug] = useState(searchParams.get("club") ?? "");
+
+  // Prefill from localStorage only when no club came via the URL — and only
+  // on mount, so it never fights what the user is typing.
+  useEffect(() => {
+    if (searchParams.get("club")) return;
+    try {
+      const last = window.localStorage.getItem(LAST_CLUB_KEY);
+      if (last) setClubSlug((prev) => prev || last);
+    } catch {
+      /* private mode / storage disabled — prefill is best-effort */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(
     searchParams.get("memberRedirect") === "1"
@@ -70,6 +87,12 @@ function LoginInner() {
     await new Promise((r) => setTimeout(r, 0));
 
     if (typeof window !== "undefined") {
+      // Successful sign-in — remember the club for the next standalone visit.
+      try {
+        if (clubSlug.trim()) window.localStorage.setItem(LAST_CLUB_KEY, clubSlug.trim());
+      } catch {
+        /* best-effort */
+      }
       const fromRole = role === "staff" ? "staff" : "member";
       window.location.href = `/post-login?fromRole=${fromRole}`;
     }

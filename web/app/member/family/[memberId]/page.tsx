@@ -30,6 +30,8 @@ type Data = {
   parentControls: Controls | null;
   hasBilling?: boolean;
   ownLogin?: { hasLogin: boolean; email: string | null };
+  // Co-guardians can view but only the primary guardian saves changes here.
+  isPrimaryGuardian?: boolean;
 };
 
 type Purchase = { type: "subscription" | "sale"; id: string; label: string; status: string };
@@ -295,6 +297,12 @@ export default function FamilyControlsPage() {
           from their own portal login. Anything you do on their behalf from your account
           bypasses these checks — you&apos;re the oversight.
         </p>
+        {data.isPrimaryGuardian === false && (
+          <div className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            You&apos;re a co-guardian: you can view these settings and book/manage day-to-day, but only
+            the primary guardian can change controls, edit details, or invite another guardian.
+          </div>
+        )}
       </div>
 
       {/* Athlete details — parent edits name / DOB / contact (#12). */}

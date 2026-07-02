@@ -228,6 +228,45 @@ export async function POST(req: Request) {
           }
         }
 
+        // ── Save-card-for-later (member portal "Add a card") ─────────────────
+        // SETUP-mode checkout with NO charge and NO membership/migration side
+        // effects: just persist the customer + payment method on the member so
+        // future purchases and the billing portal can use it.
+        if (session.metadata?.saveCardMemberId && session.mode === "setup") {
+          const saveMemberId = session.metadata.saveCardMemberId;
+          try {
+            const target = await prisma.member.findUnique({
+              where: { id: saveMemberId },
+              select: { id: true, club: { select: { stripeAccountId: true } } },
+            });
+            if (target) {
+              let pmId: string | null = null;
+              const siId = session.setup_intent as string | null;
+              if (siId && target.club.stripeAccountId) {
+                try {
+                  const si = await stripe.setupIntents.retrieve(siId, {
+                    stripeAccount: target.club.stripeAccountId,
+                  });
+                  pmId = (si.payment_method as string) || null;
+                } catch (e) {
+                  console.error("Save-card SetupIntent retrieve failed:", e);
+                }
+              }
+              await prisma.member.update({
+                where: { id: saveMemberId },
+                data: {
+                  stripeSetupCustomerId:
+                    (session.customer as string) || session.metadata.setupCustomerId || undefined,
+                  ...(pmId ? { stripeSetupPaymentMethodId: pmId } : {}),
+                },
+              });
+            }
+          } catch (e) {
+            console.error("Save-card webhook handling failed:", e);
+          }
+          break;
+        }
+
         // ── Member migration: finalize the switch once payment is set up ─────
         // The subscription was activated above (memberSubscriptionId branch).
         // Migration SETUP-mode checkout completed: the client added a card but

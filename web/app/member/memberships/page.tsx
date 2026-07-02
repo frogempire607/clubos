@@ -38,6 +38,9 @@ export default function MemberMembershipsPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  // Option key currently showing the card / cash-check payment choice.
+  const [choosingKey, setChoosingKey] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/member/memberships")
@@ -57,16 +60,24 @@ export default function MemberMembershipsPage() {
   // Subscriptions for the currently selected profile (self or chosen child).
   const activeSubs: ActiveSub[] = selectedMemberId ? activeByMember[selectedMemberId] ?? [] : [];
 
-  async function subscribe(membershipId: string, optionLabel: string) {
+  async function subscribe(membershipId: string, optionLabel: string, paymentMethod: "CARD" | "CASH" | "CHECK") {
     const key = `${membershipId}:${optionLabel}`;
     setSubmitting(key);
     setError("");
+    setNotice("");
     const res = await fetch("/api/member/memberships/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ membershipId, optionLabel, memberId: selectedMemberId }),
+      body: JSON.stringify({ membershipId, optionLabel, memberId: selectedMemberId, paymentMethod }),
     });
     const d = await res.json().catch(() => ({}));
+    // Cash/check (and parental-approval) requests queue instead of redirecting.
+    if (res.status === 202 || d.queued) {
+      setSubmitting(null);
+      setChoosingKey(null);
+      setNotice(typeof d.message === "string" && d.message ? d.message : "Request sent — your club will confirm it shortly.");
+      return;
+    }
     if (!res.ok || !d.url) {
       setSubmitting(null);
       setError(d.error || "Could not start checkout");
@@ -101,6 +112,12 @@ export default function MemberMembershipsPage() {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 mb-4">
+          {notice}
         </div>
       )}
 
@@ -167,25 +184,57 @@ export default function MemberMembershipsPage() {
                   <div className="space-y-2 mt-3">
                     {opts.map((o) => {
                       const key = `${m.id}:${o.label}`;
+                      const choosing = choosingKey === key;
                       return (
-                        <div
-                          key={o.label}
-                          className="flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-3 py-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-stone-900">{o.label}</p>
-                            <p className="text-xs text-stone-500">
-                              ${o.price.toFixed(2)}
-                              <span>{periodLabel[o.billingPeriod] ?? ""}</span>
-                            </p>
+                        <div key={o.label} className="border border-stone-200 rounded-lg px-3 py-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-stone-900">{o.label}</p>
+                              <p className="text-xs text-stone-500">
+                                ${o.price.toFixed(2)}
+                                <span>{periodLabel[o.billingPeriod] ?? ""}</span>
+                              </p>
+                            </div>
+                            <button
+                              disabled={!hasMemberProfile || submitting === key}
+                              onClick={() => setChoosingKey(choosing ? null : key)}
+                              className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50 flex-shrink-0"
+                            >
+                              {submitting === key ? "Starting…" : "Subscribe"}
+                            </button>
                           </div>
-                          <button
-                            disabled={!hasMemberProfile || submitting === key}
-                            onClick={() => subscribe(m.id, o.label)}
-                            className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50 flex-shrink-0"
-                          >
-                            {submitting === key ? "Starting…" : "Subscribe"}
-                          </button>
+                          {choosing && (
+                            <div className="mt-2 pt-2 border-t border-stone-100">
+                              <p className="text-[11px] text-stone-500 mb-1.5">How will you pay?</p>
+                              <div className="grid grid-cols-3 gap-2">
+                                <button
+                                  disabled={submitting === key}
+                                  onClick={() => subscribe(m.id, o.label, "CARD")}
+                                  className="px-2 py-1.5 rounded-lg text-xs font-medium bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50"
+                                >
+                                  Card
+                                </button>
+                                <button
+                                  disabled={submitting === key}
+                                  onClick={() => subscribe(m.id, o.label, "CASH")}
+                                  className="px-2 py-1.5 rounded-lg text-xs font-medium border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                                >
+                                  Cash
+                                </button>
+                                <button
+                                  disabled={submitting === key}
+                                  onClick={() => subscribe(m.id, o.label, "CHECK")}
+                                  className="px-2 py-1.5 rounded-lg text-xs font-medium border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                                >
+                                  Check
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-stone-400 mt-1.5">
+                                Card checks out securely online. Cash/check sends a request — your club
+                                activates the membership and collects payment in person.
+                              </p>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

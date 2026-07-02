@@ -1,6 +1,6 @@
 # Terms of Service — AthletixOS
 
-**Last updated: June 11, 2026**
+**Last updated: July 2, 2026**
 
 > **DRAFT — FOR ATTORNEY REVIEW.** This is a working first draft to get AthletixOS operational. Have a licensed attorney review it before launch, especially the liability, indemnification, and data sections.
 
@@ -16,7 +16,7 @@ You must be at least 18 years old and authorized to bind your organization to th
 
 ## 3. Subscription plans and billing
 
-The Service is offered in tiers: Starter (free), Growth ($49/mo), Pro ($99/mo plus setup fee), and Enterprise ($199/mo plus setup fee). Paid plans renew automatically each billing period unless cancelled. Fees are billed in advance and are non-refundable except where required by law. We may change pricing with 30 days' notice; changes apply at your next renewal.
+The Service is offered in paid tiers: Growth ($50/mo), Pro ($99/mo), and Enterprise (starting at $199/mo). New clubs may receive a free trial period as described at signup; when the trial ends, the selected paid plan begins unless cancelled. Plans renew automatically each billing period unless cancelled. Fees are billed in advance and are non-refundable except where required by law. We may change pricing with 30 days' notice; changes apply at your next renewal.
 
 Payments are processed by Stripe. By subscribing you also agree to Stripe's applicable terms. We do not store your full payment card details.
 

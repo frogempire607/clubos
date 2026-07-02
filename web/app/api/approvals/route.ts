@@ -4,7 +4,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
-import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
+import {
+  MEMBERSHIP_CANCEL_KIND,
+  MEMBERSHIP_PURCHASE_KIND,
+  PRIVATE_PACKAGE_PURCHASE_KIND,
+} from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
 // GET /api/approvals
@@ -23,6 +27,9 @@ type Payload = {
   optionLabel?: string | null;
   reason?: string | null;
   subscriptionId?: string;
+  membershipId?: string;
+  packageId?: string;
+  paymentMethod?: string | null;
 };
 
 export async function GET() {
@@ -37,7 +44,9 @@ export async function GET() {
 
   const kinds: string[] = [];
   if (isOwner || hasPermission(perms, "members", "view")) kinds.push(GUARDIAN_LINK_KIND);
-  if (isOwner || hasPermission(perms, "finances", "view")) kinds.push(MEMBERSHIP_CANCEL_KIND);
+  if (isOwner || hasPermission(perms, "finances", "view")) {
+    kinds.push(MEMBERSHIP_CANCEL_KIND, MEMBERSHIP_PURCHASE_KIND, PRIVATE_PACKAGE_PURCHASE_KIND);
+  }
   if (kinds.length === 0) return NextResponse.json({ approvals: [] });
 
   const clubId = session.user.clubId;
@@ -67,6 +76,43 @@ export async function GET() {
     : [];
   const userById = new Map(users.map((u) => [u.id, u]));
 
+  // Names for the cash/check purchase kinds so the queue reads like a
+  // sentence ("Gold — Monthly · cash") instead of raw ids.
+  const membershipIds = Array.from(
+    new Set(
+      rows
+        .filter((r) => r.kind === MEMBERSHIP_PURCHASE_KIND)
+        .map((r) => (r.payload as Payload | null)?.membershipId)
+        .filter(Boolean) as string[],
+    ),
+  );
+  const membershipsById = new Map(
+    (membershipIds.length
+      ? await prisma.membership.findMany({
+          where: { id: { in: membershipIds }, clubId },
+          select: { id: true, name: true },
+        })
+      : []
+    ).map((m) => [m.id, m.name]),
+  );
+  const packageIds = Array.from(
+    new Set(
+      rows
+        .filter((r) => r.kind === PRIVATE_PACKAGE_PURCHASE_KIND)
+        .map((r) => (r.payload as Payload | null)?.packageId)
+        .filter(Boolean) as string[],
+    ),
+  );
+  const packagesById = new Map(
+    (packageIds.length
+      ? await prisma.privatePackage.findMany({
+          where: { id: { in: packageIds }, clubId },
+          select: { id: true, title: true },
+        })
+      : []
+    ).map((p) => [p.id, p.title]),
+  );
+
   const pendingApprovals = rows.map((r) => {
     const p = (r.payload as Payload | null) ?? {};
     const m = memberById.get(r.memberId);
@@ -87,6 +133,34 @@ export async function GET() {
         requestedAt: r.requestedAt,
         requester,
         relationship: p.relationship ?? null,
+      };
+    }
+    if (r.kind === MEMBERSHIP_PURCHASE_KIND) {
+      return {
+        id: r.id,
+        kind: r.kind,
+        memberId: r.memberId,
+        memberName,
+        requestedAt: r.requestedAt,
+        requester,
+        planName: (p.membershipId && membershipsById.get(p.membershipId)) || "Membership",
+        optionLabel: p.optionLabel ?? null,
+        paymentMethod: p.paymentMethod ?? null,
+        amount: r.amount != null ? Number(r.amount) : null,
+      };
+    }
+    if (r.kind === PRIVATE_PACKAGE_PURCHASE_KIND) {
+      return {
+        id: r.id,
+        kind: r.kind,
+        memberId: r.memberId,
+        memberName,
+        requestedAt: r.requestedAt,
+        requester,
+        planName: (p.packageId && packagesById.get(p.packageId)) || "Lesson package",
+        optionLabel: null,
+        paymentMethod: p.paymentMethod ?? null,
+        amount: r.amount != null ? Number(r.amount) : null,
       };
     }
     // MEMBERSHIP_CANCEL
