@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { plaidClient } from "@/lib/plaid";
+import { plaidClient, PLAID_ENV } from "@/lib/plaid";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures } from "@/lib/tier";
 import { CountryCode, Products } from "plaid";
@@ -44,7 +44,33 @@ export async function POST() {
 
     return NextResponse.json({ linkToken: res.data.link_token });
   } catch (err) {
-    console.error("Plaid link-token error:", err);
-    return NextResponse.json({ error: "Failed to create link token" }, { status: 500 });
+    // Plaid's SDK throws an Axios error whose response body is the structured
+    // PlaidError ({ error_type, error_code, error_message, ... }). Surface the
+    // real reason instead of a generic 500. This route is OWNER-only, so
+    // exposing the Plaid error code to the caller here is safe and lets the
+    // club owner self-diagnose (e.g. INVALID_API_KEYS = wrong secret for env).
+    const data =
+      typeof err === "object" && err !== null && "response" in err
+        ? (err as { response?: { data?: Record<string, unknown> } }).response?.data
+        : undefined;
+    const code = typeof data?.error_code === "string" ? data.error_code : undefined;
+    const message = typeof data?.error_message === "string" ? data.error_message : undefined;
+
+    console.error("Plaid link-token error:", {
+      env: PLAID_ENV,
+      error_type: data?.error_type,
+      error_code: code,
+      error_message: message,
+      raw: data ?? (err instanceof Error ? err.message : err),
+    });
+
+    const detail = code
+      ? `Plaid (${PLAID_ENV}) rejected the request: ${code}${message ? ` — ${message}` : ""}`
+      : `Failed to create link token (targeting Plaid "${PLAID_ENV}" environment).`;
+
+    return NextResponse.json(
+      { error: detail, plaidEnv: PLAID_ENV, plaidErrorCode: code ?? null },
+      { status: 500 }
+    );
   }
 }
