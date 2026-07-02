@@ -13,7 +13,15 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PriceOption = { id: string; label: string; price: number; coachIds: string[] };
+type PriceOption = {
+  id: string;
+  label: string;
+  price: number;
+  coachIds: string[];
+  // Who may pick this option in the member portal: everyone (default),
+  // active members only, or non-members only. Stored in the priceOptions JSON.
+  audience?: "ALL" | "MEMBER" | "NON_MEMBER";
+};
 
 type LessonType = {
   id: string;
@@ -273,6 +281,7 @@ function LessonTypeModal({
             label: o.label.trim(),
             price: Number(o.price) || 0,
             coachIds: o.coachIds,
+            audience: o.audience ?? "ALL",
           })),
         active:          form.active,
         sortOrder:       parseInt(form.sortOrder),
@@ -394,6 +403,18 @@ function LessonTypeModal({
                       className="px-2 text-text-muted hover:text-red-600" aria-label="Remove option">
                       ×
                     </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] text-text-muted">Who can pick this rate:</label>
+                    <select
+                      value={o.audience ?? "ALL"}
+                      onChange={(e) => updateOption(o.id, { audience: e.target.value as PriceOption["audience"] })}
+                      className="border border-app-border rounded-md px-2 py-1 text-xs bg-surface"
+                    >
+                      <option value="ALL">Everyone</option>
+                      <option value="MEMBER">Active members only</option>
+                      <option value="NON_MEMBER">Non-members only</option>
+                    </select>
                   </div>
                   {staffList.length > 0 && (
                     <div>

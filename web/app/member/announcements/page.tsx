@@ -47,11 +47,16 @@ export default function MemberAnnouncementsPage() {
   const [open, setOpen] = useState<Announcement | null>(null);
 
   useEffect(() => {
-    fetch("/api/member/announcements")
+    // no-store: this GET marks announcements "seen" server-side — a cached
+    // response on mobile WebViews would skip that write and the badge would
+    // never clear.
+    fetch("/api/member/announcements", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => {
         setItems(Array.isArray(d) ? d : []);
         setLoading(false);
+        // Everything visible is now marked seen — refresh the nav badges.
+        window.dispatchEvent(new Event("aox:unread-refresh"));
       });
   }, []);
 

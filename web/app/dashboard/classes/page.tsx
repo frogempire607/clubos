@@ -851,7 +851,7 @@ export default function ClassesPage() {
               )}
             </div>
           ) : (
-            <div className="overflow-hidden border border-app-border rounded-xl">
+            <div className="overflow-x-auto border border-app-border rounded-xl">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-app-bg border-b border-app-border">

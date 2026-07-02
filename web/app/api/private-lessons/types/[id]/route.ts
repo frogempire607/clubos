@@ -10,6 +10,8 @@ const priceOption = z.object({
   id: z.string().min(1),
   label: z.string().min(1).max(60),
   price: z.number().nonnegative(),
+  // ALL (default) | MEMBER | NON_MEMBER — who may pick this option.
+  audience: z.enum(["ALL", "MEMBER", "NON_MEMBER"]).optional().default("ALL"),
   coachIds: z.array(z.string()).default([]),
 });
 

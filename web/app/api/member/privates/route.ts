@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
-import { packageAllowsLessonType } from "@/lib/privateLessonRules";
+import { packageAllowsLessonType, optionAvailableToMember, normalizeOptionAudience } from "@/lib/privateLessonRules";
 import { sendPrivateLessonRequestedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
@@ -107,9 +107,21 @@ export async function GET(req: Request) {
     }),
   ]);
 
+  // Which accessible athletes hold an ACTIVE membership — drives member vs
+  // non-member pricing on price options that declare an audience.
+  const accessibleIds = accessible.map((a) => a.id);
+  const activeSubs = accessibleIds.length
+    ? await prisma.memberSubscription.findMany({
+        where: { memberId: { in: accessibleIds }, status: "active" },
+        select: { memberId: true },
+      })
+    : [];
+  const activeMemberIds = Array.from(new Set(activeSubs.map((s) => s.memberId)));
+
   return NextResponse.json({
     hasMemberProfile: accessible.length > 0,
     accessible,
+    activeMemberIds,
     contextMemberId: member?.id ?? null,
     types: types.map((t) => ({
       ...t,
@@ -267,6 +279,27 @@ export async function POST(req: Request) {
   }
   if (options.length > 0 && !chosen) {
     return NextResponse.json({ error: "Pick a valid pricing option for this private lesson." }, { status: 400 });
+  }
+  // Member vs non-member pricing: enforce the option's audience against the
+  // athlete's ACTIVE-subscription status, server-side, so the right rate
+  // applies even if the UI is bypassed.
+  if (chosen) {
+    const hasActiveMembership =
+      (await prisma.memberSubscription.count({
+        where: { memberId: member.id, status: "active" },
+      })) > 0;
+    if (!optionAvailableToMember((chosen as { audience?: unknown }).audience, hasActiveMembership)) {
+      const audience = normalizeOptionAudience((chosen as { audience?: unknown }).audience);
+      return NextResponse.json(
+        {
+          error:
+            audience === "MEMBER"
+              ? "That rate is for active members. Pick the non-member option, or add a membership first."
+              : "That rate is for non-members. As an active member, pick the member option instead.",
+        },
+        { status: 400 },
+      );
+    }
   }
   const validCoachIds = chosen
     ? optionCoachIds(chosen, eligibleCoachIds, allCoachIds)

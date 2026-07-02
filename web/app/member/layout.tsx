@@ -25,11 +25,12 @@ const NAV = [
 // live in the main bottom nav, plus a few extras the user could only
 // reach by typing URLs (privates, staff).
 const MORE_ITEMS = [
-  { href: "/member/announcements", label: "News",       desc: "Club updates",         icon: AnnouncementIcon },
-  { href: "/member/documents",     label: "Documents",  desc: "Waivers &amp; forms",     icon: DocumentIcon },
-  { href: "/member/privates",      label: "Privates",   desc: "Book a coach 1:1",     icon: BookingIcon },
-  { href: "/member/staff",         label: "Our team",   desc: "Coach &amp; staff bios",  icon: ProfileIcon },
-  { href: "/member/profile",       label: "Profile",    desc: "Account settings",     icon: ProfileIcon },
+  { href: "/member/announcements", label: "News",         desc: "Club updates",              icon: AnnouncementIcon },
+  { href: "/member/documents",     label: "Documents",    desc: "Waivers &amp; forms",          icon: DocumentIcon },
+  { href: "/member/privates",      label: "Privates",     desc: "Book a coach 1:1",          icon: BookingIcon },
+  { href: "/member/club",          label: "Club profile", desc: "About, team &amp; support",    icon: HomeIcon },
+  { href: "/member/staff",         label: "Our team",     desc: "Coach &amp; staff bios",       icon: ProfileIcon },
+  { href: "/member/profile",       label: "Profile",      desc: "Account settings",          icon: ProfileIcon },
 ];
 
 type ClubInfo = {
@@ -57,6 +58,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const [moreOpen, setMoreOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [annUnread, setAnnUnread] = useState(0);
 
   // Close the More sheet whenever the route changes so the overlay
   // doesn't linger across navigation.
@@ -64,13 +66,23 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
     setMoreOpen(false);
   }, [pathname]);
 
-  // Unread-message count for the Messages tab badge. Refetched on navigation so
-  // it clears after the member opens their inbox.
+  // Unread-message count for the Messages tab badge. Refetched on navigation
+  // AND when a thread page signals it finished loading (the thread GET is what
+  // marks messages read — refetching only on navigation raced that write and
+  // left a stale badge, most visibly on mobile).
   useEffect(() => {
-    fetch("/api/member/messages/unread")
-      .then((r) => (r.ok ? r.json() : { count: 0 }))
-      .then((d) => setUnread(typeof d?.count === "number" ? d.count : 0))
-      .catch(() => {});
+    function refresh() {
+      fetch("/api/member/messages/unread", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : { count: 0, announcements: 0 }))
+        .then((d) => {
+          setUnread(typeof d?.count === "number" ? d.count : 0);
+          setAnnUnread(typeof d?.announcements === "number" ? d.announcements : 0);
+        })
+        .catch(() => {});
+    }
+    refresh();
+    window.addEventListener("aox:unread-refresh", refresh);
+    return () => window.removeEventListener("aox:unread-refresh", refresh);
   }, [pathname]);
 
   // Hide the bottom tab bar on scroll-down, reveal on scroll-up (and near the
@@ -218,17 +230,31 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
               {portalNav.map((item) => {
                 const active = isActive(item);
                 const Icon = item.icon;
+                // Desktop badge counts: unread DMs on Messages, unseen
+                // announcements on the item that leads to News.
+                const badge =
+                  "href" in item && item.href === "/member/messages"
+                    ? unread
+                    : ("href" in item && item.href === "/member/announcements") ||
+                        ("kind" in item && item.kind === "more")
+                      ? annUnread
+                      : 0;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                       active ? "" : "text-stone-500 hover:text-stone-900 hover:bg-stone-100"
                     }`}
                     style={active ? { background: headerBg, color: headerText, borderRadius: branded?.style.borderRadius } : {}}
                   >
                     <Icon size={14} />
                     {item.label}
+                    {badge > 0 && (
+                      <span className="ml-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+                        {badge > 9 ? "9+" : badge}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -320,6 +346,12 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       {unread > 9 ? "9+" : unread}
                     </span>
                   )}
+                  {/* Unseen announcements live under More → News. */}
+                  {"kind" in item && item.kind === "more" && annUnread > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      {annUnread > 9 ? "9+" : annUnread}
+                    </span>
+                  )}
                 </span>
                 <span className="text-[10px] font-medium leading-none">{item.label}</span>
               </>
@@ -397,6 +429,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       <div className="text-sm font-medium text-stone-900">{it.label}</div>
                       <div className="text-xs text-stone-500">{it.desc}</div>
                     </div>
+                    {it.href === "/member/announcements" && annUnread > 0 && (
+                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
+                        {annUnread > 9 ? "9+" : annUnread}
+                      </span>
+                    )}
                     <svg
                       className="text-stone-300 flex-shrink-0"
                       width="16"

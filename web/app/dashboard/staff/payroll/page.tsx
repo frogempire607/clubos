@@ -215,7 +215,7 @@ export default function StaffPayrollPage() {
           </div>
 
           {/* Table */}
-          <div className="bg-surface border border-app-border rounded-xl overflow-hidden">
+          <div className="bg-surface border border-app-border rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-app-bg border-b border-app-border">

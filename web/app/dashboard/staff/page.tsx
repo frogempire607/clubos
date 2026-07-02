@@ -107,7 +107,9 @@ export default function StaffPage() {
             const activePerms = PERMISSION_DEFS.filter((p) => perms[p.key] && perms[p.key] !== "none");
             return (
               <div key={s.id} className="bg-white rounded-xl border border-app-border p-5">
-                <div className="flex items-start gap-4">
+                {/* flex-wrap: on phones/tablets the action buttons drop to their
+                    own row instead of crushing the name/permission labels. */}
+                <div className="flex items-start gap-4 flex-wrap">
                   <div className="w-10 h-10 rounded-full bg-app-border flex items-center justify-center text-sm font-medium text-text-primary flex-shrink-0">
                     {s.firstName[0]}{s.lastName[0]}
                   </div>
@@ -144,7 +146,7 @@ export default function StaffPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-1 flex-shrink-0">
+                  <div className="flex gap-1 flex-shrink-0 w-full justify-end border-t border-app-border pt-2 sm:w-auto sm:border-0 sm:pt-0">
                     {!isOwner && (
                       <button
                         onClick={() => setEditing(s)}

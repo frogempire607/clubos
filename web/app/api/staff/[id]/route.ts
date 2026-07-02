@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { resolvePermissions } from "@/lib/permissions";
 
@@ -29,9 +30,9 @@ const updateSchema = z.object({
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "staff", "full");
+  if (denied) return denied;
 
   const user = await prisma.user.findFirst({
     where: { id: params.id, clubId: session.user.clubId, role: "STAFF" },
@@ -96,9 +97,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "staff", "full");
+  if (denied) return denied;
 
   const user = await prisma.user.findFirst({
     where: { id: params.id, clubId: session.user.clubId, role: "STAFF" },

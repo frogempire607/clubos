@@ -103,7 +103,7 @@ export default function MemberMessagesPage() {
   const [messagingDisabled, setMessagingDisabled] = useState(false);
 
   useEffect(() => {
-    fetch("/api/member/messages")
+    fetch("/api/member/messages", { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) {
           const d = await r.json().catch(() => ({}));

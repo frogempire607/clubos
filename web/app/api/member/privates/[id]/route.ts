@@ -83,6 +83,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   }
 
   if (data.action === "CANCEL") {
+    // Paid bookings never auto-refund. Money was collected (Stripe/manual) or a
+    // package credit was consumed — the cancel goes through, but the refund /
+    // credit restore is a staff decision, so we flag it to them and tell the
+    // member it's requested, not automatic. Unpaid / cash-check-not-yet-
+    // collected / requested bookings cancel cleanly with nothing owed.
+    const paid =
+      Number(booking.pricePaid ?? 0) > 0 || booking.paymentType === "CREDIT";
     await prisma.privateBooking.update({
       where: { id: booking.id },
       data: {
@@ -92,6 +99,26 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         cancelReason: data.reason || null,
       },
     });
+    if (paid) {
+      const paidDesc =
+        booking.paymentType === "CREDIT"
+          ? "paid with a package credit"
+          : `paid $${Number(booking.pricePaid ?? 0).toFixed(2)}`;
+      await notifyStaff(
+        `${who} canceled their private lesson "${lesson}" (${paidDesc}) and is requesting a refund/credit restore.${
+          data.reason ? ` Reason: ${data.reason}` : ""
+        } Refunds are not automatic — please review and follow up.`,
+      );
+      return NextResponse.json({
+        ok: true,
+        status: "CANCELED",
+        refundRequested: true,
+        message:
+          booking.paymentType === "CREDIT"
+            ? "Booking canceled. Your lesson credit isn't restored automatically — your club has been asked to review it."
+            : "Booking canceled. Payments aren't refunded automatically — your club has been asked to review your refund.",
+      });
+    }
     await notifyStaff(
       `${who} canceled their private lesson "${lesson}".${data.reason ? ` Reason: ${data.reason}` : ""}`,
     );

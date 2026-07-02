@@ -49,6 +49,8 @@ type MemberDetail = {
   attendanceRecords: { id: string; status: string; createdAt: string; classSession: { startsAt: string; recurringClass: { name: string } | null } | null }[];
   eventRegistrations: { id: string; status: string; amountDue: string | null; amountPaid: string | null; event: { id: string; name: string; startsAt: string } | null }[];
   relationships: Relationship[];
+  migrationStatus?: string | null;
+  legacyMembershipName?: string | null;
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -56,6 +58,7 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
   PROSPECT: { bg: "var(--color-warning)", fg: "#fff" },
   INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   PAUSED: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
+  MIGRATING: { bg: "#1F1F23", fg: "#fff" },
 };
 
 const REL_TYPES = ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "PARENT", "CHILD", "SPOUSE", "OTHER"];
@@ -87,7 +90,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
   if (!m) return <div className="p-8 text-center text-text-muted text-sm">Member not found.</div>;
 
-  const sc = statusColors[m.status] ?? statusColors.INACTIVE;
+  // Mid-migration members sit as PROSPECT in the DB but are existing members
+  // being switched over — show them as "Migrating", not "Prospect".
+  const displayStatus =
+    m.status === "PROSPECT" && m.migrationStatus && m.migrationStatus !== "COMPLETED"
+      ? "MIGRATING"
+      : m.status;
+  const sc = statusColors[displayStatus] ?? statusColors.INACTIVE;
   const activeSub = m.subscriptions.find((s) => s.status === "active");
   const pastSubs = m.subscriptions.filter((s) => s.status !== "active");
 
@@ -108,8 +117,18 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-semibold text-text-primary">{m.firstName} {m.lastName}</h1>
             <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.fg }}>
-              {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
+              {displayStatus === "MIGRATING"
+                ? "Migrating"
+                : m.status.charAt(0) + m.status.slice(1).toLowerCase()}
             </span>
+            {displayStatus === "MIGRATING" && m.legacyMembershipName && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted"
+                title="Imported plan from the previous software — billing starts after activation & approval."
+              >
+                {m.legacyMembershipName}
+              </span>
+            )}
             {/* Distinguish an activated account from a paying member: ACTIVE with
                 no active subscription means the account exists but isn't on a plan. */}
             {m.status === "ACTIVE" && !activeSub && (

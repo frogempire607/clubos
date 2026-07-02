@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 
 const SCOPE_TYPES = ["CLASS", "EVENT", "MEMBERSHIP", "PRIVATE_LESSON_TYPE"] as const;
@@ -41,9 +42,9 @@ async function requireStaff(userId: string, clubId: string) {
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "finances", "view");
+  if (denied) return denied;
   const staff = await requireStaff(id, session.user.clubId);
   if (!staff) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -111,9 +112,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 export async function PUT(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "finances", "full");
+  if (denied) return denied;
   const staff = await requireStaff(id, session.user.clubId);
   if (!staff) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -191,9 +192,9 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "finances", "full");
+  if (denied) return denied;
   await prisma.staffCompensation.deleteMany({
     where: { userId: id, clubId: session.user.clubId },
   });

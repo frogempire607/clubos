@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 
 // PATCH /api/classes/[id]/sessions/[sessionId]
@@ -40,9 +41,8 @@ export async function PATCH(
   const { id: classId, sessionId } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const denied = requirePermission(session, "classes", "edit");
+  if (denied) return denied;
 
   const cls = await prisma.recurringClass.findFirst({
     where: { id: classId, clubId: session.user.clubId, deletedAt: null },

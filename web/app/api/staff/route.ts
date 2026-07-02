@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { resolvePermissions } from "@/lib/permissions";
@@ -11,9 +12,9 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "staff", "view");
+  if (denied) return denied;
 
   const { searchParams } = new URL(req.url);
   const includeOwners = searchParams.get("includeOwners") === "true";
@@ -53,9 +54,9 @@ const inviteSchema = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "staff", "full");
+  if (denied) return denied;
 
   try {
     const data = inviteSchema.parse(await req.json());

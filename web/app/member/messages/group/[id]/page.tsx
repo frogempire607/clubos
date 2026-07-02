@@ -57,7 +57,7 @@ function MemberGroupThreadInner() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   async function load() {
-    const res = await fetch(`/api/member/messages/groups/${id}`);
+    const res = await fetch(`/api/member/messages/groups/${id}`, { cache: "no-store" });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       setError(d.error || "Could not load group");
