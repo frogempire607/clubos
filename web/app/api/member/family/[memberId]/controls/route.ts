@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeEmail, normalizePhone } from "@/lib/memberValidation";
+import { isPrimaryGuardian } from "@/lib/guardianLink";
 
 // Parent-controls API. Scoped to GUARDIAN sessions only — the parent
 // opens it for one of their linked minor children. We never let a
@@ -76,6 +77,9 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
     // Whether a Stripe billing account exists — the page hides "Manage billing"
     // for cash/check athletes so the button never 400s.
     hasBilling: !!(child.stripeSetupCustomerId || child.stripeCustomerId),
+    // Co-guardians see everything but only the primary guardian may save
+    // changes here or invite more guardians — lets the page render read-only.
+    isPrimaryGuardian: await isPrimaryGuardian(session.user.id, child.id),
   });
 }
 
@@ -107,7 +111,9 @@ const patchSchema = z.object({
 });
 
 // PATCH /api/member/family/[memberId]/controls
-//   Update the child's parental-control state. Same guardian gate as GET.
+//   Update the child's parental-control state. Guardian gate like GET, PLUS
+//   primary-guardian only: co-guardians get full day-to-day access (viewing,
+//   booking, billing) but only the first/official guardian sets the rules.
 export async function PATCH(req: Request, context: { params: Promise<{ memberId: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
@@ -115,6 +121,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ memberId:
 
   const child = await loadGuardianChild(session.user.id, params.memberId, session.user.clubId);
   if (!child) return NextResponse.json({ error: "Not a linked child" }, { status: 403 });
+
+  if (!(await isPrimaryGuardian(session.user.id, child.id))) {
+    return NextResponse.json(
+      { error: "Only the primary guardian can change this athlete's settings and controls." },
+      { status: 403 },
+    );
+  }
 
   try {
     const data = patchSchema.parse(await req.json());

@@ -8,6 +8,7 @@ import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
+import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
 
 const schema = z.object({
   membershipId: z.string(),
@@ -15,6 +16,9 @@ const schema = z.object({
   // Which profile this is for — the guardian's own, or one of their children.
   // Omitted = act on the viewer's default profile (self, else first child).
   memberId: z.string().optional(),
+  // CARD → Stripe Checkout (default, unchanged). CASH/CHECK → no Stripe:
+  // files a MEMBERSHIP_PURCHASE approval the owner activates manually.
+  paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional().default("CARD"),
 });
 
 type Option = { label: string; price: number; billingPeriod: string };
@@ -39,11 +43,14 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { membershipId, optionLabel, memberId } = schema.parse(await req.json());
+    const { membershipId, optionLabel, memberId, paymentMethod } = schema.parse(await req.json());
+    const isOffline = paymentMethod === "CASH" || paymentMethod === "CHECK";
 
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
     if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
-    if (!club.stripeAccountId || !club.stripeChargesEnabled) {
+    // Cash/check never touches Stripe, so it works even before the club
+    // finishes Stripe Connect onboarding.
+    if (!isOffline && (!club.stripeAccountId || !club.stripeChargesEnabled)) {
       return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
     }
 
@@ -107,6 +114,56 @@ export async function POST(req: Request) {
     }
     if (gate.kind === "queue") {
       return NextResponse.json(gate.response, { status: 202 });
+    }
+
+    // ── Cash/check: no Stripe, no subscription row yet. File an owner
+    // approval; activation happens in /api/approvals/membership-purchase so
+    // no pending row can go stale if the club declines. ──
+    if (isOffline) {
+      const dupe = await prisma.pendingApproval.findFirst({
+        where: {
+          clubId: club.id,
+          memberId: member.id,
+          kind: MEMBERSHIP_PURCHASE_KIND,
+          status: "PENDING",
+        },
+        select: { id: true },
+      });
+      if (dupe) {
+        return NextResponse.json(
+          { queued: true, message: "You already have a membership request waiting for your club's approval." },
+          { status: 202 },
+        );
+      }
+      await prisma.pendingApproval.create({
+        data: {
+          clubId: club.id,
+          memberId: member.id,
+          kind: MEMBERSHIP_PURCHASE_KIND,
+          amount: option.price,
+          status: "PENDING",
+          payload: {
+            membershipId,
+            optionLabel,
+            paymentMethod,
+            memberId: member.id,
+            requestingUserId: session.user.id,
+          },
+        },
+      });
+      return NextResponse.json(
+        {
+          queued: true,
+          message: `Request sent! Your club will confirm your ${paymentMethod.toLowerCase()} payment and activate the membership.`,
+        },
+        { status: 202 },
+      );
+    }
+
+    // Card path from here — re-assert the Stripe account for TS narrowing
+    // (the earlier check is conditional on !isOffline).
+    if (!club.stripeAccountId) {
+      return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
     }
 
     const memberSub = await prisma.memberSubscription.create({

@@ -7,6 +7,7 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { applyParentalControls } from "@/lib/parentalControls";
+import { PRIVATE_PACKAGE_PURCHASE_KIND } from "@/lib/approvals";
 import {
   packageTotalForBasePrice,
   normalizePricingMode,
@@ -34,7 +35,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     memberId?: string;
     lessonTypeId?: string;
     priceOptionId?: string;
+    // CARD → Stripe Checkout (default, unchanged). CASH/CHECK → no Stripe:
+    // files a PRIVATE_PACKAGE_PURCHASE approval; credits are granted when the
+    // owner approves.
+    paymentMethod?: "CARD" | "CASH" | "CHECK";
   };
+  const isOffline = body.paymentMethod === "CASH" || body.paymentMethod === "CHECK";
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { email: true },
@@ -69,7 +75,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const club = await prisma.club.findUnique({ where: { id: clubId } });
-  if (!club || !club.stripeAccountId || !club.stripeChargesEnabled) {
+  if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
+  // Cash/check never touches Stripe, so it works even before Stripe Connect.
+  if (!isOffline && (!club.stripeAccountId || !club.stripeChargesEnabled)) {
     return NextResponse.json(
       { error: "Your club hasn't enabled online payments yet." },
       { status: 400 },
@@ -167,6 +175,55 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   if (gate.kind === "queue") {
     return NextResponse.json(gate.response, { status: 202 });
+  }
+
+  // ── Cash/check: no Stripe. File an owner approval; credits are granted in
+  // /api/approvals/private-package-purchase on approve, so an abandoned or
+  // declined request never leaves usable credits behind. ──
+  if (isOffline) {
+    const dupe = await prisma.pendingApproval.findFirst({
+      where: {
+        clubId,
+        memberId: member.id,
+        kind: PRIVATE_PACKAGE_PURCHASE_KIND,
+        status: "PENDING",
+      },
+      select: { id: true },
+    });
+    if (dupe) {
+      return NextResponse.json(
+        { queued: true, message: "You already have a package request waiting for your club's approval." },
+        { status: 202 },
+      );
+    }
+    await prisma.pendingApproval.create({
+      data: {
+        clubId,
+        memberId: member.id,
+        kind: PRIVATE_PACKAGE_PURCHASE_KIND,
+        amount: totalAmount,
+        status: "PENDING",
+        payload: {
+          packageId: pkg.id,
+          memberId: member.id,
+          lessonTypeId: body.lessonTypeId ?? null,
+          priceOptionId: body.priceOptionId ?? null,
+          paymentMethod: body.paymentMethod,
+          totalAmount,
+          requestingUserId: session.user.id,
+        },
+      },
+    });
+    return NextResponse.json(
+      {
+        queued: true,
+        message: `Request sent! Your club will confirm your ${body.paymentMethod!.toLowerCase()} payment and add the lesson credits.`,
+      },
+      { status: 202 },
+    );
+  }
+  if (!club.stripeAccountId) {
+    return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
   }
 
   const platformFee = calculatePlatformFee(totalCents, club.tier);

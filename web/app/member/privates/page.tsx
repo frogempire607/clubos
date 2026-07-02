@@ -317,7 +317,7 @@ export default function MemberPrivatesPage() {
     }
   }, []);
 
-  async function buyPackage(id: string) {
+  async function buyPackage(id: string, paymentMethod: "CARD" | "CASH" | "CHECK" = "CARD") {
     setBuyingPackageId(id);
     setError("");
     try {
@@ -330,9 +330,21 @@ export default function MemberPrivatesPage() {
           memberId: selectedMemberId,
           lessonTypeId: typeId || null,
           priceOptionId: optionId || null,
+          paymentMethod,
         }),
       });
       const d = await res.json().catch(() => ({}));
+      // Cash/check requests queue for club approval instead of redirecting.
+      if (res.status === 202 || d?.queued) {
+        setPurchaseBanner({
+          kind: "success",
+          text:
+            typeof d?.message === "string" && d.message
+              ? d.message
+              : "Request sent — your club will confirm the payment and add your credits.",
+        });
+        return;
+      }
       if (!res.ok || !d?.url) {
         setError(d?.error || "Couldn't open checkout. Try again.");
         return;
@@ -851,11 +863,22 @@ export default function MemberPrivatesPage() {
                           className="mt-3 w-full px-3 py-2 pbtn-accent rounded-md text-xs font-semibold disabled:opacity-50"
                         >
                           {buyingPackageId === p.id
-                            ? "Opening checkout…"
+                            ? "Working…"
                             : priceable
                               ? `Buy pack — $${packTotal.toFixed(2)}`
                               : "Choose an option to price"}
                         </button>
+                        {priceable && (
+                          <button
+                            type="button"
+                            onClick={() => buyPackage(p.id, "CASH")}
+                            disabled={buyingPackageId === p.id || !hasProfile}
+                            title="No online payment — your club approves the request and collects cash or check in person."
+                            className="mt-1.5 w-full px-3 py-1.5 rounded-md text-[11px] font-medium border border-stone-300 text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                          >
+                            Request with cash/check instead
+                          </button>
+                        )}
                       </div>
                     );
                   })}

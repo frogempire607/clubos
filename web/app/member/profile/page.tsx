@@ -175,6 +175,20 @@ export default function MemberProfilePage() {
   }
   useEffect(() => { load(); }, []);
 
+  // Returning from the SETUP-mode "Add a card" checkout.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("card_saved") === "1") {
+      setBillingMsg("Card saved — nothing was charged. It'll be used for future purchases you approve.");
+    } else if (p.get("card_canceled") === "1") {
+      setBillingMsg("Card setup canceled — no card was saved and nothing was charged.");
+    }
+    if (p.has("card_saved") || p.has("card_canceled")) {
+      window.history.replaceState({}, "", "/member/profile");
+    }
+  }, []);
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -205,6 +219,28 @@ export default function MemberProfilePage() {
     setEditing(false);
     setTimeout(() => setSuccess(false), 2000);
     load();
+  }
+
+  // "Add a card for future use" — SETUP-mode Stripe Checkout, saves a card
+  // with no charge. For cash/check members (or their kids) who want a card on
+  // file for later purchases.
+  async function addCard(memberId?: string) {
+    setOpeningPortal(true);
+    setBillingMsg("");
+    const res = await fetch("/api/member/payment-method/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(memberId ? { memberId } : {}),
+    });
+    const d = await res.json().catch(() => ({}));
+    setOpeningPortal(false);
+    if (!res.ok || !d.url) {
+      setBillingMsg(
+        typeof d.error === "string" ? d.error : "Could not open the secure card form. Please contact your club.",
+      );
+      return;
+    }
+    window.location.href = d.url;
   }
 
   async function openBillingPortal(memberId?: string) {
@@ -530,6 +566,16 @@ export default function MemberProfilePage() {
                   {openingPortal ? "Opening…" : "Update card / invoices"}
                 </button>
               )}
+              {me.memberProfile && !memberHasBilling(me.memberProfile) && (
+                <button
+                  onClick={() => addCard()}
+                  disabled={openingPortal}
+                  title="Save a card securely for future purchases — nothing is charged now."
+                  className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  {openingPortal ? "Opening…" : "Add a card"}
+                </button>
+              )}
               {active && active.status === "active" && (
                 <button
                   onClick={() => requestCancellation(active.id)}
@@ -573,7 +619,15 @@ export default function MemberProfilePage() {
                           {openingPortal ? "Opening…" : "Manage billing"}
                         </button>
                       ) : (
-                        <span className="text-[11px] text-stone-400 italic flex-shrink-0">No card on file</span>
+                        <button
+                          type="button"
+                          onClick={() => addCard(g.member.id)}
+                          disabled={openingPortal}
+                          title="Save a card securely for future purchases — nothing is charged now."
+                          className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                        >
+                          {openingPortal ? "Opening…" : "Add a card"}
+                        </button>
                       )}
                     </div>
                   ))}

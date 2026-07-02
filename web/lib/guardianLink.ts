@@ -82,3 +82,32 @@ export async function requestGuardianLink(args: {
 
   return { status: "pending" };
 }
+
+// ── Primary guardian ─────────────────────────────────────────────────────────
+// "The first guardian sets the controls." The PRIMARY guardian for a member is:
+//   1. the user whose email matches the member's official guardianEmail
+//      (the contact the club has on file), else
+//   2. the earliest MemberGuardianUser link for that member.
+// Co-guardians (later links) get full portal access — schedule, bookings,
+// documents, billing — but cannot change parental controls or invite further
+// guardians. Derived at read time; no schema change.
+export async function isPrimaryGuardian(userId: string, memberId: string): Promise<boolean> {
+  const [user, member] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    prisma.member.findUnique({ where: { id: memberId }, select: { guardianEmail: true } }),
+  ]);
+  if (!user) return false;
+  if (
+    member?.guardianEmail &&
+    user.email &&
+    member.guardianEmail.trim().toLowerCase() === user.email.trim().toLowerCase()
+  ) {
+    return true;
+  }
+  const earliest = await prisma.memberGuardianUser.findFirst({
+    where: { memberId },
+    orderBy: { createdAt: "asc" },
+    select: { userId: true },
+  });
+  return earliest?.userId === userId;
+}

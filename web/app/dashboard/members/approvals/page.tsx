@@ -43,7 +43,20 @@ type MigrationApproval = {
   requestedCancellationDate: string | null;
 };
 
-type Approval = GuardianApproval | CancelApproval | MigrationApproval;
+type PurchaseApproval = {
+  id: string;
+  kind: "MEMBERSHIP_PURCHASE" | "PRIVATE_PACKAGE_PURCHASE";
+  memberId: string;
+  memberName: string;
+  requestedAt: string;
+  requester: Requester;
+  planName: string;
+  optionLabel: string | null;
+  paymentMethod: string | null;
+  amount: number | null;
+};
+
+type Approval = GuardianApproval | CancelApproval | MigrationApproval | PurchaseApproval;
 type CancelMode = "PERIOD_END" | "IMMEDIATE" | "IMMEDIATE_REFUND";
 
 function requesterLabel(r: Requester): string {
@@ -116,6 +129,27 @@ export default function MembersApprovalsPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ approvalId: a.id, decision, mode }),
+    });
+    setBusyId(null);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not complete that action.");
+      return;
+    }
+    load();
+  }
+
+  async function actPurchase(a: PurchaseApproval, decision: "APPROVE" | "DECLINE") {
+    setBusyId(a.id);
+    setError("");
+    const endpoint =
+      a.kind === "MEMBERSHIP_PURCHASE"
+        ? "/api/approvals/membership-purchase"
+        : "/api/approvals/private-package-purchase";
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalId: a.id, decision }),
     });
     setBusyId(null);
     if (!res.ok) {
@@ -223,6 +257,49 @@ export default function MembersApprovalsPage() {
               );
             }
 
+            if (a.kind === "MEMBERSHIP_PURCHASE" || a.kind === "PRIVATE_PACKAGE_PURCHASE") {
+              const isPack = a.kind === "PRIVATE_PACKAGE_PURCHASE";
+              const method = a.paymentMethod === "CHECK" ? "check" : "cash";
+              return (
+                <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
+                  <div className="min-w-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                      <CreditCard size={11} /> {isPack ? "Lesson package" : "Membership purchase"} — {method}
+                    </span>
+                    <p className="text-sm text-text-primary">
+                      <strong>{requesterLabel(a.requester)}</strong> wants{" "}
+                      <strong>
+                        {a.planName}
+                        {a.optionLabel ? ` — ${a.optionLabel}` : ""}
+                      </strong>{" "}
+                      for <strong>{a.memberName}</strong>
+                      {a.amount != null ? ` (${money(a.amount)})` : ""}, paying by {method}.
+                    </p>
+                    <p className="text-xs text-text-muted mt-1">
+                      Approving {isPack ? "adds the lesson credits" : "starts the membership"} right away and
+                      records an unpaid {method} invoice in Financials. Requested {fmtDate(a.requestedAt)}.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 mt-3">
+                    <button
+                      onClick={() => actPurchase(a, "APPROVE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      {busyId === a.id ? "Working…" : isPack ? "Approve & add credits" : "Approve & start membership"}
+                    </button>
+                    <button
+                      onClick={() => actPurchase(a, "DECLINE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
             if (a.kind === "GUARDIAN_LINK") {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
@@ -257,7 +334,9 @@ export default function MembersApprovalsPage() {
               );
             }
 
-            // MEMBERSHIP_CANCEL
+            // MEMBERSHIP_CANCEL (explicit narrow — TS can't subtract the
+            // two-literal PurchaseApproval discriminant from the union)
+            if (a.kind !== "MEMBERSHIP_CANCEL") return null;
             return (
               <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                 <div className="min-w-0">
