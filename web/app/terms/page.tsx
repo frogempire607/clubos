@@ -81,7 +81,7 @@ export default function TermsPage() {
       >
         <h1 style={h1Style}>Terms of Service</h1>
         <p style={lastUpdated}>
-          <strong>Last updated:</strong> June 11, 2026
+          <strong>Last updated:</strong> July 2, 2026
         </p>
 
         <p style={leadStyle}>
@@ -106,9 +106,10 @@ export default function TermsPage() {
 
         <h2 style={h2Style}>3. Subscription plans and billing</h2>
         <p>
-          The Service is offered in tiers: Starter (free), Growth ($49/mo), Pro ($99/mo plus setup fee), and Enterprise
-          ($199/mo plus setup fee). Paid plans renew automatically each billing period unless cancelled. Fees are billed
-          in advance and are non-refundable except where required by law. We may change pricing with 30 days' notice;
+          The Service is offered in paid tiers: Growth ($50/mo), Pro ($99/mo), and Enterprise (starting at $199/mo).
+          New clubs may receive a free trial period as described at signup; when the trial ends, the selected paid plan
+          begins unless cancelled. Plans renew automatically each billing period unless cancelled. Fees are billed in
+          advance and are non-refundable except where required by law. We may change pricing with 30 days&apos; notice;
           changes apply at your next renewal.
         </p>
         <p>
