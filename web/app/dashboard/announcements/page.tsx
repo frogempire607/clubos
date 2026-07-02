@@ -391,7 +391,13 @@ function AnnouncementModal({
         });
 
     setSaving(false);
-    if (!res.ok) { setError("Failed to save announcement"); return; }
+    if (!res.ok) {
+      // Surface the server's reason (tier gate, SMTP missing, validation…) —
+      // the blanket message hid why a publish failed.
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" && d.error ? d.error : "Failed to save announcement");
+      return;
+    }
     onSaved();
   }
 
