@@ -98,7 +98,13 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   });
 
   const forMember = isChild ? children.get(about!) ?? null : null;
-  return NextResponse.json({ other, messages, forMember, about: about ?? null });
+  // no-store: this GET is also the mark-read write. iOS WebKit (Capacitor
+  // shell) caches GET fetches without this, so on mobile the server never ran
+  // the updateMany above and threads stayed unread.
+  return NextResponse.json(
+    { other, messages, forMember, about: about ?? null },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 const sendSchema = z.object({ body: z.string().min(1), about: z.string().optional().nullable() });

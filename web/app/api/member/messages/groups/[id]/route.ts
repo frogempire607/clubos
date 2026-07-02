@@ -68,14 +68,19 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     },
   });
 
-  return NextResponse.json({
-    group,
-    messages: messages.map(({ receipts, ...message }) => ({
-      ...message,
-      readCount: receipts.length,
-      readByMe: receipts.some((receipt) => receipt.userId === session.user.id),
-    })),
-  });
+  // no-store: this GET writes the read receipts; mobile WebViews cache plain
+  // GETs and would skip the server entirely on re-open.
+  return NextResponse.json(
+    {
+      group,
+      messages: messages.map(({ receipts, ...message }) => ({
+        ...message,
+        readCount: receipts.length,
+        readByMe: receipts.some((receipt) => receipt.userId === session.user.id),
+      })),
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 const sendSchema = z.object({ body: z.string().min(1) });

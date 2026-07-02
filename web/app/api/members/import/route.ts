@@ -256,8 +256,14 @@ export async function POST(req: Request) {
                 email: p.email,
                 phone: p.phone,
                 dateOfBirth: parseFlexibleDate(m.dateOfBirth),
-                // Migrated members are Pending Activation → PROSPECT until they
-                // activate; non-migration import keeps its normalized status.
+                // Migrated members hold PROSPECT at the DB level only because the
+                // MemberStatus enum has no dedicated value — they are NOT funnel
+                // prospects. Their migrationStatus marks them as "Migrating" in the
+                // members list, exempts them from prospect-TTL decay
+                // (lib/memberStatus.ts), and drives the onboarding column
+                // (Un-invited / Invited / Profile completed). They flip ACTIVE via
+                // activation + approval. Non-migration import keeps its normalized
+                // status.
                 status: migration ? "PROSPECT" : normalizeStatus(m.status),
                 tags: m.tags?.trim() || "",
                 notes: m.notes?.trim() || null,

@@ -7,7 +7,12 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { applyParentalControls } from "@/lib/parentalControls";
-import { packageTotalForBasePrice, normalizePricingMode } from "@/lib/privateLessonRules";
+import {
+  packageTotalForBasePrice,
+  normalizePricingMode,
+  optionAvailableToMember,
+  normalizeOptionAudience,
+} from "@/lib/privateLessonRules";
 
 // POST /api/member/private-packages/[id]/buy
 //
@@ -94,10 +99,30 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
     basePerLesson = Number(lt.basePrice) || 0;
     if (body.priceOptionId && Array.isArray(lt.priceOptions)) {
-      const opt = (lt.priceOptions as Array<{ id?: string; price?: number }>).find(
+      const opt = (lt.priceOptions as Array<{ id?: string; price?: number; audience?: unknown }>).find(
         (o) => o?.id === body.priceOptionId,
       );
-      if (opt && typeof opt.price === "number") basePerLesson = opt.price;
+      if (opt && typeof opt.price === "number") {
+        // Member vs non-member pricing: the tier the pack prices off must be
+        // one this athlete is actually eligible for.
+        const hasActiveMembership =
+          (await prisma.memberSubscription.count({
+            where: { memberId: member.id, status: "active" },
+          })) > 0;
+        if (!optionAvailableToMember(opt.audience, hasActiveMembership)) {
+          const audience = normalizeOptionAudience(opt.audience);
+          return NextResponse.json(
+            {
+              error:
+                audience === "MEMBER"
+                  ? "That rate is for active members. Pick the non-member option, or add a membership first."
+                  : "That rate is for non-members. As an active member, pick the member option instead.",
+            },
+            { status: 400 },
+          );
+        }
+        basePerLesson = opt.price;
+      }
     }
   }
   const totalAmount = packageTotalForBasePrice(

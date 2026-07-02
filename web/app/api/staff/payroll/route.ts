@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import {
   computeStaffPayout,
@@ -19,9 +20,9 @@ import {
 // signups/revenue. Staff with no plan show zeros.
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "finances", "view");
+  if (denied) return denied;
 
   const url = new URL(req.url);
   const fromStr = url.searchParams.get("from");

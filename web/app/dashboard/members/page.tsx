@@ -66,6 +66,8 @@ type Member = {
   activatedAt?: string | null;
   migrationCompletedAt?: string | null;
   activationEmailSentAt?: string | null;
+  legacyMembershipName?: string | null;
+  userId?: string | null;
 };
 
 type CustomField = { id: string; label: string; fieldType: string; required: boolean; options: string };
@@ -77,20 +79,41 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
   PROSPECT: { bg: "var(--color-primary)", fg: "#fff" },
   INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   PAUSED: { bg: "var(--color-warning)", fg: "#fff" },
+  MIGRATING: { bg: "#1F1F23", fg: "#fff" },
 };
+const statusLabels: Record<string, string> = {
+  ACTIVE: "Active",
+  PROSPECT: "Prospect",
+  INACTIVE: "Inactive",
+  PAUSED: "Paused",
+  MIGRATING: "Migrating",
+};
+
+// Membership status as the owner should read it. Members mid-migration sit as
+// PROSPECT in the DB (enum has no extra value) but they are NOT funnel
+// prospects — they're existing members being switched over. Surface them as
+// their own "Migrating" bucket so Prospect means "never had a membership".
+function displayStatusOf(m: Member): string {
+  if (m.status === "PROSPECT" && m.migrationStatus && m.migrationStatus !== "COMPLETED") {
+    return "MIGRATING";
+  }
+  return m.status;
+}
 
 // ── Onboarding status (derived from migration/activation fields) ────────────
 type OnboardingStatus = "NONE" | "INVITED" | "ACTIVATED" | "COMPLETED";
 function onboardingStatusOf(m: Member): OnboardingStatus {
   if (m.migrationCompletedAt || m.migrationStatus === "COMPLETED") return "COMPLETED";
-  if (m.activatedAt || m.migrationStatus === "ACTIVATED") return "ACTIVATED";
+  // A linked portal login means the profile exists even outside the migration
+  // wizard (e.g. self-signup members).
+  if (m.activatedAt || m.migrationStatus === "ACTIVATED" || m.userId) return "ACTIVATED";
   if (m.migrationStatus === "INVITED" || m.activationEmailSentAt) return "INVITED";
   return "NONE";
 }
 const onboardingLabels: Record<OnboardingStatus, string> = {
-  NONE: "Not invited",
+  NONE: "Un-invited",
   INVITED: "Invited",
-  ACTIVATED: "Activated",
+  ACTIVATED: "Profile completed",
   COMPLETED: "Completed",
 };
 const onboardingColors: Record<OnboardingStatus, { bg: string; fg: string }> = {
@@ -216,7 +239,7 @@ export default function MembersPage() {
   useEffect(() => { load(); }, []);
 
   const filtered = members.filter((m) => {
-    if (filter !== "ALL" && m.status !== filter) return false;
+    if (filter !== "ALL" && displayStatusOf(m) !== filter) return false;
     if (tagFilter && !m.tags.split(",").map((t) => t.trim()).includes(tagFilter)) return false;
     const activeSub = m.subscriptions?.find((s) => s.status === "active");
     if (membershipFilter && activeSub?.membership.name !== membershipFilter && m.membership?.name !== membershipFilter) return false;
@@ -254,10 +277,11 @@ export default function MembersPage() {
 
   const counts = {
     ALL: members.length,
-    ACTIVE: members.filter((m) => m.status === "ACTIVE").length,
-    PROSPECT: members.filter((m) => m.status === "PROSPECT").length,
-    INACTIVE: members.filter((m) => m.status === "INACTIVE").length,
-    PAUSED: members.filter((m) => m.status === "PAUSED").length,
+    ACTIVE: members.filter((m) => displayStatusOf(m) === "ACTIVE").length,
+    MIGRATING: members.filter((m) => displayStatusOf(m) === "MIGRATING").length,
+    PROSPECT: members.filter((m) => displayStatusOf(m) === "PROSPECT").length,
+    INACTIVE: members.filter((m) => displayStatusOf(m) === "INACTIVE").length,
+    PAUSED: members.filter((m) => displayStatusOf(m) === "PAUSED").length,
   };
 
   async function handleDelete(id: string) {
@@ -303,13 +327,16 @@ export default function MembersPage() {
 
   // Quick-select helpers for onboarding outreach: one click selects everyone in
   // a segment so the owner can "Send onboarding link" without hand-picking rows.
+  // Both exclude mid-migration members: they get ACTIVATION links from the
+  // Migration tool, not the free-join onboarding link — sending both would
+  // cross the two flows.
   function selectAllProspects() {
     setFilter("PROSPECT");
-    setSelectedIds(new Set(members.filter((m) => m.status === "PROSPECT").map((m) => m.id)));
+    setSelectedIds(new Set(members.filter((m) => displayStatusOf(m) === "PROSPECT").map((m) => m.id)));
   }
   function selectAllNonActive() {
     setFilter("ALL");
-    setSelectedIds(new Set(members.filter((m) => m.status !== "ACTIVE").map((m) => m.id)));
+    setSelectedIds(new Set(members.filter((m) => m.status !== "ACTIVE" && displayStatusOf(m) !== "MIGRATING").map((m) => m.id)));
   }
 
   async function acceptDefaults() {
@@ -381,9 +408,9 @@ export default function MembersPage() {
 
       <div className="flex items-center gap-3 mb-4">
         <div className="flex gap-1 bg-app-bg rounded-lg p-1">
-          {(["ALL", "ACTIVE", "PROSPECT", "INACTIVE", "PAUSED"] as const).map((s) => (
+          {(["ALL", "ACTIVE", "MIGRATING", "PROSPECT", "INACTIVE", "PAUSED"] as const).map((s) => (
             <button key={s} onClick={() => setFilter(s)} className={`text-xs px-3 py-1.5 rounded-md transition ${filter === s ? "bg-surface shadow-sm text-text-primary font-medium" : "text-text-muted"}`}>
-              {s.charAt(0) + s.slice(1).toLowerCase()} ({counts[s]})
+              {s === "ALL" ? "All" : statusLabels[s]} ({counts[s]})
             </button>
           ))}
         </div>
@@ -410,9 +437,9 @@ export default function MembersPage() {
         </select>
         <select value={onboardingFilter} onChange={(e) => setOnboardingFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
           <option value="">All onboarding</option>
-          <option value="NONE">Not invited</option>
+          <option value="NONE">Un-invited</option>
           <option value="INVITED">Invited</option>
-          <option value="ACTIVATED">Activated</option>
+          <option value="ACTIVATED">Profile completed</option>
           <option value="COMPLETED">Completed</option>
         </select>
         <select value={customFieldFilter} onChange={(e) => { setCustomFieldFilter(e.target.value); setCustomFieldValue(""); }} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
@@ -468,7 +495,10 @@ export default function MembersPage() {
         </div>
       )}
 
+      {/* overflow-x-auto: the members table is wider than a phone/tablet
+          viewport — without a scroll container the row actions are unreachable. */}
       <div className="bg-surface rounded-xl border border-app-border overflow-hidden">
+        <div className="overflow-x-auto">
         {loading ? (
           <SkeletonList rows={6} />
         ) : filtered.length === 0 ? (
@@ -505,7 +535,8 @@ export default function MembersPage() {
             </thead>
             <tbody>
               {filtered.map((m) => {
-                const c = statusColors[m.status];
+                const ds = displayStatusOf(m);
+                const c = statusColors[ds] ?? statusColors.PROSPECT;
                 const activeSub = m.subscriptions?.find((s) => s.status === "active");
                 return (
                   <tr key={m.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
@@ -546,7 +577,7 @@ export default function MembersPage() {
                     <Td>
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
-                          {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
+                          {statusLabels[ds] ?? ds}
                         </span>
                         {/* Activated account vs paying member: flag ACTIVE rows with no active plan. */}
                         {m.status === "ACTIVE" && !m.subscriptions?.some((s) => s.status === "active") && (
@@ -580,6 +611,11 @@ export default function MembersPage() {
                           <div className="text-sm text-text-primary">{activeSub.membership.name}</div>
                           <div className="text-[10px] text-text-muted">{activeSub.optionLabel}</div>
                         </div>
+                      ) : ds === "MIGRATING" && m.legacyMembershipName ? (
+                        <div title="Imported plan from the previous software — billing starts after activation & approval.">
+                          <div className="text-sm text-text-primary">{m.legacyMembershipName}</div>
+                          <div className="text-[10px] text-text-muted">migrating from previous software</div>
+                        </div>
                       ) : (
                         <button onClick={() => setSubscribing(m)} className="text-xs px-2 py-1 rounded text-text-muted hover:bg-app-bg">
                           + Purchase membership
@@ -601,6 +637,7 @@ export default function MembersPage() {
             </tbody>
           </table>
         )}
+        </div>
       </div>
 
       {(showAdd || editing) && (
@@ -1546,7 +1583,7 @@ function ImportCSVModal({ customFields, formConfig, onClose, onImported }: { cus
               <p className="text-sm text-text-muted mb-3">
                 Importing <strong>{rows.length}</strong> members. Preview of first {Math.min(5, preview.length)}:
               </p>
-              <div className="border border-app-border rounded-lg overflow-hidden mb-4">
+              <div className="border border-app-border rounded-lg overflow-x-auto mb-4">
                 <table className="w-full text-sm">
                   <thead className="bg-app-bg">
                     <tr>

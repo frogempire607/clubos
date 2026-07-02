@@ -8,10 +8,17 @@ import {
   privateDurationLabel,
   packageTotalForBasePrice,
   normalizePricingMode,
+  optionAvailableToMember,
 } from "@/lib/privateLessonRules";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 
-type Opt = { id: string; label: string; price: number; coachIds: string[] };
+type Opt = {
+  id: string;
+  label: string;
+  price: number;
+  coachIds: string[];
+  audience?: "ALL" | "MEMBER" | "NON_MEMBER";
+};
 type LessonType = {
   id: string;
   title: string;
@@ -235,6 +242,9 @@ export default function MemberPrivatesPage() {
   const [hasProfile, setHasProfile] = useState(true);
   const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  // Accessible athletes holding an ACTIVE membership — drives member vs
+  // non-member pricing on options that declare an audience.
+  const [activeMemberIds, setActiveMemberIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [typeId, setTypeId] = useState("");
@@ -273,6 +283,7 @@ export default function MemberPrivatesPage() {
         setAvailability(Array.isArray(d.availability) ? d.availability : []);
         setHasProfile(d.hasMemberProfile);
         setAccessible(d.accessible || []);
+        setActiveMemberIds(Array.isArray(d.activeMemberIds) ? d.activeMemberIds : []);
         if (!selectedMemberId && d.contextMemberId) setSelectedMemberId(d.contextMemberId);
       }
       setInvites(Array.isArray(inv) ? inv : []);
@@ -333,8 +344,19 @@ export default function MemberPrivatesPage() {
   }
 
   const type = types.find((t) => t.id === typeId) || null;
-  const options = type?.priceOptions ?? [];
+  // Member vs non-member pricing: only offer options whose audience matches
+  // the selected athlete's membership status. The server re-validates.
+  const isActiveMember = !!selectedMemberId && activeMemberIds.includes(selectedMemberId);
+  function eligibleOpts(lesson: LessonType): Opt[] {
+    const opts = Array.isArray(lesson.priceOptions) ? lesson.priceOptions : [];
+    return opts.filter((o) => optionAvailableToMember(o.audience, isActiveMember));
+  }
+  const options = type ? eligibleOpts(type) : [];
   const option = options.find((o) => o.id === optionId) || null;
+  // A non-member is looking at a lesson that has member-only rates they can't
+  // pick — worth a nudge that a membership unlocks the better price.
+  const hiddenMemberRates =
+    !!type && !isActiveMember && (type.priceOptions ?? []).some((o) => o.audience === "MEMBER");
 
   // Defensive: API casts priceOptions as Opt[] but the JSON column can
   // hold legacy rows where coachIds is null / missing. Normalize to []
@@ -377,7 +399,7 @@ export default function MemberPrivatesPage() {
 
   function coachIdsForLesson(lesson: LessonType): string[] {
     const ids = new Set<string>();
-    const opts = Array.isArray(lesson.priceOptions) ? lesson.priceOptions : [];
+    const opts = eligibleOpts(lesson);
     if (opts.length > 0) {
       for (const o of opts) optionCoachIds(o, lesson).forEach((id) => ids.add(id));
     } else if (lesson.eligibleCoachIds.length > 0) {
@@ -649,8 +671,8 @@ export default function MemberPrivatesPage() {
                   </p>
                   <p className="text-xs text-stone-500">
                     {privateDurationLabel(t.durationMin)}
-                    {t.priceOptions.length === 0 && ` · $${t.basePrice.toFixed(2)}`}
-                    {t.priceOptions.length > 0 && ` · ${t.priceOptions.length} options`}
+                    {eligibleOpts(t).length === 0 && ` · $${t.basePrice.toFixed(2)}`}
+                    {eligibleOpts(t).length > 0 && ` · ${eligibleOpts(t).length} option${eligibleOpts(t).length === 1 ? "" : "s"}`}
                   </p>
                   {t.description && (
                     <p className="text-xs text-stone-500 mt-1 line-clamp-2">{t.description}</p>
@@ -724,7 +746,11 @@ export default function MemberPrivatesPage() {
                     }`}
                   >
                     <p className={optionId === o.id ? "text-sm font-semibold text-white" : "text-sm font-semibold text-stone-900"}>{o.label}</p>
-                    <p className={optionId === o.id ? "text-xs text-white/75" : "text-xs text-stone-500"}>${Number(o.price).toFixed(2)}</p>
+                    <p className={optionId === o.id ? "text-xs text-white/75" : "text-xs text-stone-500"}>
+                      ${Number(o.price).toFixed(2)}
+                      {o.audience === "MEMBER" && " · member rate"}
+                      {o.audience === "NON_MEMBER" && " · non-member rate"}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -739,6 +765,15 @@ export default function MemberPrivatesPage() {
                     No preference
                   </button>{" "}
                   above to see all options.
+                </p>
+              )}
+              {hiddenMemberRates && (
+                <p className="text-xs text-stone-500 mt-2">
+                  Member pricing is available with an active membership —{" "}
+                  <Link href="/member/memberships" className="underline hover:text-stone-700">
+                    see memberships
+                  </Link>
+                  .
                 </p>
               )}
             </div>

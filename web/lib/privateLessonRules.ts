@@ -14,6 +14,38 @@ export function privateDurationLabel(minutes: number): string {
   return mins ? `${hours} hr ${mins} min` : `${hours} hr`;
 }
 
+// ── Member vs non-member pricing ─────────────────────────────────────────────
+//
+// Price options (PrivateLessonType.priceOptions JSON) may carry an `audience`:
+//   ALL         → anyone can pick this option (default; back-compat for
+//                 options saved before audiences existed)
+//   MEMBER      → only athletes with an ACTIVE MemberSubscription
+//   NON_MEMBER  → only athletes without one
+// Stored inside the JSON column, so no schema migration is needed.
+
+export type PrivateOptionAudience = "ALL" | "MEMBER" | "NON_MEMBER";
+
+export function normalizeOptionAudience(value: unknown): PrivateOptionAudience {
+  return value === "MEMBER" || value === "NON_MEMBER" ? value : "ALL";
+}
+
+export function optionAvailableToMember(
+  audience: unknown,
+  hasActiveMembership: boolean,
+): boolean {
+  const a = normalizeOptionAudience(audience);
+  if (a === "MEMBER") return hasActiveMembership;
+  if (a === "NON_MEMBER") return !hasActiveMembership;
+  return true;
+}
+
+export function optionAudienceLabel(audience: unknown): string {
+  const a = normalizeOptionAudience(audience);
+  if (a === "MEMBER") return "Members";
+  if (a === "NON_MEMBER") return "Non-members";
+  return "Everyone";
+}
+
 export function packageLessonTypeIds(
   lessonTypeIds: unknown,
   legacyLessonTypeId?: string | null,

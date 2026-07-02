@@ -50,5 +50,7 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json(announcements);
+  // no-store: this GET writes the "seen" engagement rows; mobile WebViews
+  // cache plain GETs and would skip the server entirely on re-open.
+  return NextResponse.json(announcements, { headers: { "Cache-Control": "no-store" } });
 }

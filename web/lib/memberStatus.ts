@@ -22,7 +22,7 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
   // tenancy by passing a foreign memberId.
   const member = await prisma.member.findFirst({
     where: { id: memberId, clubId },
-    select: { id: true, status: true, joinedAt: true, createdAt: true },
+    select: { id: true, status: true, joinedAt: true, createdAt: true, migrationStatus: true },
   });
   if (!member) return;
   // PAUSED is sticky — owner controls that explicitly.
@@ -38,7 +38,10 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
   } else {
     if (member.status === "ACTIVE") {
       next = "INACTIVE";
-    } else if (member.status === "PROSPECT") {
+    } else if (member.status === "PROSPECT" && !member.migrationStatus) {
+      // Members in the migration/onboarding lifecycle are NOT funnel prospects —
+      // they sit as PROSPECT only until activation/approval, which can take
+      // longer than the TTL. Never decay them to INACTIVE while they wait.
       const since = member.joinedAt ?? member.createdAt;
       const ageDays = (Date.now() - new Date(since).getTime()) / 86_400_000;
       if (ageDays >= PROSPECT_TTL_DAYS) next = "INACTIVE";
@@ -61,6 +64,10 @@ export async function expireStaleProspects(clubId: string): Promise<number> {
       clubId,
       deletedAt: null,
       status: "PROSPECT",
+      // Migrated/onboarding members (any migrationStatus) are exempt — they are
+      // existing members mid-switch, not stale leads, and activation can take
+      // longer than the TTL. Only true never-had-a-membership prospects decay.
+      migrationStatus: null,
       joinedAt: { lt: cutoff },
       subscriptions: { none: { status: "active" } },
     },

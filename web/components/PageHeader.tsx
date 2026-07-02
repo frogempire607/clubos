@@ -41,7 +41,10 @@ export default function PageHeader({
         )}
       </div>
       {actions && (
-        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3 sm:shrink-0">
+        // Keep wrapping enabled through tablet widths — pages like Members have
+        // five header actions, and sm:flex-nowrap forced them to overflow the
+        // viewport on tablets. Only pin to one line on large screens.
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:flex-nowrap lg:shrink-0">
           {actions}
         </div>
       )}

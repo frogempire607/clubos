@@ -52,7 +52,9 @@ export async function GET(
     data: { readAt: new Date() },
   });
 
-  return NextResponse.json(messages);
+  // no-store: this GET performs the mark-read write; mobile WebViews cache
+  // plain GETs and would skip the server entirely on re-open.
+  return NextResponse.json(messages, { headers: { "Cache-Control": "no-store" } });
 }
 
 const sendSchema = z.object({ body: z.string().min(1), about: z.string().optional().nullable() });

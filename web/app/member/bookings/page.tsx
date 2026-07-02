@@ -276,6 +276,7 @@ export default function MemberBookingsPage() {
     });
     setBusy(false);
     if (res.ok) {
+      const d = await res.json().catch(() => ({}));
       if (action === "CANCEL") {
         setMembers((prev) =>
           prev.map((m) =>
@@ -289,7 +290,13 @@ export default function MemberBookingsPage() {
               : m,
           ),
         );
-        setToast("Booking canceled — your coach has been notified.");
+        // Paid bookings return a refund-request message — surface it verbatim
+        // so the member knows the refund is requested, not automatic.
+        setToast(
+          typeof d.message === "string" && d.message
+            ? d.message
+            : "Booking canceled — your coach has been notified.",
+        );
       } else {
         setToast("Change request sent to your coach.");
       }
@@ -463,6 +470,12 @@ export default function MemberBookingsPage() {
                   placeholder={manageMode === "cancel" ? "Let your coach know why…" : "e.g. Can we move to Thursday evening?"}
                   className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
                 />
+                {manageMode === "cancel" && (
+                  <p className="text-[11px] text-stone-500">
+                    Already paid (card or package credit)? Refunds aren&apos;t automatic — canceling
+                    sends a refund request and your club will follow up.
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <button
                     onClick={() => setManageMode("menu")}

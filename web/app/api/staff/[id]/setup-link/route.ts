@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -17,9 +18,9 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 export async function POST(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Owner access required" }, { status: 403 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "staff", "full");
+  if (denied) return denied;
 
   const staff = await prisma.user.findFirst({
     where: { id: params.id, clubId: session.user.clubId, role: { in: ["STAFF", "OWNER"] } },

@@ -56,8 +56,12 @@ function MemberDmThreadInner() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   async function load() {
+    // cache: "no-store" — this GET is what marks the thread read server-side.
+    // The iOS WebView caches plain GET fetches, which left threads unread on
+    // mobile because the request never reached the server.
     const res = await fetch(
       `/api/member/messages/dm/${userId}${about ? `?about=${encodeURIComponent(about)}` : ""}`,
+      { cache: "no-store" },
     );
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -69,6 +73,9 @@ function MemberDmThreadInner() {
     setOther(d.other);
     setMessages(d.messages);
     setLoading(false);
+    // The server just marked this thread read — tell the layout to refresh the
+    // Messages tab badge now instead of waiting for the next navigation.
+    window.dispatchEvent(new Event("aox:unread-refresh"));
     setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }), 50);
   }
 

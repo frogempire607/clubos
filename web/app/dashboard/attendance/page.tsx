@@ -575,6 +575,22 @@ function AttendancePanel({
     load();
   }
 
+  // Hard remove: deletes the AttendanceRecord entirely (added by accident).
+  // Not a status — leaves no attendance history for this session.
+  async function removeFromRoster(rec: AttendanceRecord) {
+    const name = `${rec.member.firstName} ${rec.member.lastName}`;
+    if (!confirm(`Remove ${name} from this roster? This deletes the attendance entry entirely (no absent/late mark, no record kept). Any payment already collected stays in Financials.`)) return;
+    setUpdating(rec.member.id);
+    const res = await fetch(`/api/attendance?recordId=${encodeURIComponent(rec.id)}`, { method: "DELETE" });
+    setUpdating(null);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      alert(typeof d.error === "string" ? d.error : "Failed to remove from roster");
+      return;
+    }
+    load();
+  }
+
   const attendance = data?.attendance ?? [];
   const filtered = filter
     ? attendance.filter(
@@ -676,7 +692,7 @@ function AttendancePanel({
                           </span>
                         </div>
                         {/* Status buttons */}
-                        <div className="flex gap-1.5 flex-wrap">
+                        <div className="flex gap-1.5 flex-wrap items-center">
                           {Object.entries(STATUS_CONFIG).map(([k, v]) => (
                             <button
                               key={k}
@@ -696,6 +712,14 @@ function AttendancePanel({
                               {v.label}
                             </button>
                           ))}
+                          <button
+                            disabled={updating === rec.member.id}
+                            onClick={() => removeFromRoster(rec)}
+                            title="Remove from roster entirely — no attendance record is kept."
+                            className="ml-auto px-2.5 py-1 text-xs rounded border border-red-200 text-red-600 hover:bg-red-50 transition-all"
+                          >
+                            Remove
+                          </button>
                         </div>
                       </div>
                     );

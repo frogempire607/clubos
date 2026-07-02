@@ -2,13 +2,16 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.id !== params.id)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.user.role !== "OWNER" && session.user.id !== params.id) {
+    const denied = requirePermission(session, "schedule", "view");
+    if (denied) return denied;
   }
 
   const exceptions = await prisma.staffAvailabilityException.findMany({
@@ -30,8 +33,10 @@ const schema = z.object({
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.id !== params.id)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.user.role !== "OWNER" && session.user.id !== params.id) {
+    const denied = requirePermission(session, "schedule", "edit");
+    if (denied) return denied;
   }
 
   try {
@@ -59,8 +64,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.id !== params.id)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.user.role !== "OWNER" && session.user.id !== params.id) {
+    const denied = requirePermission(session, "schedule", "edit");
+    if (denied) return denied;
   }
 
   const { searchParams } = new URL(req.url);

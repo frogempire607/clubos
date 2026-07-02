@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -60,9 +61,8 @@ const recordSchema = z.object({
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!["OWNER", "STAFF"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const denied = requirePermission(session, "attendance", "edit");
+  if (denied) return denied;
 
   const body = await req.json();
   const parsed = recordSchema.safeParse(body);
@@ -117,4 +117,29 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json(record);
+}
+
+// DELETE /api/attendance?recordId=... — hard-remove someone from a roster.
+// This is for "added by accident": it deletes the AttendanceRecord entirely so
+// the member is neither present nor late/absent and no attendance history is
+// kept. Any money collected stays intact — the authoritative payment record is
+// the linked Transaction, not this row (see AttendanceRecord in schema.prisma).
+export async function DELETE(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "attendance", "edit");
+  if (denied) return denied;
+
+  const { searchParams } = new URL(req.url);
+  const recordId = searchParams.get("recordId");
+  if (!recordId) return NextResponse.json({ error: "recordId required" }, { status: 400 });
+
+  const record = await prisma.attendanceRecord.findFirst({
+    where: { id: recordId, clubId: session.user.clubId },
+    select: { id: true },
+  });
+  if (!record) return NextResponse.json({ error: "Record not found" }, { status: 404 });
+
+  await prisma.attendanceRecord.delete({ where: { id: record.id } });
+  return NextResponse.json({ ok: true });
 }
