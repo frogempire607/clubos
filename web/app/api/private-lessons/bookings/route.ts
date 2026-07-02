@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 import { hasPermission } from "@/lib/permissions";
+import { requirePermission } from "@/lib/apiGuard";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -87,6 +88,11 @@ const schema = z.object({
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Staff-side booking creation: privates live under the "events" permission.
+  // Also blocks MEMBER-role sessions, which previously slipped past the
+  // session-only check (members book via /api/member/privates).
+  const denied = requirePermission(session, "events", "edit");
+  if (denied) return denied;
 
   try {
     const data = schema.parse(await req.json());

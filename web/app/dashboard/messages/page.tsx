@@ -387,9 +387,15 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       });
   }, []);
 
+  // Group membership rows are keyed by USER id (message_group_members.userId),
+  // so members must contribute their linked portal userId — sending the Member
+  // id violated the FK and 500'd every group create. Members without a portal
+  // login can't join a chat; they render disabled with a hint instead.
   const allUsers = [
     ...staff.map((s) => ({
       id: s.id,
+      memberId: null as string | null,
+      hasLogin: true,
       firstName: s.firstName,
       lastName: s.lastName,
       role: s.role,
@@ -400,7 +406,9 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     ...members
       .filter((m) => m.status !== "INACTIVE")
       .map((m) => ({
-        id: m.id,
+        id: m.userId ?? `nologin:${m.id}`,
+        memberId: m.id as string | null,
+        hasLogin: !!m.userId,
         firstName: m.firstName,
         lastName: m.lastName,
         role: "MEMBER",
@@ -424,7 +432,7 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       return u.membershipNames.includes(filterValue);
     }
     if (filterMode === "class" && filterValue) {
-      return !!classRoster && classRoster.memberIds.includes(u.id);
+      return !!classRoster && classRoster.memberIds.includes(u.memberId ?? u.id);
     }
     return true;
   });
@@ -446,7 +454,7 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   }
 
   function selectAll() {
-    setSelectedIds(new Set(filteredUsers.map((u) => u.id)));
+    setSelectedIds(new Set(filteredUsers.filter((u) => u.hasLogin).map((u) => u.id)));
   }
 
   function clearAll() {
@@ -595,15 +603,26 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
               </div>
               <div className="max-h-48 overflow-y-auto">
                 {filteredUsers.map((u) => (
-                  <label key={u.id} className="flex items-center gap-2 px-3 py-2 hover:bg-app-bg cursor-pointer border-b border-app-border last:border-0">
+                  <label
+                    key={`${u.id}:${u.memberId ?? ""}`}
+                    className={`flex items-center gap-2 px-3 py-2 border-b border-app-border last:border-0 ${
+                      u.hasLogin ? "hover:bg-app-bg cursor-pointer" : "opacity-60 cursor-not-allowed"
+                    }`}
+                  >
                     <input
                       type="checkbox"
-                      checked={selectedIds.has(u.id)}
-                      onChange={() => toggleUser(u.id)}
+                      checked={u.hasLogin && selectedIds.has(u.id)}
+                      disabled={!u.hasLogin}
+                      onChange={() => u.hasLogin && toggleUser(u.id)}
                       className="w-3.5 h-3.5 accent-stone-900 flex-shrink-0"
                     />
                     <span className="text-sm text-text-primary">{u.firstName} {u.lastName}</span>
                     <span className="text-xs text-text-muted">{u.role.charAt(0) + u.role.slice(1).toLowerCase()}</span>
+                    {!u.hasLogin && (
+                      <span className="text-[10px] text-text-muted ml-auto" title="Chats reach portal accounts. This athlete hasn't set up their login yet.">
+                        no portal login
+                      </span>
+                    )}
                   </label>
                 ))}
               </div>

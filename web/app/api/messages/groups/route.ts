@@ -58,6 +58,22 @@ export async function POST(req: Request) {
   try {
     const data = createSchema.parse(await req.json());
 
+    // Group membership rows FK to users.id. Dedupe (siblings can share one
+    // guardian login) and keep only real, non-deleted users in THIS club —
+    // anything else previously blew up the FK as a generic 500, and an
+    // unvalidated id would let a crafted request attach a foreign-club user.
+    const uniqueIds = Array.from(new Set(data.memberUserIds));
+    const validUsers = await prisma.user.findMany({
+      where: { id: { in: uniqueIds }, clubId: session.user.clubId, deletedAt: null },
+      select: { id: true },
+    });
+    if (validUsers.length === 0) {
+      return NextResponse.json(
+        { error: "None of the selected people have a portal account yet — group chats can only include people who can log in." },
+        { status: 400 },
+      );
+    }
+
     const group = await prisma.messageGroup.create({
       data: {
         clubId: session.user.clubId,
@@ -67,7 +83,7 @@ export async function POST(req: Request) {
         filterValue: data.filterValue || null,
         createdById: session.user.id,
         members: {
-          create: data.memberUserIds.map((userId) => ({ userId })),
+          create: validUsers.map(({ id }) => ({ userId: id })),
         },
       },
       include: {

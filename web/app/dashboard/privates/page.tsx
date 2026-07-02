@@ -10,6 +10,7 @@ import {
   packageTotalForBasePrice,
   type PricingMode,
 } from "@/lib/privateLessonRules";
+import { hasPermission } from "@/lib/permissions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1574,6 +1575,11 @@ type Tab = "bookings" | "types" | "packages";
 export default function PrivatesPage() {
   const { data: session } = useSession();
   const isOwner = session?.user.role === "OWNER";
+  // Staff with events edit/full manage privates too — the API routes already
+  // allow them (privates live under the "events" permission key); the UI was
+  // still hiding every action behind owner-only.
+  const perms = (session?.user as { permissions?: Record<string, unknown> | null } | undefined)?.permissions ?? null;
+  const canManage = isOwner || hasPermission(perms, "events", "edit");
 
   const [tab, setTab]               = useState<Tab>("bookings");
   const [bookings, setBookings]     = useState<Booking[]>([]);
@@ -1672,17 +1678,17 @@ export default function PrivatesPage() {
           <h1 className="text-2xl font-semibold text-text-primary">Private Lessons</h1>
           <p className="text-sm text-text-muted mt-0.5">Manage booking requests, lesson types, and lesson quantity packages</p>
         </div>
-        {isOwner && tab === "bookings" && (
+        {canManage && tab === "bookings" && (
           <button onClick={() => setNewBooking(true)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
             + New booking
           </button>
         )}
-        {isOwner && tab === "types" && (
+        {canManage && tab === "types" && (
           <button onClick={() => setEditLT(null)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
             + New lesson type
           </button>
         )}
-        {isOwner && tab === "packages" && (
+        {canManage && tab === "packages" && (
           <div className="flex gap-2">
             <button onClick={() => setAssignPkg(true)} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">
               Assign package
@@ -1778,7 +1784,7 @@ export default function PrivatesPage() {
                               {lt.active ? "Active" : "Inactive"}
                             </span>
                           </td>
-                          {isOwner && (
+                          {canManage && (
                             <td className="px-4 py-3 text-right">
                               <button onClick={() => setEditLT(lt)} className="text-xs text-text-muted hover:text-text-primary mr-3">Edit</button>
                               <button onClick={() => duplicateLessonType(lt.id)} className="text-xs text-text-muted hover:text-text-primary mr-3">Duplicate</button>
@@ -1824,7 +1830,7 @@ export default function PrivatesPage() {
                               {pkg.active ? "Active" : "Inactive"}
                             </span>
                           </td>
-                          {isOwner && (
+                          {canManage && (
                             <td className="px-4 py-3 text-right">
                               <button onClick={() => setEditPkg(pkg)} className="text-xs text-text-muted hover:text-text-primary mr-3">Edit</button>
                               <button onClick={() => deletePackage(pkg.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
