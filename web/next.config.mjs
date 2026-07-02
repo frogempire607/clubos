@@ -14,30 +14,34 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
 ];
 
-// CSP is shipped Report-Only first. After ~2 weeks of clean reports it can be
-// promoted to "Content-Security-Policy" (enforcing). Notes on each directive:
-//   * 'unsafe-inline' on script-src is needed for our 3 inline <script> tags
-//     in app/layout.tsx (theme no-flash + 2 JSON-LD). Next 14 App Router has
-//     no built-in nonce flow; nonces would require middleware rewiring.
-//     Removing 'unsafe-inline' is a future hardening step (~1d work).
+// CSP is now ENFORCING (was Report-Only). Notes on each directive:
+//   * 'unsafe-inline' on script-src remains REQUIRED: Next 14 App Router streams
+//     the RSC payload via dynamic, per-request inline <script> tags
+//     (self.__next_f.push(...)) that cannot be hashed and have no nonce without
+//     wiring a nonce through middleware. Dropping 'unsafe-inline' without that
+//     wiring breaks hydration entirely. Nonce-based CSP is the remaining
+//     hardening step (tracked on the security follow-up list) and needs browser
+//     regression testing; it is deliberately NOT attempted blind here.
 //   * Stripe: redirect-mode Checkout only. js.stripe.com is defensive.
 //   * Plaid: Plaid Link uses iframes from cdn.plaid.com + production.plaid.com.
+//   * Plausible + Sentry: optional telemetry — allowed in script-src/connect-src
+//     so enabling them can't be broken by the enforcing policy.
 //   * blob: + data: on img-src for our private file viewer (/api/files/[id])
 //     and the user-uploaded avatar previews that use object URLs.
-//   * connect-src 'self' is enough — every API call goes through our own
-//     /api routes. Stripe/Plaid calls are server-side.
+//   * worker-src blob: for Sentry session-replay (opt-in) web workers.
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://js.stripe.com https://cdn.plaid.com",
+  "script-src 'self' 'unsafe-inline' https://js.stripe.com https://cdn.plaid.com https://plausible.io",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://api.stripe.com",
+  "connect-src 'self' https://api.stripe.com https://plausible.io https://*.sentry.io https://*.ingest.sentry.io https://*.ingest.us.sentry.io",
   "frame-src https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://production.plaid.com",
   "frame-ancestors 'none'",
   "form-action 'self' https://checkout.stripe.com",
   "base-uri 'self'",
   "object-src 'none'",
+  "worker-src 'self' blob:",
 ].join("; ");
 
 const nextConfig = {
@@ -57,7 +61,7 @@ const nextConfig = {
         source: "/:path*",
         headers: [
           ...securityHeaders,
-          { key: "Content-Security-Policy-Report-Only", value: csp },
+          { key: "Content-Security-Policy", value: csp },
         ],
       },
     ];

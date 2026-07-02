@@ -41,7 +41,10 @@ export async function GET(_req: Request, context: { params: Promise<{ sessionId:
     : [];
 
   const attendance = await prisma.attendanceRecord.findMany({
-    where: { classSessionId: params.sessionId },
+    // classSessionId is already proven same-club by the findFirst guard above,
+    // but scope by clubId too as defense-in-depth so this query can never leak
+    // another tenant's roster even if the upstream guard is ever refactored away.
+    where: { classSessionId: params.sessionId, clubId: session.user.clubId },
     include: {
       member: {
         select: {
