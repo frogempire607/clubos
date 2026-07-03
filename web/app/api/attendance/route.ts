@@ -148,7 +148,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "attendance", "edit");
+  const denied = requirePermission(session, "attendance", "full");
   if (denied) return denied;
 
   const { searchParams } = new URL(req.url);

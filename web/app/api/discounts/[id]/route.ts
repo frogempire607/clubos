@@ -50,7 +50,7 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "events", "edit");
+  const denied = requirePermission(session, "events", "full");
   if (denied) return denied;
 
   const existing = await prisma.discount.findFirst({
