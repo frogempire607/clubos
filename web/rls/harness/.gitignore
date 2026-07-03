@@ -1,0 +1,3 @@
+node_modules/
+.pgdata/
+prisma/schema.prisma

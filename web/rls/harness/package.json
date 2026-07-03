@@ -1,0 +1,18 @@
+{
+  "name": "athletixos-rls-harness",
+  "private": true,
+  "description": "Two-club RLS isolation proof. Spins up a throwaway local Postgres, applies the repo's real migrations (including 20260702000000_enable_rls), creates the RLS-enforced athletix_app role, and runs a cross-tenant read/insert/update/delete matrix through the real lib/tenantPrisma wrapper.",
+  "scripts": {
+    "prepare:schema": "node prepare.mjs",
+    "test": "npm run prepare:schema && tsx run-tests.ts"
+  },
+  "comment": "The harness pins its own Prisma 6 (engineType=client → pure WASM, no native engine download) independent of the app's Prisma 5.7. The wrapper under test (../../lib/tenantPrisma.ts) uses only the stable $extends/$transaction/$executeRaw surface, identical across both versions.",
+  "dependencies": {
+    "@prisma/adapter-pg": "^6.19.0",
+    "@prisma/client": "^6.19.0",
+    "embedded-postgres": "18.4.0-beta.17",
+    "pg": "^8.11.3",
+    "prisma": "^6.19.0",
+    "tsx": "^4.7.0"
+  }
+}
