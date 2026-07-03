@@ -142,9 +142,10 @@ function QuickAddForm({
   const [saving, setSaving] = useState(false);
   const [newFirst, setNewFirst] = useState("");
   const [newLast, setNewLast] = useState("");
-  const [newPhone, setNewPhone] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [isMinor, setIsMinor] = useState(false);
   const [guardianName, setGuardianName] = useState("");
+  const [guardianEmail, setGuardianEmail] = useState("");
   const [error, setError] = useState("");
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -269,6 +270,14 @@ function QuickAddForm({
   async function createAndCheckIn(e: React.FormEvent) {
     e.preventDefault();
     if (!newFirst || !newLast) { setError("Name is required."); return; }
+    if (isMinor && (!guardianName.trim() || !guardianEmail.trim())) {
+      setError("Guardian name and email are required for athletes under 18.");
+      return;
+    }
+    if (!isMinor && !newEmail.trim()) {
+      setError("Email is required.");
+      return;
+    }
     setSaving(true);
     setError("");
 
@@ -278,21 +287,23 @@ function QuickAddForm({
       body: JSON.stringify({
         firstName: newFirst,
         lastName: newLast,
-        phone: newPhone || null,
+        email: !isMinor && newEmail ? newEmail.trim() : null,
         isMinor,
         guardianName: isMinor ? guardianName : null,
+        guardianEmail: isMinor ? guardianEmail.trim() : null,
         status: "PROSPECT",
       }),
     });
     if (!res.ok) {
-      setError("Failed to create member.");
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Failed to create member.");
       setSaving(false);
       return;
     }
     const member = await res.json();
     await checkIn(member.id, "TRIAL");
     setStep("search");
-    setNewFirst(""); setNewLast(""); setNewPhone(""); setIsMinor(false); setGuardianName("");
+    setNewFirst(""); setNewLast(""); setNewEmail(""); setIsMinor(false); setGuardianName(""); setGuardianEmail("");
   }
 
   if (step === "add-new") {
@@ -320,23 +331,38 @@ function QuickAddForm({
             className="border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
-        <input
-          placeholder="Phone"
-          value={newPhone}
-          onChange={(e) => setNewPhone(e.target.value)}
-          className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-        />
+        {!isMinor && (
+          <input
+            type="email"
+            required
+            placeholder="Email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+          />
+        )}
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={isMinor} onChange={(e) => setIsMinor(e.target.checked)} className="rounded" />
           <span className="text-sm text-text-primary">Minor / under 18</span>
         </label>
         {isMinor && (
-          <input
-            placeholder="Guardian name"
-            value={guardianName}
-            onChange={(e) => setGuardianName(e.target.value)}
-            className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-          />
+          <>
+            <input
+              required
+              placeholder="Guardian name"
+              value={guardianName}
+              onChange={(e) => setGuardianName(e.target.value)}
+              className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+            <input
+              type="email"
+              required
+              placeholder="Guardian email"
+              value={guardianEmail}
+              onChange={(e) => setGuardianEmail(e.target.value)}
+              className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+          </>
         )}
         {error && <p className="text-red-600 text-xs">{error}</p>}
         <button
