@@ -51,6 +51,7 @@ type MemberDetail = {
   relationships: Relationship[];
   migrationStatus?: string | null;
   legacyMembershipName?: string | null;
+  trialEndsAt?: string | null;
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -140,6 +141,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
               </span>
             )}
             {m.isMinor && <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Minor</span>}
+            {m.trialEndsAt && new Date(m.trialEndsAt) > new Date() && !activeSub && (
+              <span
+                className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-lime-accent/25 text-text-primary"
+                title="Staff-granted free trial — classes book free in the portal until this date."
+              >
+                Free trial until {fmtDate(m.trialEndsAt)}
+              </span>
+            )}
           </div>
           <div className="text-sm text-text-muted mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
             {m.email && <span>{m.email}</span>}

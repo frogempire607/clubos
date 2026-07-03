@@ -151,6 +151,42 @@ export async function POST(req: Request) {
       select: { id: true },
     });
     const hasAnySub = memberSubs.length > 0;
+
+    // Staff-granted free-trial window (Member.trialEndsAt): while active and
+    // the member has no plan, classes book free as TRIAL — membership-agnostic,
+    // so they can try multiple classes and still subscribe to any plan later.
+    if (!hasAnySub && member.trialEndsAt && member.trialEndsAt > new Date()) {
+      const record = await prisma.attendanceRecord.create({
+        data: {
+          clubId: session.user.clubId,
+          classSessionId,
+          memberId: member.id,
+          status: "TRIAL",
+          addedById: session.user.id,
+        },
+      });
+      const club = await prisma.club.findUnique({
+        where: { id: session.user.clubId },
+        select: { name: true },
+      });
+      const to = member.isMinor
+        ? (member.guardianEmail || member.email)
+        : (member.email || member.guardianEmail);
+      if (to) {
+        const baseUrl = getAppBaseUrl();
+        sendBookingConfirmationEmail({
+          to,
+          firstName: member.firstName,
+          clubName: club?.name ?? "your club",
+          eventName: cls.name,
+          startsAt: classSession.startsAt,
+          endsAt: classSession.endsAt,
+          coveredByMembership: true,
+          portalUrl: `${baseUrl}/member/bookings`,
+        }).catch((e) => console.error("Trial class booking email failed:", e));
+      }
+      return NextResponse.json({ coveredByTrial: true, attendanceRecordId: record.id });
+    }
     const classRestrictsToAcceptedMemberships = acceptedMembershipIds.length > 0;
     // We already proved (in the free-coverage block above) that the
     // member has no matching sub at this point. So if the class is

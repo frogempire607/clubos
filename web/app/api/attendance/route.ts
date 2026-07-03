@@ -79,6 +79,27 @@ export async function POST(req: Request) {
   });
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
+  // A staff "Trial" check-in grants a membership-agnostic 7-day trial window
+  // (Member.trialEndsAt) when the member has no active plan and no window
+  // already running — so they can book more classes from the portal and still
+  // subscribe to any membership afterwards.
+  if (status === "TRIAL") {
+    const now = new Date();
+    const hasWindow = member.trialEndsAt && member.trialEndsAt > now;
+    if (!hasWindow) {
+      const activeSub = await prisma.memberSubscription.findFirst({
+        where: { memberId, status: "active" },
+        select: { id: true },
+      });
+      if (!activeSub) {
+        await prisma.member.update({
+          where: { id: memberId },
+          data: { trialEndsAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) },
+        });
+      }
+    }
+  }
+
   // Upsert: find existing then update or create
   const existing = await prisma.attendanceRecord.findFirst({
     where: {
