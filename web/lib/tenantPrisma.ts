@@ -23,7 +23,7 @@
 //
 // Interactive transactions must use tenantTransaction() — see below.
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 
 // ── Base client on the RLS-enforced role ─────────────────────────────────────
 // Lazy so importing this module (e.g. from the test harness, which injects its
@@ -148,7 +148,7 @@ export async function tenantTransactionOn<T>(
   opts?: { maxWait?: number; timeout?: number },
 ): Promise<T> {
   if (!clubId) throw new Error("tenantTransaction: clubId is required.");
-  return client.$transaction(async (tx) => {
+  return client.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.$executeRaw`SELECT set_config('app.club_id', ${clubId}, TRUE)`;
     return fn(tx as never);
   }, opts);
