@@ -181,8 +181,9 @@ export default function MemberBookingsPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"upcoming" | "past" | "all">("upcoming");
-  // Manage-booking sheet (private lessons): cancel or request a time change.
-  const [manage, setManage] = useState<{ id: string; name: string } | null>(null);
+  // Manage-booking sheet: privates can cancel or request a time change;
+  // classes and events can cancel (refunds always go to staff review).
+  const [manage, setManage] = useState<{ kind: "private" | "class" | "event"; id: string; name: string } | null>(null);
   const [manageMode, setManageMode] = useState<"menu" | "cancel" | "change">("menu");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -269,11 +270,18 @@ export default function MemberBookingsPage() {
     if (!manage) return;
     setBusy(true);
     const action = manageMode === "cancel" ? "CANCEL" : "REQUEST_CHANGE";
-    const res = await fetch(`/api/member/privates/${manage.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, reason: reason.trim() || null }),
-    });
+    const res =
+      manage.kind === "private"
+        ? await fetch(`/api/member/privates/${manage.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, reason: reason.trim() || null }),
+          })
+        : await fetch(`/api/member/bookings/cancel`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind: manage.kind, id: manage.id, reason: reason.trim() || null }),
+          });
     setBusy(false);
     if (res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -283,9 +291,15 @@ export default function MemberBookingsPage() {
             m.id === activeId
               ? {
                   ...m,
-                  bookings: m.bookings.map((b) =>
-                    b.kind === "private" && b.event.id === manage.id ? { ...b, status: "CANCELED" } : b,
-                  ),
+                  bookings: m.bookings.map((b) => {
+                    if (manage.kind === "private") {
+                      return b.kind === "private" && b.event.id === manage.id ? { ...b, status: "CANCELED" } : b;
+                    }
+                    if (manage.kind === "class") {
+                      return b.kind === "class" && b.id === `class:${manage.id}` ? { ...b, status: "CANCELED" } : b;
+                    }
+                    return b.kind === "event" && b.id === manage.id ? { ...b, status: "CANCELED" } : b;
+                  }),
                 }
               : m,
           ),
@@ -295,7 +309,7 @@ export default function MemberBookingsPage() {
         setToast(
           typeof d.message === "string" && d.message
             ? d.message
-            : "Booking canceled — your coach has been notified.",
+            : "Booking canceled — your club has been notified.",
         );
       } else {
         setToast("Change request sent to your coach.");
@@ -419,13 +433,33 @@ export default function MemberBookingsPage() {
                 {b.kind === "private" && !TERMINAL.has(b.status) && (
                   <div className="mt-3 pt-3 border-t border-stone-100 flex justify-end">
                     <button
-                      onClick={() => { setManage({ id: b.event.id, name: b.event.name }); setManageMode("menu"); setReason(""); }}
+                      onClick={() => { setManage({ kind: "private", id: b.event.id, name: b.event.name }); setManageMode("menu"); setReason(""); }}
                       className="text-xs px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50"
                     >
                       Manage booking
                     </button>
                   </div>
                 )}
+                {(b.kind === "class" || b.kind === "event") &&
+                  !TERMINAL.has(b.status) &&
+                  new Date(b.event.startsAt) > new Date() && (
+                    <div className="mt-3 pt-3 border-t border-stone-100 flex justify-end">
+                      <button
+                        onClick={() => {
+                          setManage({
+                            kind: b.kind as "class" | "event",
+                            id: b.kind === "class" ? b.id.replace(/^class:/, "") : b.id,
+                            name: b.event.name,
+                          });
+                          setManageMode("cancel");
+                          setReason("");
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50"
+                      >
+                        Cancel booking
+                      </button>
+                    </div>
+                  )}
               </div>
             );
           })}
@@ -478,7 +512,7 @@ export default function MemberBookingsPage() {
                 )}
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setManageMode("menu")}
+                    onClick={() => (manage.kind === "private" ? setManageMode("menu") : setManage(null))}
                     className="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-sm text-stone-700 hover:bg-stone-50"
                   >
                     Back

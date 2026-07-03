@@ -13,10 +13,11 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 export function publicClubLogoUrl(
   clubId: string,
   logoUrl: string | null | undefined,
-): string | null {
-  if (!logoUrl) return null;
+): string {
   // Externally-hosted absolute logo — already loadable anywhere.
-  if (/^https?:\/\//i.test(logoUrl)) return logoUrl;
-  // Anything else (our /api/files/... path) → route through the public endpoint.
+  if (logoUrl && /^https?:\/\//i.test(logoUrl)) return logoUrl;
+  // Anything else (our /api/files/... path, or no logo at all) → the public
+  // endpoint, which serves the club's own logo or falls back to the AthletixOS
+  // default mark. Never null, so emails/link pages never render a broken "?".
   return `${getAppBaseUrl()}/api/public/club-logo/${clubId}`;
 }

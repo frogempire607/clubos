@@ -13,6 +13,7 @@ import {
   normalizePricingMode,
   optionAvailableToMember,
   normalizeOptionAudience,
+  packageAllowsLessonType,
 } from "@/lib/privateLessonRules";
 
 // POST /api/member/private-packages/[id]/buy
@@ -39,6 +40,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // files a PRIVATE_PACKAGE_PURCHASE approval; credits are granted when the
     // owner approves.
     paymentMethod?: "CARD" | "CASH" | "CHECK";
+    // Cash/check requests must carry enough scheduling info for the club to
+    // approve a real booking: preferred coach + requested lesson times.
+    coachId?: string | null;
+    requestedSlots?: Array<{ date?: string; startTime?: string }>;
+    notes?: string | null;
   };
   const isOffline = body.paymentMethod === "CASH" || body.paymentMethod === "CHECK";
   const user = await prisma.user.findUnique({
@@ -181,6 +187,76 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // /api/approvals/private-package-purchase on approve, so an abandoned or
   // declined request never leaves usable credits behind. ──
   if (isOffline) {
+    // A cash/check pack request must be complete enough for staff to approve a
+    // real booking: lesson type, tier (when the type has tiers), and at least
+    // one requested lesson time. Otherwise the approved credits float with no
+    // booking on either side.
+    if (!body.lessonTypeId) {
+      return NextResponse.json(
+        { error: "Pick the lesson type you'll use this pack for before requesting." },
+        { status: 400 },
+      );
+    }
+    if (
+      !packageAllowsLessonType(
+        pkg.lessonTypeIds as unknown,
+        pkg.lessonTypeId ?? null,
+        body.lessonTypeId,
+      )
+    ) {
+      return NextResponse.json(
+        { error: "That pack doesn't cover the selected lesson type." },
+        { status: 400 },
+      );
+    }
+    const lessonType = await prisma.privateLessonType.findFirst({
+      where: { id: body.lessonTypeId, clubId, deletedAt: null },
+      select: { id: true, durationMin: true, priceOptions: true },
+    });
+    if (!lessonType) {
+      return NextResponse.json({ error: "That lesson type isn't available." }, { status: 400 });
+    }
+    const typeOptions = Array.isArray(lessonType.priceOptions)
+      ? (lessonType.priceOptions as Array<{ id?: string }>)
+      : [];
+    if (typeOptions.length > 0 && !body.priceOptionId) {
+      return NextResponse.json(
+        { error: "Pick a pricing option for the lesson before requesting the pack." },
+        { status: 400 },
+      );
+    }
+    const rawSlots = Array.isArray(body.requestedSlots) ? body.requestedSlots : [];
+    const completeSlots = rawSlots.filter(
+      (s) => /^\d{4}-\d{2}-\d{2}$/.test(s?.date ?? "") && /^\d{1,2}:\d{2}$/.test(s?.startTime ?? ""),
+    );
+    if (completeSlots.length === 0) {
+      return NextResponse.json(
+        { error: "Add at least one requested lesson date and time so your club can schedule you." },
+        { status: 400 },
+      );
+    }
+    const addMinutes = (date: string, time: string, minutes: number): string => {
+      const [hour, minute] = time.split(":").map(Number);
+      const d = new Date(`${date}T00:00:00`);
+      d.setHours(hour || 0, minute || 0, 0, 0);
+      d.setMinutes(d.getMinutes() + minutes);
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    };
+    const normalizedSlots = completeSlots.map((s) => ({
+      date: s.date!,
+      startTime: s.startTime!,
+      endTime: addMinutes(s.date!, s.startTime!, lessonType.durationMin),
+    }));
+    if (body.coachId) {
+      const coach = await prisma.user.findFirst({
+        where: { id: body.coachId, clubId, deletedAt: null, role: { in: ["OWNER", "STAFF"] } },
+        select: { id: true },
+      });
+      if (!coach) {
+        return NextResponse.json({ error: "That coach isn't available." }, { status: 400 });
+      }
+    }
+
     const dupe = await prisma.pendingApproval.findFirst({
       where: {
         clubId,
@@ -208,6 +284,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           memberId: member.id,
           lessonTypeId: body.lessonTypeId ?? null,
           priceOptionId: body.priceOptionId ?? null,
+          coachId: body.coachId ?? null,
+          requestedSlots: normalizedSlots,
+          notes: body.notes || null,
           paymentMethod: body.paymentMethod,
           totalAmount,
           requestingUserId: session.user.id,

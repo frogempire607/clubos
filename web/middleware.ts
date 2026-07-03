@@ -59,6 +59,10 @@ export default withAuth(
     return NextResponse.next();
   },
   {
+    // Logged-out visitors go to our styled login (with callbackUrl preserved,
+    // which the login page forwards for safe /member deep links) instead of
+    // NextAuth's default /api/auth/signin page.
+    pages: { signIn: "/login" },
     callbacks: {
       // `/member/signup` is public; everything else under the matcher needs a token.
       authorized: ({ token, req }) =>

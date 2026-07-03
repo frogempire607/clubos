@@ -318,6 +318,24 @@ export default function MemberPrivatesPage() {
   }, []);
 
   async function buyPackage(id: string, paymentMethod: "CARD" | "CASH" | "CHECK" = "CARD") {
+    // Cash/check pack requests go to staff for approval — they must carry the
+    // full picture (lesson type, tier, requested times) so approving can
+    // create real bookings, not just floating credits.
+    if (paymentMethod !== "CARD") {
+      const completeSlots = slots.filter((s) => s.date && s.startTime);
+      if (!typeId) {
+        setError("Pick a lesson type (step 1) before requesting this pack with cash/check.");
+        return;
+      }
+      if (options.length > 0 && !optionId) {
+        setError("Pick a pricing option (step 3) before requesting this pack with cash/check.");
+        return;
+      }
+      if (completeSlots.length === 0) {
+        setError("Add at least one requested lesson date & time below so your club can schedule you.");
+        return;
+      }
+    }
     setBuyingPackageId(id);
     setError("");
     try {
@@ -330,6 +348,9 @@ export default function MemberPrivatesPage() {
           memberId: selectedMemberId,
           lessonTypeId: typeId || null,
           priceOptionId: optionId || null,
+          coachId: coachId || null,
+          requestedSlots: slots.filter((s) => s.date && s.startTime),
+          notes: notes || null,
           paymentMethod,
         }),
       });
@@ -363,6 +384,13 @@ export default function MemberPrivatesPage() {
     const opts = Array.isArray(lesson.priceOptions) ? lesson.priceOptions : [];
     return opts.filter((o) => optionAvailableToMember(o.audience, isActiveMember));
   }
+  // Gate whole lesson TYPES by audience too: a type whose every tier is for
+  // the other audience (e.g. a separate "Non-Member" type) is hidden instead
+  // of appearing as a dead-end card priced at base rate.
+  const visibleTypes = types.filter((t) => {
+    const opts = Array.isArray(t.priceOptions) ? t.priceOptions : [];
+    return opts.length === 0 || eligibleOpts(t).length > 0;
+  });
   const options = type ? eligibleOpts(type) : [];
   const option = options.find((o) => o.id === optionId) || null;
   // A non-member is looking at a lesson that has member-only rates they can't
@@ -429,6 +457,17 @@ export default function MemberPrivatesPage() {
     const partnerSlots = Math.max(0, (type.maxAthletes ?? 1) - 1);
     setPartners(Array.from({ length: partnerSlots }, () => ({ kind: null })));
   }, [typeId, type?.maxAthletes]);
+
+  // Switching athlete (member ↔ non-member) can hide the selected type —
+  // clear the stale selection so the form can't submit an ineligible tier.
+  useEffect(() => {
+    if (typeId && !visibleTypes.some((t) => t.id === typeId)) {
+      setTypeId("");
+      setOptionId("");
+      setCoachId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeId, isActiveMember, types]);
 
   const availableOptions =
     type && coachId
@@ -659,7 +698,7 @@ export default function MemberPrivatesPage() {
               1 · Lesson type
             </p>
             <div className="grid sm:grid-cols-2 gap-2">
-              {types.map((t) => (
+              {visibleTypes.map((t) => (
                 <button
                   key={t.id}
                   onClick={() => {
@@ -878,6 +917,12 @@ export default function MemberPrivatesPage() {
                           >
                             Request with cash/check instead
                           </button>
+                        )}
+                        {priceable && (
+                          <p className="text-[10px] text-stone-400 mt-1">
+                            Cash/check requests include your chosen lesson, coach and the
+                            requested times below — fill those in first.
+                          </p>
                         )}
                       </div>
                     );

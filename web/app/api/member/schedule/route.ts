@@ -25,9 +25,9 @@ async function resolveMemberContext(userId: string, clubId: string, requestedMem
     where: { id: userId },
     select: {
       email: true,
-      memberProfile: { select: { id: true, firstName: true, lastName: true, status: true } },
+      memberProfile: { select: { id: true, firstName: true, lastName: true, status: true, trialEndsAt: true } },
       guardianOf: {
-        select: { member: { select: { id: true, firstName: true, lastName: true, status: true } } },
+        select: { member: { select: { id: true, firstName: true, lastName: true, status: true, trialEndsAt: true } } },
       },
     },
   });
@@ -37,7 +37,7 @@ async function resolveMemberContext(userId: string, clubId: string, requestedMem
   if (!self) {
     const linked = await findOrAutoLinkMember(userId, clubId, viewer.email);
     if (linked) {
-      self = { id: linked.id, firstName: linked.firstName, lastName: linked.lastName, status: linked.status };
+      self = { id: linked.id, firstName: linked.firstName, lastName: linked.lastName, status: linked.status, trialEndsAt: linked.trialEndsAt };
     }
   }
 
@@ -179,6 +179,12 @@ export async function GET(req: Request) {
   ]);
 
   const activeMembershipIds = activeSubs.map((s) => s.membershipId);
+  // Staff-granted membership-agnostic trial window: while active, classes are
+  // bookable free without committing to any plan.
+  const trialActive =
+    activeMembershipIds.length === 0 &&
+    !!context?.trialEndsAt &&
+    new Date(context.trialEndsAt) > new Date();
   const activeMembershipNames = activeSubs.map((s) => s.membership.name);
   const eventBookingById = new Map(eventBookings.map((b) => [b.eventId, b.status]));
   const classAttendanceById = new Map(classAttendance.map((a) => [a.classSessionId, a.status]));
@@ -273,6 +279,9 @@ export async function GET(req: Request) {
       if (covered) {
         bookingTier = "MEMBERSHIP";
         bookingLabel = "Included in your membership";
+      } else if (trialActive) {
+        bookingTier = "MEMBERSHIP";
+        bookingLabel = "Free trial";
       } else if (hasAnyActiveSub && memberPrice) {
         bookingTier = "MEMBER"; bookingPriceNum = memberPrice.price; bookingLabel = "Member price";
       } else if (nonMemberPrice) {
@@ -284,7 +293,8 @@ export async function GET(req: Request) {
       }
       const priceOpt = memberPrice || nonMemberPrice || dropInPrice;
       const attendance = classAttendanceById.get(sessionItem.id) ?? null;
-      const price = covered ? null : bookingPriceNum != null ? bookingPriceNum.toFixed(2) : priceOpt ? money(priceOpt.price) : null;
+      const freeCovered = covered || trialActive;
+      const price = freeCovered ? null : bookingPriceNum != null ? bookingPriceNum.toFixed(2) : priceOpt ? money(priceOpt.price) : null;
       const coachNames = (Array.isArray(sessionItem.recurringClass.assignedStaffIds)
         ? (sessionItem.recurringClass.assignedStaffIds as string[])
         : [])
@@ -309,10 +319,12 @@ export async function GET(req: Request) {
           ? "Booked"
           : covered
             ? "Included in your membership"
-            : price
-              ? "Purchase required"
-              : "Ask staff to book",
-        canBook: !!context && !attendance && (covered || bookingPriceNum != null),
+            : trialActive
+              ? "Free trial"
+              : price
+                ? "Purchase required"
+                : "Ask staff to book",
+        canBook: !!context && !attendance && (freeCovered || bookingPriceNum != null),
         bookingStatus: attendance,
         color: sessionItem.recurringClass.color ?? null,
         textColor: sessionItem.recurringClass.textColor ?? null,

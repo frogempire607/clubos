@@ -94,7 +94,22 @@ function LoginInner() {
         /* best-effort */
       }
       const fromRole = role === "staff" ? "staff" : "member";
-      window.location.href = `/post-login?fromRole=${fromRole}`;
+      // Post-sign-in deep link (e.g. attendance-QR check-in). Same-origin
+      // /member paths only — anything else is dropped, so the param can't be
+      // abused as an open redirect. /post-login re-validates server-side.
+      let next = "";
+      try {
+        const raw = searchParams.get("next") || searchParams.get("callbackUrl");
+        if (raw) {
+          const u = new URL(raw, window.location.origin);
+          if (u.origin === window.location.origin && u.pathname.startsWith("/member")) {
+            next = `&next=${encodeURIComponent(u.pathname + u.search)}`;
+          }
+        }
+      } catch {
+        /* malformed next — ignore */
+      }
+      window.location.href = `/post-login?fromRole=${fromRole}${next}`;
     }
     // Intentionally leave `loading` true — the page is unmounting.
   }

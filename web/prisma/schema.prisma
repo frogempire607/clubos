@@ -494,6 +494,10 @@ model Member {
   activationKind           String?
   activatedAt              DateTime?
   migrationCompletedAt     DateTime?
+  // Membership-agnostic free-trial window granted by staff (e.g. attendance
+  // "Trial" check-in). While now < trialEndsAt the member can book classes
+  // free in the portal and still subscribe to ANY membership.
+  trialEndsAt              DateTime?
   // Owner-assigned plan this migration continues (a real Membership.id).
   // Preferred over the legacy* snapshot when set.
   migrationMembershipId    String?

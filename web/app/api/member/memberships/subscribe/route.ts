@@ -9,6 +9,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
+import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
 
 const schema = z.object({
   membershipId: z.string(),
@@ -19,6 +20,7 @@ const schema = z.object({
   // CARD → Stripe Checkout (default, unchanged). CASH/CHECK → no Stripe:
   // files a MEMBERSHIP_PURCHASE approval the owner activates manually.
   paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional().default("CARD"),
+  discountCode: z.string().max(50).optional().nullable(),
 });
 
 type Option = { label: string; price: number; billingPeriod: string };
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { membershipId, optionLabel, memberId, paymentMethod } = schema.parse(await req.json());
+    const { membershipId, optionLabel, memberId, paymentMethod, discountCode } = schema.parse(await req.json());
     const isOffline = paymentMethod === "CASH" || paymentMethod === "CHECK";
 
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
@@ -85,6 +87,16 @@ export async function POST(req: Request) {
     const option = options.find((o) => o.label === optionLabel);
     if (!option) return NextResponse.json({ error: "Option not found" }, { status: 404 });
 
+    // Optional discount code — validated against this membership (a code
+    // scoped to specific plans rejects others; unscoped codes apply to all).
+    let discount = null as import("@/lib/discounts").ValidDiscount | null;
+    if (discountCode?.trim()) {
+      const check = await findValidDiscount(club.id, discountCode, membershipId);
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+      discount = check.discount;
+    }
+    const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
+
     const billingType: "RECURRING" | "ONE_TIME" =
       option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING";
     const startDate = new Date();
@@ -106,8 +118,8 @@ export async function POST(req: Request) {
       bookerUserId: session.user.id,
       bookerIsGuardian: resolved?.bookerIsGuardian ?? false,
       kind: "MEMBERSHIP_SUBSCRIBE",
-      amount: option.price,
-      payload: { membershipId, optionLabel, memberId: member.id },
+      amount: finalPrice,
+      payload: { membershipId, optionLabel, memberId: member.id, ...(discount ? { discountCode: discount.code } : {}) },
     });
     if (gate.kind === "block") {
       return NextResponse.json(gate.body, { status: gate.status });
@@ -140,7 +152,7 @@ export async function POST(req: Request) {
           clubId: club.id,
           memberId: member.id,
           kind: MEMBERSHIP_PURCHASE_KIND,
-          amount: option.price,
+          amount: finalPrice,
           status: "PENDING",
           payload: {
             membershipId,
@@ -148,6 +160,7 @@ export async function POST(req: Request) {
             paymentMethod,
             memberId: member.id,
             requestingUserId: session.user.id,
+            ...(discount ? { discountCode: discount.code } : {}),
           },
         },
       });
@@ -171,17 +184,18 @@ export async function POST(req: Request) {
         memberId: member.id,
         membershipId,
         optionLabel,
-        price: option.price,
+        price: finalPrice,
         billingPeriod: option.billingPeriod,
         billingType,
         startDate,
         endDate,
         autoRenew: membership.autoRenewDefault,
         status: "pending",
+        discountCode: discount?.code || null,
       },
     });
 
-    const amountInCents = Math.round(option.price * 100);
+    const amountInCents = Math.round(finalPrice * 100);
     const platformFee = calculatePlatformFee(amountInCents, club.tier);
     const stripeInterval = billingPeriodToStripeInterval(option.billingPeriod);
     const isRecurring = billingType === "RECURRING" && stripeInterval !== null;
@@ -201,7 +215,7 @@ export async function POST(req: Request) {
         currency: "usd",
         unit_amount: recurringAmount,
         product_data: {
-          name: `${membership.name} — ${option.label}`,
+          name: `${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
           ...((() => {
             const d =
               (membership.description ?? "") +
@@ -263,6 +277,7 @@ export async function POST(req: Request) {
       where: { id: memberSub.id },
       data: { stripeCheckoutSessionId: checkoutSession.id },
     });
+    if (discount) await recordDiscountUse(discount.id);
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (err) {

@@ -10,6 +10,7 @@ import { GUARDIAN_LINK_KIND, isPrimaryGuardian } from "@/lib/guardianLink";
 import { normalizeEmail } from "@/lib/memberValidation";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendClubJoinInviteEmail } from "@/lib/email";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 
 // POST /api/member/family/[memberId]/invite-guardian
 //
@@ -113,7 +114,7 @@ export async function POST(req: Request, context: { params: Promise<{ memberId: 
         to: email,
         firstName: newGuardian.firstName || first,
         clubName: club?.name ?? "your club",
-        clubLogoUrl: club?.logoUrl,
+        clubLogoUrl: publicClubLogoUrl(session.user.clubId, club?.logoUrl),
         clubPrimaryColor: club?.primaryColor,
         registrationUrl: `${baseUrl}/reset-password?token=${token}`,
         fromName: club?.emailFromName || club?.name || null,

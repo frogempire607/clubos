@@ -142,9 +142,10 @@ function QuickAddForm({
   const [saving, setSaving] = useState(false);
   const [newFirst, setNewFirst] = useState("");
   const [newLast, setNewLast] = useState("");
-  const [newPhone, setNewPhone] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [isMinor, setIsMinor] = useState(false);
   const [guardianName, setGuardianName] = useState("");
+  const [guardianEmail, setGuardianEmail] = useState("");
   const [error, setError] = useState("");
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -192,7 +193,8 @@ function QuickAddForm({
 
   function openPay(memberId: string) {
     if (payingId === memberId) { setPayingId(null); return; }
-    const def = nonMemberPrice?.price ?? dropInPrice?.price ?? memberPrice?.price ?? 0;
+    // Default matches the panel's default status (Drop-in).
+    const def = dropInPrice?.price ?? nonMemberPrice?.price ?? memberPrice?.price ?? 0;
     setPayAmount(def ? String(def) : "");
     setPayMethod("CASH");
     setPayStatus("DROP_IN");
@@ -268,6 +270,14 @@ function QuickAddForm({
   async function createAndCheckIn(e: React.FormEvent) {
     e.preventDefault();
     if (!newFirst || !newLast) { setError("Name is required."); return; }
+    if (isMinor && (!guardianName.trim() || !guardianEmail.trim())) {
+      setError("Guardian name and email are required for athletes under 18.");
+      return;
+    }
+    if (!isMinor && !newEmail.trim()) {
+      setError("Email is required.");
+      return;
+    }
     setSaving(true);
     setError("");
 
@@ -277,21 +287,23 @@ function QuickAddForm({
       body: JSON.stringify({
         firstName: newFirst,
         lastName: newLast,
-        phone: newPhone || null,
+        email: !isMinor && newEmail ? newEmail.trim() : null,
         isMinor,
         guardianName: isMinor ? guardianName : null,
+        guardianEmail: isMinor ? guardianEmail.trim() : null,
         status: "PROSPECT",
       }),
     });
     if (!res.ok) {
-      setError("Failed to create member.");
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Failed to create member.");
       setSaving(false);
       return;
     }
     const member = await res.json();
     await checkIn(member.id, "TRIAL");
     setStep("search");
-    setNewFirst(""); setNewLast(""); setNewPhone(""); setIsMinor(false); setGuardianName("");
+    setNewFirst(""); setNewLast(""); setNewEmail(""); setIsMinor(false); setGuardianName(""); setGuardianEmail("");
   }
 
   if (step === "add-new") {
@@ -319,23 +331,38 @@ function QuickAddForm({
             className="border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
-        <input
-          placeholder="Phone"
-          value={newPhone}
-          onChange={(e) => setNewPhone(e.target.value)}
-          className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-        />
+        {!isMinor && (
+          <input
+            type="email"
+            required
+            placeholder="Email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+          />
+        )}
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={isMinor} onChange={(e) => setIsMinor(e.target.checked)} className="rounded" />
           <span className="text-sm text-text-primary">Minor / under 18</span>
         </label>
         {isMinor && (
-          <input
-            placeholder="Guardian name"
-            value={guardianName}
-            onChange={(e) => setGuardianName(e.target.value)}
-            className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-          />
+          <>
+            <input
+              required
+              placeholder="Guardian name"
+              value={guardianName}
+              onChange={(e) => setGuardianName(e.target.value)}
+              className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+            <input
+              type="email"
+              required
+              placeholder="Guardian email"
+              value={guardianEmail}
+              onChange={(e) => setGuardianEmail(e.target.value)}
+              className="w-full border border-app-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+          </>
         )}
         {error && <p className="text-red-600 text-xs">{error}</p>}
         <button
@@ -555,6 +582,13 @@ function AttendancePanel({
   const [updating, setUpdating] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState("");
+  // Drop-In on a roster row opens a charge form (price + method) instead of
+  // silently flipping status — the charge flow used to exist only on the
+  // quick-add search rows, so anyone already on the roster couldn't be charged.
+  const [chargeRecId, setChargeRecId] = useState<string | null>(null);
+  const [chargeAmount, setChargeAmount] = useState("");
+  const [chargeMethod, setChargeMethod] = useState<"CASH" | "CHECK" | "CREDIT" | "COMP" | "INVOICE">("CASH");
+  const [chargeError, setChargeError] = useState("");
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/attendance/${sessionId}`);
@@ -572,6 +606,43 @@ function AttendancePanel({
       body: JSON.stringify({ classSessionId: sessionId, memberId, status }),
     });
     setUpdating(null);
+    load();
+  }
+
+  function openDropInCharge(rec: AttendanceRecord) {
+    if (chargeRecId === rec.id) { setChargeRecId(null); return; }
+    const opts = data?.pricingOptions ?? [];
+    const dropIn = opts.find((o) => o.type === "dropin") as { price: number } | undefined;
+    const nonMember = opts.find((o) => o.type === "nonmember") as { price: number } | undefined;
+    const memberOpt = opts.find((o) => o.type === "member") as { price: number } | undefined;
+    const def = dropIn?.price ?? nonMember?.price ?? memberOpt?.price ?? 0;
+    setChargeAmount(def ? String(def) : "");
+    setChargeMethod("CASH");
+    setChargeError("");
+    setChargeRecId(rec.id);
+  }
+
+  async function recordDropInCharge(rec: AttendanceRecord) {
+    setUpdating(rec.member.id);
+    setChargeError("");
+    const res = await fetch("/api/attendance/charge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classSessionId: sessionId,
+        memberId: rec.member.id,
+        status: "DROP_IN",
+        paymentMethod: chargeMethod,
+        amount: Number(chargeAmount || 0),
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setUpdating(null);
+    if (!res.ok) {
+      setChargeError(typeof d.error === "string" ? d.error : "Could not record the charge");
+      return;
+    }
+    setChargeRecId(null);
     load();
   }
 
@@ -697,7 +768,7 @@ function AttendancePanel({
                             <button
                               key={k}
                               disabled={updating === rec.member.id}
-                              onClick={() => setStatus(rec.member.id, k)}
+                              onClick={() => (k === "DROP_IN" ? openDropInCharge(rec) : setStatus(rec.member.id, k))}
                               style={
                                 rec.status === k
                                   ? { background: v.bg, color: v.fg, borderColor: v.fg + "55" }
@@ -721,6 +792,55 @@ function AttendancePanel({
                             Remove
                           </button>
                         </div>
+                        {/* Drop-in charge form — price + payment method, always
+                            reachable no matter which status was clicked first. */}
+                        {chargeRecId === rec.id && (
+                          <div className="mt-2 pt-2 border-t border-app-border space-y-2">
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {(["CASH", "CHECK", "CREDIT", "COMP", "INVOICE"] as const).map((pm) => (
+                                <button
+                                  key={pm}
+                                  type="button"
+                                  onClick={() => setChargeMethod(pm)}
+                                  className={`px-2 py-1 text-[11px] rounded border ${
+                                    chargeMethod === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
+                                  }`}
+                                >
+                                  {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Card" : pm === "COMP" ? "Comp / Free" : "Invoice"}
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              type="number" min="0" step="0.01"
+                              value={chargeAmount}
+                              onChange={(e) => setChargeAmount(e.target.value)}
+                              placeholder={chargeMethod === "COMP" ? "Value (optional)" : "Drop-in amount"}
+                              className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
+                            />
+                            <div className="flex gap-1.5">
+                              <button
+                                disabled={updating === rec.member.id}
+                                onClick={() => recordDropInCharge(rec)}
+                                className="flex-1 px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+                              >
+                                {updating === rec.member.id
+                                  ? "Saving…"
+                                  : chargeMethod === "COMP"
+                                    ? "Mark Drop-in (comped)"
+                                    : `Charge${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`}
+                              </button>
+                              <button
+                                disabled={updating === rec.member.id}
+                                onClick={() => { setChargeRecId(null); setStatus(rec.member.id, "DROP_IN"); }}
+                                className="px-2 py-1.5 text-xs rounded border border-app-border text-text-muted hover:bg-app-bg"
+                                title="Only set the status — no payment recorded."
+                              >
+                                Mark only
+                              </button>
+                            </div>
+                            {chargeError && <p className="text-red-600 text-xs">{chargeError}</p>}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

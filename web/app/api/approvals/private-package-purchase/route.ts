@@ -22,6 +22,11 @@ type Payload = {
   paymentMethod?: string;
   totalAmount?: number;
   requestingUserId?: string;
+  lessonTypeId?: string | null;
+  priceOptionId?: string | null;
+  coachId?: string | null;
+  requestedSlots?: Array<{ date: string; startTime: string; endTime: string }>;
+  notes?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -94,7 +99,7 @@ export async function POST(req: Request) {
     ? new Date(Date.now() + pkg.expiresAfterDays * 24 * 60 * 60 * 1000)
     : null;
 
-  await prisma.privateCreditLedger.create({
+  const ledger = await prisma.privateCreditLedger.create({
     data: {
       clubId,
       memberId: approval.memberId,
@@ -109,6 +114,43 @@ export async function POST(req: Request) {
       notes: `In-portal ${paymentMethod.toLowerCase()} purchase approved by staff.`,
     },
   });
+
+  // The request carried the member's scheduling info (lesson type, coach,
+  // requested times) — turn it into real credit-paid booking requests so the
+  // lessons show up on the owner's privates queue and the member's bookings
+  // immediately, instead of credits floating with nothing scheduled.
+  const requestedSlots = Array.isArray(payload.requestedSlots) ? payload.requestedSlots : [];
+  const bookingLessonTypeId = payload.lessonTypeId ?? pkg.lessonTypeId ?? null;
+  let bookingsCreated = 0;
+  if (bookingLessonTypeId && requestedSlots.length > 0) {
+    const lessonType = await prisma.privateLessonType.findFirst({
+      where: { id: bookingLessonTypeId, clubId, deletedAt: null },
+      select: { id: true },
+    });
+    if (lessonType) {
+      const slots = requestedSlots.slice(0, grants);
+      await Promise.all(
+        slots.map((slot) =>
+          prisma.privateBooking.create({
+            data: {
+              clubId,
+              memberId: approval.memberId,
+              lessonTypeId: lessonType.id,
+              coachId: payload.coachId || null,
+              requestedSlots: [slot],
+              creditLedgerId: ledger.id,
+              paymentType: "CREDIT",
+              pricePaid: 0,
+              allowUnpaid: true,
+              notes: payload.notes || null,
+              status: payload.coachId ? "PENDING_COACH" : "REQUESTED",
+            },
+          }),
+        ),
+      );
+      bookingsCreated = slots.length;
+    }
+  }
 
   if (amount > 0) {
     await prisma.transaction.create({
@@ -129,7 +171,11 @@ export async function POST(req: Request) {
 
   await close("APPROVED");
   await notifyRequester(
-    `Your lesson package for ${who} (${pkg.title}) is active — ${grants} lesson${grants === 1 ? "" : "s"} added. The club will collect your ${paymentMethod.toLowerCase()} payment.`,
+    `Your lesson package for ${who} (${pkg.title}) is active — ${grants} lesson${grants === 1 ? "" : "s"} added.${
+      bookingsCreated > 0
+        ? ` Your ${bookingsCreated} requested lesson time${bookingsCreated === 1 ? "" : "s"} went to the coach to confirm.`
+        : ""
+    } The club will collect your ${paymentMethod.toLowerCase()} payment.`,
   );
-  return NextResponse.json({ ok: true, granted: grants });
+  return NextResponse.json({ ok: true, granted: grants, bookingsCreated });
 }

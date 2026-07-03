@@ -25,12 +25,13 @@ const NAV = [
 // live in the main bottom nav, plus a few extras the user could only
 // reach by typing URLs (privates, staff).
 const MORE_ITEMS = [
-  { href: "/member/announcements", label: "News",         desc: "Club updates",              icon: AnnouncementIcon },
-  { href: "/member/documents",     label: "Documents",    desc: "Waivers &amp; forms",          icon: DocumentIcon },
-  { href: "/member/privates",      label: "Privates",     desc: "Book a coach 1:1",          icon: BookingIcon },
-  { href: "/member/club",          label: "Club profile", desc: "About, team &amp; support",    icon: HomeIcon },
-  { href: "/member/staff",         label: "Our team",     desc: "Coach &amp; staff bios",       icon: ProfileIcon },
-  { href: "/member/profile",       label: "Profile",      desc: "Account settings",          icon: ProfileIcon },
+  { href: "/member/announcements", label: "News",         desc: "Club updates",           icon: AnnouncementIcon },
+  { href: "/member/messages",      label: "Messages",     desc: "Chat with your club",    icon: MessageIcon },
+  { href: "/member/documents",     label: "Documents",    desc: "Waivers & forms",        icon: DocumentIcon },
+  { href: "/member/privates",      label: "Privates",     desc: "Book a coach 1:1",       icon: BookingIcon },
+  { href: "/member/club",          label: "Club profile", desc: "About, team & support",  icon: HomeIcon },
+  { href: "/member/staff",         label: "Our team",     desc: "Coach & staff bios",     icon: ProfileIcon },
+  { href: "/member/profile",       label: "Profile",      desc: "Account settings",       icon: ProfileIcon },
 ];
 
 type ClubInfo = {
@@ -192,6 +193,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       : {}),
   } as React.CSSProperties;
   const portalNav = buildPortalNav(branded);
+  // Branded navs may not include a Messages link — unread DMs then surface on
+  // the More slot (and on the Messages row inside the sheet). The two counts
+  // stay independent; More just aggregates what lives behind it.
+  const navHasMessages = portalNav.some((i) => "href" in i && i.href === "/member/messages");
+  const moreBadge = annUnread + (navHasMessages ? 0 : unread);
 
   return (
     <div className="min-h-screen bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
@@ -233,12 +239,36 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                 // Desktop badge counts: unread DMs on Messages, unseen
                 // announcements on the item that leads to News.
                 const badge =
-                  "href" in item && item.href === "/member/messages"
-                    ? unread
-                    : ("href" in item && item.href === "/member/announcements") ||
-                        ("kind" in item && item.kind === "more")
-                      ? annUnread
-                      : 0;
+                  "kind" in item && item.kind === "more"
+                    ? moreBadge
+                    : "href" in item && item.href === "/member/messages"
+                      ? unread
+                      : "href" in item && item.href === "/member/announcements"
+                        ? annUnread
+                        : 0;
+                if ("kind" in item && item.kind === "more") {
+                  return (
+                    <button
+                      key="more"
+                      type="button"
+                      onClick={() => setMoreOpen(true)}
+                      aria-label="Open more menu"
+                      aria-expanded={moreOpen}
+                      className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        moreOpen ? "" : "text-stone-500 hover:text-stone-900 hover:bg-stone-100"
+                      }`}
+                      style={moreOpen ? { background: headerBg, color: headerText, borderRadius: branded?.style.borderRadius } : {}}
+                    >
+                      <Icon size={14} />
+                      {item.label}
+                      {badge > 0 && (
+                        <span className="ml-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+                          {badge > 9 ? "9+" : badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
                 return (
                   <Link
                     key={item.href}
@@ -346,10 +376,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       {unread > 9 ? "9+" : unread}
                     </span>
                   )}
-                  {/* Unseen announcements live under More → News. */}
-                  {"kind" in item && item.kind === "more" && annUnread > 0 && (
+                  {/* Unseen announcements (and unread DMs when Messages isn't
+                      a top-level tab) live behind More. */}
+                  {"kind" in item && item.kind === "more" && moreBadge > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                      {annUnread > 9 ? "9+" : annUnread}
+                      {moreBadge > 9 ? "9+" : moreBadge}
                     </span>
                   )}
                 </span>
@@ -385,15 +416,15 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         </div>
       </nav>
 
-      {/* ── More bottom sheet (mobile only) ── */}
+      {/* ── More sheet — bottom sheet on mobile, centered panel on desktop ── */}
       {moreOpen && (
         <div
-          className="fixed inset-0 z-50 md:hidden flex items-end"
+          className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center"
           onClick={() => setMoreOpen(false)}
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div
-            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom"
+            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-sm md:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -429,11 +460,15 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       <div className="text-sm font-medium text-stone-900">{it.label}</div>
                       <div className="text-xs text-stone-500">{it.desc}</div>
                     </div>
-                    {it.href === "/member/announcements" && annUnread > 0 && (
-                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
-                        {annUnread > 9 ? "9+" : annUnread}
-                      </span>
-                    )}
+                    {(() => {
+                      const rowBadge =
+                        it.href === "/member/announcements" ? annUnread : it.href === "/member/messages" ? unread : 0;
+                      return rowBadge > 0 ? (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
+                          {rowBadge > 9 ? "9+" : rowBadge}
+                        </span>
+                      ) : null;
+                    })()}
                     <svg
                       className="text-stone-300 flex-shrink-0"
                       width="16"
@@ -587,12 +622,15 @@ function ProfileIcon({ size }: { size: number }) {
 
 function buildPortalNav(config: BrandedAppConfig | null | undefined) {
   if (!config) return NAV;
-  const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean }> = {
+  // "more" opens the real More sheet (News / Documents / Privates / Club
+  // profile / Our team / Profile) — it used to deep-link to /member/profile,
+  // which made those pages unreachable for clubs with a branded nav.
+  const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean; kind?: "more" }> = {
     book: { href: "/member/shop", icon: BookNowIcon, exact: false },
     schedule: { href: "/member/schedule", icon: BookingIcon, exact: false },
     store: { href: "/member/products", icon: StoreIcon, exact: false },
     videos: { href: "/member/shop", icon: VideoIcon, exact: false },
-    more: { href: "/member/profile", icon: ProfileIcon, exact: false },
+    more: { href: "#more", icon: MoreIcon, exact: false, kind: "more" },
   };
   const items = config.navigation.items
     .filter((item) => item.enabled && item.key !== "videos")

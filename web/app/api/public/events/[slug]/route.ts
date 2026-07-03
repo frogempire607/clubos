@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
@@ -39,7 +40,7 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       deletedAt: true,
       registrationDeadline: true,
       location: { select: { name: true, address: true, latitude: true, longitude: true } },
-      club: { select: { name: true, logoUrl: true, primaryColor: true } },
+      club: { select: { id: true, name: true, logoUrl: true, primaryColor: true } },
       _count: { select: { registrations: true, bookings: true } },
     },
   });
@@ -114,7 +115,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     imagePositionX: event.imagePositionX,
     imagePositionY: event.imagePositionY,
     location: event.location,
-    club: event.club,
+    // Public page — rewrite the session-gated logo path to the public endpoint.
+    club: { ...event.club, logoUrl: publicClubLogoUrl(event.club.id, event.club.logoUrl) },
     isTournament: event.isTournament,
     tournamentMode: event.tournamentMode,
     publicFormIntro: event.publicFormIntro,

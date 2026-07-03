@@ -7,6 +7,7 @@ import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/l
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
 
 const schema = z.object({
   memberId:      z.string(),
@@ -74,6 +75,16 @@ export async function POST(req: Request) {
     const option = options.find((o) => o.label === optionLabel);
     if (!option) return NextResponse.json({ error: "Option not found" }, { status: 404 });
 
+    // Discount codes apply to whichever purchase option was selected; a code
+    // scoped to specific memberships only validates against those.
+    let discount = null as import("@/lib/discounts").ValidDiscount | null;
+    if (body.discountCode?.trim()) {
+      const check = await findValidDiscount(club.id, body.discountCode, membershipId);
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+      discount = check.discount;
+    }
+    const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
+
     // Resolve billing type: explicit override > ONE_TIME if period is ONE_TIME > plan default
     const resolvedBillingType =
       body.billingType ??
@@ -99,7 +110,7 @@ export async function POST(req: Request) {
           memberId,
           membershipId,
           optionLabel,
-          price: option.price,
+          price: finalPrice,
           billingPeriod: option.billingPeriod,
           billingType: "MANUAL",
           startDate: resolvedStartDate,
@@ -110,9 +121,10 @@ export async function POST(req: Request) {
           status: "active",
           startedAt: new Date(),
           notes: body.notes || null,
-          discountCode: body.discountCode || null,
+          discountCode: discount?.code || null,
         },
       });
+      if (discount) await recordDiscountUse(discount.id);
       // Manual assignment is active immediately — flip member status to ACTIVE
       await recomputeMemberStatus(memberId, session.user.clubId);
       return NextResponse.json({ memberSub, type: "manual" }, { status: 201 });
@@ -123,7 +135,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Connect Stripe first, or use manual assignment" }, { status: 400 });
     }
 
-    const amountInCents = Math.round(option.price * 100);
+    const amountInCents = Math.round(finalPrice * 100);
     const platformFee = calculatePlatformFee(amountInCents, club.tier);
     const stripeInterval = billingPeriodToStripeInterval(option.billingPeriod);
 
@@ -133,7 +145,7 @@ export async function POST(req: Request) {
         memberId,
         membershipId,
         optionLabel,
-        price: option.price,
+        price: finalPrice,
         billingPeriod: option.billingPeriod,
         billingType: resolvedBillingType,
         startDate: resolvedStartDate,
@@ -143,7 +155,7 @@ export async function POST(req: Request) {
         billingAnchorDate,
         status: "pending",
         notes: body.notes || null,
-        discountCode: body.discountCode || null,
+        discountCode: discount?.code || null,
       },
     });
 
@@ -161,7 +173,7 @@ export async function POST(req: Request) {
         currency: "usd",
         unit_amount: recurringAmount,
         product_data: {
-          name: `${membership.name} — ${option.label}`,
+          name: `${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
           ...((() => {
             const d =
               (membership.description ?? "") +
@@ -231,6 +243,7 @@ export async function POST(req: Request) {
       where: { id: memberSub.id },
       data: { stripeCheckoutSessionId: checkoutSession.id },
     });
+    if (discount) await recordDiscountUse(discount.id);
 
     return NextResponse.json({ url: checkoutSession.url, memberSubId: memberSub.id });
   } catch (err) {

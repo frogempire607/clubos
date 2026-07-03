@@ -11,15 +11,22 @@ import { getObject } from "@/lib/storage";
 // narrowly: we resolve the logo strictly from the club's own `logoUrl` and only
 // serve a stored file that belongs to that same club. Arbitrary file IDs can't
 // be read through this route.
-export async function GET(_req: Request, context: { params: Promise<{ clubId: string }> }) {
+export async function GET(req: Request, context: { params: Promise<{ clubId: string }> }) {
   const { clubId } = await context.params;
+
+  // Any miss (no logo set, unreadable path, missing file) falls back to the
+  // AthletixOS default mark so email/link contexts never show a broken image.
+  const fallback = () =>
+    NextResponse.redirect(new URL("/brand/circle.PNG", req.url), {
+      headers: { "Cache-Control": "public, max-age=300" },
+    });
 
   const club = await prisma.club.findUnique({
     where: { id: clubId },
     select: { logoUrl: true },
   });
   if (!club?.logoUrl) {
-    return NextResponse.json({ error: "No logo" }, { status: 404 });
+    return fallback();
   }
 
   // External absolute logo → just redirect to it.
@@ -30,7 +37,7 @@ export async function GET(_req: Request, context: { params: Promise<{ clubId: st
   // Otherwise expect our own /api/files/<fileId> path.
   const match = club.logoUrl.match(/\/api\/files\/([^/?#]+)/);
   if (!match) {
-    return NextResponse.json({ error: "No logo" }, { status: 404 });
+    return fallback();
   }
   const fileId = match[1];
 
@@ -40,12 +47,12 @@ export async function GET(_req: Request, context: { params: Promise<{ clubId: st
   });
   // Only ever serve a file that is this club's own logo.
   if (!file || file.clubId !== clubId) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return fallback();
   }
 
   const bytes = await getObject(file.storageKey);
   if (!bytes) {
-    return NextResponse.json({ error: "File missing in storage" }, { status: 404 });
+    return fallback();
   }
 
   return new NextResponse(new Uint8Array(bytes), {

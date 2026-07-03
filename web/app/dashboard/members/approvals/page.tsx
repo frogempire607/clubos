@@ -54,6 +54,7 @@ type PurchaseApproval = {
   optionLabel: string | null;
   paymentMethod: string | null;
   amount: number | null;
+  discountCode?: string | null;
 };
 
 type Approval = GuardianApproval | CancelApproval | MigrationApproval | PurchaseApproval;
@@ -274,6 +275,7 @@ export default function MembersApprovalsPage() {
                       </strong>{" "}
                       for <strong>{a.memberName}</strong>
                       {a.amount != null ? ` (${money(a.amount)})` : ""}, paying by {method}.
+                      {a.discountCode ? <> Discount code <strong className="font-mono">{a.discountCode}</strong> applied — approving accepts the discounted price.</> : null}
                     </p>
                     <p className="text-xs text-text-muted mt-1">
                       Approving {isPack ? "adds the lesson credits" : "starts the membership"} right away and

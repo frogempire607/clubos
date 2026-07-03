@@ -462,11 +462,11 @@ export default function MigrationPage() {
                       {r.billingAnchorDate ? new Date(r.billingAnchorDate).toLocaleDateString() : "—"}
                     </td>
                     <td className="px-3 py-3">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[r.migrationStatus] || "bg-app-bg text-text-muted"}`}>
+                      <span className={`inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[r.migrationStatus] || "bg-app-bg text-text-muted"}`}>
                         {r.migrationStatus?.replace("_", " ")}
                       </span>
                       {r.approvalStatus === "PENDING_APPROVAL" && (
-                        <span className="block mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/20 text-text-primary">
+                        <span className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/20 text-text-primary">
                           Needs approval
                         </span>
                       )}

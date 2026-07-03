@@ -42,8 +42,12 @@ export default function CheckinPage({ params }: { params: { id: string } }) {
 
   const accent = d.club.primaryColor || "#1C1917";
   const clubQ = encodeURIComponent(d.club.slug);
-  const signUpUrl = `/member/signup?club=${clubQ}`;
-  const signInUrl = `/login?club=${clubQ}&role=member`;
+  // Carry the scanned class/event through signup and login so the member is
+  // checked in automatically at /member/checkin/[id] afterwards — instead of
+  // landing on the portal home with the class lost.
+  const checkinNext = encodeURIComponent(`/member/checkin/${params.id}`);
+  const signUpUrl = `/member/signup?club=${clubQ}&checkin=${encodeURIComponent(params.id)}`;
+  const signInUrl = `/login?club=${clubQ}&role=member&next=${checkinNext}`;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-stone-50 px-4 py-10 print:bg-white">

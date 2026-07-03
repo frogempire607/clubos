@@ -22,15 +22,20 @@ export default function MemberSignupPage() {
   // passed as ?club and the chosen plan as ?membership — remember the plan so we
   // can deep-link to it after the account is created.
   const [membershipId, setMembershipId] = useState("");
+  // Attendance-QR intent (/c/[id] → ?checkin=<sessionId>): after the account
+  // exists, finish the scan by checking them into that class.
+  const [checkinId, setCheckinId] = useState("");
 
-  // Prefill from a kiosk QR (/c/[id] → ?club=slug) or a public registration
-  // link (/join/[slug]?m=… → ?club=slug&membership=…).
+  // Prefill from a kiosk QR (/c/[id] → ?club=slug&checkin=…) or a public
+  // registration link (/join/[slug]?m=… → ?club=slug&membership=…).
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const c = sp.get("club");
     if (c) setClubSlug(c.toLowerCase());
     const m = sp.get("membership");
     if (m) setMembershipId(m);
+    const k = sp.get("checkin");
+    if (k) setCheckinId(k);
   }, []);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -136,16 +141,21 @@ export default function MemberSignupPage() {
 
     setLoading(false);
     if (loginRes?.ok) {
-      // Came from a public membership link → deep-link to that plan to finish
-      // the purchase; otherwise land on the portal home.
-      window.location.href = membershipId
-        ? `/member/memberships?plan=${encodeURIComponent(membershipId)}`
-        : "/member";
+      // Preserve the original intent: an attendance-QR scan finishes at the
+      // check-in page for the scanned class; a public membership link
+      // deep-links to that plan; otherwise land on the portal home.
+      window.location.href = checkinId
+        ? `/member/checkin/${encodeURIComponent(checkinId)}`
+        : membershipId
+          ? `/member/memberships?plan=${encodeURIComponent(membershipId)}`
+          : "/member";
     } else {
-      // Account exists now — send them to login rather than a dead end.
+      // Account exists now — send them to login rather than a dead end,
+      // keeping the QR check-in intent through the sign-in hop.
       setError("Account created! Redirecting you to sign in…");
+      const next = checkinId ? `&next=${encodeURIComponent(`/member/checkin/${checkinId}`)}` : "";
       setTimeout(() => {
-        window.location.href = `/login?club=${encodeURIComponent(clubSlug.trim().toLowerCase())}`;
+        window.location.href = `/login?club=${encodeURIComponent(clubSlug.trim().toLowerCase())}&role=member${next}`;
       }, 1200);
     }
   }

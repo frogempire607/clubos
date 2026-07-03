@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 
 // GET /api/checkin/[id] — PUBLIC (no auth). Minimal display data for the
 // walk-in QR landing page. `id` is a ClassSession id or an Event id.
@@ -12,7 +13,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       startsAt: true,
       endsAt: true,
       recurringClass: { select: { name: true } },
-      club: { select: { name: true, slug: true, logoUrl: true, primaryColor: true } },
+      club: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } },
     },
   });
 
@@ -27,7 +28,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       timeLabel: ses.startsAt.toLocaleTimeString("en-US", {
         hour: "numeric", minute: "2-digit", timeZone: "UTC",
       }),
-      club: ses.club,
+      // This page is viewed logged-out — the raw logoUrl is session-gated.
+      club: { ...ses.club, logoUrl: publicClubLogoUrl(ses.club.id, ses.club.logoUrl) },
     });
   }
 
@@ -36,7 +38,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     select: {
       name: true,
       startsAt: true,
-      club: { select: { name: true, slug: true, logoUrl: true, primaryColor: true } },
+      club: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } },
     },
   });
 
@@ -51,7 +53,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       timeLabel: ev.startsAt.toLocaleTimeString("en-US", {
         hour: "numeric", minute: "2-digit",
       }),
-      club: ev.club,
+      club: { ...ev.club, logoUrl: publicClubLogoUrl(ev.club.id, ev.club.logoUrl) },
     });
   }
 
