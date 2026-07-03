@@ -116,7 +116,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         <div className="flex-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-semibold text-text-primary">{m.firstName} {m.lastName}</h1>
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.fg }}>
+            <span className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.fg }}>
               {displayStatus === "MIGRATING"
                 ? "Migrating"
                 : m.status.charAt(0) + m.status.slice(1).toLowerCase()}
@@ -133,7 +133,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                 no active subscription means the account exists but isn't on a plan. */}
             {m.status === "ACTIVE" && !activeSub && (
               <span
-                className="text-xs px-2 py-0.5 rounded-full bg-orange-accent/20 text-text-primary"
+                className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-orange-accent/20 text-text-primary"
                 title="This account is activated but has no active paid membership."
               >
                 No membership
