@@ -318,6 +318,24 @@ export default function MemberPrivatesPage() {
   }, []);
 
   async function buyPackage(id: string, paymentMethod: "CARD" | "CASH" | "CHECK" = "CARD") {
+    // Cash/check pack requests go to staff for approval — they must carry the
+    // full picture (lesson type, tier, requested times) so approving can
+    // create real bookings, not just floating credits.
+    if (paymentMethod !== "CARD") {
+      const completeSlots = slots.filter((s) => s.date && s.startTime);
+      if (!typeId) {
+        setError("Pick a lesson type (step 1) before requesting this pack with cash/check.");
+        return;
+      }
+      if (options.length > 0 && !optionId) {
+        setError("Pick a pricing option (step 3) before requesting this pack with cash/check.");
+        return;
+      }
+      if (completeSlots.length === 0) {
+        setError("Add at least one requested lesson date & time below so your club can schedule you.");
+        return;
+      }
+    }
     setBuyingPackageId(id);
     setError("");
     try {
@@ -330,6 +348,9 @@ export default function MemberPrivatesPage() {
           memberId: selectedMemberId,
           lessonTypeId: typeId || null,
           priceOptionId: optionId || null,
+          coachId: coachId || null,
+          requestedSlots: slots.filter((s) => s.date && s.startTime),
+          notes: notes || null,
           paymentMethod,
         }),
       });
@@ -896,6 +917,12 @@ export default function MemberPrivatesPage() {
                           >
                             Request with cash/check instead
                           </button>
+                        )}
+                        {priceable && (
+                          <p className="text-[10px] text-stone-400 mt-1">
+                            Cash/check requests include your chosen lesson, coach and the
+                            requested times below — fill those in first.
+                          </p>
                         )}
                       </div>
                     );
