@@ -36,7 +36,13 @@ export async function GET(req: NextRequest) {
   }
 
   if (role === "MEMBER") {
-    const target = fromRole === "staff" ? "/member?from=staff-login" : "/member";
+    // Deep-link continuation (attendance-QR check-in, etc). Path-only,
+    // /member-scoped values are accepted; anything else falls back to the
+    // portal home so this can never become an open redirect.
+    const next = req.nextUrl.searchParams.get("next");
+    const safeNext =
+      next && next.startsWith("/member") && !next.startsWith("//") && !next.includes("://") ? next : null;
+    const target = safeNext ?? (fromRole === "staff" ? "/member?from=staff-login" : "/member");
     return noStore(NextResponse.redirect(new URL(target, req.url)));
   }
 
