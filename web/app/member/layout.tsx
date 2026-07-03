@@ -26,6 +26,7 @@ const NAV = [
 // reach by typing URLs (privates, staff).
 const MORE_ITEMS = [
   { href: "/member/announcements", label: "News",         desc: "Club updates",           icon: AnnouncementIcon },
+  { href: "/member/messages",      label: "Messages",     desc: "Chat with your club",    icon: MessageIcon },
   { href: "/member/documents",     label: "Documents",    desc: "Waivers & forms",        icon: DocumentIcon },
   { href: "/member/privates",      label: "Privates",     desc: "Book a coach 1:1",       icon: BookingIcon },
   { href: "/member/club",          label: "Club profile", desc: "About, team & support",  icon: HomeIcon },
@@ -192,6 +193,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       : {}),
   } as React.CSSProperties;
   const portalNav = buildPortalNav(branded);
+  // Branded navs may not include a Messages link — unread DMs then surface on
+  // the More slot (and on the Messages row inside the sheet). The two counts
+  // stay independent; More just aggregates what lives behind it.
+  const navHasMessages = portalNav.some((i) => "href" in i && i.href === "/member/messages");
+  const moreBadge = annUnread + (navHasMessages ? 0 : unread);
 
   return (
     <div className="min-h-screen bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
@@ -233,12 +239,13 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                 // Desktop badge counts: unread DMs on Messages, unseen
                 // announcements on the item that leads to News.
                 const badge =
-                  "href" in item && item.href === "/member/messages"
-                    ? unread
-                    : ("href" in item && item.href === "/member/announcements") ||
-                        ("kind" in item && item.kind === "more")
-                      ? annUnread
-                      : 0;
+                  "kind" in item && item.kind === "more"
+                    ? moreBadge
+                    : "href" in item && item.href === "/member/messages"
+                      ? unread
+                      : "href" in item && item.href === "/member/announcements"
+                        ? annUnread
+                        : 0;
                 if ("kind" in item && item.kind === "more") {
                   return (
                     <button
@@ -369,10 +376,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       {unread > 9 ? "9+" : unread}
                     </span>
                   )}
-                  {/* Unseen announcements live under More → News. */}
-                  {"kind" in item && item.kind === "more" && annUnread > 0 && (
+                  {/* Unseen announcements (and unread DMs when Messages isn't
+                      a top-level tab) live behind More. */}
+                  {"kind" in item && item.kind === "more" && moreBadge > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                      {annUnread > 9 ? "9+" : annUnread}
+                      {moreBadge > 9 ? "9+" : moreBadge}
                     </span>
                   )}
                 </span>
@@ -452,11 +460,15 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       <div className="text-sm font-medium text-stone-900">{it.label}</div>
                       <div className="text-xs text-stone-500">{it.desc}</div>
                     </div>
-                    {it.href === "/member/announcements" && annUnread > 0 && (
-                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
-                        {annUnread > 9 ? "9+" : annUnread}
-                      </span>
-                    )}
+                    {(() => {
+                      const rowBadge =
+                        it.href === "/member/announcements" ? annUnread : it.href === "/member/messages" ? unread : 0;
+                      return rowBadge > 0 ? (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
+                          {rowBadge > 9 ? "9+" : rowBadge}
+                        </span>
+                      ) : null;
+                    })()}
                     <svg
                       className="text-stone-300 flex-shrink-0"
                       width="16"
