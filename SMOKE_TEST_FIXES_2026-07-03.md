@@ -174,3 +174,33 @@ in sheet descriptions.
       clear independently (Messages vs News).
 - [ ] Staff (Sal): everything they could do yesterday still works; deletes
       need `full`.
+
+---
+
+## 16. Attendance QR → signup → auto check-in (follow-up, same branch)
+
+New clients scanning the attendance QR created an account but were never
+registered for the scanned class. Now the class context survives the whole
+flow:
+
+- `/c/[id]` links carry the session (`?checkin=` on signup, `next=` on login).
+- Signup auto-signs-in and lands on the new **`/member/checkin/[id]`** page,
+  which checks the athlete in automatically (guardians pick which child) and
+  shows a clear success state.
+- Existing members: sign-in → `/post-login` honors a sanitized `next`
+  (same-origin `/member` paths only) → checked in immediately.
+- `POST /api/member/checkin/[id]` is idempotent (retries return "already
+  checked in", never a duplicate), family-scoped, and records PRESENT when a
+  membership covers the class / TRIAL otherwise so staff can charge drop-in
+  from the roster. 12-hour grace after the session ends.
+- Middleware now sends logged-out `/member/*` visits to the styled `/login`
+  (with `callbackUrl` preserved) instead of NextAuth's default page.
+
+Verified end-to-end against a live dev server with a throwaway account
+(real signup → credentials login → check-in → idempotent retry → roster row
+in DB → open-redirect rejected), then the test data was deleted.
+
+**Manual checks:** scan a QR poster on a phone as a brand-new adult; as a
+guardian with 2 kids (picker should appear); as an existing signed-out
+member ("I already have an account" → sign in → checked in); rescan/refresh
+→ "Already checked in".
