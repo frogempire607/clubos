@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendClubJoinInviteEmail } from "@/lib/email";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { normalizeEmail } from "@/lib/memberValidation";
 
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
       to: email,
       firstName: (data.name || "").trim().split(/\s+/)[0] || "there",
       clubName: club.name,
-      clubLogoUrl: club.logoUrl,
+      clubLogoUrl: publicClubLogoUrl(session.user.clubId, club.logoUrl),
       clubPrimaryColor: club.primaryColor,
       registrationUrl: `${baseUrl}/join/${club.slug}`,
       fromName: club.emailFromName || club.name,

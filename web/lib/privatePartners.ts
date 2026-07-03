@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { sendPartnerInviteEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 
 export type PartnerKind = "MEMBER" | "OUTSIDE" | "NEEDS_HELP";
 export type PartnerStatus = "PENDING_COACH" | "INVITED" | "CONFIRMED" | "DECLINED";
@@ -68,7 +69,7 @@ export async function activatePartnersOnAccept(params: {
             partnerName: p.outsideName || null,
             bookerName: params.bookerName,
             clubName: club.name,
-            clubLogoUrl: club.logoUrl,
+            clubLogoUrl: publicClubLogoUrl(params.clubId, club.logoUrl),
             clubPrimaryColor: club.primaryColor,
             lessonTitle: params.lessonTitle,
             confirmedStartAt: booking?.confirmedStartAt ?? null,
