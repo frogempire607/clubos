@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Megaphone, Smartphone, Mail, Bell, type LucideIcon } from "lucide-react";
+import DateTimeField from "@/components/DateTimeField";
 
 type Announcement = {
   id: string;
@@ -470,22 +471,12 @@ function AnnouncementModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Publish at (optional)</label>
-              <input
-                type="datetime-local"
-                value={publishAt}
-                onChange={(e) => setPublishAt(e.target.value)}
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-              />
+              <DateTimeField value={publishAt} onChange={setPublishAt} />
               <p className="text-xs text-text-muted mt-1">Leave blank to publish now</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Unpublish at (optional)</label>
-              <input
-                type="datetime-local"
-                value={unpublishAt}
-                onChange={(e) => setUnpublishAt(e.target.value)}
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-              />
+              <DateTimeField value={unpublishAt} onChange={setUnpublishAt} />
             </div>
           </div>
 
