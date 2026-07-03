@@ -25,12 +25,12 @@ const NAV = [
 // live in the main bottom nav, plus a few extras the user could only
 // reach by typing URLs (privates, staff).
 const MORE_ITEMS = [
-  { href: "/member/announcements", label: "News",         desc: "Club updates",              icon: AnnouncementIcon },
-  { href: "/member/documents",     label: "Documents",    desc: "Waivers &amp; forms",          icon: DocumentIcon },
-  { href: "/member/privates",      label: "Privates",     desc: "Book a coach 1:1",          icon: BookingIcon },
-  { href: "/member/club",          label: "Club profile", desc: "About, team &amp; support",    icon: HomeIcon },
-  { href: "/member/staff",         label: "Our team",     desc: "Coach &amp; staff bios",       icon: ProfileIcon },
-  { href: "/member/profile",       label: "Profile",      desc: "Account settings",          icon: ProfileIcon },
+  { href: "/member/announcements", label: "News",         desc: "Club updates",           icon: AnnouncementIcon },
+  { href: "/member/documents",     label: "Documents",    desc: "Waivers & forms",        icon: DocumentIcon },
+  { href: "/member/privates",      label: "Privates",     desc: "Book a coach 1:1",       icon: BookingIcon },
+  { href: "/member/club",          label: "Club profile", desc: "About, team & support",  icon: HomeIcon },
+  { href: "/member/staff",         label: "Our team",     desc: "Coach & staff bios",     icon: ProfileIcon },
+  { href: "/member/profile",       label: "Profile",      desc: "Account settings",       icon: ProfileIcon },
 ];
 
 type ClubInfo = {
@@ -239,6 +239,29 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                         ("kind" in item && item.kind === "more")
                       ? annUnread
                       : 0;
+                if ("kind" in item && item.kind === "more") {
+                  return (
+                    <button
+                      key="more"
+                      type="button"
+                      onClick={() => setMoreOpen(true)}
+                      aria-label="Open more menu"
+                      aria-expanded={moreOpen}
+                      className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        moreOpen ? "" : "text-stone-500 hover:text-stone-900 hover:bg-stone-100"
+                      }`}
+                      style={moreOpen ? { background: headerBg, color: headerText, borderRadius: branded?.style.borderRadius } : {}}
+                    >
+                      <Icon size={14} />
+                      {item.label}
+                      {badge > 0 && (
+                        <span className="ml-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+                          {badge > 9 ? "9+" : badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
                 return (
                   <Link
                     key={item.href}
@@ -385,15 +408,15 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         </div>
       </nav>
 
-      {/* ── More bottom sheet (mobile only) ── */}
+      {/* ── More sheet — bottom sheet on mobile, centered panel on desktop ── */}
       {moreOpen && (
         <div
-          className="fixed inset-0 z-50 md:hidden flex items-end"
+          className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center"
           onClick={() => setMoreOpen(false)}
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div
-            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom"
+            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-sm md:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -587,12 +610,15 @@ function ProfileIcon({ size }: { size: number }) {
 
 function buildPortalNav(config: BrandedAppConfig | null | undefined) {
   if (!config) return NAV;
-  const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean }> = {
+  // "more" opens the real More sheet (News / Documents / Privates / Club
+  // profile / Our team / Profile) — it used to deep-link to /member/profile,
+  // which made those pages unreachable for clubs with a branded nav.
+  const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean; kind?: "more" }> = {
     book: { href: "/member/shop", icon: BookNowIcon, exact: false },
     schedule: { href: "/member/schedule", icon: BookingIcon, exact: false },
     store: { href: "/member/products", icon: StoreIcon, exact: false },
     videos: { href: "/member/shop", icon: VideoIcon, exact: false },
-    more: { href: "/member/profile", icon: ProfileIcon, exact: false },
+    more: { href: "#more", icon: MoreIcon, exact: false, kind: "more" },
   };
   const items = config.navigation.items
     .filter((item) => item.enabled && item.key !== "videos")
