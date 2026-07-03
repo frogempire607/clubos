@@ -30,6 +30,7 @@ type Payload = {
   membershipId?: string;
   packageId?: string;
   paymentMethod?: string | null;
+  discountCode?: string | null;
 };
 
 export async function GET() {
@@ -147,6 +148,7 @@ export async function GET() {
         optionLabel: p.optionLabel ?? null,
         paymentMethod: p.paymentMethod ?? null,
         amount: r.amount != null ? Number(r.amount) : null,
+        discountCode: p.discountCode ?? null,
       };
     }
     if (r.kind === PRIVATE_PACKAGE_PURCHASE_KIND) {

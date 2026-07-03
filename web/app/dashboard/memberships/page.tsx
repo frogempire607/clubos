@@ -41,6 +41,7 @@ type Discount = {
   usedCount: number;
   active: boolean;
   expiresAt: string | null;
+  membershipIds: string[];
 };
 
 const periodLabels: Record<BillingPeriod, string> = {
@@ -256,6 +257,11 @@ export default function MembershipsPage() {
                     <td className="px-5 py-3">
                       <span className="font-mono text-sm font-semibold text-text-primary">{d.code}</span>
                       {d.description && <div className="text-xs text-text-muted">{d.description}</div>}
+                      <div className="text-xs text-text-muted">
+                        {Array.isArray(d.membershipIds) && d.membershipIds.length > 0
+                          ? `Applies to: ${d.membershipIds.map((id) => memberships.find((m) => m.id === id)?.name || "(deleted plan)").join(", ")}`
+                          : "Applies to all purchase options"}
+                      </div>
                     </td>
                     <td className="px-5 py-3 text-sm text-text-muted">{d.type === "PERCENT" ? "Percent" : "Fixed"}</td>
                     <td className="px-5 py-3 text-sm font-medium text-text-primary">
@@ -300,6 +306,7 @@ export default function MembershipsPage() {
       {(showAddDiscount || editingDiscount) && (
         <DiscountModal
           discount={editingDiscount}
+          memberships={memberships}
           onClose={() => { setShowAddDiscount(false); setEditingDiscount(null); }}
           onSaved={() => { setShowAddDiscount(false); setEditingDiscount(null); load(); }}
         />
@@ -532,7 +539,7 @@ function MembershipModal({ membership, onClose, onSaved }: { membership: Members
 }
 
 // ── Discount Modal ────────────────────────────────────────────────────────────
-function DiscountModal({ discount, onClose, onSaved }: { discount: Discount | null; onClose: () => void; onSaved: () => void }) {
+function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: Discount | null; memberships: Membership[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!discount;
   const [code, setCode] = useState(discount?.code || "");
   const [description, setDescription] = useState(discount?.description || "");
@@ -540,8 +547,13 @@ function DiscountModal({ discount, onClose, onSaved }: { discount: Discount | nu
   const [value, setValue] = useState(discount ? String(discount.value) : "");
   const [maxUses, setMaxUses] = useState(discount?.maxUses ? String(discount.maxUses) : "");
   const [expiresAt, setExpiresAt] = useState(discount?.expiresAt ? new Date(discount.expiresAt).toISOString().slice(0, 10) : "");
+  const [scopedIds, setScopedIds] = useState<string[]>(Array.isArray(discount?.membershipIds) ? discount!.membershipIds : []);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  function toggleScope(id: string) {
+    setScopedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -555,6 +567,7 @@ function DiscountModal({ discount, onClose, onSaved }: { discount: Discount | nu
       value: parseFloat(value),
       maxUses: maxUses ? parseInt(maxUses, 10) : null,
       expiresAt: expiresAt || null,
+      membershipIds: scopedIds,
     };
 
     const url = isEdit ? `/api/discounts/${discount!.id}` : "/api/discounts";
@@ -622,6 +635,31 @@ function DiscountModal({ discount, onClose, onSaved }: { discount: Discount | nu
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Expires (optional)</label>
               <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Applies to</label>
+            <p className="text-xs text-text-muted mb-2">
+              {scopedIds.length === 0
+                ? "All memberships and purchase options (default)."
+                : "Only the selected memberships. Uncheck all to apply to everything."}
+            </p>
+            <div className="max-h-36 overflow-y-auto border border-app-border rounded-lg divide-y divide-app-border">
+              {memberships.map((m) => (
+                <label key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary cursor-pointer hover:bg-app-bg">
+                  <input
+                    type="checkbox"
+                    checked={scopedIds.includes(m.id)}
+                    onChange={() => toggleScope(m.id)}
+                    className="rounded border-app-border"
+                  />
+                  {m.name}
+                </label>
+              ))}
+              {memberships.length === 0 && (
+                <p className="px-3 py-2 text-xs text-text-muted">No membership plans yet — the code will apply to all future plans.</p>
+              )}
             </div>
           </div>
 

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
+import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
 
 // POST /api/approvals/membership-purchase
 //
@@ -24,6 +25,7 @@ type Payload = {
   optionLabel?: string;
   paymentMethod?: string;
   requestingUserId?: string;
+  discountCode?: string;
 };
 
 type Option = { label: string; price: number; billingPeriod: string };
@@ -121,6 +123,22 @@ export async function POST(req: Request) {
     );
   }
 
+  // Re-validate the discount the member requested with — approving IS the
+  // staff sign-off on the discounted price. If the code died since the
+  // request, surface that instead of silently charging full price.
+  let discount = null as import("@/lib/discounts").ValidDiscount | null;
+  if (payload.discountCode) {
+    const check = await findValidDiscount(clubId, payload.discountCode, membership.id);
+    if (!check.ok) {
+      return NextResponse.json(
+        { error: `This request used discount code ${payload.discountCode}, but it's no longer valid (${check.error}) Decline the request and have them re-purchase.` },
+        { status: 400 },
+      );
+    }
+    discount = check.discount;
+  }
+  const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
+
   const startDate = new Date();
   const isOneTime = option.billingPeriod === "ONE_TIME";
   await prisma.memberSubscription.create({
@@ -128,7 +146,7 @@ export async function POST(req: Request) {
       memberId: approval.memberId,
       membershipId: membership.id,
       optionLabel: option.label,
-      price: option.price,
+      price: finalPrice,
       billingPeriod: option.billingPeriod,
       billingType: "MANUAL",
       startDate,
@@ -136,9 +154,11 @@ export async function POST(req: Request) {
       autoRenew: false,
       status: "active",
       startedAt: new Date(),
-      notes: `In-portal ${paymentMethod.toLowerCase()} purchase approved by staff.`,
+      discountCode: discount?.code || null,
+      notes: `In-portal ${paymentMethod.toLowerCase()} purchase approved by staff.${discount ? ` Discount ${discount.code} applied.` : ""}`,
     },
   });
+  if (discount) await recordDiscountUse(discount.id);
   await prisma.member.update({
     where: { id: approval.memberId },
     data: { membershipId: membership.id },
@@ -147,17 +167,17 @@ export async function POST(req: Request) {
 
   // Money owed until collected: an unpaid manual invoice keeps it visible in
   // Financials (Invoiced/unpaid channel) without claiming revenue was taken.
-  if (option.price > 0) {
+  if (finalPrice > 0) {
     await prisma.transaction.create({
       data: {
         clubId,
         memberId: approval.memberId,
-        amount: option.price,
+        amount: finalPrice,
         status: "PENDING",
         type: "INVOICE",
         category: "memberships",
         paymentMethod,
-        description: `Membership (${paymentMethod.toLowerCase()}): ${membership.name} — ${option.label}`,
+        description: `Membership (${paymentMethod.toLowerCase()}): ${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
         manual: true,
         txDate: new Date(),
       },

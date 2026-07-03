@@ -576,7 +576,7 @@ export default function MembersPage() {
                     </Td>
                     <Td>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
+                        <span className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
                           {statusLabels[ds] ?? ds}
                         </span>
                         {/* Activated account vs paying member: flag ACTIVE rows with no active plan. */}
@@ -592,7 +592,7 @@ export default function MembersPage() {
                         const os = onboardingStatusOf(m);
                         const oc = onboardingColors[os];
                         return (
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: oc.bg, color: oc.fg }}>
+                          <span className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: oc.bg, color: oc.fg }}>
                             {onboardingLabels[os]}
                           </span>
                         );
@@ -1097,6 +1097,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
   const [endDate, setEndDate] = useState("");
   const [billingDay, setBillingDay] = useState("");
   const [notes, setNotes] = useState("");
+  const [discountCode, setDiscountCode] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -1147,6 +1148,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
         endDate: endDate || null,
         billingDay: billingDay ? parseInt(billingDay, 10) : null,
         notes: notes || null,
+        discountCode: discountCode.trim() || null,
       }),
     });
 
@@ -1255,7 +1257,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
 
                   {/* Advanced: dates + billing day */}
                   <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs text-text-muted hover:text-text-primary underline">
-                    {showAdvanced ? "Hide" : "Show"} advanced options (start/end dates, billing day)
+                    {showAdvanced ? "Hide" : "Show"} advanced options (start/end dates, billing day, discount code)
                   </button>
 
                   {showAdvanced && (
@@ -1281,6 +1283,11 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
                       <div>
                         <label className="block text-xs font-medium text-text-primary mb-1">Internal notes</label>
                         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Migration note, pre-paid months, etc." className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary mb-1">Discount code</label>
+                        <input type="text" value={discountCode} onChange={(e) => setDiscountCode(e.target.value.toUpperCase())} placeholder="SUMMER20" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-brand" />
+                        <p className="text-xs text-text-muted mt-0.5">Applied to the selected option&apos;s price. Codes are managed on the Memberships page.</p>
                       </div>
                     </div>
                   )}

@@ -41,6 +41,7 @@ export default function MemberMembershipsPage() {
   const [notice, setNotice] = useState("");
   // Option key currently showing the card / cash-check payment choice.
   const [choosingKey, setChoosingKey] = useState<string | null>(null);
+  const [discountCode, setDiscountCode] = useState("");
 
   useEffect(() => {
     fetch("/api/member/memberships")
@@ -68,7 +69,7 @@ export default function MemberMembershipsPage() {
     const res = await fetch("/api/member/memberships/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ membershipId, optionLabel, memberId: selectedMemberId, paymentMethod }),
+      body: JSON.stringify({ membershipId, optionLabel, memberId: selectedMemberId, paymentMethod, discountCode: discountCode.trim() || null }),
     });
     const d = await res.json().catch(() => ({}));
     // Cash/check (and parental-approval) requests queue instead of redirecting.
@@ -205,6 +206,13 @@ export default function MemberMembershipsPage() {
                           </div>
                           {choosing && (
                             <div className="mt-2 pt-2 border-t border-stone-100">
+                              <input
+                                type="text"
+                                value={discountCode}
+                                onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+                                placeholder="Discount code (optional)"
+                                className="w-full mb-2 px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs font-mono uppercase placeholder:font-sans placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-stone-400"
+                              />
                               <p className="text-[11px] text-stone-500 mb-1.5">How will you pay?</p>
                               <div className="grid grid-cols-3 gap-2">
                                 <button
