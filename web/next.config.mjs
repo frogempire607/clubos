@@ -26,7 +26,7 @@ const securityHeaders = [
 //     and the user-uploaded avatar previews that use object URLs.
 //   * connect-src 'self' is enough — every API call goes through our own
 //     /api routes. Stripe/Plaid calls are server-side.
-const csp = [
+const cspDirectives = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://js.stripe.com https://cdn.plaid.com",
   "style-src 'self' 'unsafe-inline'",
@@ -34,11 +34,21 @@ const csp = [
   "font-src 'self' data:",
   "connect-src 'self' https://api.stripe.com",
   "frame-src https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://production.plaid.com",
-  "frame-ancestors 'none'",
   "form-action 'self' https://checkout.stripe.com",
   "base-uri 'self'",
   "object-src 'none'",
-].join("; ");
+];
+
+const csp = [...cspDirectives, "frame-ancestors 'none'"].join("; ");
+
+// The public embeddable calendar (/cal/:clubId/:token) exists to be iframed
+// on club websites, so it must NOT get X-Frame-Options and needs an open
+// frame-ancestors. The pages are token-gated, read-only, and session-free —
+// there is nothing to clickjack. Everything else keeps DENY / 'none'.
+// (A per-club allowlist from Club.websiteUrl isn't possible here: these
+// headers are static and edge middleware has no Prisma access.)
+const embedSecurityHeaders = securityHeaders.filter((h) => h.key !== "X-Frame-Options");
+const embedCsp = "frame-ancestors *";
 
 const nextConfig = {
   eslint: {
@@ -53,8 +63,23 @@ const nextConfig = {
   },
   async headers() {
     return [
+      // Embeddable public calendar — no X-Frame-Options, open frame-ancestors
+      // (enforcing; frame-ancestors is ignored in Report-Only mode anyway).
       {
-        source: "/:path*",
+        source: "/cal/:path*",
+        headers: [
+          ...embedSecurityHeaders,
+          { key: "Content-Security-Policy", value: embedCsp },
+          { key: "Content-Security-Policy-Report-Only", value: cspDirectives.join("; ") },
+        ],
+      },
+      // Everything else. The negative lookahead excludes the /cal subtree
+      // (including bare /cal, which the rule above also matches — :path* is
+      // zero-or-more) so the DENY header is never added there: Next applies
+      // EVERY matching rule, and a stray X-Frame-Options: DENY blocks
+      // embedding even when CSP allows it.
+      {
+        source: "/((?!cal$|cal/).*)",
         headers: [
           ...securityHeaders,
           { key: "Content-Security-Policy-Report-Only", value: csp },
