@@ -55,6 +55,7 @@ function toProfile(member: any, kind: "self" | "child"): AthleteProfile {
 
 let _profilesCache: AthleteProfile[] | null = null;
 let _profilesPromise: Promise<AthleteProfile[]> | null = null;
+const _profileSubs = new Set<(list: AthleteProfile[]) => void>();
 
 function fetchProfiles(): Promise<AthleteProfile[]> {
   if (_profilesCache) return Promise.resolve(_profilesCache);
@@ -62,7 +63,12 @@ function fetchProfiles(): Promise<AthleteProfile[]> {
   _profilesPromise = fetch("/api/member/portal")
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
-      if (!d?.user) return [];
+      if (!d?.user) {
+        // Don't memoize failures — the next consumer retries (a flaky first
+        // request must not blank the switcher for the whole SPA session).
+        _profilesPromise = null;
+        return [];
+      }
       const list: AthleteProfile[] = [];
       if (d.user.memberProfile) list.push(toProfile(d.user.memberProfile, "self"));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,8 +76,24 @@ function fetchProfiles(): Promise<AthleteProfile[]> {
       _profilesCache = list;
       return list;
     })
-    .catch(() => [] as AthleteProfile[]);
+    .catch(() => {
+      _profilesPromise = null;
+      return [] as AthleteProfile[];
+    });
   return _profilesPromise;
+}
+
+/**
+ * Drop the cached roster and refetch, pushing the fresh list to every
+ * mounted consumer (rail + chips). Call after mutations that change who the
+ * account manages — linking a child, adding a self profile.
+ */
+export function invalidateAthleteProfiles(): void {
+  _profilesCache = null;
+  _profilesPromise = null;
+  fetchProfiles().then((list) => {
+    _profileSubs.forEach((cb) => cb(list));
+  });
 }
 
 /** All athlete profiles this account manages (self + linked children). */
@@ -85,8 +107,14 @@ export function useAthleteProfiles(): { profiles: AthleteProfile[]; loaded: bool
       setProfiles(list);
       setLoaded(true);
     });
+    const sub = (list: AthleteProfile[]) => {
+      setProfiles(list);
+      setLoaded(true);
+    };
+    _profileSubs.add(sub);
     return () => {
       alive = false;
+      _profileSubs.delete(sub);
     };
   }, []);
   return { profiles, loaded };

@@ -6,7 +6,8 @@
 // stays as a deep link). All booking / registration / check-in / discount
 // flows are unchanged.
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import {
   onActiveProfileChange,
@@ -153,16 +154,29 @@ function ItemCard({ item, onClick }: { item: ScheduleItem; onClick: () => void }
 }
 
 export default function MemberSchedulePage() {
+  // useSearchParams (for ?tab= deep links) needs a Suspense boundary to keep
+  // the static build happy.
+  return (
+    <Suspense fallback={null}>
+      <ScheduleInner />
+    </Suspense>
+  );
+}
+
+function ScheduleInner() {
   const { profiles } = useAthleteProfiles();
+  const searchParams = useSearchParams();
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  // Page tab: Schedule | Bookings. Deep-linkable via ?tab=bookings.
-  const [tab, setTab] = useState<"schedule" | "bookings">(() => {
-    if (typeof window === "undefined") return "schedule";
-    return new URLSearchParams(window.location.search).get("tab") === "bookings"
-      ? "bookings"
-      : "schedule";
-  });
+  // Page tab: Schedule | Bookings. Deep-linkable via ?tab=bookings; a URL
+  // change (e.g. bottom-nav Schedule while on ?tab=bookings) re-syncs the
+  // tab, while in-page switches don't touch the URL.
+  const [tab, setTab] = useState<"schedule" | "bookings">(() =>
+    searchParams.get("tab") === "bookings" ? "bookings" : "schedule",
+  );
+  useEffect(() => {
+    setTab(searchParams.get("tab") === "bookings" ? "bookings" : "schedule");
+  }, [searchParams]);
   // Schedule view: Agenda (list) | Calendar (week grid on desktop, month grid
   // on mobile). Desktop defaults to Calendar (2c), mobile to Agenda (1e).
   const [view, setView] = useState<"agenda" | "calendar">(() =>

@@ -39,9 +39,10 @@ export default function GuardianList({ guardians }: { guardians: GuardianEntry[]
           <div className="flex-1 min-w-0">
             <p className="text-[12.5px] font-semibold text-stone-900 flex items-center gap-1.5 flex-wrap">
               <span className="truncate">{g.name}</span>
+              {/* "Primary", not "Owner" — Owner is the club-role term. */}
               {(g.isYou || g.isPrimary) && (
                 <Pill tone="accent">
-                  {[g.isYou ? "You" : null, g.isPrimary ? "Owner" : null].filter(Boolean).join(" · ")}
+                  {[g.isYou ? "You" : null, g.isPrimary ? "Primary" : null].filter(Boolean).join(" · ")}
                 </Pill>
               )}
             </p>

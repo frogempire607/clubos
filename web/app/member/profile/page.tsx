@@ -14,7 +14,7 @@ import { signOut } from "next-auth/react";
 import ImageUpload from "@/components/ImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "@/lib/activeProfile";
 import { Avatar, Pill, GhostButton } from "@/components/member/ui";
-import AthleteRail, { useAthleteProfiles } from "@/components/member/AthleteRail";
+import AthleteRail, { useAthleteProfiles, invalidateAthleteProfiles } from "@/components/member/AthleteRail";
 import GuardianAvatars from "@/components/member/GuardianAvatars";
 
 type MeProfile = {
@@ -329,6 +329,7 @@ export default function MemberAccountPage() {
       setError(typeof d.error === "string" ? d.error : "Could not set up your athlete profile.");
       return;
     }
+    invalidateAthleteProfiles();
     load();
   }
 
@@ -408,6 +409,7 @@ export default function MemberAccountPage() {
       );
     } else {
       setFamilyMessage("Athlete linked. You can now switch to that profile across the portal.");
+      invalidateAthleteProfiles();
       load();
     }
   }
@@ -891,17 +893,14 @@ export default function MemberAccountPage() {
                             : "…"}
                         </p>
                       </div>
-                      {d && outstanding === 0 ? (
-                        <Pill tone="success">Done</Pill>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => openDocumentsFor(g.member.id)}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
-                        >
-                          Open
-                        </button>
-                      )}
+                      {d && outstanding === 0 && <Pill tone="success">Done</Pill>}
+                      <button
+                        type="button"
+                        onClick={() => openDocumentsFor(g.member.id)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
+                      >
+                        Open
+                      </button>
                     </div>
                   );
                 })}

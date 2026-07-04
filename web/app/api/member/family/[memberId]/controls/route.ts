@@ -75,16 +75,16 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
     }),
     prisma.member.findUnique({ where: { id: child.id }, select: { guardianEmail: true } }),
   ]);
+  // Mirror lib/guardianLink.isPrimaryGuardian exactly — it's an OR: the
+  // guardianEmail-matching user AND the earliest-linked user each count as
+  // primary, so the badge never disagrees with who can actually save.
   const primaryEmail = childRow?.guardianEmail?.trim().toLowerCase() ?? null;
-  const emailPrimary = primaryEmail
-    ? links.find((l) => l.user.email?.trim().toLowerCase() === primaryEmail)
-    : undefined;
-  const primaryUserId = emailPrimary?.userId ?? links[0]?.userId ?? null;
-  const guardians = links.map((l) => ({
+  const guardians = links.map((l, i) => ({
     userId: l.userId,
     name: `${l.user.firstName} ${l.user.lastName}`.trim(),
     relationship: l.relationship,
-    isPrimary: l.userId === primaryUserId,
+    isPrimary:
+      (primaryEmail != null && l.user.email?.trim().toLowerCase() === primaryEmail) || i === 0,
     isYou: l.userId === session.user.id,
   }));
 
