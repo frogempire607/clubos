@@ -16,6 +16,7 @@ import { Pill } from "@/components/member/ui";
 import AthleteRail, { useAthleteProfiles } from "@/components/member/AthleteRail";
 import PermissionToggleGrid, { ToggleRow } from "@/components/member/PermissionToggleGrid";
 import GuardianList, { type GuardianEntry } from "@/components/member/GuardianList";
+import InvoiceSplit from "@/components/member/InvoiceSplit";
 
 type Controls = {
   requirePaymentApproval?: boolean;
@@ -637,6 +638,11 @@ export default function FamilyControlsPage() {
                 )}
               </form>
             </div>
+
+            {/* Invoice split (Phase 7) — renders nothing unless
+                FEATURE_INVOICE_SPLIT is on server-side AND a co-guardian
+                exists to split with. */}
+            <InvoiceSplit memberId={params.memberId} childName={first} />
 
             <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1 !mt-5 -mb-1">
               Everything else — preserved

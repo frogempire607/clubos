@@ -8,6 +8,7 @@ import {
   MEMBERSHIP_CANCEL_KIND,
   MEMBERSHIP_PURCHASE_KIND,
   PRIVATE_PACKAGE_PURCHASE_KIND,
+  INVOICE_SPLIT_KIND,
 } from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
@@ -31,6 +32,11 @@ type Payload = {
   packageId?: string;
   paymentMethod?: string | null;
   discountCode?: string | null;
+  // INVOICE_SPLIT
+  splitId?: string;
+  responderUserId?: string;
+  proposerPercent?: number;
+  responderPercent?: number;
 };
 
 export async function GET() {
@@ -44,7 +50,11 @@ export async function GET() {
   const isOwner = role === "OWNER";
 
   const kinds: string[] = [];
-  if (isOwner || hasPermission(perms, "members", "view")) kinds.push(GUARDIAN_LINK_KIND);
+  if (isOwner || hasPermission(perms, "members", "view")) {
+    // INVOICE_SPLIT rides the members gate — it configures family billing
+    // structure, not money movement; the action route requires members:edit.
+    kinds.push(GUARDIAN_LINK_KIND, INVOICE_SPLIT_KIND);
+  }
   if (isOwner || hasPermission(perms, "finances", "view")) {
     kinds.push(MEMBERSHIP_CANCEL_KIND, MEMBERSHIP_PURCHASE_KIND, PRIVATE_PACKAGE_PURCHASE_KIND);
   }
@@ -67,7 +77,14 @@ export async function GET() {
   const memberById = new Map(members.map((m) => [m.id, m]));
 
   const userIds = Array.from(
-    new Set(rows.map((r) => (r.payload as Payload | null)?.requestingUserId).filter(Boolean) as string[]),
+    new Set(
+      rows
+        .flatMap((r) => {
+          const p = r.payload as Payload | null;
+          return [p?.requestingUserId, p?.responderUserId];
+        })
+        .filter(Boolean) as string[],
+    ),
   );
   const users = userIds.length
     ? await prisma.user.findMany({
@@ -149,6 +166,20 @@ export async function GET() {
         paymentMethod: p.paymentMethod ?? null,
         amount: r.amount != null ? Number(r.amount) : null,
         discountCode: p.discountCode ?? null,
+      };
+    }
+    if (r.kind === INVOICE_SPLIT_KIND) {
+      const responder = p.responderUserId ? userById.get(p.responderUserId) : undefined;
+      return {
+        id: r.id,
+        kind: r.kind,
+        memberId: r.memberId,
+        memberName,
+        requestedAt: r.requestedAt,
+        requester,
+        responderName: responder ? `${responder.firstName} ${responder.lastName}`.trim() : null,
+        proposerPercent: typeof p.proposerPercent === "number" ? p.proposerPercent : null,
+        responderPercent: typeof p.responderPercent === "number" ? p.responderPercent : null,
       };
     }
     if (r.kind === PRIVATE_PACKAGE_PURCHASE_KIND) {
