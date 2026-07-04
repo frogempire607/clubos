@@ -855,6 +855,16 @@ export default function MemberAccountPage() {
 
           {/* ── Right column: documents + billing, per person ── */}
           <div className="space-y-4 min-w-0 mt-4 md:mt-0">
+            {people.length === 0 && (
+              // No athlete rows to scope by — keep Documents reachable anyway.
+              <div className="pcard p-5">
+                <h2 className="text-sm font-semibold text-stone-900 mb-1">Documents</h2>
+                <p className="text-xs text-stone-500 mb-3">Waivers &amp; forms from your club.</p>
+                <GhostButton href="/member/documents" className="!px-3 !py-1.5 !text-xs">
+                  Open documents
+                </GhostButton>
+              </div>
+            )}
             {people.length > 0 && (
               <div className="pcard p-5">
                 <div className="flex items-center justify-between gap-3 mb-2">
