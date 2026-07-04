@@ -258,9 +258,28 @@ export default function MembershipsPage() {
                       <span className="font-mono text-sm font-semibold text-text-primary">{d.code}</span>
                       {d.description && <div className="text-xs text-text-muted">{d.description}</div>}
                       <div className="text-xs text-text-muted">
-                        {Array.isArray(d.membershipIds) && d.membershipIds.length > 0
-                          ? `Applies to: ${d.membershipIds.map((id) => memberships.find((m) => m.id === id)?.name || "(deleted plan)").join(", ")}`
-                          : "Applies to all purchase options"}
+                        {(() => {
+                          const types = Array.isArray((d as { appliesTo?: unknown }).appliesTo)
+                            ? ((d as unknown as { appliesTo: string[] }).appliesTo)
+                            : [];
+                          const plans = Array.isArray(d.membershipIds) ? d.membershipIds : [];
+                          const parts: string[] = [];
+                          if (types.length > 0) {
+                            parts.push(
+                              types
+                                .map((t) => DISCOUNT_ITEM_TYPES.find((x) => x.key === t)?.label || t)
+                                .join(", "),
+                            );
+                          }
+                          if (plans.length > 0) {
+                            parts.push(
+                              `plans: ${plans.map((id) => memberships.find((m) => m.id === id)?.name || "(deleted plan)").join(", ")}`,
+                            );
+                          }
+                          return parts.length > 0
+                            ? `Applies to: ${parts.join(" · ")}`
+                            : "Applies to all purchase options";
+                        })()}
                       </div>
                     </td>
                     <td className="px-5 py-3 text-sm text-text-muted">{d.type === "PERCENT" ? "Percent" : "Fixed"}</td>
@@ -539,6 +558,14 @@ function MembershipModal({ membership, onClose, onSaved }: { membership: Members
 }
 
 // ── Discount Modal ────────────────────────────────────────────────────────────
+const DISCOUNT_ITEM_TYPES: { key: string; label: string }[] = [
+  { key: "MEMBERSHIP", label: "Memberships" },
+  { key: "EVENT", label: "Events" },
+  { key: "CLASS", label: "Class drop-ins" },
+  { key: "PRODUCT", label: "Products" },
+  { key: "PRIVATE_PACK", label: "Lesson packs" },
+];
+
 function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: Discount | null; memberships: Membership[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!discount;
   const [code, setCode] = useState(discount?.code || "");
@@ -548,11 +575,20 @@ function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: 
   const [maxUses, setMaxUses] = useState(discount?.maxUses ? String(discount.maxUses) : "");
   const [expiresAt, setExpiresAt] = useState(discount?.expiresAt ? new Date(discount.expiresAt).toISOString().slice(0, 10) : "");
   const [scopedIds, setScopedIds] = useState<string[]>(Array.isArray(discount?.membershipIds) ? discount!.membershipIds : []);
+  const [appliesTo, setAppliesTo] = useState<string[]>(
+    Array.isArray((discount as { appliesTo?: unknown } | null)?.appliesTo)
+      ? ((discount as unknown as { appliesTo: string[] }).appliesTo)
+      : [],
+  );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   function toggleScope(id: string) {
     setScopedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleType(key: string) {
+    setAppliesTo((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -568,6 +604,7 @@ function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: 
       maxUses: maxUses ? parseInt(maxUses, 10) : null,
       expiresAt: expiresAt || null,
       membershipIds: scopedIds,
+      appliesTo,
     };
 
     const url = isEdit ? `/api/discounts/${discount!.id}` : "/api/discounts";
@@ -641,26 +678,54 @@ function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: 
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">Applies to</label>
             <p className="text-xs text-text-muted mb-2">
-              {scopedIds.length === 0
-                ? "All memberships and purchase options (default)."
-                : "Only the selected memberships. Uncheck all to apply to everything."}
+              {appliesTo.length === 0
+                ? "Every purchase type (default). Check types to restrict the code."
+                : "Only the checked purchase types."}
             </p>
-            <div className="max-h-36 overflow-y-auto border border-app-border rounded-lg divide-y divide-app-border">
-              {memberships.map((m) => (
-                <label key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary cursor-pointer hover:bg-app-bg">
-                  <input
-                    type="checkbox"
-                    checked={scopedIds.includes(m.id)}
-                    onChange={() => toggleScope(m.id)}
-                    className="rounded border-app-border"
-                  />
-                  {m.name}
-                </label>
-              ))}
-              {memberships.length === 0 && (
-                <p className="px-3 py-2 text-xs text-text-muted">No membership plans yet — the code will apply to all future plans.</p>
-              )}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {DISCOUNT_ITEM_TYPES.map((t) => {
+                const active = appliesTo.includes(t.key);
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => toggleType(t.key)}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition ${
+                      active
+                        ? "bg-brand text-white border-transparent"
+                        : "border-app-border text-text-muted hover:bg-app-bg"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
+            {(appliesTo.length === 0 || appliesTo.includes("MEMBERSHIP")) && (
+              <>
+                <p className="text-xs text-text-muted mb-2">
+                  {scopedIds.length === 0
+                    ? "Covers every membership plan. Check plans to narrow it."
+                    : "Only the selected membership plans."}
+                </p>
+                <div className="max-h-36 overflow-y-auto border border-app-border rounded-lg divide-y divide-app-border">
+                  {memberships.map((m) => (
+                    <label key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary cursor-pointer hover:bg-app-bg">
+                      <input
+                        type="checkbox"
+                        checked={scopedIds.includes(m.id)}
+                        onChange={() => toggleScope(m.id)}
+                        className="rounded border-app-border"
+                      />
+                      {m.name}
+                    </label>
+                  ))}
+                  {memberships.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-text-muted">No membership plans yet — the code will apply to all future plans.</p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}

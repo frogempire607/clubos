@@ -163,6 +163,7 @@ export async function GET() {
         optionLabel: null,
         paymentMethod: p.paymentMethod ?? null,
         amount: r.amount != null ? Number(r.amount) : null,
+        discountCode: p.discountCode ?? null,
       };
     }
     // MEMBERSHIP_CANCEL

@@ -10,6 +10,7 @@ import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
+import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 
 // POST /api/member/classes/book
 // Member-self booking for a class session. The price tier (member / non-member
@@ -20,6 +21,7 @@ import { applyParentalControls } from "@/lib/parentalControls";
 const schema = z.object({
   classSessionId: z.string(),
   memberId: z.string().optional(),
+  discountCode: z.string().max(50).optional().nullable(),
 });
 
 type PricingOption =
@@ -38,7 +40,7 @@ export async function POST(req: Request) {
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many booking attempts. Try again in a moment.");
 
   try {
-    const { classSessionId, memberId } = schema.parse(await req.json().catch(() => ({})));
+    const { classSessionId, memberId, discountCode } = schema.parse(await req.json().catch(() => ({})));
 
     // Resolve the booking member (self or linked child)
     const user = await prisma.user.findUnique({
@@ -232,6 +234,16 @@ export async function POST(req: Request) {
       );
     }
 
+    // Optional discount code — validated for CLASS purchases, applied to the
+    // resolved tier price before the parental gate sees the amount.
+    let discount: ValidDiscount | null = null;
+    if (discountCode?.trim()) {
+      const check = await findValidDiscountFor(session.user.clubId, discountCode, { type: "CLASS" });
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+      discount = check.discount;
+    }
+    const finalPrice = discount ? discountedPrice(priced.price, discount) : priced.price;
+
     // P4 parental gate. Runs after price resolution + before Stripe.
     // Allows by default; queues a guardian-approval row for controlled
     // minors. Replay payload is the same { classSessionId, memberId }
@@ -248,8 +260,13 @@ export async function POST(req: Request) {
       // A guardian booking for a child (member isn't the booker's own login).
       bookerIsGuardian: member.userId !== session.user.id,
       kind: "CLASS_BOOK",
-      amount: priced.price,
-      payload: { classSessionId, memberId: member.id, pricingType: priced.pricingType },
+      amount: finalPrice,
+      payload: {
+        classSessionId,
+        memberId: member.id,
+        pricingType: priced.pricingType,
+        ...(discount ? { discountCode: discount.code } : {}),
+      },
     });
     if (gate.kind === "block") {
       return NextResponse.json(gate.body, { status: gate.status });
@@ -258,12 +275,28 @@ export async function POST(req: Request) {
       return NextResponse.json(gate.response, { status: 202 });
     }
 
+    // A discount that zeroes the price books directly — no Stripe round-trip.
+    if (discount && finalPrice <= 0) {
+      const record = await prisma.attendanceRecord.create({
+        data: {
+          clubId: session.user.clubId,
+          classSessionId,
+          memberId: member.id,
+          status: priced.pricingType === "DROP_IN" ? "DROP_IN" : "PRESENT",
+          addedById: session.user.id,
+          notes: `Discount code ${discount.code} (100% off)`,
+        },
+      });
+      await recordDiscountUse(discount.id);
+      return NextResponse.json({ coveredByMembership: false, free: true, attendanceRecordId: record.id });
+    }
+
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
     if (!club || !club.stripeAccountId || !club.stripeChargesEnabled) {
       return NextResponse.json({ error: "Your club hasn't finished setting up online payments yet." }, { status: 400 });
     }
 
-    const priceCents = Math.round(priced.price * 100);
+    const priceCents = Math.round(finalPrice * 100);
     const platformFee = calculatePlatformFee(priceCents, club.tier);
     const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
@@ -279,7 +312,7 @@ export async function POST(req: Request) {
               unit_amount: priceCents,
               product_data: {
                 name: cls.name,
-                description: `${priced.label} price · ${new Date(classSession.startsAt).toLocaleString()}`,
+                description: `${priced.label} price${discount ? ` · code ${discount.code}` : ""} · ${new Date(classSession.startsAt).toLocaleString()}`,
               },
             },
           },
@@ -305,11 +338,13 @@ export async function POST(req: Request) {
           className: cls.name,
           clubId: club.id,
           pricingType: priced.pricingType,
+          ...(discount ? { discountCode: discount.code } : {}),
         },
       },
       { stripeAccount: club.stripeAccountId },
     );
 
+    if (discount) await recordDiscountUse(discount.id);
     return NextResponse.json({ url: checkoutSession.url });
   } catch (err) {
     console.error("Member class book error:", err);

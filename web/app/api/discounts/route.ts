@@ -25,6 +25,8 @@ const schema = z.object({
   active:        z.boolean().optional(),
   expiresAt:     z.string().optional().nullable(),
   membershipIds: z.array(z.string()).optional(),
+  // Item types the code covers ([] = all purchase types).
+  appliesTo:     z.array(z.enum(["MEMBERSHIP", "EVENT", "CLASS", "PRODUCT", "PRIVATE_PACK"])).optional(),
 });
 
 export async function POST(req: Request) {
@@ -54,6 +56,7 @@ export async function POST(req: Request) {
         active:        body.active ?? true,
         expiresAt:     body.expiresAt ? new Date(body.expiresAt) : null,
         membershipIds: body.membershipIds ?? [],
+        appliesTo:     body.appliesTo ?? [],
       },
     });
 

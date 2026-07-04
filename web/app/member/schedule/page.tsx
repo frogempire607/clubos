@@ -181,6 +181,13 @@ export default function MemberSchedulePage() {
 
   const [checkinBusy, setCheckinBusy] = useState<string | null>(null);
   const [checkedIn, setCheckedIn] = useState<Set<string>>(new Set());
+  const [discountCode, setDiscountCode] = useState("");
+
+  // A stale (possibly invalid) code shouldn't silently ride along on the
+  // next booking — reset it whenever a different item's sheet opens.
+  useEffect(() => {
+    setDiscountCode("");
+  }, [selected?.id]);
 
   // Check-in opens 1h before start, closes 12h after end (server enforces the
   // same in /api/member/checkin/[id]).
@@ -248,7 +255,11 @@ export default function MemberSchedulePage() {
     const res = await fetch("/api/member/classes/book", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classSessionId: item.id, memberId: activeId }),
+      body: JSON.stringify({
+        classSessionId: item.id,
+        memberId: activeId,
+        discountCode: discountCode.trim() || null,
+      }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
@@ -288,7 +299,11 @@ export default function MemberSchedulePage() {
     const res = await fetch(`/api/member/events/${item.refId}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pricingType: "MEMBER", memberId: activeId }),
+      body: JSON.stringify({
+        pricingType: "MEMBER",
+        memberId: activeId,
+        discountCode: discountCode.trim() || null,
+      }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
@@ -533,6 +548,21 @@ export default function MemberSchedulePage() {
                       : "Registration is not available from your account right now."}
                 </p>
               </div>
+
+              {selected.canBook && !!selected.price && (
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">
+                    Discount code (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={discountCode}
+                    onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+                    placeholder="SUMMER20"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-stone-400"
+                  />
+                </div>
+              )}
 
               <div className="flex gap-2">
                 <button

@@ -75,6 +75,7 @@ export default function MemberEventsPage() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [bundles, setBundles] = useState<BundleCard[]>([]);
+  const [discountCode, setDiscountCode] = useState("");
 
   function load() {
     setLoading(true);
@@ -119,7 +120,11 @@ export default function MemberEventsPage() {
     const res = await fetch(`/api/member/events/${eventId}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pricingType, memberId: selectedMemberId }),
+      body: JSON.stringify({
+        pricingType,
+        memberId: selectedMemberId,
+        discountCode: discountCode.trim() || null,
+      }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
@@ -189,6 +194,17 @@ export default function MemberEventsPage() {
 
       {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
       {info && <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 mb-4">{info}</div>}
+
+      <div className="mb-4 flex items-center gap-2">
+        <label className="text-xs text-stone-500 flex-shrink-0">Discount code</label>
+        <input
+          type="text"
+          value={discountCode}
+          onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+          placeholder="Optional — applied at registration"
+          className="w-full max-w-xs px-3 py-1.5 border border-stone-300 rounded-lg text-sm font-mono uppercase placeholder:font-sans placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-stone-400"
+        />
+      </div>
 
       {!loading && bundles.length > 0 && (
         <div className="mb-6">

@@ -1474,6 +1474,10 @@ model Discount {
   active        Boolean   @default(true)
   expiresAt     DateTime?
   membershipIds Json      @default("[]") // [] = all memberships
+  // Item types the code covers: MEMBERSHIP | EVENT | CLASS | PRODUCT |
+  // PRIVATE_PACK. [] = every purchase type (the default). When MEMBERSHIP is
+  // covered, membershipIds can narrow it to specific plans.
+  appliesTo     Json      @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
