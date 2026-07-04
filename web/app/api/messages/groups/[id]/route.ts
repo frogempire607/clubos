@@ -9,6 +9,11 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Dashboard thread — owner/staff only. Members read groups through
+  // /api/member/messages/groups/[id], which enforces group membership.
+  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const group = await prisma.messageGroup.findFirst({
     where: { id: params.id, clubId: session.user.clubId },
@@ -73,6 +78,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const group = await prisma.messageGroup.findFirst({
     where: { id: params.id, clubId: session.user.clubId },

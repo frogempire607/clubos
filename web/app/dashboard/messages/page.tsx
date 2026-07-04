@@ -126,7 +126,18 @@ function GroupsTab() {
 
   async function loadGroups() {
     const res = await fetch("/api/messages/groups");
-    if (res.ok) setGroups(await res.json());
+    if (res.ok) {
+      const list: MessageGroup[] = await res.json();
+      setGroups(list);
+      // Deep link: /dashboard/messages?group=<id> (e.g. an event's "Group
+      // chat" button) auto-opens that thread. window.location instead of
+      // useSearchParams avoids the Suspense-boundary build requirement.
+      const wanted = new URLSearchParams(window.location.search).get("group");
+      if (wanted) {
+        const target = list.find((g) => g.id === wanted);
+        if (target) setActiveGroup((prev) => prev ?? target);
+      }
+    }
     setLoading(false);
   }
 

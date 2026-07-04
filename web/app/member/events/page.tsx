@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarRange, Package } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CalendarRange, MessageCircle, Package } from "lucide-react";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 
 type EventCard = {
@@ -61,6 +62,7 @@ function fmtPrice(n: number | string | null) {
 }
 
 export default function MemberEventsPage() {
+  const router = useRouter();
   const [events, setEvents] = useState<EventCard[]>([]);
   const [bookings, setBookings] = useState<BookingRef[]>([]);
   const [activeMembershipIds, setActiveMembershipIds] = useState<string[]>([]);
@@ -96,6 +98,19 @@ export default function MemberEventsPage() {
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [selectedMemberId]);
+
+  async function openEventChat(eventId: string) {
+    setBusy(`chat:${eventId}`);
+    setError("");
+    const res = await fetch(`/api/member/events/${eventId}/chat`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok || !d.groupId) {
+      setError(d.error || "Couldn't open the event chat.");
+      return;
+    }
+    router.push(`/member/messages/group/${d.groupId}`);
+  }
 
   async function register(eventId: string, pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" = "MEMBER") {
     setBusy(eventId);
@@ -326,9 +341,19 @@ export default function MemberEventsPage() {
                   </div>
                   <div className="flex-shrink-0 flex flex-col items-stretch gap-1.5">
                     {booked ? (
-                      <span className="text-xs px-3 py-1.5 rounded-lg bg-green-50 text-green-700 font-medium text-center">
-                        {booked.status === "WAITLISTED" ? "Waitlisted" : "Registered"}
-                      </span>
+                      <>
+                        <span className="text-xs px-3 py-1.5 rounded-lg bg-green-50 text-green-700 font-medium text-center">
+                          {booked.status === "WAITLISTED" ? "Waitlisted" : "Registered"}
+                        </span>
+                        <button
+                          disabled={busy === `chat:${e.id}`}
+                          onClick={() => openEventChat(e.id)}
+                          className="px-3 py-1.5 bg-white border border-stone-300 text-stone-700 rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50 inline-flex items-center justify-center gap-1"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" strokeWidth={2} />
+                          {busy === `chat:${e.id}` ? "Opening…" : "Event chat"}
+                        </button>
+                      </>
                     ) : (
                       <>
                         <button

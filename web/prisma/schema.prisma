@@ -852,6 +852,7 @@ model Event {
   registrations    EventRegistration[]
   bundleItems      EventBundleItem[]
   expenseItems     EventExpenseItem[]
+  chatGroup        MessageGroup?
 
   @@index([clubId])
   @@index([startsAt])
@@ -1335,10 +1336,14 @@ model MessageGroup {
   type        String   @default("GROUP") // GROUP | BROADCAST
   filterType  String? // tag | membership | age | custom | all
   filterValue String?
+  // When set, this group is the event's chat: access follows registration
+  // (see lib/eventChat.ts) instead of a fixed member list.
+  eventId     String?  @unique
   createdById String
   createdAt   DateTime @default(now())
 
   club     Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  event    Event?               @relation(fields: [eventId], references: [id], onDelete: Cascade)
   messages GroupMessage[]
   members  MessageGroupMember[]
 

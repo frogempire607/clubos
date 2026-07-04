@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckSquare } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CheckSquare, MessageCircle } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Booking = {
@@ -177,6 +178,7 @@ function getEventLabel(b: Booking) {
 }
 
 export default function MemberBookingsPage() {
+  const router = useRouter();
   const [members, setMembers] = useState<MemberContext[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -188,6 +190,19 @@ export default function MemberBookingsPage() {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [chatBusy, setChatBusy] = useState<string | null>(null);
+
+  async function openEventChat(eventId: string) {
+    setChatBusy(eventId);
+    const res = await fetch(`/api/member/events/${eventId}/chat`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setChatBusy(null);
+    if (!res.ok || !d.groupId) {
+      setToast(d.error || "Couldn't open the event chat.");
+      return;
+    }
+    router.push(`/member/messages/group/${d.groupId}`);
+  }
 
   useEffect(() => {
     (async () => {
@@ -440,10 +455,19 @@ export default function MemberBookingsPage() {
                     </button>
                   </div>
                 )}
-                {(b.kind === "class" || b.kind === "event") &&
-                  !TERMINAL.has(b.status) &&
-                  new Date(b.event.startsAt) > new Date() && (
-                    <div className="mt-3 pt-3 border-t border-stone-100 flex justify-end">
+                {(b.kind === "class" || b.kind === "event") && !TERMINAL.has(b.status) && (
+                  <div className="mt-3 pt-3 border-t border-stone-100 flex justify-end gap-2">
+                    {b.kind === "event" && (
+                      <button
+                        disabled={chatBusy === b.event.id}
+                        onClick={() => openEventChat(b.event.id)}
+                        className="text-xs px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" strokeWidth={2} />
+                        {chatBusy === b.event.id ? "Opening…" : "Event chat"}
+                      </button>
+                    )}
+                    {new Date(b.event.startsAt) > new Date() && (
                       <button
                         onClick={() => {
                           setManage({
@@ -458,8 +482,9 @@ export default function MemberBookingsPage() {
                       >
                         Cancel booking
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

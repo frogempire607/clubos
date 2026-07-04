@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CalendarRange, Clock, MapPin, Users as UsersIcon, MoreVertical, X } from "lucide-react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
 import ImageUpload from "@/components/ImageUpload";
@@ -149,6 +150,20 @@ export default function EventsPage() {
   const [builtInOverrides, setBuiltInOverrides] = useState<BuiltInOverrides>(null);
   const [clubMeta, setClubMeta] = useState<{ name: string; slug: string } | null>(null);
   const [actionMenuFor, setActionMenuFor] = useState<string | null>(null);
+  const [chatBusy, setChatBusy] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function openEventChat(eventId: string) {
+    setChatBusy(eventId);
+    const res = await fetch(`/api/events/${eventId}/chat`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setChatBusy(null);
+    if (!res.ok || !d.groupId) {
+      alert(d.error || "Couldn't open the event chat.");
+      return;
+    }
+    router.push(`/dashboard/messages?group=${d.groupId}`);
+  }
 
   async function load() {
     setLoading(true);
@@ -443,6 +458,13 @@ export default function EventsPage() {
                       Bookings
                     </button>
                     <button
+                      onClick={() => openEventChat(e.id)}
+                      disabled={chatBusy === e.id}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg disabled:opacity-50"
+                    >
+                      {chatBusy === e.id ? "Opening…" : "Group chat"}
+                    </button>
+                    <button
                       onClick={() => setEditing(e)}
                       className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
                     >
@@ -512,6 +534,12 @@ export default function EventsPage() {
                         className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
                       >
                         Bookings
+                      </button>
+                      <button
+                        onClick={() => { setActionMenuFor(null); openEventChat(e.id); }}
+                        className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                      >
+                        Group chat
                       </button>
                       <button
                         onClick={() => { setActionMenuFor(null); setEditing(e); }}
