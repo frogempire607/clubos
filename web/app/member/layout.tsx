@@ -7,32 +7,63 @@ import { useRouter, usePathname } from "next/navigation";
 import ProfileSwitcher from "@/components/member/ProfileSwitcher";
 import BackButton from "@/components/BackButton";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
-import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
+import type { BrandedAppConfig } from "@/lib/brandedApp";
 
-// Primary bottom-nav tabs — 5 slots. Bookings is now a top-level tab
-// (previously buried inside Schedule); News / Docs / Profile / Privates
-// live in the More sheet so they stay one tap away without crowding the
-// bottom bar.
+// Primary tabs — 5 stable slots: Home · Book · Schedule · Messages · More.
+// Book is the one purchase hub (/member/shop; Store demoted to a category
+// inside it) and Schedule absorbs Bookings as an in-page tab, so neither
+// needs its own slot. `also` lists extra route prefixes that keep a tab
+// highlighted (deep links like /member/bookings or /member/products).
 const NAV = [
-  { href: "/member",              label: "Home",      icon: HomeIcon,           exact: true,  kind: "link" as const },
-  { href: "/member/schedule",     label: "Schedule",  icon: BookingIcon,        exact: false, kind: "link" as const },
-  { href: "/member/bookings",     label: "Bookings",  icon: CheckSquareIcon,    exact: false, kind: "link" as const },
-  { href: "/member/messages",     label: "Messages",  icon: MessageIcon,        exact: false, kind: "link" as const },
-  { href: "#more",                label: "More",      icon: MoreIcon,           exact: false, kind: "more" as const },
+  { href: "/member",          label: "Home",     icon: HomeIcon,    exact: true,  kind: "link" as const },
+  { href: "/member/shop",     label: "Book",     icon: BookNowIcon, exact: false, kind: "link" as const,
+    also: ["/member/products", "/member/memberships", "/member/events"] },
+  { href: "/member/schedule", label: "Schedule", icon: BookingIcon, exact: false, kind: "link" as const,
+    also: ["/member/bookings"] },
+  { href: "/member/messages", label: "Messages", icon: MessageIcon, exact: false, kind: "link" as const },
+  { href: "#more",            label: "More",     icon: MoreIcon,    exact: false, kind: "more" as const },
 ];
 
-// Items inside the More bottom-sheet. Hit the same routes that used to
-// live in the main bottom nav, plus a few extras the user could only
-// reach by typing URLs (privates, staff).
-const MORE_ITEMS = [
-  { href: "/member/announcements", label: "News",         desc: "Club updates",           icon: AnnouncementIcon },
-  { href: "/member/messages",      label: "Messages",     desc: "Chat with your club",    icon: MessageIcon },
-  { href: "/member/documents",     label: "Documents",    desc: "Waivers & forms",        icon: DocumentIcon },
-  { href: "/member/privates",      label: "Privates",     desc: "Book a coach 1:1",       icon: BookingIcon },
-  { href: "/member/club",          label: "Club profile", desc: "About, team & support",  icon: HomeIcon },
-  { href: "/member/staff",         label: "Our team",     desc: "Coach & staff bios",     icon: ProfileIcon },
-  { href: "/member/profile",       label: "Profile",      desc: "Account settings",       icon: ProfileIcon },
+// The More sheet — three intentional groups instead of a flat drawer.
+// Inbox = news + messages together; Your club = club (Our team lives
+// inside it) + privates; Your account = account + sign out (appended in
+// render). Documents stays here until the Account page surfaces it.
+const MORE_GROUPS: {
+  label: string;
+  blurb: string;
+  items: { href: string; label: string; desc: string; icon: ({ size }: { size: number }) => JSX.Element }[];
+}[] = [
+  {
+    label: "Inbox",
+    blurb: "News & messages, together.",
+    items: [
+      { href: "/member/announcements", label: "News",     desc: "Club updates",        icon: AnnouncementIcon },
+      { href: "/member/messages",      label: "Messages", desc: "Chat with your club", icon: MessageIcon },
+    ],
+  },
+  {
+    label: "Your club",
+    blurb: "About, team & support.",
+    items: [
+      { href: "/member/club",     label: "Club",     desc: "About, our team & support", icon: HomeIcon },
+      { href: "/member/privates", label: "Privates", desc: "Book a coach 1:1",          icon: BookingIcon },
+    ],
+  },
+  {
+    label: "Your account",
+    blurb: "Profile, family, billing & docs.",
+    items: [
+      { href: "/member/profile",   label: "Account",   desc: "Profile, family, billing & documents", icon: ProfileIcon },
+      { href: "/member/documents", label: "Documents", desc: "Waivers & forms",                      icon: DocumentIcon },
+    ],
+  },
 ];
+
+// Routes that render their own desktop AthleteRail (Phases 2–5). They get a
+// wider desktop canvas and hide the layout's managing chips at `md` (the
+// rail replaces them; the chips stay on mobile). Routes are added here in
+// the same phase that ships the page's rail.
+const RAIL_ROUTES: string[] = [];
 
 type ClubInfo = {
   name: string;
@@ -66,6 +97,16 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     setMoreOpen(false);
   }, [pathname]);
+
+  // Esc closes the More sheet.
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMoreOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [moreOpen]);
 
   // Unread-message count for the Messages tab badge. Refetched on navigation
   // AND when a thread page signals it finished loading (the thread GET is what
@@ -157,8 +198,10 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
     if (outcome === "accepted") { setInstalled(true); setInstallPrompt(null); }
   }
 
-  function isActive(item: { href: string; exact: boolean }) {
-    return item.exact ? pathname === item.href : pathname.startsWith(item.href);
+  function isActive(item: { href: string; exact: boolean; also?: string[] }) {
+    if (item.exact) return pathname === item.href;
+    if (pathname.startsWith(item.href)) return true;
+    return (item.also ?? []).some((p) => pathname.startsWith(p));
   }
 
   const accent = club?.primaryColor || "#1C1917";
@@ -198,6 +241,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   // stay independent; More just aggregates what lives behind it.
   const navHasMessages = portalNav.some((i) => "href" in i && i.href === "/member/messages");
   const moreBadge = annUnread + (navHasMessages ? 0 : unread);
+  const railRoute = RAIL_ROUTES.some((r) => pathname.startsWith(r));
 
   return (
     <div className="min-h-screen bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
@@ -346,7 +390,9 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       )}
 
       {/* ── Page content ── */}
-      <main className="max-w-4xl mx-auto px-4 py-5 pb-24 md:pb-10 safe-area-content-bottom">
+      <main
+        className={`${railRoute ? "max-w-4xl md:max-w-6xl" : "max-w-4xl"} mx-auto px-4 md:px-6 py-5 pb-24 md:pb-10 safe-area-content-bottom`}
+      >
         {/* Universal back button. Hidden on the member home so the header
             isn't cluttered with a back link that points at the same page. */}
         {pathname !== "/member" && (
@@ -354,7 +400,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
             <BackButton fallbackHref="/member" />
           </div>
         )}
-        <ProfileSwitcher />
+        {/* On rail routes the page renders its own desktop AthleteRail, so
+            the managing chips only show on mobile there. */}
+        <div className={railRoute ? "md:hidden" : ""}>
+          <ProfileSwitcher />
+        </div>
         {children}
       </main>
 
@@ -416,7 +466,8 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         </div>
       </nav>
 
-      {/* ── More sheet — bottom sheet on mobile, centered panel on desktop ── */}
+      {/* ── More sheet — grouped bottom sheet on mobile, 3-column hub on
+             desktop (2e / 1g): Inbox · Your club · Your account. ── */}
       {moreOpen && (
         <div
           className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center"
@@ -424,14 +475,19 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div
-            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-sm md:rounded-2xl"
+            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-3xl md:rounded-2xl max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="More"
           >
-            <div className="flex items-center justify-between px-5 pt-4 pb-2">
-              <h2 className="text-base font-semibold text-stone-900">More</h2>
+            <div className="flex items-center justify-between px-5 pt-4 pb-1">
+              <div>
+                <h2 className="text-base font-semibold text-stone-900">More</h2>
+                <p className="text-xs text-stone-500 hidden md:block">
+                  Inbox, your club, and your account — everything that isn&apos;t a daily tab.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setMoreOpen(false)}
@@ -441,60 +497,71 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                 ×
               </button>
             </div>
-            <div className="divide-y divide-stone-100">
-              {MORE_ITEMS.map((it) => {
-                const Icon = it.icon;
-                return (
-                  <Link
-                    key={it.href}
-                    href={it.href}
-                    className="flex items-center gap-3 px-5 py-3 hover:bg-stone-50 transition"
-                  >
-                    <span
-                      className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                      style={{ background: `${accent}18`, color: accent }}
-                    >
-                      <Icon size={18} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-stone-900">{it.label}</div>
-                      <div className="text-xs text-stone-500">{it.desc}</div>
-                    </div>
-                    {(() => {
-                      const rowBadge =
-                        it.href === "/member/announcements" ? annUnread : it.href === "/member/messages" ? unread : 0;
-                      return rowBadge > 0 ? (
-                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
-                          {rowBadge > 9 ? "9+" : rowBadge}
+            <div className="px-3 pb-4 md:px-5 md:pb-6 md:grid md:grid-cols-3 md:gap-4 md:pt-2">
+              {MORE_GROUPS.map((group) => (
+                <div key={group.label} className="md:rounded-2xl md:border md:border-stone-200 md:p-1.5">
+                  <div className="px-2 pt-3 pb-1 md:pt-2">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-stone-400">
+                      {group.label}
+                    </p>
+                    <p className="text-[11px] text-stone-500 hidden md:block">{group.blurb}</p>
+                  </div>
+                  {group.items.map((it) => {
+                    const Icon = it.icon;
+                    const rowBadge =
+                      it.href === "/member/announcements" ? annUnread : it.href === "/member/messages" ? unread : 0;
+                    return (
+                      <Link
+                        key={it.href}
+                        href={it.href}
+                        className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-stone-50 transition"
+                      >
+                        <span
+                          className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ background: `${accent}18`, color: accent }}
+                        >
+                          <Icon size={18} />
                         </span>
-                      ) : null;
-                    })()}
-                    <svg
-                      className="text-stone-300 flex-shrink-0"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      aria-hidden
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-stone-900">{it.label}</div>
+                          <div className="text-xs text-stone-500">{it.desc}</div>
+                        </div>
+                        {rowBadge > 0 && (
+                          <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
+                            {rowBadge > 9 ? "9+" : rowBadge}
+                          </span>
+                        )}
+                        <svg
+                          className="text-stone-300 flex-shrink-0"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden
+                        >
+                          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </Link>
+                    );
+                  })}
+                  {/* Sign out lives at the bottom of "Your account". */}
+                  {group.label === "Your account" && (
+                    <button
+                      type="button"
+                      onClick={() => { setMoreOpen(false); signOutEverywhere({ callbackUrl: "/login" }); }}
+                      className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-stone-50 transition text-left"
                     >
-                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                    </svg>
-                  </Link>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => { setMoreOpen(false); signOutEverywhere({ callbackUrl: "/login" }); }}
-                className="w-full flex items-center gap-3 px-5 py-3 hover:bg-stone-50 transition text-left"
-              >
-                <span className="w-9 h-9 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center flex-shrink-0">
-                  <SignOutIcon size={18} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-stone-900">Sign out</div>
-                  <div className="text-xs text-stone-500">End your session on this device</div>
+                      <span className="w-9 h-9 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center flex-shrink-0">
+                        <SignOutIcon size={18} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-stone-900">Sign out</div>
+                        <div className="text-xs text-stone-500">End your session on this device</div>
+                      </div>
+                    </button>
+                  )}
                 </div>
-              </button>
+              ))}
             </div>
           </div>
         </div>
@@ -621,21 +688,17 @@ function ProfileIcon({ size }: { size: number }) {
 }
 
 function buildPortalNav(config: BrandedAppConfig | null | undefined) {
+  // Branded and default clubs share the same five slots now (Home · Book ·
+  // Schedule · Messages · More). Book absorbed the old standalone Store tab
+  // (Store is a category inside the Book hub) and Schedule absorbed
+  // Bookings, so the per-club nav item toggles no longer change the tab
+  // set — branding still drives colors, radius and the header. The config
+  // may customize the Book label (e.g. "Book Now"); everything else is
+  // canonical so the IA stays predictable.
   if (!config) return NAV;
-  // "more" opens the real More sheet (News / Documents / Privates / Club
-  // profile / Our team / Profile) — it used to deep-link to /member/profile,
-  // which made those pages unreachable for clubs with a branded nav.
-  const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean; kind?: "more" }> = {
-    book: { href: "/member/shop", icon: BookNowIcon, exact: false },
-    schedule: { href: "/member/schedule", icon: BookingIcon, exact: false },
-    store: { href: "/member/products", icon: StoreIcon, exact: false },
-    videos: { href: "/member/shop", icon: VideoIcon, exact: false },
-    more: { href: "#more", icon: MoreIcon, exact: false, kind: "more" },
-  };
-  const items = config.navigation.items
-    .filter((item) => item.enabled && item.key !== "videos")
-    .map((item) => ({ ...byKey[item.key], label: item.label || item.key }));
-  return items.length ? items : NAV;
+  const bookLabel =
+    config.navigation.items.find((i) => i.key === "book" && i.enabled)?.label || "Book";
+  return NAV.map((item) => (item.label === "Book" ? { ...item, label: bookLabel } : item));
 }
 
 function BookNowIcon({ size }: { size: number }) {
