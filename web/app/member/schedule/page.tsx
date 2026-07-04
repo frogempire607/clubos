@@ -179,6 +179,39 @@ export default function MemberSchedulePage() {
     [],
   );
 
+  const [checkinBusy, setCheckinBusy] = useState<string | null>(null);
+  const [checkedIn, setCheckedIn] = useState<Set<string>>(new Set());
+
+  // Check-in opens 1h before start, closes 12h after end (server enforces the
+  // same in /api/member/checkin/[id]).
+  function withinCheckinWindow(item: ScheduleItem): boolean {
+    const now = Date.now();
+    const start = new Date(item.startsAt).getTime();
+    const end = new Date(item.endsAt).getTime();
+    return now >= start - 60 * 60_000 && now <= end + 12 * 3_600_000;
+  }
+
+  async function checkIn(item: ScheduleItem) {
+    // Class items are classSession ids; event items may be composite
+    // "<eventId>:<sessionId>" — the check-in endpoint takes the event id.
+    const target = item.kind === "class" ? item.id : item.refId;
+    setCheckinBusy(item.id);
+    setError("");
+    const res = await fetch(`/api/member/checkin/${target}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberId: activeId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setCheckinBusy(null);
+    if (!res.ok) {
+      setError(d.error || "Couldn't check in — ask your club for help.");
+      return;
+    }
+    setInfo(d.message || "Checked in.");
+    setCheckedIn((prev) => new Set(prev).add(item.id));
+  }
+
   // Booked/registered upcoming items pin to the top as "Your upcoming
   // schedule" — this page answers "what am I attending?" first, then offers
   // everything else to book below.
@@ -335,7 +368,26 @@ export default function MemberSchedulePage() {
           </h2>
           <div className="space-y-3">
             {bookedUpcoming.map((item) => (
-              <ItemCard key={item.id} item={item} onClick={() => setSelected(item)} />
+              <div key={item.id}>
+                <ItemCard item={item} onClick={() => setSelected(item)} />
+                {withinCheckinWindow(item) && (
+                  <div className="mt-1.5 flex justify-end">
+                    {checkedIn.has(item.id) ? (
+                      <span className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 font-medium">
+                        Checked in
+                      </span>
+                    ) : (
+                      <button
+                        disabled={checkinBusy === item.id}
+                        onClick={() => checkIn(item)}
+                        className="text-xs px-3 py-1.5 rounded-md bg-stone-900 text-white font-medium hover:bg-stone-700 disabled:opacity-50"
+                      >
+                        {checkinBusy === item.id ? "Checking in…" : "Check in"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
           <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mt-6">

@@ -109,7 +109,8 @@ export async function POST(req: Request) {
             classSessionId,
             memberId: member.id,
             status: "PRESENT",
-            checkedInAt: new Date(),
+            // checkedInAt stays null until the athlete actually arrives —
+            // self check-in (QR or My Bookings) or staff stamps it.
             addedById: session.user.id,
           },
         });

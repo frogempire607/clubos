@@ -61,6 +61,15 @@ function sessionEnded(target: Target): boolean {
   return target.endsAt.getTime() + graceMs < Date.now();
 }
 
+// Check-in opens 60 minutes before start. The QR poster is scanned at the
+// door so this never bit the QR flow, but the My Bookings / My Schedule
+// check-in buttons would otherwise let someone "arrive" days early.
+const CHECKIN_OPENS_BEFORE_MS = 60 * 60 * 1000;
+
+function checkinNotOpenYet(target: Target): boolean {
+  return target.startsAt.getTime() - CHECKIN_OPENS_BEFORE_MS > Date.now();
+}
+
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
@@ -86,10 +95,12 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
           memberId: { in: memberIds },
           ...(target.kind === "class" ? { classSessionId: target.classSessionId } : { eventId: target.eventId }),
         },
-        select: { memberId: true },
+        select: { memberId: true, checkedInAt: true },
       })
     : [];
-  const checkedIn = new Set(existing.map((r) => r.memberId));
+  // Only a stamped arrival counts as checked in — a pre-booked roster row
+  // (checkedInAt null) should still offer check-in.
+  const checkedIn = new Set(existing.filter((r) => r.checkedInAt).map((r) => r.memberId));
 
   return NextResponse.json({
     target: {
@@ -141,6 +152,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       { status: 400 },
     );
   }
+  if (checkinNotOpenYet(target)) {
+    return NextResponse.json(
+      { error: `Check-in for ${target.title} opens 1 hour before it starts.` },
+      { status: 400 },
+    );
+  }
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { email: true } });
   if (!user) return NextResponse.json({ error: "Account not found" }, { status: 404 });
@@ -157,17 +174,34 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   // Idempotent: a retried scan / double tap never duplicates the record.
+  // A record WITHOUT checkedInAt is a booking (class self-booking creates the
+  // roster row ahead of time) — checking in stamps the arrival on that row.
   const where =
     target.kind === "class"
       ? { classSessionId: target.classSessionId, memberId: member.id }
       : { eventId: target.eventId, memberId: member.id };
-  const existing = await prisma.attendanceRecord.findFirst({ where, select: { id: true, status: true } });
+  const existing = await prisma.attendanceRecord.findFirst({
+    where,
+    select: { id: true, status: true, checkedInAt: true },
+  });
   if (existing) {
+    if (existing.checkedInAt) {
+      return NextResponse.json({
+        ok: true,
+        already: true,
+        status: existing.status,
+        message: `${member.firstName} is already checked in to ${target.title}.`,
+      });
+    }
+    await prisma.attendanceRecord.update({
+      where: { id: existing.id },
+      data: { checkedInAt: new Date() },
+    });
     return NextResponse.json({
       ok: true,
-      already: true,
+      already: false,
       status: existing.status,
-      message: `${member.firstName} is already checked in to ${target.title}.`,
+      message: `${member.firstName} is checked in to ${target.title}.`,
     });
   }
 
