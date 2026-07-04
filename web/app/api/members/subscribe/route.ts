@@ -9,6 +9,7 @@ import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
 import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
+import { sendEmail } from "@/lib/email";
 
 const schema = z.object({
   memberId:      z.string(),
@@ -22,6 +23,9 @@ const schema = z.object({
   endDate:       z.string().optional().nullable(),
   notes:         z.string().optional().nullable(),
   discountCode:  z.string().optional().nullable(),
+  // MANUAL path only: email the member a purchase receipt (card purchases get
+  // Stripe's own receipt).
+  emailReceipt:  z.boolean().optional().default(false),
 });
 
 type Option = { label: string; price: number; billingPeriod: string };
@@ -128,7 +132,35 @@ export async function POST(req: Request) {
       if (discount) await recordDiscountUse(discount.id);
       // Manual assignment is active immediately — flip member status to ACTIVE
       await recomputeMemberStatus(memberId, session.user.clubId);
-      return NextResponse.json({ memberSub, type: "manual" }, { status: 201 });
+
+      // Optional receipt for offline/manual purchases (guardian for minors).
+      let receiptSent = false;
+      if (body.emailReceipt) {
+        const to = (member.isMinor ? member.guardianEmail || member.email : member.email || member.guardianEmail) || "";
+        if (to.trim()) {
+          await sendEmail({
+            to: to.trim(),
+            subject: `Membership receipt — ${club.name}`,
+            fromName: club.emailFromName || club.name || null,
+            replyTo: club.emailReplyTo || null,
+            html: `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px;color:#111">
+                <h2 style="margin:0 0 12px">Membership receipt</h2>
+                <p style="margin:0 0 16px;color:#444">Hi ${member.firstName}, here's your membership confirmation from ${club.name}.</p>
+                <table style="width:100%;border-collapse:collapse;font-size:14px">
+                  <tr><td style="padding:6px 0;color:#666">Plan</td><td style="padding:6px 0;text-align:right">${membership.name} — ${option.label}</td></tr>
+                  <tr><td style="padding:6px 0;color:#666">Price</td><td style="padding:6px 0;text-align:right;font-weight:600">$${finalPrice.toFixed(2)}${discount ? ` (code ${discount.code})` : ""}</td></tr>
+                  <tr><td style="padding:6px 0;color:#666">Starts</td><td style="padding:6px 0;text-align:right">${resolvedStartDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</td></tr>
+                  ${resolvedEndDate ? `<tr><td style="padding:6px 0;color:#666">Ends</td><td style="padding:6px 0;text-align:right">${resolvedEndDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</td></tr>` : ""}
+                </table>
+              </div>`,
+          })
+            .then(() => {
+              receiptSent = true;
+            })
+            .catch(() => {});
+        }
+      }
+      return NextResponse.json({ memberSub, type: "manual", receiptSent }, { status: 201 });
     }
 
     // ── Stripe required for RECURRING and ONE_TIME ───────────────────────────

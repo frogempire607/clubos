@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { readPreviewCookie, canStartPreview } from "@/lib/preview";
+import { trialCoversClass } from "@/lib/freeTrial";
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
@@ -179,12 +180,20 @@ export async function GET(req: Request) {
   ]);
 
   const activeMembershipIds = activeSubs.map((s) => s.membershipId);
-  // Staff-granted membership-agnostic trial window: while active, classes are
-  // bookable free without committing to any plan.
+  // Staff-granted trial window: while active, the trial behaves like a
+  // membership scoped to the plans the club's Free Trial offer is attached
+  // to — classes those plans cover book free (all classes when the offer
+  // isn't scoped).
   const trialActive =
     activeMembershipIds.length === 0 &&
     !!context?.trialEndsAt &&
     new Date(context.trialEndsAt) > new Date();
+  const trialClub = trialActive
+    ? await prisma.club.findUnique({
+        where: { id: clubId },
+        select: { freeTrialConfig: true },
+      })
+    : null;
   const activeMembershipNames = activeSubs.map((s) => s.membership.name);
   const eventBookingById = new Map(eventBookings.map((b) => [b.eventId, b.status]));
   const classAttendanceById = new Map(classAttendance.map((a) => [a.classSessionId, a.status]));
@@ -276,10 +285,11 @@ export async function GET(req: Request) {
       let bookingTier: "MEMBERSHIP" | "MEMBER" | "NON_MEMBER" | "DROP_IN" | null = null;
       let bookingPriceNum: number | null = null;
       let bookingLabel: string | null = null;
+      const trialCovers = trialActive && trialCoversClass(trialClub?.freeTrialConfig, acceptedMembershipIds);
       if (covered) {
         bookingTier = "MEMBERSHIP";
         bookingLabel = "Included in your membership";
-      } else if (trialActive) {
+      } else if (trialCovers) {
         bookingTier = "MEMBERSHIP";
         bookingLabel = "Free trial";
       } else if (hasAnyActiveSub && memberPrice) {
@@ -293,7 +303,7 @@ export async function GET(req: Request) {
       }
       const priceOpt = memberPrice || nonMemberPrice || dropInPrice;
       const attendance = classAttendanceById.get(sessionItem.id) ?? null;
-      const freeCovered = covered || trialActive;
+      const freeCovered = covered || trialCovers;
       const price = freeCovered ? null : bookingPriceNum != null ? bookingPriceNum.toFixed(2) : priceOpt ? money(priceOpt.price) : null;
       const coachNames = (Array.isArray(sessionItem.recurringClass.assignedStaffIds)
         ? (sessionItem.recurringClass.assignedStaffIds as string[])
@@ -319,7 +329,7 @@ export async function GET(req: Request) {
           ? "Booked"
           : covered
             ? "Included in your membership"
-            : trialActive
+            : trialCovers
               ? "Free trial"
               : price
                 ? "Purchase required"

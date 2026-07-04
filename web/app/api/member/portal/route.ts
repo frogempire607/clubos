@@ -185,7 +185,7 @@ export async function GET() {
     activeMembershipName: string | null;
   }> = {};
   if (accessibleIds.length > 0) {
-    const [attCounts, upcomingCounts, subs] = await Promise.all([
+    const [attCounts, upcomingCounts, subs, trialMembers] = await Promise.all([
       prisma.attendanceRecord.groupBy({
         by: ["memberId"],
         where: {
@@ -208,13 +208,22 @@ export async function GET() {
         where: { memberId: { in: accessibleIds }, status: "active" },
         select: { memberId: true, membership: { select: { name: true } } },
       }),
+      // Active free-trial windows show as the profile's plan until they expire.
+      prisma.member.findMany({
+        where: { id: { in: accessibleIds }, trialEndsAt: { gt: now } },
+        select: { id: true, trialEndsAt: true },
+      }),
     ]);
     for (const id of accessibleIds) {
+      const trial = trialMembers.find((t) => t.id === id);
       summaries[id] = {
         attendanceLast30d: attCounts.find((r) => r.memberId === id)?._count._all ?? 0,
         upcomingBookings: upcomingCounts.find((r) => r.memberId === id)?._count._all ?? 0,
         activeMembershipName:
-          subs.find((s) => s.memberId === id)?.membership.name ?? null,
+          subs.find((s) => s.memberId === id)?.membership.name ??
+          (trial
+            ? `Free trial (ends ${trial.trialEndsAt!.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
+            : null),
       };
     }
   }

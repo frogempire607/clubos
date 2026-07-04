@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
+import { trialCoversClass } from "@/lib/freeTrial";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
@@ -153,9 +154,20 @@ export async function POST(req: Request) {
     const hasAnySub = memberSubs.length > 0;
 
     // Staff-granted free-trial window (Member.trialEndsAt): while active and
-    // the member has no plan, classes book free as TRIAL — membership-agnostic,
-    // so they can try multiple classes and still subscribe to any plan later.
-    if (!hasAnySub && member.trialEndsAt && member.trialEndsAt > new Date()) {
+    // the member has no plan, classes the club's Free Trial offer covers book
+    // free as TRIAL — like a membership scoped to the offer's attached plans
+    // (all classes when the offer isn't scoped). They can still subscribe to
+    // any plan later.
+    const trialWindowRunning = !hasAnySub && member.trialEndsAt && member.trialEndsAt > new Date();
+    const trialClubConfig = trialWindowRunning
+      ? (
+          await prisma.club.findUnique({
+            where: { id: session.user.clubId },
+            select: { freeTrialConfig: true },
+          })
+        )?.freeTrialConfig
+      : null;
+    if (trialWindowRunning && trialCoversClass(trialClubConfig, acceptedMembershipIds)) {
       const record = await prisma.attendanceRecord.create({
         data: {
           clubId: session.user.clubId,

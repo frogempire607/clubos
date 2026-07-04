@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { freeTrialSummary } from "@/lib/freeTrial";
 
 // GET /api/attendance/[sessionId]
 // Returns attendance records for a class session with member details
@@ -59,10 +60,18 @@ export async function GET(_req: Request, context: { params: Promise<{ sessionId:
     orderBy: { createdAt: "asc" },
   });
 
+  // The club's Free Trial offer — the attendance panel's Trial confirmation
+  // shows its name/length, and hides Trial entirely when the offer is off.
+  const club = await prisma.club.findUnique({
+    where: { id: session.user.clubId },
+    select: { freeTrialConfig: true },
+  });
+
   return NextResponse.json({
     session: classSession,
     attendance,
     pricingOptions,
     acceptedMemberships,
+    freeTrial: freeTrialSummary(club?.freeTrialConfig),
   });
 }
