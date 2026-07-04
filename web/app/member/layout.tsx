@@ -67,6 +67,7 @@ const RAIL_ROUTES: string[] = [
   "/member/family",
   "/member/schedule",
   "/member/bookings",
+  "/member/shop",
 ];
 
 type ClubInfo = {
