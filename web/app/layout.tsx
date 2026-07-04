@@ -124,7 +124,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.className} ${fraunces.variable}`}>
       <head>
-        <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         {/* Apply persisted theme before first paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{

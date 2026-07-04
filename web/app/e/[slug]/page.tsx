@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AlertOctagon, MapPin, CheckCircle2, PartyPopper, ArrowRight } from "lucide-react";
+import { mapsDirectionsUrl } from "@/lib/maps";
 
 type FormField = {
   id: string;
@@ -179,20 +180,25 @@ export default function PublicEventPage() {
             <p className="text-sm text-stone-500 mt-0.5 inline-flex items-center gap-1">
               <MapPin className="h-4 w-4 inline" strokeWidth={2} />
               {event.location.name}{event.location.address ? ` · ${event.location.address}` : ""}
-              {event.location.latitude != null && event.location.longitude != null && (
-                <>
-                  {" · "}
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${event.location.latitude},${event.location.longitude}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline"
-                    style={{ color: event.club.primaryColor ?? undefined }}
-                  >
-                    Directions
-                  </a>
-                </>
-              )}
+              {(() => {
+                // Coordinates when set, address otherwise — either way the
+                // visitor gets a Directions link.
+                const href = mapsDirectionsUrl(event.location!);
+                return href ? (
+                  <>
+                    {" · "}
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                      style={{ color: event.club.primaryColor ?? undefined }}
+                    >
+                      Directions
+                    </a>
+                  </>
+                ) : null;
+              })()}
             </p>
           )}
           {event.description && (
