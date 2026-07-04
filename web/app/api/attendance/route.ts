@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { trialWindowDays } from "@/lib/freeTrial";
+import { trialWindowDays, freeTrialSummary } from "@/lib/freeTrial";
+import { sendEmail } from "@/lib/email";
 
 // GET /api/attendance?date=YYYY-MM-DD
 // Returns all class sessions + events for that date
@@ -56,6 +57,8 @@ const recordSchema = z.object({
   memberId: z.string().min(1),
   status: z.enum(["PRESENT", "ABSENT", "LATE", "TRIAL", "DROP_IN"]),
   notes: z.string().optional().nullable(),
+  // TRIAL only: email the client a "your free trial started" receipt.
+  emailReceipt: z.boolean().optional().default(false),
 });
 
 // POST /api/attendance — upsert an attendance record
@@ -69,7 +72,7 @@ export async function POST(req: Request) {
   const parsed = recordSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { classSessionId, eventId, memberId, status, notes } = parsed.data;
+  const { classSessionId, eventId, memberId, status, notes, emailReceipt } = parsed.data;
   if (!classSessionId && !eventId) {
     return NextResponse.json({ error: "classSessionId or eventId required" }, { status: 400 });
   }
@@ -80,29 +83,51 @@ export async function POST(req: Request) {
   });
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
-  // A staff "Trial" check-in grants the club's free-trial window
-  // (Member.trialEndsAt) when the member has no active plan and the club's
-  // Free Trial offer allows it — so they can book more classes from the
-  // portal and still subscribe to any membership afterwards. Length and
-  // renewability come from Club.freeTrialConfig (7 days when unconfigured);
-  // an explicitly disabled offer grants nothing.
+  // A staff "Trial" check-in starts the club's free trial — one offer,
+  // membership-like: the window (Member.trialEndsAt) covers class booking for
+  // the configured days and then expires on its own. When the offer's renewal
+  // is OFF, a client whose trial already ended can never get another one —
+  // the check-in is REJECTED with the reason instead of silently marked, so
+  // the trial can't be reused through attendance.
+  let trialGranted = false;
+  let trialEndsAt: Date | null = null;
   if (status === "TRIAL") {
     const activeSub = await prisma.memberSubscription.findFirst({
       where: { memberId, status: "active" },
       select: { id: true },
     });
-    if (!activeSub) {
+    if (activeSub) {
+      return NextResponse.json(
+        { error: `${member.firstName} already has an active membership — mark them Present instead.` },
+        { status: 400 },
+      );
+    }
+    const windowActive = member.trialEndsAt && member.trialEndsAt > new Date();
+    if (windowActive) {
+      trialEndsAt = member.trialEndsAt;
+    } else {
       const club = await prisma.club.findUnique({
         where: { id: session.user.clubId },
         select: { freeTrialConfig: true },
       });
+      const summary = freeTrialSummary(club?.freeTrialConfig);
       const days = trialWindowDays(club?.freeTrialConfig, member);
-      if (days) {
-        await prisma.member.update({
-          where: { id: memberId },
-          data: { trialEndsAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000) },
-        });
+      if (!days) {
+        return NextResponse.json(
+          {
+            error: summary.active
+              ? `${member.firstName} already used their free trial and the offer doesn't allow renewals.`
+              : "Your club isn't offering a free trial right now — set one up from the Memberships page.",
+          },
+          { status: 400 },
+        );
       }
+      trialEndsAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      await prisma.member.update({
+        where: { id: memberId },
+        data: { trialEndsAt },
+      });
+      trialGranted = true;
     }
   }
 
@@ -143,7 +168,47 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json(record);
+  // Optional "your free trial started" receipt when a fresh window was
+  // granted (guardian for minors). Best-effort — never blocks the check-in.
+  let receiptSent = false;
+  if (status === "TRIAL" && trialGranted && emailReceipt && trialEndsAt) {
+    const to = (member.isMinor ? member.guardianEmail || member.email : member.email || member.guardianEmail) || "";
+    if (to.trim()) {
+      const club = await prisma.club.findUnique({
+        where: { id: session.user.clubId },
+        select: { name: true, emailFromName: true, emailReplyTo: true, freeTrialConfig: true },
+      });
+      const summary = freeTrialSummary(club?.freeTrialConfig);
+      const endsStr = trialEndsAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      await sendEmail({
+        to: to.trim(),
+        subject: `${summary.name} started — ${club?.name ?? "your club"}`,
+        fromName: club?.emailFromName || club?.name || null,
+        replyTo: club?.emailReplyTo || null,
+        html: `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px;color:#111">
+            <h2 style="margin:0 0 12px">${summary.name} started</h2>
+            <p style="margin:0 0 16px;color:#444">Hi ${member.firstName}, your ${summary.days}-day ${summary.name.toLowerCase()} at ${club?.name ?? "your club"} is active.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px">
+              <tr><td style="padding:6px 0;color:#666">Trial length</td><td style="padding:6px 0;text-align:right">${summary.days} day${summary.days === 1 ? "" : "s"}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Ends</td><td style="padding:6px 0;text-align:right;font-weight:600">${endsStr}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Cost</td><td style="padding:6px 0;text-align:right">Free</td></tr>
+            </table>
+            <p style="margin:16px 0 0;color:#666;font-size:13px">Book classes from your member portal while your trial is active — and pick a membership any time to keep going.</p>
+          </div>`,
+      })
+        .then(() => {
+          receiptSent = true;
+        })
+        .catch(() => {});
+    }
+  }
+
+  return NextResponse.json({
+    ...record,
+    trialGranted,
+    trialEndsAt: trialEndsAt?.toISOString() ?? null,
+    receiptSent,
+  });
 }
 
 // DELETE /api/attendance?recordId=... — hard-remove someone from a roster.

@@ -119,6 +119,7 @@ type PricingOption =
   | { type: "membership"; membershipId: string };
 
 type AcceptedMembership = { id: string; name: string };
+type FreeTrialSummary = { active: boolean; name: string; days: number; renewable: boolean };
 
 // ─── Quick Add Member Form ────────────────────────────────────────────────────
 
@@ -127,12 +128,14 @@ function QuickAddForm({
   classId,
   pricingOptions,
   acceptedMemberships,
+  freeTrial,
   onAdded,
 }: {
   sessionId: string;
   classId: string | null;
   pricingOptions: PricingOption[];
   acceptedMemberships: AcceptedMembership[];
+  freeTrial: FreeTrialSummary | null;
   onAdded: () => void;
 }) {
   const [step, setStep] = useState<"search" | "add-new">("search");
@@ -202,6 +205,7 @@ function QuickAddForm({
     setPayEmailReceipt(false);
     setError("");
     setRegisteringId(null);
+    setTrialingId(null);
     setPayingId(memberId);
   }
 
@@ -254,18 +258,32 @@ function QuickAddForm({
     );
   }, [query, allMembers]);
 
-  async function checkIn(memberId: string, status = "PRESENT") {
+  async function checkIn(memberId: string, status = "PRESENT", emailReceipt = false): Promise<string | null> {
     setSaving(true);
-    await fetch("/api/attendance", {
+    const res = await fetch("/api/attendance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classSessionId: sessionId, memberId, status }),
+      body: JSON.stringify({ classSessionId: sessionId, memberId, status, emailReceipt }),
     });
     setSaving(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      const msg = typeof d.error === "string" ? d.error : "Could not check them in.";
+      setError(msg);
+      return msg;
+    }
+    setError("");
     setQuery("");
     setResults([]);
+    setTrialingId(null);
     onAdded();
+    return null;
   }
+
+  // Trial needs an explicit confirmation (it starts the club's free-trial
+  // membership window) — small inline panel per search row.
+  const [trialingId, setTrialingId] = useState<string | null>(null);
+  const [trialEmailReceipt, setTrialEmailReceipt] = useState(false);
 
   async function createAndCheckIn(e: React.FormEvent) {
     e.preventDefault();
@@ -301,9 +319,16 @@ function QuickAddForm({
       return;
     }
     const member = await res.json();
-    await checkIn(member.id, "TRIAL");
+    const trialError = await checkIn(member.id, "TRIAL", trialEmailReceipt);
+    if (trialError) {
+      // Member exists now — surface why the trial part failed instead of
+      // silently dropping them from the roster.
+      setError(`${newFirst} was added, but the trial couldn't start: ${trialError}`);
+      return;
+    }
     setStep("search");
     setNewFirst(""); setNewLast(""); setNewEmail(""); setIsMinor(false); setGuardianName(""); setGuardianEmail("");
+    setTrialEmailReceipt(false);
   }
 
   if (step === "add-new") {
@@ -364,13 +389,26 @@ function QuickAddForm({
             />
           </>
         )}
+        <label className="flex items-center gap-2 cursor-pointer text-xs text-text-muted">
+          <input
+            type="checkbox"
+            checked={trialEmailReceipt}
+            onChange={(e) => setTrialEmailReceipt(e.target.checked)}
+            className="w-3.5 h-3.5 accent-brand"
+          />
+          Email a trial receipt {isMinor ? "to the guardian" : "to the member"}
+        </label>
         {error && <p className="text-red-600 text-xs">{error}</p>}
         <button
           type="submit"
           disabled={saving}
           className="w-full px-4 py-2 bg-brand text-white text-sm rounded-lg hover:bg-brand-hover disabled:opacity-50"
         >
-          {saving ? "Adding…" : "Add as Trial & Check In"}
+          {saving
+            ? "Adding…"
+            : freeTrial
+              ? `Add & start ${freeTrial.name} (${freeTrial.days} day${freeTrial.days === 1 ? "" : "s"})`
+              : "Add as Trial & Check In"}
         </button>
       </form>
     );
@@ -411,15 +449,21 @@ function QuickAddForm({
                   </button>
                   <button
                     disabled={saving}
-                    onClick={() => checkIn(m.id, "TRIAL")}
+                    onClick={() => {
+                      setTrialingId(trialingId === m.id ? null : m.id);
+                      setTrialEmailReceipt(false);
+                      setError("");
+                      setRegisteringId(null);
+                      setPayingId(null);
+                    }}
                     className="px-2 py-1 text-xs rounded bg-brand/10 text-brand hover:bg-brand"
                   >
-                    Trial
+                    {trialingId === m.id ? "Cancel" : "Trial"}
                   </button>
                   {hasAnyPricing && classId && (
                     <button
                       disabled={saving}
-                      onClick={() => setRegisteringId(registeringId === m.id ? null : m.id)}
+                      onClick={() => { setRegisteringId(registeringId === m.id ? null : m.id); setTrialingId(null); }}
                       className="px-2 py-1 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
                     >
                       {registeringId === m.id ? "Cancel" : "Register (card)"}
@@ -436,6 +480,33 @@ function QuickAddForm({
                   )}
                 </div>
               </div>
+              {trialingId === m.id && (
+                <div className="mt-2 pt-2 border-t border-app-border space-y-2">
+                  <p className="text-sm font-medium text-text-primary">Start free trial for this client?</p>
+                  <p className="text-xs text-text-muted">
+                    {freeTrial
+                      ? `${m.firstName} gets “${freeTrial.name}” — ${freeTrial.days} day${freeTrial.days === 1 ? "" : "s"} free, active like a membership, then it ends automatically.${freeTrial.renewable ? "" : " One per client — it can't be renewed later."}`
+                      : `${m.firstName} gets the club's free trial and can book like a member until it ends.`}
+                  </p>
+                  <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                    <input
+                      type="checkbox"
+                      checked={trialEmailReceipt}
+                      onChange={(e) => setTrialEmailReceipt(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-brand"
+                    />
+                    Email a trial receipt
+                  </label>
+                  <button
+                    disabled={saving}
+                    onClick={() => checkIn(m.id, "TRIAL", trialEmailReceipt)}
+                    className="w-full px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+                  >
+                    {saving ? "Starting…" : "Start free trial & check in"}
+                  </button>
+                  {error && <p className="text-red-600 text-xs">{error}</p>}
+                </div>
+              )}
               {registeringId === m.id && hasAnyPricing && classId && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-1.5">
                   {acceptsMembership && (
@@ -577,6 +648,7 @@ function AttendancePanel({
     attendance: AttendanceRecord[];
     pricingOptions: PricingOption[];
     acceptedMemberships: AcceptedMembership[];
+    freeTrial: FreeTrialSummary | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -588,7 +660,13 @@ function AttendancePanel({
   const [chargeRecId, setChargeRecId] = useState<string | null>(null);
   const [chargeAmount, setChargeAmount] = useState("");
   const [chargeMethod, setChargeMethod] = useState<"CASH" | "CHECK" | "CREDIT" | "COMP" | "INVOICE">("CASH");
+  const [chargeEmailReceipt, setChargeEmailReceipt] = useState(false);
   const [chargeError, setChargeError] = useState("");
+  // Trial on a roster row asks for confirmation first — it starts the club's
+  // free-trial membership window, not just an attendance mark.
+  const [trialRecId, setTrialRecId] = useState<string | null>(null);
+  const [trialEmailReceipt, setTrialEmailReceipt] = useState(false);
+  const [trialError, setTrialError] = useState("");
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/attendance/${sessionId}`);
@@ -618,8 +696,41 @@ function AttendancePanel({
     const def = dropIn?.price ?? nonMember?.price ?? memberOpt?.price ?? 0;
     setChargeAmount(def ? String(def) : "");
     setChargeMethod("CASH");
+    setChargeEmailReceipt(false);
     setChargeError("");
+    setTrialRecId(null);
     setChargeRecId(rec.id);
+  }
+
+  function openTrialConfirm(rec: AttendanceRecord) {
+    if (trialRecId === rec.id) { setTrialRecId(null); return; }
+    setTrialEmailReceipt(false);
+    setTrialError("");
+    setChargeRecId(null);
+    setTrialRecId(rec.id);
+  }
+
+  async function confirmTrial(rec: AttendanceRecord) {
+    setUpdating(rec.member.id);
+    setTrialError("");
+    const res = await fetch("/api/attendance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classSessionId: sessionId,
+        memberId: rec.member.id,
+        status: "TRIAL",
+        emailReceipt: trialEmailReceipt,
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setUpdating(null);
+    if (!res.ok) {
+      setTrialError(typeof d.error === "string" ? d.error : "Could not start the trial");
+      return;
+    }
+    setTrialRecId(null);
+    load();
   }
 
   async function recordDropInCharge(rec: AttendanceRecord) {
@@ -634,6 +745,7 @@ function AttendancePanel({
         status: "DROP_IN",
         paymentMethod: chargeMethod,
         amount: Number(chargeAmount || 0),
+        emailReceipt: chargeEmailReceipt,
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -768,7 +880,13 @@ function AttendancePanel({
                             <button
                               key={k}
                               disabled={updating === rec.member.id}
-                              onClick={() => (k === "DROP_IN" ? openDropInCharge(rec) : setStatus(rec.member.id, k))}
+                              onClick={() =>
+                                k === "DROP_IN"
+                                  ? openDropInCharge(rec)
+                                  : k === "TRIAL"
+                                    ? openTrialConfirm(rec)
+                                    : setStatus(rec.member.id, k)
+                              }
                               style={
                                 rec.status === k
                                   ? { background: v.bg, color: v.fg, borderColor: v.fg + "55" }
@@ -817,6 +935,15 @@ function AttendancePanel({
                               placeholder={chargeMethod === "COMP" ? "Value (optional)" : "Drop-in amount"}
                               className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
                             />
+                            <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                              <input
+                                type="checkbox"
+                                checked={chargeEmailReceipt}
+                                onChange={(e) => setChargeEmailReceipt(e.target.checked)}
+                                className="w-3.5 h-3.5 accent-brand"
+                              />
+                              Email a receipt to the member
+                            </label>
                             <div className="flex gap-1.5">
                               <button
                                 disabled={updating === rec.member.id}
@@ -841,6 +968,44 @@ function AttendancePanel({
                             {chargeError && <p className="text-red-600 text-xs">{chargeError}</p>}
                           </div>
                         )}
+                        {/* Start-free-trial confirmation — the trial acts like a
+                            membership for the configured days, so it's explicit. */}
+                        {trialRecId === rec.id && (
+                          <div className="mt-2 pt-2 border-t border-app-border space-y-2">
+                            <p className="text-sm font-medium text-text-primary">Start free trial for this client?</p>
+                            <p className="text-xs text-text-muted">
+                              {data?.freeTrial
+                                ? `${rec.member.firstName} gets “${data.freeTrial.name}” — ${data.freeTrial.days} day${data.freeTrial.days === 1 ? "" : "s"} free, active like a membership, then it ends automatically.${data.freeTrial.renewable ? "" : " One per client — it can't be renewed later."}`
+                                : `${rec.member.firstName} gets the club's free trial and can book like a member until it ends.`}
+                            </p>
+                            <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                              <input
+                                type="checkbox"
+                                checked={trialEmailReceipt}
+                                onChange={(e) => setTrialEmailReceipt(e.target.checked)}
+                                className="w-3.5 h-3.5 accent-brand"
+                              />
+                              Email a trial receipt
+                            </label>
+                            <div className="flex gap-1.5">
+                              <button
+                                disabled={updating === rec.member.id}
+                                onClick={() => confirmTrial(rec)}
+                                className="flex-1 px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+                              >
+                                {updating === rec.member.id ? "Starting…" : "Start free trial"}
+                              </button>
+                              <button
+                                disabled={updating === rec.member.id}
+                                onClick={() => setTrialRecId(null)}
+                                className="px-2 py-1.5 text-xs rounded border border-app-border text-text-muted hover:bg-app-bg"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            {trialError && <p className="text-red-600 text-xs">{trialError}</p>}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -862,6 +1027,7 @@ function AttendancePanel({
                       classId={data?.session.recurringClass.id ?? null}
                       pricingOptions={data?.pricingOptions ?? []}
                       acceptedMemberships={data?.acceptedMemberships ?? []}
+                      freeTrial={data?.freeTrial ?? null}
                       onAdded={() => { load(); }}
                     />
                   </div>

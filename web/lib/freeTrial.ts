@@ -89,6 +89,36 @@ export async function eligibleForSubscriptionTrial(
 }
 
 /**
+ * Whether an active trial window covers a given class. The trial behaves like
+ * a membership limited to the plans the offer is attached to: an offer with
+ * no attached plans covers every class; otherwise the class must accept one
+ * of the attached memberships (classes with no accepted-membership
+ * restriction stay covered — they're open to any plan holder).
+ */
+export function trialCoversClass(
+  freeTrialConfig: unknown,
+  classAcceptedMembershipIds: string[],
+): boolean {
+  const config = normalizeFreeTrialConfig(freeTrialConfig);
+  if (config && !config.active) return false;
+  if (!config || config.membershipIds.length === 0) return true;
+  if (classAcceptedMembershipIds.length === 0) return true;
+  return classAcceptedMembershipIds.some((id) => config.membershipIds.includes(id));
+}
+
+/** Staff-facing view of the offer (attendance panel confirmation copy). */
+export function freeTrialSummary(freeTrialConfig: unknown): {
+  active: boolean;
+  name: string;
+  days: number;
+  renewable: boolean;
+} {
+  const config = normalizeFreeTrialConfig(freeTrialConfig);
+  if (!config) return { active: true, name: "Free trial", days: 7, renewable: true };
+  return { active: config.active, name: config.name, days: config.days, renewable: config.renewable };
+}
+
+/**
  * The class-trial window (Member.trialEndsAt) a staff TRIAL check-in or the
  * public trial signup link grants. Returns the number of days, or null when
  * the club offers no trial / this member can't have (another) one.

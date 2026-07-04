@@ -616,6 +616,14 @@ export default function MembersPage() {
                           <div className="text-sm text-text-primary">{m.legacyMembershipName}</div>
                           <div className="text-[10px] text-text-muted">migrating from previous software</div>
                         </div>
+                      ) : (m as { trialEndsAt?: string | null }).trialEndsAt &&
+                        new Date((m as { trialEndsAt?: string | null }).trialEndsAt!) > new Date() ? (
+                        <div title="Active free trial — behaves like a membership until it ends.">
+                          <div className="text-sm text-text-primary">Free trial</div>
+                          <div className="text-[10px] text-text-muted">
+                            until {new Date((m as { trialEndsAt?: string | null }).trialEndsAt!).toLocaleDateString()}
+                          </div>
+                        </div>
                       ) : (
                         <button onClick={() => setSubscribing(m)} className="text-xs px-2 py-1 rounded text-text-muted hover:bg-app-bg">
                           + Purchase membership
@@ -1098,6 +1106,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
   const [billingDay, setBillingDay] = useState("");
   const [notes, setNotes] = useState("");
   const [discountCode, setDiscountCode] = useState("");
+  const [emailReceipt, setEmailReceipt] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -1149,6 +1158,7 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
         billingDay: billingDay ? parseInt(billingDay, 10) : null,
         notes: notes || null,
         discountCode: discountCode.trim() || null,
+        emailReceipt,
       }),
     });
 
@@ -1292,6 +1302,18 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
                     </div>
                   )}
                 </>
+              )}
+
+              {selectedOption && billingType === "MANUAL" && (
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={emailReceipt}
+                    onChange={(e) => setEmailReceipt(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-brand"
+                  />
+                  Email a purchase receipt to the member
+                </label>
               )}
 
               {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
