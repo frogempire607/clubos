@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
+import { trialForMembership } from "@/lib/freeTrial";
 
 // GET /api/member/memberships
 // Returns active memberships the member is allowed to purchase (purchaseAccess=ANYONE),
@@ -11,25 +12,44 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const memberships = await prisma.membership.findMany({
-    where: {
-      clubId: session.user.clubId,
-      deletedAt: null,
-      active: true,
-      purchaseAccess: "ANYONE",
-    },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      options: true,
-      autoRenewDefault: true,
-      contractMonths: true,
-      trialEnabled: true,
-      trialDays: true,
-      trialAppliesToReturning: true,
-    },
+  const [membershipsRaw, club] = await Promise.all([
+    prisma.membership.findMany({
+      where: {
+        clubId: session.user.clubId,
+        deletedAt: null,
+        active: true,
+        purchaseAccess: "ANYONE",
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        options: true,
+        autoRenewDefault: true,
+        contractMonths: true,
+        trialEnabled: true,
+        trialDays: true,
+        trialAppliesToReturning: true,
+      },
+    }),
+    prisma.club.findUnique({
+      where: { id: session.user.clubId },
+      select: { freeTrialConfig: true },
+    }),
+  ]);
+
+  // The trial pill reflects the club's central Free Trial offer (legacy
+  // per-membership flags only for clubs that never configured it). Keeps the
+  // response shape the portal page already renders.
+  const memberships = membershipsRaw.map((m) => {
+    const trial = trialForMembership(club?.freeTrialConfig, m);
+    return {
+      ...m,
+      trialEnabled: !!trial,
+      trialDays: trial?.days ?? null,
+      trialAppliesToReturning: trial?.allowRepeatUse ?? false,
+    };
   });
 
   // Family-aware: the viewer's own profile + every child they guardian.

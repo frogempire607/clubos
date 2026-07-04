@@ -117,6 +117,12 @@ model Club {
   // Any missing key falls back to the hardcoded defaults. Custom
   // ClubEventType colors take precedence over both.
   builtInEventColors       Json?
+  // The club's SINGLE free-trial offer (replaces per-membership trial flags).
+  // Shape (lib/freeTrial.ts): { name, days, membershipIds[] ([] = all),
+  // renewable, allowRepeatUse, active }. null = never configured — runtime
+  // falls back to the legacy per-membership trialEnabled/trialDays fields so
+  // existing clubs keep working until they open the new Free Trial editor.
+  freeTrialConfig          Json?
   campaigns                  Campaign[]
   campaignAttributions       CampaignAttribution[]
   // JSON array of {label, url} pairs (Instagram, Facebook, YouTube, …)

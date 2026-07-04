@@ -31,6 +31,20 @@ type Membership = {
   _count: { members: number };
 };
 
+type FreeTrialConfig = {
+  name: string;
+  days: number;
+  membershipIds: string[];
+  renewable: boolean;
+  allowRepeatUse: boolean;
+  active: boolean;
+};
+type FreeTrialInfo = {
+  config: FreeTrialConfig | null;
+  legacyTrialMemberships: { id: string; name: string; trialDays: number | null; trialAppliesToReturning: boolean }[];
+  signupUrl: string;
+};
+
 type Discount = {
   id: string;
   code: string;
@@ -65,13 +79,16 @@ export default function MembershipsPage() {
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [showAddDiscount, setShowAddDiscount] = useState(false);
   const [editingDiscount, setEditingDiscount] = useState<Discount | null>(null);
+  const [freeTrial, setFreeTrial] = useState<FreeTrialInfo | null>(null);
+  const [showFreeTrial, setShowFreeTrial] = useState(false);
 
   async function load() {
     setLoading(true);
-    const [mRes, dRes, cRes] = await Promise.all([
+    const [mRes, dRes, cRes, tRes] = await Promise.all([
       fetch("/api/memberships"),
       fetch("/api/discounts"),
       fetch("/api/club/info"),
+      fetch("/api/club/free-trial"),
     ]);
     if (mRes.ok) setMemberships(await mRes.json());
     if (dRes.ok) setDiscounts(await dRes.json());
@@ -79,7 +96,45 @@ export default function MembershipsPage() {
       const c = await cRes.json().catch(() => null);
       if (c?.slug) setClubSlug(c.slug);
     }
+    if (tRes.ok) setFreeTrial(await tRes.json().catch(() => null));
     setLoading(false);
+  }
+
+  // The per-membership "include in free trial" toggle edits the ONE central
+  // offer: attach/detach the plan (creating the offer with defaults on first
+  // use). An offer with an empty membershipIds list applies to ALL plans, so
+  // detaching from that state materializes the explicit list first.
+  async function syncMembershipTrial(membershipId: string, include: boolean, seedDays: number) {
+    const cfg = freeTrial?.config ?? null;
+    const allIds = Array.from(new Set([...memberships.map((m) => m.id), membershipId]));
+    let next: FreeTrialConfig;
+    if (!cfg) {
+      if (!include) return;
+      next = {
+        name: "Free trial",
+        days: seedDays,
+        membershipIds: [membershipId],
+        renewable: true,
+        allowRepeatUse: false,
+        active: true,
+      };
+    } else {
+      let ids = cfg.membershipIds;
+      if (ids.length === 0 && cfg.active) {
+        if (include) return; // already applies to every plan
+        ids = allIds.filter((id) => id !== membershipId);
+      } else {
+        ids = include
+          ? Array.from(new Set([...ids, membershipId]))
+          : ids.filter((id) => id !== membershipId);
+      }
+      next = { ...cfg, membershipIds: ids, active: include ? true : cfg.active };
+    }
+    await fetch("/api/club/free-trial", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next),
+    }).catch(() => {});
   }
 
   useEffect(() => { load(); }, []);
@@ -149,9 +204,22 @@ export default function MembershipsPage() {
           <h1 className="text-3xl font-semibold text-text-primary mb-1">Memberships</h1>
           <p className="text-sm text-text-muted">{memberships.length} plan{memberships.length === 1 ? "" : "s"}</p>
         </div>
-        <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
-          + Add membership
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFreeTrial(true)}
+            className="px-4 py-2 border border-app-border rounded-lg text-sm font-medium text-text-primary hover:bg-app-bg"
+          >
+            Free trial
+            {freeTrial?.config?.active && (
+              <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-lime-accent/25 text-text-primary">
+                {freeTrial.config.days}d
+              </span>
+            )}
+          </button>
+          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
+            + Add membership
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -317,8 +385,19 @@ export default function MembershipsPage() {
       {(showAdd || editing) && (
         <MembershipModal
           membership={editing}
+          trialConfig={freeTrial?.config ?? null}
+          onSyncTrial={syncMembershipTrial}
           onClose={() => { setShowAdd(false); setEditing(null); }}
           onSaved={() => { setShowAdd(false); setEditing(null); load(); }}
+        />
+      )}
+
+      {showFreeTrial && (
+        <FreeTrialModal
+          info={freeTrial}
+          memberships={memberships}
+          onClose={() => setShowFreeTrial(false)}
+          onSaved={() => { setShowFreeTrial(false); load(); }}
         />
       )}
 
@@ -334,7 +413,13 @@ export default function MembershipsPage() {
   );
 }
 
-function MembershipModal({ membership, onClose, onSaved }: { membership: Membership | null; onClose: () => void; onSaved: () => void }) {
+function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSaved }: {
+  membership: Membership | null;
+  trialConfig: FreeTrialConfig | null;
+  onSyncTrial: (membershipId: string, include: boolean, seedDays: number) => Promise<void>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const isEdit = !!membership;
   const initialOptions: Option[] = (() => {
     if (!membership) return [{ label: "Monthly", price: 0, billingPeriod: "MONTHLY" }];
@@ -354,9 +439,15 @@ function MembershipModal({ membership, onClose, onSaved }: { membership: Members
   const [allowBillingDayOverride, setAllowBillingDayOverride] = useState(membership?.allowBillingDayOverride ?? false);
   const [defaultBillingDay, setDefaultBillingDay] = useState(membership?.defaultBillingDay ? String(membership.defaultBillingDay) : "");
   const [contractMonths, setContractMonths] = useState(membership?.contractMonths ? String(membership.contractMonths) : "");
-  const [trialEnabled, setTrialEnabled] = useState(membership?.trialEnabled ?? false);
+  // Whether the club's central Free Trial offer currently covers this plan
+  // (legacy per-membership flag only for clubs that never configured it).
+  const trialCurrentlyApplies = trialConfig
+    ? trialConfig.active &&
+      (trialConfig.membershipIds.length === 0 ||
+        (membership ? trialConfig.membershipIds.includes(membership.id) : false))
+    : membership?.trialEnabled ?? false;
+  const [includeTrial, setIncludeTrial] = useState(trialCurrentlyApplies);
   const [trialDays, setTrialDays] = useState(membership?.trialDays ? String(membership.trialDays) : "14");
-  const [trialAppliesToReturning, setTrialAppliesToReturning] = useState(membership?.trialAppliesToReturning ?? false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -387,14 +478,18 @@ function MembershipModal({ membership, onClose, onSaved }: { membership: Members
         autoRenewDefault, allowManualRenewal, allowCustomDates, allowBillingDayOverride,
         defaultBillingDay: defaultBillingDay ? parseInt(defaultBillingDay, 10) : null,
         contractMonths: contractMonths ? parseInt(contractMonths, 10) : null,
-        trialEnabled,
-        trialDays: trialEnabled ? (parseInt(trialDays, 10) || null) : null,
-        trialAppliesToReturning,
       }),
     });
 
+    if (!res.ok) { setSaving(false); const data = await res.json(); setError(data.error?.toString() || "Save failed"); return; }
+
+    // Attach/detach this plan on the club's single Free Trial offer.
+    const saved = await res.json().catch(() => null);
+    const savedId: string | undefined = membership?.id ?? saved?.id;
+    if (savedId && includeTrial !== trialCurrentlyApplies) {
+      await onSyncTrial(savedId, includeTrial, parseInt(trialDays, 10) || 14);
+    }
     setSaving(false);
-    if (!res.ok) { const data = await res.json(); setError(data.error?.toString() || "Save failed"); return; }
     onSaved();
   }
 
@@ -471,43 +566,36 @@ function MembershipModal({ membership, onClose, onSaved }: { membership: Members
             </div>
           </div>
 
-          {/* Trial rules */}
+          {/* Free trial — one club-wide offer; this just attaches the plan */}
           <div className="pt-2 border-t border-app-border space-y-3">
             <p className="text-xs uppercase tracking-wider text-text-muted font-medium">Free trial</p>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <label className="text-sm text-text-primary block">Offer a free trial</label>
-                <p className="text-[11px] text-text-muted">Members aren't charged until the trial ends. Their card is collected at signup.</p>
+                <label className="text-sm text-text-primary block">Include this plan in the club&apos;s Free Trial offer</label>
+                <p className="text-[11px] text-text-muted">
+                  {trialConfig
+                    ? `Uses “${trialConfig.name}” — ${trialConfig.days} day${trialConfig.days === 1 ? "" : "s"}. Configure the offer from the Free trial button on the Memberships page.`
+                    : "Saving creates the club-wide Free Trial offer with this plan attached — configure it anytime from the Free trial button."}
+                </p>
               </div>
-              <button type="button" onClick={() => setTrialEnabled(!trialEnabled)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${trialEnabled ? "bg-brand" : "bg-app-border"}`}>
-                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${trialEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+              <button type="button" onClick={() => setIncludeTrial(!includeTrial)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${includeTrial ? "bg-brand" : "bg-app-border"}`}>
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${includeTrial ? "translate-x-4" : "translate-x-0.5"}`} />
               </button>
             </div>
 
-            {trialEnabled && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-text-primary mb-1">Trial length <span className="text-text-muted font-normal">(days)</span></label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="365"
-                    value={trialDays}
-                    onChange={(e) => setTrialDays(e.target.value)}
-                    className="w-32 px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm text-text-primary block">Allow returning members to use the trial again</label>
-                    <p className="text-[11px] text-text-muted">Off = trial is one-time per member, on this plan.</p>
-                  </div>
-                  <button type="button" onClick={() => setTrialAppliesToReturning(!trialAppliesToReturning)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${trialAppliesToReturning ? "bg-brand" : "bg-app-border"}`}>
-                    <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${trialAppliesToReturning ? "translate-x-4" : "translate-x-0.5"}`} />
-                  </button>
-                </div>
-              </>
+            {!trialConfig && includeTrial && (
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1">Trial length <span className="text-text-muted font-normal">(days)</span></label>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={trialDays}
+                  onChange={(e) => setTrialDays(e.target.value)}
+                  className="w-32 px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+              </div>
             )}
           </div>
 
@@ -551,6 +639,196 @@ function MembershipModal({ membership, onClose, onSaved }: { membership: Members
               {saving ? "Saving…" : isEdit ? "Save changes" : "Create"}
             </button>
           </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Free Trial Modal ─────────────────────────────────────────────────────────
+// The club's ONE free-trial offer (Club.freeTrialConfig): behaves like its own
+// product — create, edit, disable, or stop offering it entirely.
+function FreeTrialModal({ info, memberships, onClose, onSaved }: {
+  info: FreeTrialInfo | null;
+  memberships: Membership[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const cfg = info?.config ?? null;
+  // First open on a club with legacy per-membership trials: preseed from them
+  // so saving consolidates what the owner already had.
+  const legacy = info?.legacyTrialMemberships ?? [];
+  const [name, setName] = useState(cfg?.name ?? "Free trial");
+  const [days, setDays] = useState(String(cfg?.days ?? (legacy[0]?.trialDays || 14)));
+  const [membershipIds, setMembershipIds] = useState<string[]>(
+    cfg?.membershipIds ?? legacy.map((m) => m.id),
+  );
+  const [renewable, setRenewable] = useState(cfg?.renewable ?? true);
+  const [allowRepeatUse, setAllowRepeatUse] = useState(cfg?.allowRepeatUse ?? false);
+  const [active, setActive] = useState(cfg?.active ?? true);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  function toggleMembership(id: string) {
+    setMembershipIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSaving(true);
+    const res = await fetch("/api/club/free-trial", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim() || "Free trial",
+        days: parseInt(days, 10) || 14,
+        membershipIds,
+        renewable,
+        allowRepeatUse,
+        active,
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Save failed");
+      return;
+    }
+    onSaved();
+  }
+
+  async function handleRemove() {
+    if (!confirm("Stop offering a free trial? New signups and subscriptions won't get one until you set it up again.")) return;
+    setSaving(true);
+    const res = await fetch("/api/club/free-trial", { method: "DELETE" });
+    setSaving(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not remove the offer");
+      return;
+    }
+    onSaved();
+  }
+
+  async function copyLink() {
+    if (!info?.signupUrl) return;
+    try {
+      await navigator.clipboard.writeText(info.signupUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      window.prompt("Copy the free-trial signup link:", info.signupUrl);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
+          <h2 className="text-lg font-semibold text-text-primary">Free trial</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+        </div>
+
+        <form onSubmit={handleSave} className="p-6 space-y-4">
+          <p className="text-xs text-text-muted">
+            One offer for the whole club: trial members can book classes free for the trial
+            period, and card subscriptions on the attached plans delay the first charge by the
+            trial length.
+          </p>
+
+          {!cfg && legacy.length > 0 && (
+            <div className="text-xs text-text-primary bg-lime-accent/15 border border-lime-accent/40 rounded-lg px-3 py-2">
+              Saving consolidates the trials currently set on {legacy.map((m) => m.name).join(", ")} into this single offer.
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm text-text-primary block">Offer a free trial</label>
+              <p className="text-[11px] text-text-muted">Off = no trial anywhere (signup link, subscriptions, trial check-ins).</p>
+            </div>
+            <button type="button" onClick={() => setActive(!active)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${active ? "bg-brand" : "bg-app-border"}`}>
+              <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${active ? "translate-x-4" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Trial name</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Length (days)</label>
+              <input type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} required className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Applies to</label>
+            <p className="text-xs text-text-muted mb-2">
+              {membershipIds.length === 0
+                ? "All memberships and purchase options (default)."
+                : "Only the selected memberships get the subscription trial."}
+            </p>
+            <div className="max-h-36 overflow-y-auto border border-app-border rounded-lg divide-y divide-app-border">
+              {memberships.map((m) => (
+                <label key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary cursor-pointer hover:bg-app-bg">
+                  <input type="checkbox" checked={membershipIds.includes(m.id)} onChange={() => toggleMembership(m.id)} className="rounded border-app-border" />
+                  {m.name}
+                </label>
+              ))}
+              {memberships.length === 0 && (
+                <p className="px-3 py-2 text-xs text-text-muted">No membership plans yet — the trial will apply to all future plans.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm text-text-primary block">Renewable</label>
+              <p className="text-[11px] text-text-muted">Off = once a client&apos;s trial window expires, they can never get another one.</p>
+            </div>
+            <button type="button" onClick={() => setRenewable(!renewable)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${renewable ? "bg-brand" : "bg-app-border"}`}>
+              <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${renewable ? "translate-x-4" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm text-text-primary block">Same client can use it multiple times</label>
+              <p className="text-[11px] text-text-muted">Off = no subscription trial on a plan they already had before (abuse-proof default).</p>
+            </div>
+            <button type="button" onClick={() => setAllowRepeatUse(!allowRepeatUse)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${allowRepeatUse ? "bg-brand" : "bg-app-border"}`}>
+              <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${allowRepeatUse ? "translate-x-4" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Public signup link</label>
+            <div className="flex gap-2">
+              <input readOnly value={info?.signupUrl ?? ""} className="flex-1 px-3 py-2 border border-app-border rounded-lg text-xs text-text-muted bg-app-bg" onFocus={(e) => e.target.select()} />
+              <button type="button" onClick={copyLink} className="px-3 py-2 border border-app-border rounded-lg text-xs text-text-primary hover:bg-app-bg">
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <p className="text-xs text-text-muted mt-1">New clients who sign up through this link start their trial immediately.</p>
+          </div>
+
+          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+          {(cfg || legacy.length > 0) && (
+            <button type="button" onClick={handleRemove} disabled={saving} className="w-full text-xs text-red-600 hover:bg-red-50 rounded-lg px-3 py-2">
+              Stop offering a free trial
+            </button>
+          )}
         </form>
       </div>
     </div>

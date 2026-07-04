@@ -29,9 +29,14 @@ export default function MemberSignupPage() {
   // ?next=/member/privates). Same sanitization as /post-login: path-only,
   // /member-scoped, so this can never become an open redirect.
   const [nextPath, setNextPath] = useState("");
+  // Club free-trial link (?trial=1): the server grants the club's trial
+  // window on the created athlete profile (validated server-side).
+  const [trialRequested, setTrialRequested] = useState(false);
+  const [trialOffer, setTrialOffer] = useState<{ name: string; days: number } | null>(null);
 
-  // Prefill from a kiosk QR (/c/[id] → ?club=slug&checkin=…) or a public
-  // registration link (/join/[slug]?m=… → ?club=slug&membership=…).
+  // Prefill from a kiosk QR (/c/[id] → ?club=slug&checkin=…), the club's
+  // free-trial link (?trial=1), or a public registration link
+  // (/join/[slug]?m=… → ?club=slug&membership=…).
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const c = sp.get("club");
@@ -42,7 +47,23 @@ export default function MemberSignupPage() {
     if (k) setCheckinId(k);
     const n = sp.get("next");
     if (n && n.startsWith("/member") && !n.startsWith("//") && !n.includes("://")) setNextPath(n);
+    if (sp.get("trial") === "1") setTrialRequested(true);
   }, []);
+
+  // Show what the trial link actually grants (name + days) once the club is known.
+  useEffect(() => {
+    if (!trialRequested || !clubSlug.trim()) return;
+    const controller = new AbortController();
+    fetch(`/api/member/signup?clubSlug=${encodeURIComponent(clubSlug.trim().toLowerCase())}`, {
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { freeTrial?: { name: string; days: number } | null } | null) => {
+        setTrialOffer(d?.freeTrial ?? null);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [trialRequested, clubSlug]);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -120,6 +141,7 @@ export default function MemberSignupPage() {
         termsVersion: TERMS_VERSION,
         privacyVersion: PRIVACY_VERSION,
         signedDocumentIds: signedDocIds,
+        requestTrial: trialRequested,
       }),
     });
 
@@ -215,6 +237,11 @@ export default function MemberSignupPage() {
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-stone-900 mb-1">Join your club</h1>
           <p className="text-sm text-stone-500">Create your member account</p>
+          {trialRequested && trialOffer && (
+            <p className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-lime-accent/20 text-charcoal text-xs font-semibold">
+              Includes {trialOffer.name} — {trialOffer.days} day{trialOffer.days === 1 ? "" : "s"} to try classes free
+            </p>
+          )}
         </div>
 
         {/* Step indicator */}

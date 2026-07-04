@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import { requestGuardianLink } from "@/lib/guardianLink";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
+import { normalizeFreeTrialConfig, trialWindowDays } from "@/lib/freeTrial";
 
 const schema = z.object({
   clubSlug: z.string().min(1),
@@ -27,6 +28,9 @@ const schema = z.object({
   termsVersion: z.string().min(1),
   privacyVersion: z.string().min(1),
   signedDocumentIds: z.array(z.string()).optional().default([]),
+  // Came from the club's public free-trial link (?trial=1). Server-validated
+  // against Club.freeTrialConfig — the flag alone grants nothing.
+  requestTrial: z.boolean().optional().default(false),
 });
 
 export async function GET(req: Request) {
@@ -34,8 +38,14 @@ export async function GET(req: Request) {
   const clubSlug = url.searchParams.get("clubSlug")?.trim().toLowerCase();
   if (!clubSlug) return NextResponse.json({ error: "clubSlug is required" }, { status: 400 });
 
-  const club = await prisma.club.findUnique({ where: { slug: clubSlug }, select: { id: true, name: true, slug: true } });
+  const club = await prisma.club.findUnique({
+    where: { slug: clubSlug },
+    select: { id: true, name: true, slug: true, freeTrialConfig: true },
+  });
   if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
+  // Advertised on the trial signup link (?trial=1) — name + length only.
+  const trialConfig = normalizeFreeTrialConfig(club.freeTrialConfig);
+  const freeTrial = trialConfig?.active ? { name: trialConfig.name, days: trialConfig.days } : null;
 
   const now = new Date();
   const documents = await prisma.document.findMany({
@@ -61,7 +71,7 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json({ club, documents });
+  return NextResponse.json({ club: { id: club.id, name: club.name, slug: club.slug }, documents, freeTrial });
 }
 
 export async function POST(req: Request) {
@@ -307,6 +317,27 @@ export async function POST(req: Request) {
       });
     } catch (err) {
       console.error("Failed to persist legal acceptance (member signup):", err);
+    }
+
+    // Public free-trial link: grant the class-trial window to the athlete
+    // profile this signup created. Requires an explicitly ACTIVE Free Trial
+    // offer — a hand-crafted ?trial=1 URL on a club that never configured
+    // one grants nothing. A resurrected profile that already used a trial
+    // only re-trials when the offer is renewable. PARENT signups create no
+    // athlete, so nothing to grant.
+    const signupTrialConfig = normalizeFreeTrialConfig(club.freeTrialConfig);
+    if (data.requestTrial && signupTrialConfig?.active && user.memberProfile) {
+      const days = trialWindowDays(club.freeTrialConfig, user.memberProfile);
+      const hasActiveSub = await prisma.memberSubscription.findFirst({
+        where: { memberId: user.memberProfile.id, status: "active" },
+        select: { id: true },
+      });
+      if (days && !hasActiveSub) {
+        await prisma.member.update({
+          where: { id: user.memberProfile.id },
+          data: { trialEndsAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000) },
+        });
+      }
     }
 
     if (signupDocs.length > 0 && user.memberProfile) {
