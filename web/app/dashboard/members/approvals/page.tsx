@@ -57,7 +57,19 @@ type PurchaseApproval = {
   discountCode?: string | null;
 };
 
-type Approval = GuardianApproval | CancelApproval | MigrationApproval | PurchaseApproval;
+type SplitApproval = {
+  id: string;
+  kind: "INVOICE_SPLIT";
+  memberId: string;
+  memberName: string;
+  requestedAt: string;
+  requester: Requester;
+  responderName: string | null;
+  proposerPercent: number | null;
+  responderPercent: number | null;
+};
+
+type Approval = GuardianApproval | CancelApproval | MigrationApproval | PurchaseApproval | SplitApproval;
 type CancelMode = "PERIOD_END" | "IMMEDIATE" | "IMMEDIATE_REFUND";
 
 function requesterLabel(r: Requester): string {
@@ -148,6 +160,23 @@ export default function MembersApprovalsPage() {
         ? "/api/approvals/membership-purchase"
         : "/api/approvals/private-package-purchase";
     const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalId: a.id, decision }),
+    });
+    setBusyId(null);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not complete that action.");
+      return;
+    }
+    load();
+  }
+
+  async function actSplit(a: SplitApproval, decision: "APPROVE" | "DECLINE") {
+    setBusyId(a.id);
+    setError("");
+    const res = await fetch(`/api/approvals/invoice-split`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ approvalId: a.id, decision }),
@@ -292,6 +321,51 @@ export default function MembersApprovalsPage() {
                     </button>
                     <button
                       onClick={() => actPurchase(a, "DECLINE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            if (a.kind === "INVOICE_SPLIT") {
+              return (
+                <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
+                  <div className="min-w-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                      <CreditCard size={11} /> Invoice split
+                    </span>
+                    <p className="text-sm text-text-primary">
+                      <strong>{requesterLabel(a.requester)}</strong>
+                      {a.responderName ? (
+                        <>
+                          {" "}and <strong>{a.responderName}</strong>
+                        </>
+                      ) : null}{" "}
+                      agreed to split <strong>{a.memberName}</strong>&apos;s costs
+                      {a.proposerPercent != null && a.responderPercent != null
+                        ? ` ${a.proposerPercent}% / ${a.responderPercent}%`
+                        : ""}
+                      . Both guardians have approved.
+                    </p>
+                    <p className="text-xs text-text-muted mt-1">
+                      Approving makes this the family&apos;s standing arrangement — each guardian pays
+                      their share with their own payment method. Requested {fmtDate(a.requestedAt)}.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 mt-3">
+                    <button
+                      onClick={() => actSplit(a, "APPROVE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      {busyId === a.id ? "Working…" : "Approve split"}
+                    </button>
+                    <button
+                      onClick={() => actSplit(a, "DECLINE")}
                       disabled={busyId === a.id}
                       className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
                     >

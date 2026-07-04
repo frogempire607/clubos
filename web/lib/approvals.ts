@@ -26,10 +26,18 @@ export const MEMBERSHIP_PURCHASE_KIND = "MEMBERSHIP_PURCHASE" as const;
 //   amount:  the computed pack total
 export const PRIVATE_PACKAGE_PURCHASE_KIND = "PRIVATE_PACKAGE_PURCHASE" as const;
 
+// Two guardians agreed to split an athlete's costs (Client UX Phase 7,
+// behind FEATURE_INVOICE_SPLIT); the club gives the final OK. Approval
+// activates the InvoiceSplit row (see /api/approvals/invoice-split).
+//   payload: { splitId, requestingUserId, responderUserId, proposerPercent, responderPercent }
+//   amount:  null (it's a standing % agreement, not a charge)
+export const INVOICE_SPLIT_KIND = "INVOICE_SPLIT" as const;
+
 // Every kind that should appear in the owner dashboard approvals queue.
 export const OWNER_APPROVAL_KINDS: string[] = [
   GUARDIAN_LINK_KIND,
   MEMBERSHIP_CANCEL_KIND,
   MEMBERSHIP_PURCHASE_KIND,
   PRIVATE_PACKAGE_PURCHASE_KIND,
+  INVOICE_SPLIT_KIND,
 ];

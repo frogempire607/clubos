@@ -87,6 +87,16 @@ async function fetchUser(userId: string) {
               // page to render an explanatory note when no child threads
               // exist because the kids have no logins.
               user: { select: { id: true } },
+              // Who co-manages each child (names only) — powers the guardian
+              // avatars on the Account page. The viewer is one of these
+              // guardians, so this is data about their own family.
+              guardianLinks: {
+                orderBy: { createdAt: "asc" },
+                select: {
+                  userId: true,
+                  user: { select: { id: true, firstName: true, lastName: true } },
+                },
+              },
               bookings: {
                 where: { status: { in: ["CONFIRMED", "WAITLISTED"] } },
                 include: { event: { include: { customEventType: true } } },

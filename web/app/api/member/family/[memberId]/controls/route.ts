@@ -59,7 +59,37 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
   const child = await loadGuardianChild(session.user.id, params.memberId, session.user.clubId);
   if (!child) return NextResponse.json({ error: "Not a linked child" }, { status: 403 });
 
+  // Everyone who can manage this athlete, oldest link first. Additive,
+  // read-only: the viewer is already an authorized guardian of the child, so
+  // seeing who else co-manages them is exactly what the Co-Guardians card
+  // needs. `isPrimary` mirrors lib/guardianLink.isPrimaryGuardian.
+  const [links, childRow] = await Promise.all([
+    prisma.memberGuardianUser.findMany({
+      where: { memberId: child.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        userId: true,
+        relationship: true,
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    }),
+    prisma.member.findUnique({ where: { id: child.id }, select: { guardianEmail: true } }),
+  ]);
+  // Mirror lib/guardianLink.isPrimaryGuardian exactly — it's an OR: the
+  // guardianEmail-matching user AND the earliest-linked user each count as
+  // primary, so the badge never disagrees with who can actually save.
+  const primaryEmail = childRow?.guardianEmail?.trim().toLowerCase() ?? null;
+  const guardians = links.map((l, i) => ({
+    userId: l.userId,
+    name: `${l.user.firstName} ${l.user.lastName}`.trim(),
+    relationship: l.relationship,
+    isPrimary:
+      (primaryEmail != null && l.user.email?.trim().toLowerCase() === primaryEmail) || i === 0,
+    isYou: l.userId === session.user.id,
+  }));
+
   return NextResponse.json({
+    guardians,
     member: {
       id: child.id,
       firstName: child.firstName,

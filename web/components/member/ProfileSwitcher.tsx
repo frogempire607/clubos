@@ -1,59 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  getActiveProfileId,
-  setActiveProfileId,
-  onActiveProfileChange,
-  resolveActiveProfileId,
-} from "@/lib/activeProfile";
+import { setActiveProfileId } from "@/lib/activeProfile";
 import { Avatar } from "@/components/member/ui";
-
-type Profile = { id: string; name: string; kind: "self" | "child" };
+import { useAthleteProfiles, useActiveAthlete } from "@/components/member/AthleteRail";
 
 // Account-level athlete switcher. Renders whenever the account can manage more
 // than one profile (a guardian with their own profile + linked children, or a
 // guardian managing 2+ children). The selected profile is persisted via
-// lib/activeProfile so every portal page reflects it. Visual redesign only —
+// lib/activeProfile so every portal page reflects it. Profile data comes from
+// the shared portal cache in AthleteRail.tsx (one fetch feeds chips + rail);
 // the resolution logic is unchanged.
 export default function ProfileSwitcher() {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/member/portal")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (cancelled || !d?.user) return;
-        const list: Profile[] = [];
-        if (d.user.memberProfile) {
-          list.push({
-            id: d.user.memberProfile.id,
-            name: `${d.user.memberProfile.firstName} ${d.user.memberProfile.lastName}`.trim(),
-            kind: "self",
-          });
-        }
-        for (const g of d.user.guardianOf ?? []) {
-          list.push({
-            id: g.member.id,
-            name: `${g.member.firstName} ${g.member.lastName}`.trim(),
-            kind: "child",
-          });
-        }
-        setProfiles(list);
-        const resolved = resolveActiveProfileId(list.map((p) => p.id));
-        setActiveId(resolved);
-        // Seed the shared store so other pages start on the same profile.
-        if (resolved && resolved !== getActiveProfileId()) setActiveProfileId(resolved);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => onActiveProfileChange(setActiveId), []);
+  const { profiles } = useAthleteProfiles();
+  const [activeId] = useActiveAthlete(profiles);
 
   if (profiles.length < 2) return null;
 

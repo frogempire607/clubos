@@ -182,6 +182,7 @@ model Club {
   plaidConnections            PlaidConnection[]
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
+  invoiceSplits               InvoiceSplit[]
 
   @@index([slug])
   @@map("clubs")
@@ -256,6 +257,42 @@ model PendingApproval {
   @@index([clubId])
   @@index([memberId, status])
   @@map("pending_approvals")
+}
+
+// Invoice splitting (Client UX Phase 7, feature-flagged via
+// FEATURE_INVOICE_SPLIT). A standing agreement that two guardians share an
+// athlete's costs N/M. Lifecycle: guardian A proposes (PENDING_GUARDIAN) →
+// guardian B approves (PENDING_STAFF, also files a PendingApproval kind
+// INVOICE_SPLIT for the owner queue) → staff approves (ACTIVE). Terminal:
+// DECLINED | REVOKED. `events` is the append-only audit trail
+// [{ at, byUserId, action, note? }]. Charge orchestration (auto-splitting a
+// purchase across both guardians' own payment methods) is a follow-up — an
+// ACTIVE split is the source of truth staff bill against.
+model InvoiceSplit {
+  id                  String    @id @default(cuid())
+  clubId              String
+  memberId            String
+  proposerUserId      String
+  responderUserId     String
+  proposerPercent     Int
+  responderPercent    Int
+  // PENDING_GUARDIAN | PENDING_STAFF | ACTIVE | DECLINED | REVOKED
+  status              String    @default("PENDING_GUARDIAN")
+  note                String?
+  events              Json      @default("[]")
+  proposedAt          DateTime  @default(now())
+  guardianRespondedAt DateTime?
+  staffReviewedAt     DateTime?
+  staffUserId         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status])
+  @@index([memberId, status])
+  @@map("invoice_splits")
 }
 
 model Location {
@@ -561,6 +598,7 @@ model Member {
   relationshipsFrom  MemberRelationship[] @relation("RelationshipFrom")
   relationshipsTo    MemberRelationship[] @relation("RelationshipTo")
   pendingApprovals   PendingApproval[]
+  invoiceSplits      InvoiceSplit[]
 
   @@index([clubId])
   @@index([status])
