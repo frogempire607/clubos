@@ -10,6 +10,7 @@ import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
 import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
+import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
 
 const schema = z.object({
   membershipId: z.string(),
@@ -231,16 +232,11 @@ export async function POST(req: Request) {
 
     const appFeePercent = 0;
 
-    // Honor trial rules — same logic as owner-side subscribe
+    // Honor trial rules — same central Free Trial offer as owner-side subscribe.
     let trialPeriodDays: number | null = null;
-    if (membership.trialEnabled && (membership.trialDays ?? 0) > 0 && isRecurring) {
-      const priorActive = await prisma.memberSubscription.findFirst({
-        where: { memberId: member.id, membershipId, status: { in: ["active", "past_due", "canceled", "expired"] } },
-        select: { id: true },
-      });
-      if (!priorActive || membership.trialAppliesToReturning) {
-        trialPeriodDays = membership.trialDays!;
-      }
+    if (isRecurring) {
+      const trial = trialForMembership(club.freeTrialConfig, membership);
+      if (trial) trialPeriodDays = await eligibleForSubscriptionTrial(member.id, membershipId, trial);
     }
 
     const checkoutSession = await stripe.checkout.sessions.create(

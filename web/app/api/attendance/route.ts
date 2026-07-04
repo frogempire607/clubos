@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { trialWindowDays } from "@/lib/freeTrial";
 
 // GET /api/attendance?date=YYYY-MM-DD
 // Returns all class sessions + events for that date
@@ -79,22 +80,27 @@ export async function POST(req: Request) {
   });
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
-  // A staff "Trial" check-in grants a membership-agnostic 7-day trial window
-  // (Member.trialEndsAt) when the member has no active plan and no window
-  // already running — so they can book more classes from the portal and still
-  // subscribe to any membership afterwards.
+  // A staff "Trial" check-in grants the club's free-trial window
+  // (Member.trialEndsAt) when the member has no active plan and the club's
+  // Free Trial offer allows it — so they can book more classes from the
+  // portal and still subscribe to any membership afterwards. Length and
+  // renewability come from Club.freeTrialConfig (7 days when unconfigured);
+  // an explicitly disabled offer grants nothing.
   if (status === "TRIAL") {
-    const now = new Date();
-    const hasWindow = member.trialEndsAt && member.trialEndsAt > now;
-    if (!hasWindow) {
-      const activeSub = await prisma.memberSubscription.findFirst({
-        where: { memberId, status: "active" },
-        select: { id: true },
+    const activeSub = await prisma.memberSubscription.findFirst({
+      where: { memberId, status: "active" },
+      select: { id: true },
+    });
+    if (!activeSub) {
+      const club = await prisma.club.findUnique({
+        where: { id: session.user.clubId },
+        select: { freeTrialConfig: true },
       });
-      if (!activeSub) {
+      const days = trialWindowDays(club?.freeTrialConfig, member);
+      if (days) {
         await prisma.member.update({
           where: { id: memberId },
-          data: { trialEndsAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) },
+          data: { trialEndsAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000) },
         });
       }
     }

@@ -8,6 +8,7 @@ import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
+import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
 
 const schema = z.object({
   memberId:      z.string(),
@@ -187,18 +188,13 @@ export async function POST(req: Request) {
     const feeItem =
       checkoutMode === "payment" ? processingFeeLineItem(amountInCents, passFees) : null;
 
-    // Trial rules: if the membership has a trial and either the member has no
-    // prior active sub on this plan OR the plan allows returning trials, grant
-    // the configured trial period before the first charge.
+    // Trial rules: the club's central Free Trial offer decides whether this
+    // plan trials (legacy per-membership flags only apply for clubs that never
+    // configured it). Repeat use on the same plan is gated by the offer.
     let trialPeriodDays: number | null = null;
-    if (membership.trialEnabled && (membership.trialDays ?? 0) > 0 && isRecurring) {
-      const priorActive = await prisma.memberSubscription.findFirst({
-        where: { memberId, membershipId, status: { in: ["active", "past_due", "canceled", "expired"] } },
-        select: { id: true },
-      });
-      if (!priorActive || membership.trialAppliesToReturning) {
-        trialPeriodDays = membership.trialDays!;
-      }
+    if (isRecurring) {
+      const trial = trialForMembership(club.freeTrialConfig, membership);
+      if (trial) trialPeriodDays = await eligibleForSubscriptionTrial(memberId, membershipId, trial);
     }
 
     // Build subscription_data with optional billing anchor. AthletixOS takes
