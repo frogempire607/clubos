@@ -6,6 +6,7 @@ import { MapPin } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonCard } from "@/components/LoadingSkeleton";
+import { mapsDirectionsUrl } from "@/lib/maps";
 
 type Club = {
   id: string;
@@ -47,10 +48,8 @@ type Location = {
   longitude: number | null;
 };
 
-function mapsUrl(lat: number, lng: number) {
-  // Universal: works in browsers and prompts Apple Maps on iOS / Google on Android.
-  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-}
+// Maps links come from lib/maps.ts: exact coordinates when set, otherwise the
+// address — a location with only an address still gets "Open in Maps".
 
 const TIERS = [
   {
@@ -706,16 +705,19 @@ function LocationsSection({ locations, onSaved }: { locations: Location[]; onSav
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-text-primary">{loc.name}</p>
                 {loc.address && <p className="text-xs text-text-muted">{loc.address}</p>}
-                {loc.latitude != null && loc.longitude != null && (
-                  <a
-                    href={mapsUrl(loc.latitude, loc.longitude)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-brand hover:underline"
-                  >
-                    <MapPin className="h-3 w-3" strokeWidth={2} /> Open in Maps
-                  </a>
-                )}
+                {(() => {
+                  const href = mapsDirectionsUrl(loc);
+                  return href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-brand hover:underline"
+                    >
+                      <MapPin className="h-3 w-3" strokeWidth={2} /> Open in Maps
+                    </a>
+                  ) : null;
+                })()}
               </div>
               <div className="flex gap-1">
                 <button onClick={() => setEditing(loc)}
@@ -759,6 +761,56 @@ function LocationModal({
   const [longitude, setLongitude] = useState(location?.longitude != null ? String(location.longitude) : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [locating, setLocating] = useState<"address" | "gps" | null>(null);
+  const [locateNote, setLocateNote] = useState("");
+
+  // Address → coordinates via the owner-only /api/geocode proxy. Coordinates
+  // are an optional precision upgrade — the maps link works from the address
+  // alone — so failures here are soft.
+  async function locateFromAddress() {
+    if (!address.trim()) {
+      setLocateNote("Type the address first, then look it up.");
+      return;
+    }
+    setLocating("address");
+    setLocateNote("");
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(address.trim())}`);
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLocateNote(d.error || "Couldn't find that address.");
+        return;
+      }
+      setLatitude(String(d.latitude));
+      setLongitude(String(d.longitude));
+      setLocateNote(`Found: ${d.displayName}`);
+    } finally {
+      setLocating(null);
+    }
+  }
+
+  // Standing at the gym? One tap grabs the device position.
+  function locateFromDevice() {
+    if (!navigator.geolocation) {
+      setLocateNote("This browser can't share your location — use the address lookup instead.");
+      return;
+    }
+    setLocating("gps");
+    setLocateNote("");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLatitude(pos.coords.latitude.toFixed(6));
+        setLongitude(pos.coords.longitude.toFixed(6));
+        setLocateNote("Using your current position.");
+        setLocating(null);
+      },
+      () => {
+        setLocateNote("Location permission was denied — use the address lookup instead.");
+        setLocating(null);
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -804,36 +856,59 @@ function LocationModal({
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Address (optional)</label>
+            <label className="block text-sm font-medium text-text-primary mb-1">Address</label>
             <input type="text" value={address} onChange={(e) => setAddress(e.target.value)}
               placeholder="123 Main St, City, State"
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            <p className="text-[11px] text-text-muted mt-1">
+              The address alone powers the members&apos; &quot;Open in Maps&quot; link — coordinates below are optional for pin-point accuracy.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">
-              GPS coordinates (optional)
+              Map pin (optional)
             </label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              <button
+                type="button"
+                onClick={locateFromAddress}
+                disabled={locating !== null}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+              >
+                {locating === "address" ? "Looking up…" : "Find from address"}
+              </button>
+              <button
+                type="button"
+                onClick={locateFromDevice}
+                disabled={locating !== null}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+              >
+                {locating === "gps" ? "Locating…" : "Use my current location"}
+              </button>
+            </div>
+            {locateNote && <p className="text-[11px] text-text-muted mb-2">{locateNote}</p>}
             <div className="grid grid-cols-2 gap-2">
               <input type="text" inputMode="decimal" value={latitude} onChange={(e) => setLatitude(e.target.value)}
-                placeholder="Latitude e.g. 40.7128"
+                placeholder="Latitude (auto-filled)"
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
               <input type="text" inputMode="decimal" value={longitude} onChange={(e) => setLongitude(e.target.value)}
-                placeholder="Longitude e.g. -74.0060"
+                placeholder="Longitude (auto-filled)"
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
-            <p className="text-[11px] text-text-muted mt-1">
-              Adds an &quot;Open in Maps&quot; link (Apple/Google) for members. Tip: right-click a spot in Google Maps to copy its lat, long.
-            </p>
-            {latitude.trim() && longitude.trim() && !Number.isNaN(Number(latitude)) && !Number.isNaN(Number(longitude)) && (
-              <a
-                href={mapsUrl(Number(latitude), Number(longitude))}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-brand hover:underline mt-1 inline-block"
-              >
-                Preview on map →
-              </a>
-            )}
+            {(() => {
+              const lat = Number(latitude), lng = Number(longitude);
+              const href =
+                latitude.trim() && longitude.trim() && !Number.isNaN(lat) && !Number.isNaN(lng)
+                  ? mapsDirectionsUrl({ latitude: lat, longitude: lng })
+                  : address.trim()
+                    ? mapsDirectionsUrl({ address })
+                    : null;
+              return href ? (
+                <a href={href} target="_blank" rel="noopener noreferrer" className="text-xs text-brand hover:underline mt-1 inline-block">
+                  Preview on map →
+                </a>
+              ) : null;
+            })()}
           </div>
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
           <div className="flex gap-2">
