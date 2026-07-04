@@ -22,12 +22,19 @@ export async function GET(req: Request) {
   if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
 
   let membership:
-    | { id: string; name: string; description: string | null; options: unknown }
+    | {
+        id: string;
+        name: string;
+        description: string | null;
+        options: unknown;
+        trialEnabled: boolean;
+        trialDays: number | null;
+      }
     | null = null;
   if (id) {
     const m = await prisma.membership.findFirst({
       where: { id, clubId: club.id, deletedAt: null, active: true, purchaseAccess: "ANYONE" },
-      select: { id: true, name: true, description: true, options: true },
+      select: { id: true, name: true, description: true, options: true, trialEnabled: true, trialDays: true },
     });
     if (m) membership = m;
   }
