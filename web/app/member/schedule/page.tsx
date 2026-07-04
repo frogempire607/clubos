@@ -6,10 +6,8 @@ import { CalendarPlus } from "lucide-react";
 import {
   onActiveProfileChange,
   resolveActiveProfileId,
-  setActiveProfileId,
 } from "@/lib/activeProfile";
 import { friendlyDate, friendlyTimeRange } from "@/lib/friendlyDate";
-import { Avatar } from "@/components/member/ui";
 
 type ScheduleMember = {
   id: string;
@@ -262,29 +260,14 @@ export default function MemberSchedulePage() {
 
       {showSubscribe && <SubscribeModal onClose={() => setShowSubscribe(false)} />}
 
-      {data?.accessibleMembers && data.accessibleMembers.length > 1 && (
-        <div className="-mt-2 mb-4 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold flex-shrink-0">
-            Athlete
+      {data?.accessibleMembers && data.accessibleMembers.length > 1 && activeMember && (
+        <p className="-mt-2 mb-4 text-xs text-stone-500">
+          Showing the schedule for{" "}
+          <span className="font-semibold text-stone-800">
+            {activeMember.kind === "self" ? "you" : `${activeMember.firstName} ${activeMember.lastName}`}
           </span>
-          {data.accessibleMembers.map((m) => {
-            const isActive = m.id === activeId;
-            const name = m.kind === "self" ? "You" : `${m.firstName} ${m.lastName}`;
-            return (
-              <button
-                key={m.id}
-                onClick={() => setActiveProfileId(m.id)}
-                aria-pressed={isActive}
-                className={`flex items-center gap-1.5 pl-1 pr-3 py-1 rounded-full border text-sm font-medium whitespace-nowrap flex-shrink-0 transition ${
-                  isActive ? "pseg-active border-transparent" : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
-                }`}
-              >
-                <Avatar name={name} size={22} />
-                {name}
-              </button>
-            );
-          })}
-        </div>
+          <span className="text-stone-400"> — switch athletes with the Managing bar above.</span>
+        </p>
       )}
 
       {data?.activeMembershipNames.length ? (
