@@ -62,7 +62,12 @@ const MORE_GROUPS: {
 // wider desktop canvas and hide the layout's managing chips at `md` (the
 // rail replaces them; the chips stay on mobile). Routes are added here in
 // the same phase that ships the page's rail.
-const RAIL_ROUTES: string[] = ["/member/profile", "/member/family"];
+const RAIL_ROUTES: string[] = [
+  "/member/profile",
+  "/member/family",
+  "/member/schedule",
+  "/member/bookings",
+];
 
 type ClubInfo = {
   name: string;
