@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { CalendarPlus } from "lucide-react";
 import {
   onActiveProfileChange,
   resolveActiveProfileId,
@@ -108,6 +109,7 @@ export default function MemberSchedulePage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [showSubscribe, setShowSubscribe] = useState(false);
   const [info, setInfo] = useState("");
 
   async function load(memberId?: string | null) {
@@ -244,10 +246,21 @@ export default function MemberSchedulePage() {
             Classes, events, and private lesson options from your club.
           </p>
         </div>
-        <Link href="/member/bookings" className="text-xs text-stone-500 hover:text-stone-900">
-          My bookings →
-        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowSubscribe(true)}
+            className="text-xs text-stone-500 hover:text-stone-900 inline-flex items-center gap-1"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" strokeWidth={2} />
+            Add to calendar
+          </button>
+          <Link href="/member/bookings" className="text-xs text-stone-500 hover:text-stone-900">
+            My bookings →
+          </Link>
+        </div>
       </div>
+
+      {showSubscribe && <SubscribeModal onClose={() => setShowSubscribe(false)} />}
 
       {data?.accessibleMembers && data.accessibleMembers.length > 1 && (
         <div className="-mt-2 mb-4 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -507,6 +520,69 @@ function Detail({ label, value }: { label: string; value: string | null }) {
     <div className="rounded-lg border border-stone-100 p-3">
       <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1">{label}</p>
       <p className="text-sm text-stone-800">{value || "Not listed"}</p>
+    </div>
+  );
+}
+
+/* ─── Add-to-calendar modal ─── */
+
+function SubscribeModal({ onClose }: { onClose: () => void }) {
+  const [links, setLinks] = useState<{ ics: string; webcal: string; google: string } | null>(null);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/member/calendar-link")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(setLinks)
+      .catch(() => setError("Couldn't load the calendar link."));
+  }, []);
+
+  function copyIcs() {
+    if (!links) return;
+    navigator.clipboard?.writeText(links.ics).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-base font-semibold text-stone-900">Add to your calendar</h2>
+          <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-stone-500">✕</button>
+        </div>
+        <p className="text-xs text-stone-500 mb-4">
+          Subscribe once — the club schedule stays up to date in your calendar app automatically.
+        </p>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {!links && !error && <p className="text-sm text-stone-500">Loading…</p>}
+        {links && (
+          <div className="flex flex-col gap-2">
+            <a
+              href={links.google}
+              target="_blank"
+              rel="noreferrer"
+              className="pbtn-accent text-center text-sm px-4 py-2.5 rounded-xl font-medium"
+            >
+              Add to Google Calendar
+            </a>
+            <a
+              href={links.webcal}
+              className="text-center text-sm px-4 py-2.5 rounded-xl font-medium border border-stone-300 text-stone-700 hover:bg-stone-50"
+            >
+              Add to Apple / Outlook
+            </a>
+            <button
+              onClick={copyIcs}
+              className="text-center text-sm px-4 py-2.5 rounded-xl font-medium border border-stone-300 text-stone-700 hover:bg-stone-50"
+            >
+              {copied ? "Copied!" : "Copy calendar link"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
