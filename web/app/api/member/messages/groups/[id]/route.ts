@@ -5,6 +5,7 @@ import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { memberCanMessage } from "@/lib/parentalControls";
+import { userCanAccessEventChat, ensureEventChatMember } from "@/lib/eventChat";
 
 const MESSAGING_DISABLED = {
   error:
@@ -14,16 +15,27 @@ const MESSAGING_DISABLED = {
 
 async function requireMembership(groupId: string, userId: string, clubId: string) {
   const group = await prisma.messageGroup.findFirst({
-    where: {
-      id: groupId,
-      clubId,
-      members: { some: { userId } },
-    },
+    where: { id: groupId, clubId },
     include: {
       members: { include: { user: { select: { id: true, firstName: true, lastName: true, role: true } } } },
     },
   });
-  return group;
+  if (!group) return null;
+
+  const isMember = group.members.some((m) => m.userId === userId);
+
+  // Event-linked groups follow the live registration, not the junction row:
+  // a member who cancels loses access even if their row wasn't cleaned up yet,
+  // and a newly-registered member gets in (joining lazily) without waiting for
+  // a sync. Plain groups keep the original junction-only behavior.
+  if (group.eventId) {
+    const eligible = await userCanAccessEventChat(userId, clubId, group.eventId);
+    if (!eligible) return null;
+    if (!isMember) await ensureEventChatMember(group.id, userId);
+    return group;
+  }
+
+  return isMember ? group : null;
 }
 
 // GET /api/member/messages/groups/[id]

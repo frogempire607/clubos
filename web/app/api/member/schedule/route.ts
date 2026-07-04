@@ -203,10 +203,10 @@ export async function GET(req: Request) {
     : [];
   const staffById = new Map(staff.map((u) => [u.id, `${u.firstName} ${u.lastName}`]));
 
-  // Member schedule shows CLASSES only — events live on the dedicated
-  // /member/events surface. We keep the events query so other downstream
-  // helpers don't break, but skip them in the items list.
-  const INCLUDE_EVENTS_IN_SCHEDULE = false;
+  // My Schedule is the club's what's-on surface: classes AND events (the
+  // page's Events filter chip was dead while this was false — events also
+  // still have their own /member/events surface for registration detail).
+  const INCLUDE_EVENTS_IN_SCHEDULE = true;
   const items = [
     ...(INCLUDE_EVENTS_IN_SCHEDULE ? events : []).flatMap((event) => {
       const acceptedMembershipIds = parsePricingOptions(event.pricingOptions)

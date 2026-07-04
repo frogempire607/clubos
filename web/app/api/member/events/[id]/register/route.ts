@@ -10,6 +10,7 @@ import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
+import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -54,6 +55,7 @@ async function emailBookingConfirmation(args: {
 const schema = z.object({
   pricingType: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN"]).default("MEMBER"),
   memberId: z.string().optional(),
+  discountCode: z.string().max(50).optional().nullable(),
 });
 
 async function resolveBookingMember(args: {
@@ -97,7 +99,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many registration attempts. Try again in a moment.");
 
   try {
-    const { pricingType, memberId } = schema.parse(await req.json().catch(() => ({})));
+    const { pricingType, memberId, discountCode } = schema.parse(await req.json().catch(() => ({})));
 
     const event = await prisma.event.findFirst({
       where: {
@@ -299,6 +301,36 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json({ error: "No price configured" }, { status: 400 });
     }
 
+    // Optional discount code (EVENT scope) — applied to the server-resolved
+    // tier price before the parental gate and Stripe see the amount.
+    let discount: ValidDiscount | null = null;
+    if (discountCode?.trim()) {
+      const check = await findValidDiscountFor(session.user.clubId, discountCode, { type: "EVENT" });
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+      discount = check.discount;
+      priceCents = Math.round(discountedPrice(priceCents / 100, discount) * 100);
+      priceLabel = `${priceLabel} · code ${discount.code}`;
+    }
+
+    // A 100%-off code books directly — same shape as the free path above.
+    if (discount && priceCents <= 0) {
+      const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      await prisma.booking.create({ data: { eventId: event.id, memberId: member.id, status } });
+      await recordDiscountUse(discount.id);
+      if (status === "CONFIRMED") {
+        const clubName = (await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } }))?.name;
+        emailBookingConfirmation({
+          memberId: member.id,
+          clubName: clubName ?? "your club",
+          eventName: event.name,
+          startsAt: event.startsAt,
+          endsAt: event.endsAt,
+          coveredByMembership: false,
+        });
+      }
+      return NextResponse.json({ free: true, status });
+    }
+
     // P4 parental gate. Applied after final price is known + before
     // Stripe so a controlled minor sees "Sent to your guardian" instead
     // of a Stripe redirect. Replay payload mirrors the original POST so
@@ -318,7 +350,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       bookerIsGuardian: member.userId !== session.user.id,
       kind: "EVENT_REGISTER",
       amount: priceCents / 100,
-      payload: { eventId: event.id, pricingType, memberId: member.id },
+      payload: {
+        eventId: event.id,
+        pricingType,
+        memberId: member.id,
+        ...(discount ? { discountCode: discount.code } : {}),
+      },
     });
     if (gate.kind === "block") {
       return NextResponse.json(gate.body, { status: gate.status });
@@ -364,11 +401,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           eventId: event.id,
           eventName: event.name,
           clubId: club.id,
+          ...(discount ? { discountCode: discount.code } : {}),
         },
       },
       { stripeAccount: club.stripeAccountId }
     );
 
+    if (discount) await recordDiscountUse(discount.id);
     return NextResponse.json({ url: checkoutSession.url });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });

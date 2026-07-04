@@ -8,11 +8,13 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
+import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
   // Which profile this purchase is for (self or a child the viewer guardians).
   memberId: z.string().optional(),
+  discountCode: z.string().max(50).optional().nullable(),
 });
 
 // POST /api/member/products/[id]/buy
@@ -22,7 +24,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { quantity, memberId } = schema.parse(await req.json().catch(() => ({})));
+    const { quantity, memberId, discountCode } = schema.parse(await req.json().catch(() => ({})));
 
     const product = await prisma.product.findFirst({
       where: {
@@ -74,10 +76,26 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
     }
 
-    const unitPrice = Number(product.price);
+    // Optional discount code (PRODUCT scope) — applied per unit so the
+    // Stripe line item stays quantity-aware.
+    let discount: ValidDiscount | null = null;
+    if (discountCode?.trim()) {
+      const check = await findValidDiscountFor(session.user.clubId, discountCode, { type: "PRODUCT" });
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+      discount = check.discount;
+    }
+    const unitPrice = discount
+      ? discountedPrice(Number(product.price), discount)
+      : Number(product.price);
     const totalAmount = unitPrice * quantity;
     const totalCents = Math.round(totalAmount * 100);
     const platformFee = calculatePlatformFee(totalCents, club.tier);
+    if (totalCents <= 0) {
+      return NextResponse.json(
+        { error: "That code makes this free — ask your club to record the sale for you." },
+        { status: 400 },
+      );
+    }
 
     // P4 parental gate. Before the PENDING ProductSale row is created
     // so a queued/declined buy doesn't leave a stale sale to clean up.
@@ -141,7 +159,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           application_fee_amount: platformFee,
           metadata: { saleId: sale.id, productId: product.id, memberId: member.id, clubId: club.id },
         },
-        metadata: { saleId: sale.id, productId: product.id, memberId: member.id, clubId: club.id },
+        metadata: {
+          saleId: sale.id,
+          productId: product.id,
+          memberId: member.id,
+          clubId: club.id,
+          ...(discount ? { discountCode: discount.code } : {}),
+        },
       },
       { stripeAccount: club.stripeAccountId },
     );
@@ -151,6 +175,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: { stripeCheckoutSessionId: checkoutSession.id },
     });
 
+    if (discount) await recordDiscountUse(discount.id);
     return NextResponse.json({ url: checkoutSession.url });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });

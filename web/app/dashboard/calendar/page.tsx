@@ -84,6 +84,7 @@ export default function CalendarPage() {
   // Filter state
   const [kindFilter, setKindFilter] = useState<Set<Kind>>(new Set(["event", "class", "private"]));
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set()); // empty = all subtypes
+  const [showShare, setShowShare] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -210,11 +211,19 @@ export default function CalendarPage() {
         description="All offerings — events, classes, and confirmed private lessons."
         actions={
           <>
+            <button
+              onClick={() => setShowShare(true)}
+              className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg"
+            >
+              Share / subscribe
+            </button>
             <Link href="/dashboard/classes" className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg">+ Class</Link>
             <Link href="/dashboard/events" className="px-3 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">+ Event</Link>
           </>
         }
       />
+
+      {showShare && <CalendarLinksModal onClose={() => setShowShare(false)} />}
 
       {/* Filter bar */}
       <div className="bg-surface border border-app-border rounded-xl p-4 mb-4">
@@ -756,6 +765,83 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div>
       <span className="text-text-muted">{label}: </span>
       <span className="text-text-primary">{value}</span>
+    </div>
+  );
+}
+
+/* ─── Calendar share/subscribe modal ─── */
+
+type FeedLinkSet = { scope: string; ics: string; webcal: string; google: string; embed: string };
+
+function CalendarLinksModal({ onClose }: { onClose: () => void }) {
+  const [links, setLinks] = useState<{ staff: FeedLinkSet; member: FeedLinkSet; public: FeedLinkSet } | null>(null);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/calendar/links")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(setLinks)
+      .catch(() => setError("Couldn't load calendar links."));
+  }, []);
+
+  function copy(value: string, key: string) {
+    navigator.clipboard?.writeText(value).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500);
+    });
+  }
+
+  const sections: { key: "staff" | "member" | "public"; title: string; note: string }[] = [
+    { key: "staff", title: "Owner & staff calendar", note: "Everything — includes staff-only events and confirmed private lessons with athlete names. Share only with your team." },
+    { key: "member", title: "Member calendar", note: "Public and members-only classes and events — what members see in the portal." },
+    { key: "public", title: "Public calendar", note: "Public items only. Safe for your website or social bio." },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-surface rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-base font-semibold text-text-primary">Calendar links</h2>
+          <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-lg hover:bg-app-bg flex items-center justify-center text-text-muted">✕</button>
+        </div>
+        <p className="text-xs text-text-muted mb-4">
+          These feeds update automatically when classes or events change. Add to Apple/Outlook with the
+          iCal link, Google with the Google link, or embed the web view in your site.
+        </p>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {!links && !error && <p className="text-sm text-text-muted">Loading…</p>}
+        {links &&
+          sections.map(({ key, title, note }) => {
+            const l = links[key];
+            return (
+              <div key={key} className="border border-app-border rounded-xl p-3 mb-3">
+                <div className="text-sm font-medium text-text-primary">{title}</div>
+                <p className="text-[11px] text-text-muted mb-2">{note}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button onClick={() => copy(l.ics, `${key}-ics`)} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+                    {copied === `${key}-ics` ? "Copied!" : "Copy iCal link"}
+                  </button>
+                  <a href={l.google} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+                    Add to Google
+                  </a>
+                  <button onClick={() => copy(l.embed, `${key}-embed`)} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+                    {copied === `${key}-embed` ? "Copied!" : "Copy embed link"}
+                  </button>
+                  <button
+                    onClick={() => copy(`<iframe src="${l.embed}" style="width:100%;height:600px;border:0"></iframe>`, `${key}-iframe`)}
+                    className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg"
+                  >
+                    {copied === `${key}-iframe` ? "Copied!" : "Copy iframe snippet"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+      </div>
     </div>
   );
 }

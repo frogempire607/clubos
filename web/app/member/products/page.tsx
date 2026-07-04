@@ -41,6 +41,7 @@ export default function MemberProductsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [discountCode, setDiscountCode] = useState("");
 
   useEffect(() => {
     fetch("/api/member/products")
@@ -62,7 +63,11 @@ export default function MemberProductsPage() {
     const res = await fetch(`/api/member/products/${productId}/buy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ quantity: 1, memberId: selectedMemberId }),
+      body: JSON.stringify({
+        quantity: 1,
+        memberId: selectedMemberId,
+        discountCode: discountCode.trim() || null,
+      }),
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok || !d.url) {
@@ -106,6 +111,17 @@ export default function MemberProductsPage() {
       )}
 
       {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
+
+      <div className="mb-4 flex items-center gap-2">
+        <label className="text-xs text-stone-500 flex-shrink-0">Discount code</label>
+        <input
+          type="text"
+          value={discountCode}
+          onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+          placeholder="Optional — applied at checkout"
+          className="w-full max-w-xs px-3 py-1.5 border border-stone-300 rounded-lg text-sm font-mono uppercase placeholder:font-sans placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-stone-400"
+        />
+      </div>
 
       {loading ? (
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>

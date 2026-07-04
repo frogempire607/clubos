@@ -8,6 +8,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { PRIVATE_PACKAGE_PURCHASE_KIND } from "@/lib/approvals";
+import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 import {
   packageTotalForBasePrice,
   normalizePricingMode,
@@ -45,6 +46,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     coachId?: string | null;
     requestedSlots?: Array<{ date?: string; startTime?: string }>;
     notes?: string | null;
+    discountCode?: string | null;
   };
   const isOffline = body.paymentMethod === "CASH" || body.paymentMethod === "CHECK";
   const user = await prisma.user.findUnique({
@@ -139,7 +141,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       }
     }
   }
-  const totalAmount = packageTotalForBasePrice(
+  let totalAmount = packageTotalForBasePrice(
     {
       pricingMode: pkg.pricingMode,
       discountValue: pkg.discountValue == null ? null : Number(pkg.discountValue),
@@ -149,10 +151,26 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     },
     basePerLesson,
   );
+  if (Math.round(totalAmount * 100) <= 0) {
+    return NextResponse.json(
+      { error: "This pack can't be priced for that lesson yet — pick a lesson and option, or contact your club." },
+      { status: 400 },
+    );
+  }
+
+  // Optional discount code (PRIVATE_PACK scope) — applied to the pack total
+  // on both the card and cash/check paths.
+  let discount: ValidDiscount | null = null;
+  if (body.discountCode?.trim()) {
+    const check = await findValidDiscountFor(clubId, body.discountCode, { type: "PRIVATE_PACK" });
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+    discount = check.discount;
+    totalAmount = discountedPrice(totalAmount, discount);
+  }
   const totalCents = Math.round(totalAmount * 100);
   if (totalCents <= 0) {
     return NextResponse.json(
-      { error: "This pack can't be priced for that lesson yet — pick a lesson and option, or contact your club." },
+      { error: "That code makes this pack free — ask your club to grant the credits directly." },
       { status: 400 },
     );
   }
@@ -289,10 +307,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           notes: body.notes || null,
           paymentMethod: body.paymentMethod,
           totalAmount,
+          ...(discount ? { discountCode: discount.code } : {}),
           requestingUserId: session.user.id,
         },
       },
     });
+    if (discount) await recordDiscountUse(discount.id);
     return NextResponse.json(
       {
         queued: true,
@@ -346,10 +366,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         privatePackageId: pkg.id,
         memberId: member.id,
         clubId,
+        ...(discount ? { discountCode: discount.code } : {}),
       },
     },
     { stripeAccount: club.stripeAccountId },
   );
 
+  if (discount) await recordDiscountUse(discount.id);
   return NextResponse.json({ url: checkoutSession.url });
 }

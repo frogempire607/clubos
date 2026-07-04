@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckSquare } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CheckSquare, MessageCircle } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 
 type Booking = {
@@ -10,6 +11,9 @@ type Booking = {
   status: string;
   kind?: "event" | "class" | "private";
   coach?: string | null;
+  // Self check-in target: classSession id for classes, event id for events.
+  checkinId?: string | null;
+  checkedInAt?: string | null;
   event: {
     id: string;
     name: string;
@@ -32,6 +36,7 @@ type MemberContext = {
 type RawAttendanceRecord = {
   id: string;
   status: string;
+  checkedInAt?: string | null;
   classSession: {
     id: string;
     startsAt: string;
@@ -126,6 +131,8 @@ function classAttendanceToBookings(
         status: "CONFIRMED",
         kind: "class" as const,
         coach,
+        checkinId: cs.id,
+        checkedInAt: r.checkedInAt ?? null,
         event: {
           id: rc.id,
           name: rc.name,
@@ -177,6 +184,7 @@ function getEventLabel(b: Booking) {
 }
 
 export default function MemberBookingsPage() {
+  const router = useRouter();
   const [members, setMembers] = useState<MemberContext[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -188,6 +196,62 @@ export default function MemberBookingsPage() {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [chatBusy, setChatBusy] = useState<string | null>(null);
+  const [checkinBusy, setCheckinBusy] = useState<string | null>(null);
+  // Event check-ins confirmed this session (event rows carry no attendance
+  // state from the portal payload, so we track success locally).
+  const [eventCheckedIn, setEventCheckedIn] = useState<Set<string>>(new Set());
+
+  // Check-in opens 1h before start and closes 12h after end (mirrors the
+  // server rules in /api/member/checkin/[id]).
+  function withinCheckinWindow(b: Booking): boolean {
+    const now = Date.now();
+    const start = new Date(b.event.startsAt).getTime();
+    const end = new Date(b.event.endsAt).getTime();
+    return now >= start - 60 * 60_000 && now <= end + 12 * 3_600_000;
+  }
+
+  async function checkIn(b: Booking) {
+    const target = b.kind === "class" ? b.checkinId : b.event.id;
+    if (!target) return;
+    setCheckinBusy(b.id);
+    const res = await fetch(`/api/member/checkin/${target}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberId: activeId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setCheckinBusy(null);
+    if (!res.ok) {
+      setToast(d.error || "Couldn't check in — ask your club for help.");
+      return;
+    }
+    setToast(d.message || "Checked in.");
+    if (b.kind === "event") {
+      setEventCheckedIn((prev) => new Set(prev).add(b.event.id));
+    } else {
+      const stamped = new Date().toISOString();
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === activeId
+            ? { ...m, bookings: m.bookings.map((x) => (x.id === b.id ? { ...x, checkedInAt: stamped } : x)) }
+            : m,
+        ),
+      );
+    }
+  }
+
+  async function openEventChat(eventId: string) {
+    setChatBusy(eventId);
+    const res = await fetch(`/api/member/events/${eventId}/chat`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setChatBusy(null);
+    if (!res.ok || !d.groupId) {
+      setToast(d.error || "Couldn't open the event chat.");
+      return;
+    }
+    router.push(`/member/messages/group/${d.groupId}`);
+  }
 
   useEffect(() => {
     (async () => {
@@ -329,7 +393,12 @@ export default function MemberBookingsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-stone-900 mb-1">My Bookings</h1>
           <p className="text-sm text-stone-500">
-            Classes, events, and private lessons — all in one place.
+            Manage everything you&apos;ve booked — upcoming spots, history, requests, and
+            cancellations. Looking for something new?{" "}
+            <Link href="/member/shop" className="underline hover:text-stone-900">
+              Book Now
+            </Link>
+            .
           </p>
         </div>
         <Link
@@ -440,10 +509,34 @@ export default function MemberBookingsPage() {
                     </button>
                   </div>
                 )}
-                {(b.kind === "class" || b.kind === "event") &&
-                  !TERMINAL.has(b.status) &&
-                  new Date(b.event.startsAt) > new Date() && (
-                    <div className="mt-3 pt-3 border-t border-stone-100 flex justify-end">
+                {(b.kind === "class" || b.kind === "event") && !TERMINAL.has(b.status) && (
+                  <div className="mt-3 pt-3 border-t border-stone-100 flex flex-wrap justify-end gap-2">
+                    {withinCheckinWindow(b) &&
+                      (b.checkedInAt || (b.kind === "event" && eventCheckedIn.has(b.event.id)) ? (
+                        <span className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 font-medium inline-flex items-center gap-1">
+                          <CheckSquare className="h-3.5 w-3.5" strokeWidth={2} />
+                          Checked in
+                        </span>
+                      ) : (
+                        <button
+                          disabled={checkinBusy === b.id}
+                          onClick={() => checkIn(b)}
+                          className="text-xs px-3 py-1.5 rounded-md bg-stone-900 text-white font-medium hover:bg-stone-700 disabled:opacity-50"
+                        >
+                          {checkinBusy === b.id ? "Checking in…" : "Check in"}
+                        </button>
+                      ))}
+                    {b.kind === "event" && (
+                      <button
+                        disabled={chatBusy === b.event.id}
+                        onClick={() => openEventChat(b.event.id)}
+                        className="text-xs px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" strokeWidth={2} />
+                        {chatBusy === b.event.id ? "Opening…" : "Event chat"}
+                      </button>
+                    )}
+                    {new Date(b.event.startsAt) > new Date() && (
                       <button
                         onClick={() => {
                           setManage({
@@ -458,8 +551,9 @@ export default function MemberBookingsPage() {
                       >
                         Cancel booking
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

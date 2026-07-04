@@ -253,6 +253,7 @@ export default function MemberPrivatesPage() {
   const [partners, setPartners] = useState<PartnerDraft[]>([]);
   const [slots, setSlots] = useState<Slot[]>([{ date: "", startTime: "" }]);
   const [notes, setNotes] = useState("");
+  const [discountCode, setDiscountCode] = useState("");
   const [payMethod, setPayMethod] = useState<"CARD" | "CASH" | "CHECK">("CARD");
   const [saving, setSaving] = useState(false);
   const [buyingPackageId, setBuyingPackageId] = useState<string | null>(null);
@@ -352,6 +353,7 @@ export default function MemberPrivatesPage() {
           requestedSlots: slots.filter((s) => s.date && s.startTime),
           notes: notes || null,
           paymentMethod,
+          discountCode: discountCode.trim() || null,
         }),
       });
       const d = await res.json().catch(() => ({}));
@@ -850,6 +852,16 @@ export default function MemberPrivatesPage() {
                   request a single lesson below. Pack prices reflect{" "}
                   {option ? <strong>{option.label}</strong> : "the base rate"}.
                 </p>
+                <div className="mb-3 flex items-center gap-2">
+                  <label className="text-xs text-stone-500 flex-shrink-0">Discount code</label>
+                  <input
+                    type="text"
+                    value={discountCode}
+                    onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+                    placeholder="Optional"
+                    className="w-full max-w-[10rem] px-2.5 py-1.5 border border-stone-300 rounded-lg text-xs font-mono uppercase placeholder:font-sans placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-stone-400"
+                  />
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {relevant.map((p) => {
                     const totalCredits = p.credits + (p.bonusCredits || 0);

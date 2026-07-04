@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { CalendarPlus } from "lucide-react";
 import {
   onActiveProfileChange,
   resolveActiveProfileId,
-  setActiveProfileId,
 } from "@/lib/activeProfile";
 import { friendlyDate, friendlyTimeRange } from "@/lib/friendlyDate";
-import { Avatar } from "@/components/member/ui";
 
 type ScheduleMember = {
   id: string;
@@ -99,6 +98,41 @@ function itemColors(item: ScheduleItem) {
   };
 }
 
+function ItemCard({ item, onClick }: { item: ScheduleItem; onClick: () => void }) {
+  const c = itemColors(item);
+  return (
+    <button onClick={onClick} className="w-full text-left pcard pcard-hover p-4">
+      <div className="flex items-start gap-4">
+        <div className="w-14 rounded-lg py-2 flex flex-col items-center justify-center flex-shrink-0" style={c}>
+          <span className="text-[10px] uppercase font-medium opacity-80">
+            {new Date(item.startsAt).toLocaleDateString("en-US", { month: "short" })}
+          </span>
+          <span className="text-xl font-bold leading-none">{new Date(item.startsAt).getDate()}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h3 className="text-sm font-semibold text-stone-900">{item.title}</h3>
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={c}>
+              {item.typeLabel}
+            </span>
+          </div>
+          <p className="text-xs text-stone-500">
+            {friendlyDate(item.startsAt, { relative: true, weekday: true })}
+            {" · "}
+            {formatTimeRange(item)}
+            {item.location ? ` · ${item.location}` : ""}
+            {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
+          </p>
+          {item.description && (
+            <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
+          )}
+        </div>
+        <span className="text-xs text-stone-600 flex-shrink-0">{priceLabel(item)}</span>
+      </div>
+    </button>
+  );
+}
+
 export default function MemberSchedulePage() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -108,6 +142,7 @@ export default function MemberSchedulePage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [showSubscribe, setShowSubscribe] = useState(false);
   const [info, setInfo] = useState("");
 
   async function load(memberId?: string | null) {
@@ -144,12 +179,63 @@ export default function MemberSchedulePage() {
     [],
   );
 
+  const [checkinBusy, setCheckinBusy] = useState<string | null>(null);
+  const [checkedIn, setCheckedIn] = useState<Set<string>>(new Set());
+  const [discountCode, setDiscountCode] = useState("");
+
+  // A stale (possibly invalid) code shouldn't silently ride along on the
+  // next booking — reset it whenever a different item's sheet opens.
+  useEffect(() => {
+    setDiscountCode("");
+  }, [selected?.id]);
+
+  // Check-in opens 1h before start, closes 12h after end (server enforces the
+  // same in /api/member/checkin/[id]).
+  function withinCheckinWindow(item: ScheduleItem): boolean {
+    const now = Date.now();
+    const start = new Date(item.startsAt).getTime();
+    const end = new Date(item.endsAt).getTime();
+    return now >= start - 60 * 60_000 && now <= end + 12 * 3_600_000;
+  }
+
+  async function checkIn(item: ScheduleItem) {
+    // Class items are classSession ids; event items may be composite
+    // "<eventId>:<sessionId>" — the check-in endpoint takes the event id.
+    const target = item.kind === "class" ? item.id : item.refId;
+    setCheckinBusy(item.id);
+    setError("");
+    const res = await fetch(`/api/member/checkin/${target}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberId: activeId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setCheckinBusy(null);
+    if (!res.ok) {
+      setError(d.error || "Couldn't check in — ask your club for help.");
+      return;
+    }
+    setInfo(d.message || "Checked in.");
+    setCheckedIn((prev) => new Set(prev).add(item.id));
+  }
+
+  // Booked/registered upcoming items pin to the top as "Your upcoming
+  // schedule" — this page answers "what am I attending?" first, then offers
+  // everything else to book below.
+  const bookedUpcoming = useMemo(() => {
+    const list = data?.items ?? [];
+    const nowMs = Date.now();
+    return list.filter((item) => item.bookingStatus && new Date(item.endsAt).getTime() >= nowMs);
+  }, [data]);
+
   const items = useMemo(() => {
     const list = data?.items ?? [];
+    const pinned = new Set(bookedUpcoming.map((i) => i.id));
     return list
+      .filter((item) => !pinned.has(item.id))
       .filter((item) => (filter === "all" ? true : item.kind === filter))
       .filter((item) => withinWindow(item.startsAt, windowKey));
-  }, [data, filter, windowKey]);
+  }, [data, filter, windowKey, bookedUpcoming]);
 
   const grouped = useMemo(() => {
     const groups: { label: string; items: ScheduleItem[] }[] = [];
@@ -169,7 +255,11 @@ export default function MemberSchedulePage() {
     const res = await fetch("/api/member/classes/book", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classSessionId: item.id, memberId: activeId }),
+      body: JSON.stringify({
+        classSessionId: item.id,
+        memberId: activeId,
+        discountCode: discountCode.trim() || null,
+      }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
@@ -209,7 +299,11 @@ export default function MemberSchedulePage() {
     const res = await fetch(`/api/member/events/${item.refId}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pricingType: "MEMBER", memberId: activeId }),
+      body: JSON.stringify({
+        pricingType: "MEMBER",
+        memberId: activeId,
+        discountCode: discountCode.trim() || null,
+      }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
@@ -244,34 +338,30 @@ export default function MemberSchedulePage() {
             Classes, events, and private lesson options from your club.
           </p>
         </div>
-        <Link href="/member/bookings" className="text-xs text-stone-500 hover:text-stone-900">
-          My bookings →
-        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowSubscribe(true)}
+            className="text-xs text-stone-500 hover:text-stone-900 inline-flex items-center gap-1"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" strokeWidth={2} />
+            Add to calendar
+          </button>
+          <Link href="/member/bookings" className="text-xs text-stone-500 hover:text-stone-900">
+            My bookings →
+          </Link>
+        </div>
       </div>
 
-      {data?.accessibleMembers && data.accessibleMembers.length > 1 && (
-        <div className="-mt-2 mb-4 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold flex-shrink-0">
-            Athlete
+      {showSubscribe && <SubscribeModal onClose={() => setShowSubscribe(false)} />}
+
+      {data?.accessibleMembers && data.accessibleMembers.length > 1 && activeMember && (
+        <p className="-mt-2 mb-4 text-xs text-stone-500">
+          Showing the schedule for{" "}
+          <span className="font-semibold text-stone-800">
+            {activeMember.kind === "self" ? "you" : `${activeMember.firstName} ${activeMember.lastName}`}
           </span>
-          {data.accessibleMembers.map((m) => {
-            const isActive = m.id === activeId;
-            const name = m.kind === "self" ? "You" : `${m.firstName} ${m.lastName}`;
-            return (
-              <button
-                key={m.id}
-                onClick={() => setActiveProfileId(m.id)}
-                aria-pressed={isActive}
-                className={`flex items-center gap-1.5 pl-1 pr-3 py-1 rounded-full border text-sm font-medium whitespace-nowrap flex-shrink-0 transition ${
-                  isActive ? "pseg-active border-transparent" : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
-                }`}
-              >
-                <Avatar name={name} size={22} />
-                {name}
-              </button>
-            );
-          })}
-        </div>
+          <span className="text-stone-400"> — switch athletes with the Managing bar above.</span>
+        </p>
       )}
 
       {data?.activeMembershipNames.length ? (
@@ -285,6 +375,41 @@ export default function MemberSchedulePage() {
 
       {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
       {info && <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 mb-4">{info}</div>}
+
+      {!loading && activeMember && bookedUpcoming.length > 0 && (
+        <section className="mb-6">
+          <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
+            Your upcoming schedule
+          </h2>
+          <div className="space-y-3">
+            {bookedUpcoming.map((item) => (
+              <div key={item.id}>
+                <ItemCard item={item} onClick={() => setSelected(item)} />
+                {withinCheckinWindow(item) && (
+                  <div className="mt-1.5 flex justify-end">
+                    {checkedIn.has(item.id) ? (
+                      <span className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 font-medium">
+                        Checked in
+                      </span>
+                    ) : (
+                      <button
+                        disabled={checkinBusy === item.id}
+                        onClick={() => checkIn(item)}
+                        className="text-xs px-3 py-1.5 rounded-md bg-stone-900 text-white font-medium hover:bg-stone-700 disabled:opacity-50"
+                      >
+                        {checkinBusy === item.id ? "Checking in…" : "Check in"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mt-6">
+            Find &amp; book
+          </h2>
+        </section>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <div className="flex gap-1 bg-stone-100 rounded-lg p-1 w-fit">
@@ -333,42 +458,9 @@ export default function MemberSchedulePage() {
             <section key={group.label}>
               <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">{group.label}</h2>
               <div className="space-y-3">
-                {group.items.map((item) => {
-                  const c = itemColors(item);
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setSelected(item)}
-                      className="w-full text-left pcard pcard-hover p-4"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="w-14 rounded-lg py-2 flex flex-col items-center justify-center flex-shrink-0" style={c}>
-                          <span className="text-[10px] uppercase font-medium opacity-80">
-                            {new Date(item.startsAt).toLocaleDateString("en-US", { month: "short" })}
-                          </span>
-                          <span className="text-xl font-bold leading-none">{new Date(item.startsAt).getDate()}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <h3 className="text-sm font-semibold text-stone-900">{item.title}</h3>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={c}>
-                              {item.typeLabel}
-                            </span>
-                          </div>
-                          <p className="text-xs text-stone-500">
-                            {formatTimeRange(item)}
-                            {item.location ? ` · ${item.location}` : ""}
-                            {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
-                          </p>
-                          {item.description && (
-                            <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
-                          )}
-                        </div>
-                        <span className="text-xs text-stone-600 flex-shrink-0">{priceLabel(item)}</span>
-                      </div>
-                    </button>
-                  );
-                })}
+                {group.items.map((item) => (
+                  <ItemCard key={item.id} item={item} onClick={() => setSelected(item)} />
+                ))}
               </div>
             </section>
           ))}
@@ -457,6 +549,21 @@ export default function MemberSchedulePage() {
                 </p>
               </div>
 
+              {selected.canBook && !!selected.price && (
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">
+                    Discount code (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={discountCode}
+                    onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+                    placeholder="SUMMER20"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-stone-400"
+                  />
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -507,6 +614,69 @@ function Detail({ label, value }: { label: string; value: string | null }) {
     <div className="rounded-lg border border-stone-100 p-3">
       <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1">{label}</p>
       <p className="text-sm text-stone-800">{value || "Not listed"}</p>
+    </div>
+  );
+}
+
+/* ─── Add-to-calendar modal ─── */
+
+function SubscribeModal({ onClose }: { onClose: () => void }) {
+  const [links, setLinks] = useState<{ ics: string; webcal: string; google: string } | null>(null);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/member/calendar-link")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(setLinks)
+      .catch(() => setError("Couldn't load the calendar link."));
+  }, []);
+
+  function copyIcs() {
+    if (!links) return;
+    navigator.clipboard?.writeText(links.ics).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-base font-semibold text-stone-900">Add to your calendar</h2>
+          <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-stone-500">✕</button>
+        </div>
+        <p className="text-xs text-stone-500 mb-4">
+          Subscribe once — the club schedule stays up to date in your calendar app automatically.
+        </p>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {!links && !error && <p className="text-sm text-stone-500">Loading…</p>}
+        {links && (
+          <div className="flex flex-col gap-2">
+            <a
+              href={links.google}
+              target="_blank"
+              rel="noreferrer"
+              className="pbtn-accent text-center text-sm px-4 py-2.5 rounded-xl font-medium"
+            >
+              Add to Google Calendar
+            </a>
+            <a
+              href={links.webcal}
+              className="text-center text-sm px-4 py-2.5 rounded-xl font-medium border border-stone-300 text-stone-700 hover:bg-stone-50"
+            >
+              Add to Apple / Outlook
+            </a>
+            <button
+              onClick={copyIcs}
+              className="text-center text-sm px-4 py-2.5 rounded-xl font-medium border border-stone-300 text-stone-700 hover:bg-stone-50"
+            >
+              {copied ? "Copied!" : "Copy calendar link"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
