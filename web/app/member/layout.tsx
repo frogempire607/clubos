@@ -53,8 +53,7 @@ const MORE_GROUPS: {
     label: "Your account",
     blurb: "Profile, family, billing & docs.",
     items: [
-      { href: "/member/profile",   label: "Account",   desc: "Profile, family, billing & documents", icon: ProfileIcon },
-      { href: "/member/documents", label: "Documents", desc: "Waivers & forms",                      icon: DocumentIcon },
+      { href: "/member/profile", label: "Account", desc: "Profile, family, billing & documents", icon: ProfileIcon },
     ],
   },
 ];
@@ -63,7 +62,7 @@ const MORE_GROUPS: {
 // wider desktop canvas and hide the layout's managing chips at `md` (the
 // rail replaces them; the chips stay on mobile). Routes are added here in
 // the same phase that ships the page's rail.
-const RAIL_ROUTES: string[] = [];
+const RAIL_ROUTES: string[] = ["/member/profile"];
 
 type ClubInfo = {
   name: string;

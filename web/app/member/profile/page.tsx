@@ -1,10 +1,21 @@
 "use client";
 
+// Account (was "My Profile") — one calm place for identity, the family,
+// billing, and documents (design 2a / 1c). Information hierarchy:
+// Identity → People → Documents → Billing. Every pre-redesign capability is
+// preserved: profile editing, billing portal / add-card / cancellation
+// request, pending approvals, guardian info, family linking, add-self,
+// invites, sign-out and account deletion.
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import ImageUpload from "@/components/ImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "@/lib/activeProfile";
+import { Avatar, Pill, GhostButton } from "@/components/member/ui";
+import AthleteRail, { useAthleteProfiles } from "@/components/member/AthleteRail";
+import GuardianAvatars from "@/components/member/GuardianAvatars";
 
 type MeProfile = {
   id: string;
@@ -55,6 +66,11 @@ type PortalSubscription = {
   membership: { name: string; price: number; billingPeriod?: string | null } | null;
 };
 
+type GuardianLink = {
+  userId: string;
+  user: { id: string; firstName: string; lastName: string };
+};
+
 type PortalExtras = {
   user: {
     memberProfile: {
@@ -79,6 +95,8 @@ type PortalExtras = {
         isMinor?: boolean;
         stripeCustomerId?: string | null;
         stripeSetupCustomerId?: string | null;
+        user?: { id: string } | null;
+        guardianLinks?: GuardianLink[];
       };
     }[];
   };
@@ -100,10 +118,14 @@ type PortalExtras = {
   >;
 };
 
-export default function MemberProfilePage() {
+type DocSummary = { total: number; needsSignature: number };
+
+export default function MemberAccountPage() {
+  const router = useRouter();
   const [me, setMe] = useState<MeUser | null>(null);
   const [extras, setExtras] = useState<PortalExtras | null>(null);
   const [loading, setLoading] = useState(true);
+  const { profiles } = useAthleteProfiles();
 
   // Editable fields
   const [firstName, setFirstName] = useState("");
@@ -140,6 +162,9 @@ export default function MemberProfilePage() {
   // controls instead of as an alarming page-level red banner.
   const [billingMsg, setBillingMsg] = useState("");
   const [addingSelf, setAddingSelf] = useState(false);
+  // Per-person document counts (file total + outstanding signatures) from the
+  // existing /api/member/documents endpoint, one call per accessible member.
+  const [docsByMember, setDocsByMember] = useState<Record<string, DocSummary>>({});
 
   function hydrate(data: MeUser) {
     setMe(data);
@@ -157,6 +182,30 @@ export default function MemberProfilePage() {
     setProfileImageUrl(m?.profileImageUrl || "");
   }
 
+  function loadDocs(ids: string[]) {
+    ids.forEach((id) => {
+      fetch(`/api/member/documents?memberId=${encodeURIComponent(id)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!d?.documents) return;
+          const docs = d.documents as {
+            required: boolean;
+            signature: { expired: boolean } | null;
+          }[];
+          setDocsByMember((prev) => ({
+            ...prev,
+            [id]: {
+              total: docs.length,
+              // Same rule as the documents page: a required doc is
+              // outstanding when unsigned or its signature expired.
+              needsSignature: docs.filter((doc) => doc.required && (!doc.signature || doc.signature.expired)).length,
+            },
+          }));
+        })
+        .catch(() => {});
+    });
+  }
+
   function load() {
     Promise.all([
       fetch("/api/member/me").then((r) => (r.ok ? r.json() : null)),
@@ -170,6 +219,7 @@ export default function MemberProfilePage() {
       ];
       const active = getActiveProfileId();
       setActiveProfileIdState(active && ids.includes(active) ? active : ids[0] ?? null);
+      loadDocs(ids);
       setLoading(false);
     });
   }
@@ -362,261 +412,588 @@ export default function MemberProfilePage() {
     }
   }
 
+  // Scope the documents page to a person, then open it.
+  function openDocumentsFor(memberId: string) {
+    setActiveProfileId(memberId);
+    router.push("/member/documents");
+  }
+
   if (loading) return <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>;
   if (!me) return <div className="text-center py-8 text-stone-400 text-sm">Could not load profile.</div>;
 
   const member = me.memberProfile;
   const isMinor = !!member?.isMinor;
+  const guardianOf = extras?.user?.guardianOf ?? [];
+  const isGuardian = guardianOf.length > 0;
+  const selfSummary = member ? extras?.summaries?.[member.id] : undefined;
+
+  // Everyone this account manages, self first — drives People / Documents /
+  // Billing rows.
+  const people = [
+    ...(extras?.user?.memberProfile
+      ? [{ member: { ...extras.user.memberProfile, email: me.email, guardianLinks: undefined as GuardianLink[] | undefined }, kind: "self" as const }]
+      : []),
+    ...guardianOf.map((g) => ({ ...g, kind: "child" as const })),
+  ];
+
+  // Guardian display names per child (viewer first). Data ships on the same
+  // portal payload the page already fetched.
+  function guardianNames(links?: GuardianLink[]): string[] {
+    if (!links?.length) return [`${me!.firstName} ${me!.lastName}`.trim()];
+    const sorted = [...links].sort((a, b) => (a.userId === me!.id ? -1 : b.userId === me!.id ? 1 : 0));
+    return sorted.map((l) => `${l.user.firstName} ${l.user.lastName}`.trim());
+  }
+
+  const totalToSign = Object.values(docsByMember).reduce((n, d) => n + d.needsSignature, 0);
+  const householdGuardians = new Set<string>([me.id]);
+  for (const g of guardianOf) for (const l of g.member.guardianLinks ?? []) householdGuardians.add(l.userId);
+  const hasRail = profiles.length >= 2;
+
+  const statusPill = member ? (
+    member.status === "ACTIVE"
+      ? <Pill tone="success">Active</Pill>
+      : <Pill tone="neutral">{member.status.charAt(0) + member.status.slice(1).toLowerCase()}</Pill>
+  ) : null;
 
   return (
-    <>
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-stone-900 mb-1">My Profile</h1>
-          <p className="text-sm text-stone-500">Your account details and membership info.</p>
-        </div>
-        <button
-          onClick={() => { setEditing(!editing); setError(""); }}
-          className="text-sm px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50"
-        >
-          {editing ? "Cancel" : "Edit"}
-        </button>
-      </div>
-
-      {success && (
-        <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-          Profile updated.
-        </div>
-      )}
-      {error && (
-        <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          {error}
-        </div>
+    <div className={hasRail ? "md:grid md:grid-cols-[250px_minmax(0,1fr)] md:gap-6 md:items-start" : ""}>
+      {hasRail && (
+        <AthleteRail
+          footer={
+            <>
+              <span className="font-bold text-stone-600 block">This household</span>
+              <span className="block mt-1">
+                {profiles.length} athlete{profiles.length === 1 ? "" : "s"} · {householdGuardians.size} guardian{householdGuardians.size === 1 ? "" : "s"}
+                {totalToSign > 0 ? ` · ${totalToSign} doc${totalToSign === 1 ? "" : "s"} to sign` : ""}
+              </span>
+            </>
+          }
+        />
       )}
 
-      {/* Account info */}
-      <div className="pcard p-6 mb-4">
-        <h2 className="text-sm font-semibold text-stone-900 mb-4">Account</h2>
+      <div className="min-w-0">
+        <div className="mb-5 flex items-end justify-between gap-3">
+          <div>
+            <h1 className="text-[22px] md:text-[25px] font-extrabold tracking-[-0.01em] text-stone-900">Account</h1>
+            <p className="text-sm text-stone-500 mt-0.5">You, your athletes, billing &amp; documents — in one place.</p>
+          </div>
+          <GhostButton
+            className="!px-3 !py-1.5 !text-xs flex-shrink-0"
+            onClick={() => { setEditing(!editing); setError(""); }}
+          >
+            {editing ? "Cancel" : "Edit profile"}
+          </GhostButton>
+        </div>
 
-        {editing ? (
-          <form onSubmit={save} className="space-y-3">
-            <ImageUpload
-              label="Profile photo"
-              value={profileImageUrl || null}
-              onChange={setProfileImageUrl}
-              shape="circle"
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">First name</label>
-                <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Last name</label>
-                <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Email</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Phone</label>
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Date of birth
-                  {me?.memberProfile?.birthdayLockedAt && (
-                    <span className="ml-1 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
-                      Locked
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="date"
-                  value={dob}
-                  onChange={(e) => setDob(e.target.value)}
-                  disabled={!!me?.memberProfile?.birthdayLockedAt}
-                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 ${
-                    me?.memberProfile?.birthdayLockedAt
-                      ? "bg-stone-100 border-stone-200 text-stone-500 cursor-not-allowed"
-                      : "border-stone-300"
-                  }`}
-                />
-                {me?.memberProfile?.birthdayLockedAt && (
-                  <p className="text-[11px] text-amber-700 mt-1">
-                    Your guardian has locked your date of birth. Ask them to update it for you.
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Gender</label>
-                <select value={gender} onChange={(e) => setGender(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
-                  <option value="">Prefer not to say</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Non-binary">Non-binary</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Street address</label>
-              <input type="text" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="City"
-                className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-              <input type="text" value={state} onChange={(e) => setState(e.target.value)} placeholder="State" maxLength={2}
-                className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-              <input type="text" value={zipCode} onChange={(e) => setZipCode(e.target.value)} placeholder="Zip"
-                className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
-            </div>
-            <button type="submit" disabled={saving}
-              className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
-              {saving ? "Saving…" : "Save changes"}
-            </button>
-          </form>
-        ) : (
-          <dl className="space-y-2">
-            <ProfileRow label="Name" value={`${me.firstName} ${me.lastName}`} />
-            <ProfileRow label="Email" value={me.email} />
-            {member?.phone && <ProfileRow label="Phone" value={member.phone} />}
-            {member?.dateOfBirth && (
-              <ProfileRow
-                label="Date of birth"
-                // timeZone:"UTC" — DOB is stored as UTC midnight (e.g.
-                // 2001-01-18T00:00:00Z). Without an explicit timeZone,
-                // toLocaleDateString uses the viewer's local zone, which
-                // in UTC-5 shifts the displayed day back to Jan 17. UTC
-                // lock makes the displayed day match what was saved.
-                value={new Date(member.dateOfBirth).toLocaleDateString("en-US", {
-                  month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
-                })}
-              />
-            )}
-            {member?.gender && <ProfileRow label="Gender" value={member.gender} />}
-            {(member?.streetAddress || member?.city) && (
-              <ProfileRow
-                label="Address"
-                value={[member.streetAddress, [member.city, member.state, member.zipCode].filter(Boolean).join(", ")].filter(Boolean).join("\n")}
-              />
-            )}
-          </dl>
+        {success && (
+          <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+            Profile updated.
+          </div>
         )}
-      </div>
+        {error && (
+          <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {error}
+          </div>
+        )}
 
-      {/* Billing — owner controls what members see via
-          club.memberBillingVisibility. null/undefined = show everything.
-          Members can't change their own plan / card / cancellation; they
-          contact their club. */}
-      {!isMinor && (() => {
-        const vis = extras?.club?.memberBillingVisibility ?? null;
-        const showPlan         = vis?.showPlan         ?? true;
-        const showNextBilling  = vis?.showNextBilling  ?? true;
-        const showPrice        = vis?.showPrice        ?? true;
-        const showInvoices     = vis?.showInvoices     ?? true;
-        const subs = extras?.user?.memberProfile?.subscriptions ?? [];
-        const active = subs.find((s) => s.status === "active") || subs[0];
-        const anyVisible = showPlan || showNextBilling || showPrice || showInvoices;
-        if (!anyVisible) return null;
-        return (
-          <div className="pcard p-6 mb-4">
-            <h2 className="text-sm font-semibold text-stone-900 mb-3">Payment &amp; billing</h2>
-            {active && (showPlan || showPrice || showNextBilling) ? (
-              <dl className="space-y-2 mb-3">
-                {showPlan && active.membership?.name && (
-                  <ProfileRow label="Plan" value={active.membership.name} />
-                )}
-                {showPrice && active.membership?.price != null && (
-                  <ProfileRow
-                    label="Price"
-                    value={`$${active.membership.price.toFixed(2)}${
-                      active.membership.billingPeriod ? ` / ${active.membership.billingPeriod}` : ""
+        {/* ── Identity ── */}
+        <div className="pcard p-5 mb-4">
+          {editing ? (
+            <form onSubmit={save} className="space-y-3">
+              <ImageUpload
+                label="Profile photo"
+                value={profileImageUrl || null}
+                onChange={setProfileImageUrl}
+                shape="circle"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">First name</label>
+                  <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Last name</label>
+                  <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Email</label>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Phone</label>
+                  <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Date of birth
+                    {me?.memberProfile?.birthdayLockedAt && (
+                      <span className="ml-1 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
+                        Locked
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="date"
+                    value={dob}
+                    onChange={(e) => setDob(e.target.value)}
+                    disabled={!!me?.memberProfile?.birthdayLockedAt}
+                    className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 ${
+                      me?.memberProfile?.birthdayLockedAt
+                        ? "bg-stone-100 border-stone-200 text-stone-500 cursor-not-allowed"
+                        : "border-stone-300"
                     }`}
                   />
-                )}
-                {showNextBilling && active.currentPeriodEnd && (
-                  <ProfileRow
-                    label="Next billing"
-                    value={new Date(active.currentPeriodEnd).toLocaleDateString("en-US", {
-                      month: "long", day: "numeric", year: "numeric",
-                    })}
-                  />
-                )}
-              </dl>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-2">
-              {showInvoices && memberHasBilling(me.memberProfile) && (
-                <button
-                  onClick={() => openBillingPortal()}
-                  disabled={openingPortal}
-                  className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-                >
-                  {openingPortal ? "Opening…" : "Update card / invoices"}
-                </button>
-              )}
-              {me.memberProfile && !memberHasBilling(me.memberProfile) && (
-                <button
-                  onClick={() => addCard()}
-                  disabled={openingPortal}
-                  title="Save a card securely for future purchases — nothing is charged now."
-                  className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-                >
-                  {openingPortal ? "Opening…" : "Add a card"}
-                </button>
-              )}
-              {active && active.status === "active" && (
-                <button
-                  onClick={() => requestCancellation(active.id)}
-                  disabled={requestingCancel}
-                  className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-                >
-                  {requestingCancel ? "Sending…" : "Request cancellation"}
-                </button>
-              )}
-            </div>
-            {cancelMsg && (
-              <div className="mt-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                {cancelMsg}
+                  {me?.memberProfile?.birthdayLockedAt && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Your guardian has locked your date of birth. Ask them to update it for you.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Gender</label>
+                  <select value={gender} onChange={(e) => setGender(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900">
+                    <option value="">Prefer not to say</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Non-binary">Non-binary</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
               </div>
-            )}
-            {billingMsg && (
-              <div className="mt-3 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
-                {billingMsg}
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">Street address</label>
+                <input type="text" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)}
+                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
               </div>
-            )}
-            <p className="text-xs text-stone-500 mt-3">
-              You can update your payment method and view invoices here.
-              Cancellations are reviewed by your club before billing stops.
-            </p>
+              <div className="grid grid-cols-3 gap-3">
+                <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="City"
+                  className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                <input type="text" value={state} onChange={(e) => setState(e.target.value)} placeholder="State" maxLength={2}
+                  className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                <input type="text" value={zipCode} onChange={(e) => setZipCode(e.target.value)} placeholder="Zip"
+                  className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+              </div>
+              <button type="submit" disabled={saving}
+                className="pbtn-accent px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
+                {saving ? "Saving…" : "Save changes"}
+              </button>
+            </form>
+          ) : (
+            <>
+              <div className="flex items-center gap-3.5">
+                <Avatar name={`${me.firstName} ${me.lastName}`} src={member?.profileImageUrl} size={54} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[17px] font-semibold text-stone-900">
+                      {me.firstName} {me.lastName}
+                    </span>
+                    {statusPill}
+                  </div>
+                  <p className="text-[12.5px] text-stone-500 truncate">{me.email}</p>
+                </div>
+                <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+                  {selfSummary?.activeMembershipName && (
+                    <Pill tone="accent">Plan · {selfSummary.activeMembershipName}</Pill>
+                  )}
+                  {isGuardian && <Pill tone="neutral">Guardian &amp; billing manager</Pill>}
+                </div>
+              </div>
+              <div className="sm:hidden flex items-center gap-2 flex-wrap mt-3">
+                {selfSummary?.activeMembershipName && (
+                  <Pill tone="accent">Plan · {selfSummary.activeMembershipName}</Pill>
+                )}
+                {isGuardian && <Pill tone="neutral">Guardian &amp; billing manager</Pill>}
+              </div>
+              {/* Compact contact details — everything the old read-only view
+                  showed, without the wall of rows. */}
+              {(member?.phone || member?.dateOfBirth || member?.gender || member?.streetAddress || member?.city) && (
+                <dl className="mt-4 pt-3 border-t border-stone-100 space-y-1.5">
+                  {member?.phone && <ProfileRow label="Phone" value={member.phone} />}
+                  {member?.dateOfBirth && (
+                    <ProfileRow
+                      label="Date of birth"
+                      // timeZone:"UTC" — DOB is stored as UTC midnight; UTC
+                      // lock keeps the displayed day equal to the saved day.
+                      value={new Date(member.dateOfBirth).toLocaleDateString("en-US", {
+                        month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+                      })}
+                    />
+                  )}
+                  {member?.gender && <ProfileRow label="Gender" value={member.gender} />}
+                  {(member?.streetAddress || member?.city) && (
+                    <ProfileRow
+                      label="Address"
+                      value={[member.streetAddress, [member.city, member.state, member.zipCode].filter(Boolean).join(", ")].filter(Boolean).join("\n")}
+                    />
+                  )}
+                </dl>
+              )}
+            </>
+          )}
+        </div>
 
-            {/* Guardians manage each linked athlete's card/invoices from here. */}
-            {extras?.user?.guardianOf && extras.user.guardianOf.length > 0 && (
-              <div className="mt-4 border-t border-stone-100 pt-4">
-                <p className="text-xs font-medium text-stone-700 mb-2">Manage each athlete&apos;s payment method</p>
-                <div className="space-y-2">
-                  {extras.user.guardianOf.map((g) => (
-                    <div key={g.member.id} className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-stone-700">{g.member.firstName} {g.member.lastName}</span>
+        {/* Pending approvals — only renders for guardians of at least one
+            linked child (the API returns [] otherwise so the section
+            collapses naturally). */}
+        <PendingApprovalsCard />
+
+        {/* Guardian info (for minors) */}
+        {isMinor && (
+          <div className="bg-amber-50 rounded-xl border border-amber-200 p-5 mb-4">
+            <h2 className="text-sm font-semibold text-amber-800 mb-3">Guardian on file</h2>
+            <dl className="space-y-2">
+              {member?.guardianName && <ProfileRow label="Name" value={member.guardianName} />}
+              {member?.guardianRelationship && <ProfileRow label="Relationship" value={member.guardianRelationship} />}
+              {member?.guardianEmail && <ProfileRow label="Email" value={member.guardianEmail} />}
+              {member?.guardianPhone && <ProfileRow label="Phone" value={member.guardianPhone} />}
+            </dl>
+            <p className="text-xs text-amber-600 mt-3">Contact your club to update guardian information.</p>
+          </div>
+        )}
+
+        <div className="md:grid md:grid-cols-[1.55fr_1fr] md:gap-4 md:items-start">
+          {/* ── Left column: people ── */}
+          <div className="space-y-4 min-w-0">
+            {extras && (
+              <div className="pcard p-5">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h2 className="text-sm font-semibold text-stone-900">Family &amp; access</h2>
+                  {people.length > 1 && (
+                    <span className="text-xs text-stone-400">
+                      {people.length} athlete{people.length === 1 ? "" : "s"} · switch to scope every page
+                    </span>
+                  )}
+                </div>
+
+                {familyMessage && (
+                  <div className="mb-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    {familyMessage}
+                  </div>
+                )}
+
+                <div className="mb-1">
+                  {people.map((g) => {
+                    const active = activeProfileId === g.member.id;
+                    const summary = extras?.summaries?.[g.member.id];
+                    const names = g.kind === "self"
+                      ? [`${me.firstName} ${me.lastName}`.trim()]
+                      : guardianNames(g.member.guardianLinks);
+                    return (
+                      <div key={g.member.id} className="py-2.5 border-t border-stone-100 first:border-t-0 first:pt-1">
+                        <div className="flex items-center gap-3">
+                          <Avatar name={`${g.member.firstName} ${g.member.lastName}`} size={36} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13.5px] font-semibold text-stone-900 truncate">
+                              {g.member.firstName} {g.member.lastName}
+                              <span className="ml-1.5 text-xs font-normal text-stone-400">
+                                {g.kind === "self"
+                                  ? "· You"
+                                  : g.member.dateOfBirth
+                                    ? `· age ${ageOf(g.member.dateOfBirth)}`
+                                    : null}
+                              </span>
+                            </p>
+                            <p className="text-[11.5px] text-stone-500 truncate">
+                              {[
+                                summary?.activeMembershipName ?? null,
+                                g.kind === "child" ? (g.member.user?.id ? "own login" : showsAsMinor(g.member) ? "minor" : null) : null,
+                                summary ? `${summary.upcomingBookings} upcoming` : null,
+                                summary && summary.attendanceLast30d > 0 ? `${summary.attendanceLast30d} visits (30d)` : null,
+                              ].filter(Boolean).join(" · ") || (g.member.email || "No email on file")}
+                            </p>
+                          </div>
+                          <GuardianAvatars names={names} className="hidden sm:inline-flex" />
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {/* Parental controls only make sense for linked
+                                children — guardians can't set controls on
+                                their own (self) profile. */}
+                            {g.kind === "child" && (
+                              <Link
+                                href={`/member/family/${g.member.id}`}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
+                              >
+                                Manage
+                              </Link>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveProfileId(g.member.id);
+                                setActiveProfileIdState(g.member.id);
+                              }}
+                              className={`text-xs px-3 py-1.5 rounded-lg border ${
+                                active ? "pseg-active border-transparent" : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                              }`}
+                            >
+                              {active ? "Selected" : "Switch"}
+                            </button>
+                          </div>
+                        </div>
+                        {g.kind === "child" && names.length > 1 && (
+                          <p className="sm:hidden text-[11px] text-stone-400 mt-1 ml-[48px]">
+                            Guardians: You +{names.length - 1}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {!isMinor && !extras.user.memberProfile && (
+                  <div className="rounded-lg border border-dashed border-stone-300 p-3 mb-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-stone-900">Add yourself as an athlete</p>
+                      <p className="text-xs text-stone-500">
+                        Create your own profile so you can book classes or buy adult memberships and products for yourself.
+                      </p>
+                    </div>
+                    <button
+                      onClick={addSelfAsAthlete}
+                      disabled={addingSelf}
+                      className="pbtn-accent text-sm px-4 py-2 rounded-xl font-semibold whitespace-nowrap disabled:opacity-50"
+                    >
+                      {addingSelf ? "Setting up…" : "Add me"}
+                    </button>
+                  </div>
+                )}
+
+                {!isMinor && (
+                  <form onSubmit={linkChild} className="rounded-lg border border-stone-200 p-3 space-y-3 mt-2">
+                    <div>
+                      <p className="text-sm font-medium text-stone-900">Request/add linked athlete</p>
+                      <p className="text-xs text-stone-500">
+                        The athlete must already exist in this club with the email entered below.
+                      </p>
+                    </div>
+                    <div className="grid sm:grid-cols-[1fr_160px_auto] gap-2">
+                      <input
+                        type="email"
+                        value={childEmail}
+                        onChange={(e) => setChildEmail(e.target.value)}
+                        placeholder="athlete@example.com"
+                        required
+                        className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                      />
+                      <select
+                        value={relationship}
+                        onChange={(e) => setRelationship(e.target.value)}
+                        className="px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
+                      >
+                        <option value="">Relationship</option>
+                        <option value="Parent">Parent</option>
+                        <option value="Legal guardian">Legal guardian</option>
+                        <option value="Grandparent">Grandparent</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <button
+                        type="submit"
+                        disabled={linkingChild}
+                        className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+                      >
+                        {linkingChild ? "Linking..." : "Link"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Invite someone to the club — any member can share the join link */}
+            <div className="pcard p-5">
+              <h2 className="text-sm font-semibold text-stone-900 mb-1">Invite someone to the club</h2>
+              <p className="text-xs text-stone-500 mb-3">
+                Share your club&apos;s join link by email — they&apos;ll set up their own account.
+              </p>
+              <form onSubmit={sendInvite} className="grid sm:grid-cols-[1fr_auto] gap-2">
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="friend@example.com"
+                  required
+                  className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
+                />
+                <button
+                  type="submit"
+                  disabled={inviting}
+                  className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+                >
+                  {inviting ? "Sending…" : "Send invite"}
+                </button>
+              </form>
+              {inviteMsg && <p className="text-xs text-stone-600 mt-2">{inviteMsg}</p>}
+            </div>
+
+            {/* Account actions */}
+            <div className="pcard p-5">
+              <h2 className="text-sm font-semibold text-stone-900 mb-3">Account actions</h2>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  className="text-sm px-4 py-2 border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50"
+                >
+                  Sign out
+                </button>
+                <button
+                  onClick={() => setShowDelete(true)}
+                  className="text-sm px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                >
+                  Delete account
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Right column: documents + billing, per person ── */}
+          <div className="space-y-4 min-w-0 mt-4 md:mt-0">
+            {people.length > 0 && (
+              <div className="pcard p-5">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h2 className="text-sm font-semibold text-stone-900">Documents</h2>
+                  {totalToSign > 0 ? (
+                    <Pill tone="warn">{totalToSign} to sign</Pill>
+                  ) : (
+                    <span className="text-xs text-stone-400">All signed</span>
+                  )}
+                </div>
+                {people.map((g) => {
+                  const d = docsByMember[g.member.id];
+                  const outstanding = d?.needsSignature ?? 0;
+                  return (
+                    <div key={g.member.id} className="flex items-center gap-2.5 py-2 border-t border-stone-100 first:border-t-0">
+                      <Avatar name={`${g.member.firstName} ${g.member.lastName}`} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12.5px] font-semibold text-stone-900 truncate">
+                          {g.kind === "self" ? "You" : `${g.member.firstName} ${g.member.lastName}`}
+                        </p>
+                        <p className="text-[11.5px] text-stone-500">
+                          {d
+                            ? `${d.total} file${d.total === 1 ? "" : "s"} · ${outstanding > 0 ? `${outstanding} needs signature` : "all signed"}`
+                            : "…"}
+                        </p>
+                      </div>
+                      {d && outstanding === 0 ? (
+                        <Pill tone="success">Done</Pill>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openDocumentsFor(g.member.id)}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
+                        >
+                          Open
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                <p className="text-[11px] text-stone-400 mt-2">
+                  Each athlete&apos;s waivers &amp; forms, scoped to them.
+                </p>
+              </div>
+            )}
+
+            {/* Billing — owner controls what members see via
+                club.memberBillingVisibility. null/undefined = show everything.
+                Members can't change their own plan / card / cancellation; they
+                contact their club. */}
+            {!isMinor && (() => {
+              const vis = extras?.club?.memberBillingVisibility ?? null;
+              const showPlan         = vis?.showPlan         ?? true;
+              const showNextBilling  = vis?.showNextBilling  ?? true;
+              const showPrice        = vis?.showPrice        ?? true;
+              const showInvoices     = vis?.showInvoices     ?? true;
+              const subs = extras?.user?.memberProfile?.subscriptions ?? [];
+              const active = subs.find((s) => s.status === "active") || subs[0];
+              const anyVisible = showPlan || showNextBilling || showPrice || showInvoices;
+              if (!anyVisible) return null;
+              return (
+                <div className="pcard p-5">
+                  <h2 className="text-sm font-semibold text-stone-900">Payment &amp; billing</h2>
+                  <p className="text-[11.5px] text-stone-500 mt-0.5 mb-2">
+                    Each person keeps their own cards — you never spend another guardian&apos;s saved card.
+                  </p>
+                  {active && (showPlan || showPrice || showNextBilling) ? (
+                    <dl className="space-y-1.5 mb-2">
+                      {showPlan && active.membership?.name && (
+                        <ProfileRow label="Plan" value={active.membership.name} />
+                      )}
+                      {showPrice && active.membership?.price != null && (
+                        <ProfileRow
+                          label="Price"
+                          value={`$${active.membership.price.toFixed(2)}${
+                            active.membership.billingPeriod ? ` / ${active.membership.billingPeriod}` : ""
+                          }`}
+                        />
+                      )}
+                      {showNextBilling && active.currentPeriodEnd && (
+                        <ProfileRow
+                          label="Next billing"
+                          value={new Date(active.currentPeriodEnd).toLocaleDateString("en-US", {
+                            month: "long", day: "numeric", year: "numeric",
+                          })}
+                        />
+                      )}
+                    </dl>
+                  ) : null}
+
+                  {/* Per-person payment rows: self + each linked athlete. */}
+                  {me.memberProfile && (
+                    <div className="flex items-center gap-2.5 py-2 border-t border-stone-100">
+                      <Avatar name={`${me.firstName} ${me.lastName}`} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12.5px] font-semibold text-stone-900">You</p>
+                        <p className="text-[11.5px] text-stone-500">
+                          {memberHasBilling(me.memberProfile) ? "Card on file" : "Cash / check at club"}
+                        </p>
+                      </div>
+                      {showInvoices && memberHasBilling(me.memberProfile) ? (
+                        <button
+                          onClick={() => openBillingPortal()}
+                          disabled={openingPortal}
+                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                        >
+                          {openingPortal ? "Opening…" : "Manage"}
+                        </button>
+                      ) : !memberHasBilling(me.memberProfile) ? (
+                        <button
+                          onClick={() => addCard()}
+                          disabled={openingPortal}
+                          title="Save a card securely for future purchases — nothing is charged now."
+                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                        >
+                          {openingPortal ? "Opening…" : "Add card"}
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                  {guardianOf.map((g) => (
+                    <div key={g.member.id} className="flex items-center gap-2.5 py-2 border-t border-stone-100">
+                      <Avatar name={`${g.member.firstName} ${g.member.lastName}`} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12.5px] font-semibold text-stone-900 truncate">
+                          {g.member.firstName} {g.member.lastName}
+                        </p>
+                        <p className="text-[11.5px] text-stone-500">
+                          {memberHasBilling(g.member) ? "Card on file" : "Cash / check at club"}
+                        </p>
+                      </div>
                       {memberHasBilling(g.member) ? (
                         <button
                           type="button"
                           onClick={() => openBillingPortal(g.member.id)}
                           disabled={openingPortal}
-                          className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
                         >
-                          {openingPortal ? "Opening…" : "Manage billing"}
+                          {openingPortal ? "Opening…" : "Manage"}
                         </button>
                       ) : (
                         <button
@@ -624,295 +1001,81 @@ export default function MemberProfilePage() {
                           onClick={() => addCard(g.member.id)}
                           disabled={openingPortal}
                           title="Save a card securely for future purchases — nothing is charged now."
-                          className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
                         >
-                          {openingPortal ? "Opening…" : "Add a card"}
+                          {openingPortal ? "Opening…" : "Add card"}
                         </button>
                       )}
                     </div>
                   ))}
-                </div>
-                <p className="text-[11px] text-stone-400 mt-2">
-                  Athletes paying by cash or check are billed at the club — there&apos;s nothing to manage here.
-                </p>
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
-      {/* Pending approvals — only renders for guardians of at least one
-          linked child (the API returns [] otherwise so the section
-          collapses naturally). */}
-      <PendingApprovalsCard />
-
-      {/* Guardian info (for minors) */}
-      {isMinor && (
-        <div className="bg-amber-50 rounded-xl border border-amber-200 p-6 mb-4">
-          <h2 className="text-sm font-semibold text-amber-800 mb-3">Guardian on file</h2>
-          <dl className="space-y-2">
-            {member?.guardianName && <ProfileRow label="Name" value={member.guardianName} />}
-            {member?.guardianRelationship && <ProfileRow label="Relationship" value={member.guardianRelationship} />}
-            {member?.guardianEmail && <ProfileRow label="Email" value={member.guardianEmail} />}
-            {member?.guardianPhone && <ProfileRow label="Phone" value={member.guardianPhone} />}
-          </dl>
-          <p className="text-xs text-amber-600 mt-3">Contact your club to update guardian information.</p>
-        </div>
-      )}
-
-      {/* Family / managed athlete access */}
-      {extras && (
-        <div className="pcard p-6 mb-4">
-          <h2 className="text-sm font-semibold text-stone-900 mb-1">Family &amp; athlete access</h2>
-          <p className="text-xs text-stone-500 mb-4">
-            Parents can switch between linked athletes. Each child profile stays scoped to its own schedule, documents, and bookings.
-          </p>
-
-          {familyMessage && (
-            <div className="mb-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-              {familyMessage}
-            </div>
-          )}
-
-          <div className="space-y-2 mb-4">
-            {[
-              ...(extras.user.memberProfile
-                ? [{ member: { ...extras.user.memberProfile, email: me.email }, kind: "self" as const }]
-                : []),
-              ...extras.user.guardianOf.map((g) => ({ ...g, kind: "child" as const })),
-            ].map((g) => {
-              const active = activeProfileId === g.member.id;
-              const summary = extras?.summaries?.[g.member.id];
-              return (
-                <div key={g.member.id} className="py-2 border-b border-stone-100 last:border-0">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-                      style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
+                  {active && active.status === "active" && (
+                    <button
+                      onClick={() => requestCancellation(active.id)}
+                      disabled={requestingCancel}
+                      className="mt-2 text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
                     >
-                      {g.member.firstName[0]}{g.member.lastName[0]}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-stone-900">
-                        {g.member.firstName} {g.member.lastName}
-                        {g.kind === "self" && <span className="ml-2 text-[10px] uppercase tracking-wide text-stone-400">you</span>}
-                      </p>
-                      <p className="text-xs text-stone-400">
-                        {g.member.email || "No email on file"} · {g.member.status}
-                        {g.member.dateOfBirth ? (
-                          <>
-                            {" · DOB "}
-                            {new Date(g.member.dateOfBirth).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                              timeZone: "UTC",
-                            })}
-                            {(() => {
-                              // Use UTC components for both sides so a viewer
-                              // west of UTC doesn't tick the age down a day
-                              // around the child's birthday.
-                              const d = new Date(g.member.dateOfBirth);
-                              const now = new Date();
-                              let age = now.getUTCFullYear() - d.getUTCFullYear();
-                              const m = now.getUTCMonth() - d.getUTCMonth();
-                              if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) age -= 1;
-                              return ` (age ${age})`;
-                            })()}
-                          </>
-                        ) : null}
-                        {showsAsMinor(g.member) ? " · Minor" : null}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {/* Parental controls only make sense for linked
-                          children — guardians can't set controls on
-                          their own (self) profile. */}
-                      {g.kind === "child" && (
-                        <Link
-                          href={`/member/family/${g.member.id}`}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
-                        >
-                          Manage
-                        </Link>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveProfileId(g.member.id);
-                          setActiveProfileIdState(g.member.id);
-                        }}
-                        className={`text-xs px-3 py-1.5 rounded-lg border ${
-                          active ? "pseg-active border-transparent" : "border-stone-200 text-stone-600 hover:bg-stone-50"
-                        }`}
-                      >
-                        {active ? "Selected" : "Switch"}
-                      </button>
-                    </div>
-                  </div>
-                  {summary && (
-                    <div className="mt-2 ml-11 grid grid-cols-3 gap-2 text-xs">
-                      <div className="rounded-lg bg-stone-50 px-2 py-1.5">
-                        <div className="text-stone-400 text-[10px] uppercase tracking-wide">Attendance (30d)</div>
-                        <div className="text-stone-900 font-semibold">{summary.attendanceLast30d}</div>
-                      </div>
-                      <div className="rounded-lg bg-stone-50 px-2 py-1.5">
-                        <div className="text-stone-400 text-[10px] uppercase tracking-wide">Upcoming</div>
-                        <div className="text-stone-900 font-semibold">{summary.upcomingBookings}</div>
-                      </div>
-                      <div className="rounded-lg bg-stone-50 px-2 py-1.5">
-                        <div className="text-stone-400 text-[10px] uppercase tracking-wide">Membership</div>
-                        <div className="text-stone-900 font-semibold truncate">
-                          {summary.activeMembershipName || "—"}
-                        </div>
-                      </div>
+                      {requestingCancel ? "Sending…" : "Request cancellation"}
+                    </button>
+                  )}
+                  {cancelMsg && (
+                    <div className="mt-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                      {cancelMsg}
                     </div>
                   )}
+                  {billingMsg && (
+                    <div className="mt-3 text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+                      {billingMsg}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-stone-400 mt-3">
+                    Update payment methods and view invoices per person. Cancellations are
+                    reviewed by your club before billing stops. Athletes paying by cash or
+                    check are billed at the club.
+                  </p>
                 </div>
               );
-            })}
+            })()}
           </div>
+        </div>
 
-          {!isMinor && !extras.user.memberProfile && (
-            <div className="rounded-lg border border-dashed border-stone-300 p-3 mb-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-stone-900">Add yourself as an athlete</p>
-                <p className="text-xs text-stone-500">
-                  Create your own profile so you can book classes or buy adult memberships and products for yourself.
-                </p>
-              </div>
-              <button
-                onClick={addSelfAsAthlete}
-                disabled={addingSelf}
-                className="pbtn-accent text-sm px-4 py-2 rounded-xl font-semibold whitespace-nowrap disabled:opacity-50"
-              >
-                {addingSelf ? "Setting up…" : "Add me"}
-              </button>
-            </div>
-          )}
-
-          {!isMinor && (
-            <form onSubmit={linkChild} className="rounded-lg border border-stone-200 p-3 space-y-3">
-              <div>
-                <p className="text-sm font-medium text-stone-900">Request/add linked athlete</p>
-                <p className="text-xs text-stone-500">
-                  The athlete must already exist in this club with the email entered below.
-                </p>
-              </div>
-              <div className="grid sm:grid-cols-[1fr_160px_auto] gap-2">
-                <input
-                  type="email"
-                  value={childEmail}
-                  onChange={(e) => setChildEmail(e.target.value)}
-                  placeholder="athlete@example.com"
-                  required
-                  className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
-                />
-                <select
-                  value={relationship}
-                  onChange={(e) => setRelationship(e.target.value)}
-                  className="px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900"
-                >
-                  <option value="">Relationship</option>
-                  <option value="Parent">Parent</option>
-                  <option value="Legal guardian">Legal guardian</option>
-                  <option value="Grandparent">Grandparent</option>
-                  <option value="Other">Other</option>
-                </select>
+        {showDelete && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl w-full max-w-sm p-6">
+              <h3 className="text-base font-semibold text-stone-900 mb-1">Delete your account?</h3>
+              <p className="text-sm text-stone-600 mb-3">
+                This removes your access immediately. Your profile is retained by the club for record-keeping but you&apos;ll no longer be able to log in.
+                {member?.stripeCustomerId && (
+                  <> Active recurring subscriptions are <strong>not</strong> auto-canceled — open the billing portal first if you want to cancel.</>
+                )}
+              </p>
+              <p className="text-xs text-stone-600 mb-2">Type <strong>delete</strong> to confirm:</p>
+              <input
+                type="text"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <div className="flex gap-2 justify-end">
                 <button
-                  type="submit"
-                  disabled={linkingChild}
-                  className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
+                  onClick={() => { setShowDelete(false); setDeleteConfirm(""); }}
+                  className="text-sm px-4 py-2 border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50"
                 >
-                  {linkingChild ? "Linking..." : "Link"}
+                  Cancel
+                </button>
+                <button
+                  onClick={deleteAccount}
+                  disabled={deleteConfirm.trim().toLowerCase() !== "delete" || deleting}
+                  className="text-sm px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting…" : "Delete forever"}
                 </button>
               </div>
-            </form>
-          )}
-        </div>
-      )}
-
-      {/* Invite someone to the club — any member can share the join link */}
-      <div className="pcard p-6">
-        <h2 className="text-sm font-semibold text-stone-900 mb-1">Invite someone to the club</h2>
-        <p className="text-xs text-stone-500 mb-3">
-          Share your club&apos;s join link by email — they&apos;ll set up their own account.
-        </p>
-        <form onSubmit={sendInvite} className="grid sm:grid-cols-[1fr_auto] gap-2">
-          <input
-            type="email"
-            value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-            placeholder="friend@example.com"
-            required
-            className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
-          />
-          <button
-            type="submit"
-            disabled={inviting}
-            className="px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
-          >
-            {inviting ? "Sending…" : "Send invite"}
-          </button>
-        </form>
-        {inviteMsg && <p className="text-xs text-stone-600 mt-2">{inviteMsg}</p>}
-      </div>
-
-      {/* Account actions */}
-      <div className="pcard p-6">
-        <h2 className="text-sm font-semibold text-stone-900 mb-3">Account actions</h2>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="text-sm px-4 py-2 border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50"
-          >
-            Sign out
-          </button>
-          <button
-            onClick={() => setShowDelete(true)}
-            className="text-sm px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
-          >
-            Delete account
-          </button>
-        </div>
-      </div>
-
-      {showDelete && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-sm p-6">
-            <h3 className="text-base font-semibold text-stone-900 mb-1">Delete your account?</h3>
-            <p className="text-sm text-stone-600 mb-3">
-              This removes your access immediately. Your profile is retained by the club for record-keeping but you'll no longer be able to log in.
-              {member?.stripeCustomerId && (
-                <> Active recurring subscriptions are <strong>not</strong> auto-canceled — open the billing portal first if you want to cancel.</>
-              )}
-            </p>
-            <p className="text-xs text-stone-600 mb-2">Type <strong>delete</strong> to confirm:</p>
-            <input
-              type="text"
-              value={deleteConfirm}
-              onChange={(e) => setDeleteConfirm(e.target.value)}
-              className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => { setShowDelete(false); setDeleteConfirm(""); }}
-                className="text-sm px-4 py-2 border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={deleteAccount}
-                disabled={deleteConfirm.trim().toLowerCase() !== "delete" || deleting}
-                className="text-sm px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? "Deleting…" : "Delete forever"}
-              </button>
             </div>
           </div>
-        </div>
-      )}
-    </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -925,18 +1088,23 @@ function memberHasBilling(
   return !!(m && (m.stripeCustomerId || m.stripeSetupCustomerId));
 }
 
+// UTC-locked age so a viewer west of UTC doesn't tick the age down a day
+// around the birthday.
+function ageOf(dob: string): number {
+  const d = new Date(dob);
+  const now = new Date();
+  let age = now.getUTCFullYear() - d.getUTCFullYear();
+  const m = now.getUTCMonth() - d.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) age -= 1;
+  return age;
+}
+
 // Display-honest minor check: trust the DOB age when present (so a 25-year-old
 // who was linked as an "athlete" isn't mislabeled "Minor"), else the stored flag.
 function showsAsMinor(m: { dateOfBirth?: string | null; isMinor?: boolean }): boolean {
   if (m.dateOfBirth) {
     const d = new Date(m.dateOfBirth);
-    if (!Number.isNaN(d.getTime())) {
-      const now = new Date();
-      let age = now.getUTCFullYear() - d.getUTCFullYear();
-      const mo = now.getUTCMonth() - d.getUTCMonth();
-      if (mo < 0 || (mo === 0 && now.getUTCDate() < d.getUTCDate())) age -= 1;
-      return age < 18;
-    }
+    if (!Number.isNaN(d.getTime())) return ageOf(m.dateOfBirth) < 18;
   }
   return !!m.isMinor;
 }
