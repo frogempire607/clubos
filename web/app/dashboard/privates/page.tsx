@@ -1596,6 +1596,37 @@ export default function PrivatesPage() {
   const [assignPkg, setAssignPkg]   = useState(false);
   const [viewBooking, setViewBooking] = useState<Booking | null>(null);
   const [newBooking, setNewBooking] = useState(false);
+  const [clubSlug, setClubSlug]     = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/club/info")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => { if (c?.slug) setClubSlug(c.slug); });
+  }, []);
+
+  // Public "book a private lesson" link for websites/socials — mirrors the
+  // membership "Copy link" on /dashboard/memberships. Opens /join/[slug]
+  // ?goal=privates, which funnels into signup/login and lands on
+  // /member/privates.
+  function copyPublicPrivatesLink() {
+    if (!clubSlug) {
+      alert("Set your club URL (slug) in Settings → Club first so the public link works.");
+      return;
+    }
+    const url = `${window.location.origin}/join/${clubSlug}?goal=privates`;
+    const done = () => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 1800);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(done, () =>
+        window.prompt("Copy this public booking link:", url),
+      );
+    } else {
+      window.prompt("Copy this public booking link:", url);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1679,9 +1710,14 @@ export default function PrivatesPage() {
           <p className="text-sm text-text-muted mt-0.5">Manage booking requests, lesson types, and lesson quantity packages</p>
         </div>
         {canManage && tab === "bookings" && (
-          <button onClick={() => setNewBooking(true)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
-            + New booking
-          </button>
+          <div className="flex gap-2">
+            <button onClick={copyPublicPrivatesLink} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">
+              {copiedLink ? "Copied!" : "Copy public link"}
+            </button>
+            <button onClick={() => setNewBooking(true)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">
+              + New booking
+            </button>
+          </div>
         )}
         {canManage && tab === "types" && (
           <button onClick={() => setEditLT(null)} className="px-4 py-2 text-sm bg-brand text-white rounded-md hover:bg-brand-hover">

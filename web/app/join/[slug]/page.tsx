@@ -1,11 +1,12 @@
 "use client";
 
-// Public membership registration link — /join/[slug]?m=<membershipId>.
+// Public registration link — /join/[slug]?m=<membershipId> or ?goal=privates.
 //
-// Opens directly to the selected membership with club branding and pricing,
-// then funnels into the EXISTING signup/onboarding (no new billing surface).
-// Owners copy this link from Dashboard → Memberships ("Copy link") and drop it
-// on a website, email, or social post. Unauthenticated + read-only.
+// Opens directly to the selected membership (with any free trial called out)
+// or to a "book a private lesson" pitch, with club branding — then funnels
+// into the EXISTING signup/onboarding (no new billing surface). Owners copy
+// these links from Dashboard → Memberships / Privates and drop them on a
+// website, email, or social post. Unauthenticated + read-only.
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -19,7 +20,14 @@ type Data = {
     primaryColor: string | null;
     tagline: string | null;
   };
-  membership: { id: string; name: string; description: string | null; options: unknown } | null;
+  membership: {
+    id: string;
+    name: string;
+    description: string | null;
+    options: unknown;
+    trialEnabled?: boolean;
+    trialDays?: number | null;
+  } | null;
 };
 
 const periodLabels: Record<string, string> = {
@@ -49,13 +57,16 @@ export default function JoinPage() {
   const params = useParams<{ slug: string }>();
   const slug = (params?.slug ?? "").toString();
   const [membershipId, setMembershipId] = useState<string | null>(null);
+  const [goal, setGoal] = useState<string | null>(null);
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
-    const m = new URLSearchParams(window.location.search).get("m");
+    const sp = new URLSearchParams(window.location.search);
+    const m = sp.get("m");
+    setGoal(sp.get("goal"));
     setMembershipId(m);
     const qs = new URLSearchParams({ club: slug });
     if (m) qs.set("id", m);
@@ -73,11 +84,17 @@ export default function JoinPage() {
     data?.club.primaryColor && /^#[0-9a-fA-F]{6}$/.test(data.club.primaryColor)
       ? data.club.primaryColor
       : "#534AB7";
+  // ?goal=privates deep-links straight to the private-lesson request page
+  // after the account exists (signup + login both honor a /member-scoped
+  // `next`).
+  const isPrivates = goal === "privates";
+  const nextParam = isPrivates ? `&next=${encodeURIComponent("/member/privates")}` : "";
   const signupHref = `/member/signup?club=${encodeURIComponent(slug)}${
     membershipId ? `&membership=${encodeURIComponent(membershipId)}` : ""
-  }`;
-  const loginHref = `/login?club=${encodeURIComponent(slug)}`;
+  }${nextParam}`;
+  const loginHref = `/login?club=${encodeURIComponent(slug)}${nextParam}`;
   const opts = parseOptions(data?.membership?.options);
+  const trialDays = data?.membership?.trialEnabled ? data.membership.trialDays ?? 0 : 0;
 
   return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
@@ -126,6 +143,14 @@ export default function JoinPage() {
                     Register for
                   </p>
                   <h2 className="text-lg font-semibold text-stone-900">{data.membership.name}</h2>
+                  {trialDays > 0 && (
+                    <span
+                      className="inline-block mt-1.5 text-xs font-semibold text-white rounded-full px-3 py-1"
+                      style={{ background: brand }}
+                    >
+                      {trialDays}-day free trial
+                    </span>
+                  )}
                   {data.membership.description && (
                     <p className="text-sm text-stone-500 mt-1">{data.membership.description}</p>
                   )}
@@ -145,6 +170,16 @@ export default function JoinPage() {
                     </div>
                   )}
                 </>
+              ) : isPrivates ? (
+                <div className="text-center">
+                  <h2 className="text-lg font-semibold text-stone-900">
+                    Book a private lesson at {data.club.name}
+                  </h2>
+                  <p className="text-sm text-stone-500 mt-1">
+                    1-on-1 coaching — pick a coach and request times that work for you.
+                    Create a free account to send your request.
+                  </p>
+                </div>
               ) : (
                 <div className="text-center">
                   <h2 className="text-lg font-semibold text-stone-900">Join {data.club.name}</h2>
@@ -159,7 +194,7 @@ export default function JoinPage() {
                 className="mt-6 block w-full text-center text-white font-semibold rounded-xl py-3 transition hover:opacity-90"
                 style={{ background: brand }}
               >
-                Create account &amp; register
+                {isPrivates ? "Create account & book" : "Create account & register"}
               </a>
               <a
                 href={loginHref}

@@ -25,6 +25,10 @@ export default function MemberSignupPage() {
   // Attendance-QR intent (/c/[id] → ?checkin=<sessionId>): after the account
   // exists, finish the scan by checking them into that class.
   const [checkinId, setCheckinId] = useState("");
+  // Generic deep-link continuation (e.g. /join/[slug]?goal=privates →
+  // ?next=/member/privates). Same sanitization as /post-login: path-only,
+  // /member-scoped, so this can never become an open redirect.
+  const [nextPath, setNextPath] = useState("");
 
   // Prefill from a kiosk QR (/c/[id] → ?club=slug&checkin=…) or a public
   // registration link (/join/[slug]?m=… → ?club=slug&membership=…).
@@ -36,6 +40,8 @@ export default function MemberSignupPage() {
     if (m) setMembershipId(m);
     const k = sp.get("checkin");
     if (k) setCheckinId(k);
+    const n = sp.get("next");
+    if (n && n.startsWith("/member") && !n.startsWith("//") && !n.includes("://")) setNextPath(n);
   }, []);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -143,17 +149,19 @@ export default function MemberSignupPage() {
     if (loginRes?.ok) {
       // Preserve the original intent: an attendance-QR scan finishes at the
       // check-in page for the scanned class; a public membership link
-      // deep-links to that plan; otherwise land on the portal home.
+      // deep-links to that plan; a generic next (e.g. book-a-private link)
+      // lands there; otherwise the portal home.
       window.location.href = checkinId
         ? `/member/checkin/${encodeURIComponent(checkinId)}`
         : membershipId
           ? `/member/memberships?plan=${encodeURIComponent(membershipId)}`
-          : "/member";
+          : nextPath || "/member";
     } else {
       // Account exists now — send them to login rather than a dead end,
-      // keeping the QR check-in intent through the sign-in hop.
+      // keeping the original intent through the sign-in hop.
       setError("Account created! Redirecting you to sign in…");
-      const next = checkinId ? `&next=${encodeURIComponent(`/member/checkin/${checkinId}`)}` : "";
+      const intent = checkinId ? `/member/checkin/${checkinId}` : nextPath;
+      const next = intent ? `&next=${encodeURIComponent(intent)}` : "";
       setTimeout(() => {
         window.location.href = `/login?club=${encodeURIComponent(clubSlug.trim().toLowerCase())}&role=member${next}`;
       }, 1200);
