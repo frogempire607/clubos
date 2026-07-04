@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Ticket, CalendarRange, UserCheck, Package, type LucideIcon } from "lucide-react";
+import { Ticket, CalendarRange, CalendarDays, UserCheck, Package, type LucideIcon } from "lucide-react";
 
 type Counts = {
   memberships: number;
@@ -46,6 +46,14 @@ export default function MemberShopPage() {
     Icon: LucideIcon;
   }[] = [
     {
+      href: "/member/schedule",
+      title: "Classes",
+      desc: "Browse the weekly schedule and book a class spot.",
+      count: 0,
+      countLabel: "",
+      Icon: CalendarDays,
+    },
+    {
       href: "/member/memberships",
       title: "Memberships",
       desc: "Join a plan or upgrade your current one.",
@@ -82,8 +90,8 @@ export default function MemberShopPage() {
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-stone-900 mb-1">Purchase Options</h1>
-        <p className="text-sm text-stone-500">Everything your club has on offer, all in one place.</p>
+        <h1 className="text-2xl font-semibold text-stone-900 mb-1">Book Now</h1>
+        <p className="text-sm text-stone-500">Find and book classes, events, lessons, plans, and gear — all in one place.</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -99,7 +107,7 @@ export default function MemberShopPage() {
             <h3 className="text-base font-semibold text-stone-900">{c.title}</h3>
             <p className="text-sm text-stone-500 mt-1 flex-1">{c.desc}</p>
             <p className="text-xs text-stone-400 mt-3">
-              {loading ? "Loading…" : `${c.count} ${c.countLabel}`}
+              {c.countLabel ? (loading ? "Loading…" : `${c.count} ${c.countLabel}`) : " "}
             </p>
           </Link>
         ))}

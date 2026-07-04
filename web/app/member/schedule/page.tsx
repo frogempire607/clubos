@@ -98,6 +98,41 @@ function itemColors(item: ScheduleItem) {
   };
 }
 
+function ItemCard({ item, onClick }: { item: ScheduleItem; onClick: () => void }) {
+  const c = itemColors(item);
+  return (
+    <button onClick={onClick} className="w-full text-left pcard pcard-hover p-4">
+      <div className="flex items-start gap-4">
+        <div className="w-14 rounded-lg py-2 flex flex-col items-center justify-center flex-shrink-0" style={c}>
+          <span className="text-[10px] uppercase font-medium opacity-80">
+            {new Date(item.startsAt).toLocaleDateString("en-US", { month: "short" })}
+          </span>
+          <span className="text-xl font-bold leading-none">{new Date(item.startsAt).getDate()}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h3 className="text-sm font-semibold text-stone-900">{item.title}</h3>
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={c}>
+              {item.typeLabel}
+            </span>
+          </div>
+          <p className="text-xs text-stone-500">
+            {friendlyDate(item.startsAt, { relative: true, weekday: true })}
+            {" · "}
+            {formatTimeRange(item)}
+            {item.location ? ` · ${item.location}` : ""}
+            {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
+          </p>
+          {item.description && (
+            <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
+          )}
+        </div>
+        <span className="text-xs text-stone-600 flex-shrink-0">{priceLabel(item)}</span>
+      </div>
+    </button>
+  );
+}
+
 export default function MemberSchedulePage() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -144,12 +179,23 @@ export default function MemberSchedulePage() {
     [],
   );
 
+  // Booked/registered upcoming items pin to the top as "Your upcoming
+  // schedule" — this page answers "what am I attending?" first, then offers
+  // everything else to book below.
+  const bookedUpcoming = useMemo(() => {
+    const list = data?.items ?? [];
+    const nowMs = Date.now();
+    return list.filter((item) => item.bookingStatus && new Date(item.endsAt).getTime() >= nowMs);
+  }, [data]);
+
   const items = useMemo(() => {
     const list = data?.items ?? [];
+    const pinned = new Set(bookedUpcoming.map((i) => i.id));
     return list
+      .filter((item) => !pinned.has(item.id))
       .filter((item) => (filter === "all" ? true : item.kind === filter))
       .filter((item) => withinWindow(item.startsAt, windowKey));
-  }, [data, filter, windowKey]);
+  }, [data, filter, windowKey, bookedUpcoming]);
 
   const grouped = useMemo(() => {
     const groups: { label: string; items: ScheduleItem[] }[] = [];
@@ -282,6 +328,22 @@ export default function MemberSchedulePage() {
       {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
       {info && <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 mb-4">{info}</div>}
 
+      {!loading && activeMember && bookedUpcoming.length > 0 && (
+        <section className="mb-6">
+          <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">
+            Your upcoming schedule
+          </h2>
+          <div className="space-y-3">
+            {bookedUpcoming.map((item) => (
+              <ItemCard key={item.id} item={item} onClick={() => setSelected(item)} />
+            ))}
+          </div>
+          <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mt-6">
+            Find &amp; book
+          </h2>
+        </section>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <div className="flex gap-1 bg-stone-100 rounded-lg p-1 w-fit">
           {filters.map((f) => (
@@ -329,42 +391,9 @@ export default function MemberSchedulePage() {
             <section key={group.label}>
               <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">{group.label}</h2>
               <div className="space-y-3">
-                {group.items.map((item) => {
-                  const c = itemColors(item);
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setSelected(item)}
-                      className="w-full text-left pcard pcard-hover p-4"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="w-14 rounded-lg py-2 flex flex-col items-center justify-center flex-shrink-0" style={c}>
-                          <span className="text-[10px] uppercase font-medium opacity-80">
-                            {new Date(item.startsAt).toLocaleDateString("en-US", { month: "short" })}
-                          </span>
-                          <span className="text-xl font-bold leading-none">{new Date(item.startsAt).getDate()}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <h3 className="text-sm font-semibold text-stone-900">{item.title}</h3>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={c}>
-                              {item.typeLabel}
-                            </span>
-                          </div>
-                          <p className="text-xs text-stone-500">
-                            {formatTimeRange(item)}
-                            {item.location ? ` · ${item.location}` : ""}
-                            {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
-                          </p>
-                          {item.description && (
-                            <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
-                          )}
-                        </div>
-                        <span className="text-xs text-stone-600 flex-shrink-0">{priceLabel(item)}</span>
-                      </div>
-                    </button>
-                  );
-                })}
+                {group.items.map((item) => (
+                  <ItemCard key={item.id} item={item} onClick={() => setSelected(item)} />
+                ))}
               </div>
             </section>
           ))}

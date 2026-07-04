@@ -344,7 +344,12 @@ export default function MemberBookingsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-stone-900 mb-1">My Bookings</h1>
           <p className="text-sm text-stone-500">
-            Classes, events, and private lessons — all in one place.
+            Manage everything you&apos;ve booked — upcoming spots, history, requests, and
+            cancellations. Looking for something new?{" "}
+            <Link href="/member/shop" className="underline hover:text-stone-900">
+              Book Now
+            </Link>
+            .
           </p>
         </div>
         <Link
