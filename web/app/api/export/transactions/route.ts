@@ -63,7 +63,7 @@ export async function GET(req: Request) {
     t.stripePaymentIntentId ?? "",
   ]);
 
-  return exportResponse(
+  return await exportResponse(
     format,
     "transactions-export",
     headers,

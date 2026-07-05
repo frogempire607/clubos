@@ -70,7 +70,7 @@ export async function GET(req: Request) {
     ];
   });
 
-  return exportResponse(
+  return await exportResponse(
     format,
     "members-export",
     headers,

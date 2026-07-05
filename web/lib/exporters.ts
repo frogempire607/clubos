@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -21,29 +21,35 @@ export function buildCsv(headers: string[], rows: (string | number | null | unde
   return [headers, ...rows].map((r) => r.map(csvEscape).join(",")).join("\r\n");
 }
 
-export function buildXlsx(headers: string[], rows: (string | number | null | undefined)[][], sheetName: string): Buffer {
-  const wb = XLSX.utils.book_new();
-  const data = [headers, ...rows.map((r) => r.map((c) => (c === null || c === undefined ? "" : c)))];
-  const ws = XLSX.utils.aoa_to_sheet(data);
+export async function buildXlsx(
+  headers: string[],
+  rows: (string | number | null | undefined)[][],
+  sheetName: string
+): Promise<Buffer> {
+  // Excel sheet names: max 31 chars and cannot contain : \ / ? * [ ]
+  const safeName = sheetName.replace(/[:\\/?*\[\]]/g, "").slice(0, 31) || "Sheet1";
 
-  // Auto-fit-ish column widths
-  const colWidths = headers.map((h, i) => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(safeName);
+
+  ws.addRow(headers);
+  for (const r of rows) {
+    ws.addRow(r.map((c) => (c === null || c === undefined ? "" : c)));
+  }
+
+  // Auto-fit-ish column widths (same heuristic as the previous `wch` sizing)
+  headers.forEach((h, i) => {
     let max = String(h).length;
     for (const row of rows) {
       const cell = row[i];
       const len = cell === null || cell === undefined ? 0 : String(cell).length;
       if (len > max) max = len;
     }
-    return { wch: Math.min(max + 2, 60) };
+    ws.getColumn(i + 1).width = Math.min(max + 2, 60);
   });
-  ws["!cols"] = colWidths;
 
-  // Excel sheet names: max 31 chars and cannot contain : \ / ? * [ ]
-  const safeName = sheetName.replace(/[:\\/?*\[\]]/g, "").slice(0, 31) || "Sheet1";
-  XLSX.utils.book_append_sheet(wb, ws, safeName);
-
-  const out = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  return Buffer.isBuffer(out) ? out : Buffer.from(out as ArrayBuffer);
+  const out = await wb.xlsx.writeBuffer();
+  return Buffer.from(out as ArrayBuffer);
 }
 
 export function buildPdf(opts: {
@@ -76,19 +82,19 @@ export function buildPdf(opts: {
   return Buffer.from(out);
 }
 
-export function exportResponse(
+export async function exportResponse(
   format: ExportFormat,
   baseName: string,
   headers: string[],
   rows: (string | number | null | undefined)[][],
   pdfTitle: string,
   sheetName: string
-): Response {
+): Promise<Response> {
   const date = todayStamp();
   const filename = `${baseName}-${date}.${format}`;
 
   if (format === "xlsx") {
-    const buf = buildXlsx(headers, rows, sheetName);
+    const buf = await buildXlsx(headers, rows, sheetName);
     return new Response(buf as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
