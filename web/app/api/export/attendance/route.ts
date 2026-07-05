@@ -65,7 +65,7 @@ export async function GET(req: Request) {
     r.notes ?? "",
   ]);
 
-  return exportResponse(
+  return await exportResponse(
     format,
     "attendance-export",
     headers,
