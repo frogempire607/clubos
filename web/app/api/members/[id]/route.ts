@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/apiGuard";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 import { validateMemberContact } from "@/lib/memberValidation";
+import { resolveIsMinor } from "@/lib/parentalConsent";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -156,7 +157,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
     // If marking as a minor, validate required guardian fields per spec.
     // If marking as an adult, require at least one direct contact method.
-    const willBeMinor = data.isMinor ?? member.isMinor;
+    // COPPA: date of birth is authoritative. If the effective DOB is under 18,
+    // the member IS a minor no matter what isMinor was set to — an owner can't
+    // clear the flag on a real child to dodge the parental-consent gate.
+    const effectiveDob = data.dateOfBirth !== undefined ? data.dateOfBirth : member.dateOfBirth;
+    const willBeMinor = resolveIsMinor({ isMinor: data.isMinor ?? member.isMinor, dateOfBirth: effectiveDob });
     const contactError = validateMemberContact({
       isMinor: willBeMinor,
       email: data.email ?? member.email,
@@ -201,6 +206,8 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       ...data,
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...guardianIdUpdate,
+      // Persist the DOB-authoritative minor status (see willBeMinor above).
+      isMinor: willBeMinor,
       email: data.email !== undefined
         ? (data.email ? data.email.toLowerCase() : null)
         : undefined,

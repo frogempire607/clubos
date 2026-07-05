@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import { resolvePermissions } from "./permissions";
 import { rateLimit } from "./ratelimit";
+import { resolveIsMinor, childHasCurrentConsent, parentalConsentEnforced } from "./parentalConsent";
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -88,7 +89,10 @@ export const authOptions: NextAuthOptions = {
                   email: emailNormalized,
                 },
               },
-              include: { staffProfile: { select: { permissions: true } } },
+              include: {
+                staffProfile: { select: { permissions: true } },
+                memberProfile: { select: { id: true, isMinor: true, dateOfBirth: true } },
+              },
             })
           : null;
 
@@ -102,6 +106,19 @@ export const authOptions: NextAuthOptions = {
         const valid = await bcrypt.compare(credentials.password, activeHash ?? DUMMY_PASSWORD_HASH);
 
         if (!club || !user || user.deletedAt || !activeHash || !valid) return null;
+
+        // COPPA: a MINOR's OWN login is blocked until a parent/guardian has
+        // recorded a current parental consent for them. This never blocks
+        // adults, guardians, owners, or staff — a guardian who manages a minor
+        // still signs in normally and is gated per-child inside the member
+        // portal, so club operations are never interrupted. Throwing (vs null)
+        // surfaces a distinct message on the login page.
+        if (parentalConsentEnforced() && user.role === "MEMBER" && user.memberProfile && resolveIsMinor(user.memberProfile)) {
+          const consented = await childHasCurrentConsent(user.memberProfile.id);
+          if (!consented) {
+            throw new Error("A parent or guardian must complete consent before this account can be used.");
+          }
+        }
 
         await prisma.user.update({
           where: { id: user.id },

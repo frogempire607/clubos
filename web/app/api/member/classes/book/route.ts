@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
@@ -67,6 +68,11 @@ export async function POST(req: Request) {
         { error: "Your account isn't linked to a member profile yet. Contact your club to get added." },
         { status: 400 },
       );
+    }
+
+    // COPPA: block a guardian from booking for a minor until consent is on file.
+    if (await guardianActionBlocked(session.user.id, member.id)) {
+      return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
     }
 
     // Load class session + class

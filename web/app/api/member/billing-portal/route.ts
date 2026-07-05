@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -54,6 +55,11 @@ export async function POST(req: Request) {
   // member's id. Omitted → the caller's own membership.
   const bodyJson = (await req.json().catch(() => ({}))) as { memberId?: unknown };
   const requestedMemberId = typeof bodyJson?.memberId === "string" ? bodyJson.memberId : null;
+
+  // COPPA: block a guardian from managing a minor's billing until consent is on file.
+  if (requestedMemberId && (await guardianActionBlocked(session.user.id, requestedMemberId))) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+  }
 
   // Resolve which member's billing this user may manage: their OWN profile, or a
   // minor they're a linked guardian of. (A guardian is never the minor's

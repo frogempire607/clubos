@@ -153,6 +153,49 @@ export async function sendPasswordResetEmail({
   });
 }
 
+// Emailed COPPA consent link. Sent to a minor's parent/guardian so they can
+// review and record their explicit consent before the child's account is used.
+export async function sendGuardianConsentRequestEmail({
+  to,
+  guardianName,
+  childName,
+  clubName,
+  consentUrl,
+}: {
+  to: string;
+  guardianName?: string | null;
+  childName: string;
+  clubName: string;
+  consentUrl: string;
+}) {
+  const greeting = guardianName?.trim() ? `Hi ${guardianName.trim()},` : "Hi,";
+  await sendEmail({
+    to,
+    subject: `Parental consent needed for ${childName} at ${clubName}`,
+    html: baseLayout(`
+      <h2 style="color:#1c1917;margin:0 0 8px">Please confirm your consent</h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 12px">
+        ${greeting}
+      </p>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 12px">
+        An account for <strong>${childName}</strong> was started at <strong>${clubName}</strong> on
+        AthletixOS. Because ${childName} is a minor, we need a parent or legal guardian to review and
+        confirm consent before the account can be used to book, message, or make payments.
+      </p>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        Click below to review the Terms of Service and Privacy Policy and record your consent. This
+        link is unique to you and expires in 30 days.
+      </p>
+      <a href="${consentUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        Review &amp; give consent
+      </a>
+      <p style="color:#a8a29e;font-size:12px;margin:16px 0 0">
+        If you didn't expect this, you can ignore this email and no account will be activated.
+      </p>
+    `),
+  });
+}
+
 export async function sendStaffInviteEmail({
   to,
   firstName,

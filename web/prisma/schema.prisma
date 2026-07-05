@@ -183,6 +183,8 @@ model Club {
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
   invoiceSplits               InvoiceSplit[]
+  parentalConsents            ParentalConsent[]
+  guardianConsentRequests     GuardianConsentRequest[]
 
   @@index([slug])
   @@map("clubs")
@@ -359,6 +361,8 @@ model User {
   staffDocuments          StaffDocument[]              @relation("StaffDocsTarget")
   uploadedStaffDocs       StaffDocument[]              @relation("StaffDocsUploader")
   legalAcceptances        LegalAcceptance[]
+  parentalConsentsAsGuardian ParentalConsent[]        @relation("GuardianConsent")
+  parentalConsentsAsChild    ParentalConsent[]        @relation("ChildConsent")
 
   @@unique([clubId, email])
   @@index([clubId])
@@ -387,6 +391,73 @@ model LegalAcceptance {
   @@index([userId, documentType])
   @@index([clubId, documentType])
   @@map("legal_acceptances")
+}
+
+// Immutable, append-only COPPA parental-consent record. One row is written each
+// time a parent/guardian EXPLICITLY consents to the collection and use of a
+// specific minor's information. Rows are NEVER updated or deleted — a database
+// trigger (migration 20260705010000_parental_consent) RAISEs on any UPDATE or
+// DELETE, so consent is tamper-evident. A new consent (e.g. after a Terms or
+// Privacy version bump) is a NEW row; version-aware helpers in
+// lib/parentalConsent.ts decide when a guardian must re-consent. Denormalized
+// guardian/child snapshots keep each row self-describing for audit even if the
+// referenced accounts are later changed or soft-deleted. FKs are Restrict so an
+// audit row can never be silently removed by a cascade.
+model ParentalConsent {
+  id             String   @id @default(cuid())
+  clubId         String
+  memberId       String   // the child (minor) member the consent covers
+  childUserId    String?  // the minor's own login, when one exists
+  guardianUserId String?  // the consenting guardian's account, when one exists
+  guardianName   String   // snapshot of who consented
+  guardianEmail  String   // snapshot of the consenting guardian's email
+  relationship   String?  // e.g. Mother / Father / Legal guardian
+  termsVersion   String   // TERMS_VERSION accepted at consent time
+  privacyVersion String   // PRIVACY_VERSION accepted at consent time
+  consentVersion String   // version of the parental-consent statement shown
+  consentText    String   // verbatim statement the guardian accepted
+  ipAddress      String?
+  userAgent      String?
+  // Which flow captured this consent:
+  // SIGNUP | ACTIVATION | LINK_CHILD | PARENT_CREATE | GUARDIAN_APPROVAL | PORTAL_GATE | OWNER_INVITE
+  source         String
+  acceptedAt     DateTime @default(now())
+
+  club         Club   @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  member       Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  guardianUser User?  @relation("GuardianConsent", fields: [guardianUserId], references: [id], onDelete: Restrict)
+  childUser    User?  @relation("ChildConsent", fields: [childUserId], references: [id], onDelete: Restrict)
+
+  @@index([memberId])
+  @@index([guardianUserId])
+  @@index([clubId])
+  @@map("parental_consents")
+}
+
+// Mutable operational record for an OUTSTANDING request that a guardian complete
+// COPPA consent for a minor — this is what the emailed consent link points at.
+// Fulfilling it writes an immutable ParentalConsent row and stamps consumedAt
+// here. Unlike ParentalConsent, this table is editable: tokens expire, get
+// consumed, and can be re-issued. Never the source of truth for consent itself.
+model GuardianConsentRequest {
+  id              String    @id @default(cuid())
+  clubId          String
+  memberId        String    // the minor the consent is for
+  guardianName    String?
+  guardianEmail   String
+  relationship    String?
+  token           String    @unique
+  source          String    // SIGNUP | OWNER_INVITE | PARENT_INVITE
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  consumedAt      DateTime?
+
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@map("guardian_consent_requests")
 }
 
 // Documents the owner uploads to a staff member's profile — tax docs
@@ -599,6 +670,8 @@ model Member {
   relationshipsTo    MemberRelationship[] @relation("RelationshipTo")
   pendingApprovals   PendingApproval[]
   invoiceSplits      InvoiceSplit[]
+  parentalConsents   ParentalConsent[]
+  guardianConsentRequests GuardianConsentRequest[]
 
   @@index([clubId])
   @@index([status])

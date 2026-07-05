@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
@@ -47,6 +48,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   try {
     const { memberId } = schema.parse(await req.json().catch(() => ({})));
+
+    // COPPA: block a guardian from registering a minor until consent is on file.
+    if (memberId && (await guardianActionBlocked(session.user.id, memberId))) {
+      return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+    }
 
     const bundle = await prisma.eventBundle.findFirst({
       where: { id, clubId: session.user.clubId, deletedAt: null, published: true },

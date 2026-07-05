@@ -10,6 +10,7 @@ import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 
 async function emailBookingConfirmation(args: {
@@ -100,6 +101,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   try {
     const { pricingType, memberId, discountCode } = schema.parse(await req.json().catch(() => ({})));
+
+    // COPPA: block a guardian from registering a minor until consent is on file.
+    if (memberId && (await guardianActionBlocked(session.user.id, memberId))) {
+      return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+    }
 
     const event = await prisma.event.findFirst({
       where: {

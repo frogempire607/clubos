@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
@@ -67,6 +68,10 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   const isChild = !!about && children.has(about) && about !== selfMemberId;
   if (about && !isChild && about !== selfMemberId) {
     return NextResponse.json({ error: "You can't view that athlete's messages." }, { status: 403 });
+  }
+  // COPPA: block messaging about a minor until consent is on file.
+  if (isChild && about && (await guardianActionBlocked(session.user.id, about))) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
   }
   const subj = subjectWhere(about, selfMemberId, isChild);
 
@@ -154,6 +159,11 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
     // Tag with the child only if the viewer guardians them; otherwise it's a
     // self thread (stored null).
     const subjectMemberId = about && children.has(about) && about !== selfMemberId ? about : null;
+
+    // COPPA: block sending a message about a minor until consent is on file.
+    if (subjectMemberId && (await guardianActionBlocked(session.user.id, subjectMemberId))) {
+      return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+    }
 
     const message = await prisma.message.create({
       data: {

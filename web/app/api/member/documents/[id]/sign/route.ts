@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
@@ -76,6 +77,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const linkedChild = viewer.guardianOf.find((g) => g.member.id === targetMemberId);
   if (!isSelf && !linkedChild) {
     return NextResponse.json({ error: "You don't have access to sign for this member" }, { status: 403 });
+  }
+
+  // COPPA: a guardian can't sign for a minor until consent is on file.
+  if (!isSelf && (await guardianActionBlocked(session.user.id, targetMemberId))) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
   }
 
   const targetIsMinor = isSelf ? ownMemberIsMinor : !!linkedChild?.member.isMinor;
