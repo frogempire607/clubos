@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -96,6 +97,11 @@ export async function GET(req: Request) {
   if (!resolved) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (resolved === "FORBIDDEN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { context, accessible } = resolved;
+
+  // COPPA: don't surface a minor's schedule/attendance to a guardian until consent is on file.
+  if (context && (await guardianActionBlocked(session.user.id, context.id))) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+  }
 
   const [activeSubs, eventBookings, classAttendance, events, classes, privateOfferings] = await Promise.all([
     context

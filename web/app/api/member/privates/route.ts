@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -37,6 +38,11 @@ export async function GET(req: Request) {
     : null;
   const accessible = resolved && resolved !== "FORBIDDEN" ? resolved.accessible : [];
   const member = resolved && resolved !== "FORBIDDEN" ? resolved.context : null;
+
+  // COPPA: don't surface a minor's private-lesson context to a guardian until consent is on file.
+  if (member && (await guardianActionBlocked(session.user.id, member.id))) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+  }
 
   const [types, staff, bookings, credits, availability] = await Promise.all([
     prisma.privateLessonType.findMany({
@@ -214,6 +220,11 @@ export async function POST(req: Request) {
       { error: "Your account isn't linked to a member profile yet. Contact your club." },
       { status: 400 },
     );
+  }
+
+  // COPPA: block requesting a private lesson for a minor until consent is on file.
+  if (await guardianActionBlocked(session.user.id, member.id)) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
   }
 
   const lessonType = await prisma.privateLessonType.findFirst({

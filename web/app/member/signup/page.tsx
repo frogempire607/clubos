@@ -82,6 +82,8 @@ export default function MemberSignupPage() {
   const [relationship, setRelationship] = useState("Parent");
 
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [parentalConsent, setParentalConsent] = useState(false);
+  const [consentSent, setConsentSent] = useState(false);
   const [signupDocs, setSignupDocs] = useState<SignupDocument[]>([]);
   const [signedDocIds, setSignedDocIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -112,6 +114,10 @@ export default function MemberSignupPage() {
       setError("You must agree to the Terms of Service and Privacy Policy.");
       return;
     }
+    if (accountType === "PARENT" && childEmail && !parentalConsent) {
+      setError("Please confirm your consent as the parent/guardian of this athlete.");
+      return;
+    }
     if (signupDocs.some((doc) => !signedDocIds.includes(doc.id))) {
       setError("Please review and acknowledge all required club documents.");
       return;
@@ -137,6 +143,7 @@ export default function MemberSignupPage() {
         guardianRelationship: accountType === "MINOR_ATHLETE" ? guardianRelationship : undefined,
         childEmail: accountType === "PARENT" ? childEmail : undefined,
         relationship: accountType === "PARENT" ? relationship : undefined,
+        parentalConsent: accountType === "PARENT" ? parentalConsent : undefined,
         acceptedTerms: true,
         termsVersion: TERMS_VERSION,
         privacyVersion: PRIVACY_VERSION,
@@ -156,6 +163,15 @@ export default function MemberSignupPage() {
       }
       setError(msg);
       setLoading(false);
+      return;
+    }
+
+    // A minor signup can't be used until a guardian consents — show the
+    // "consent link sent" screen instead of attempting a (blocked) auto-login.
+    const okData = await res.json().catch(() => ({} as { pendingGuardianConsent?: boolean }));
+    if (okData?.pendingGuardianConsent) {
+      setLoading(false);
+      setConsentSent(true);
       return;
     }
 
@@ -229,6 +245,22 @@ export default function MemberSignupPage() {
 
   function toggleSignedDoc(id: string) {
     setSignedDocIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  }
+
+  // Minor signup completed — the guardian must confirm consent before use.
+  if (consentSent) {
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md bg-white rounded-2xl border border-stone-200 p-8 text-center">
+          <h1 className="text-xl font-semibold text-stone-900">Almost there</h1>
+          <p className="mt-3 text-stone-600 leading-relaxed">
+            We&apos;ve created {firstName ? `${firstName}'s` : "the"} account and emailed a consent link to
+            {guardianEmail ? ` ${guardianEmail}` : " the parent or guardian"}. A parent or guardian must
+            complete consent before the account can be used to sign in, book, or message.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -513,6 +545,27 @@ export default function MemberSignupPage() {
                     .
                   </span>
                 </label>
+
+                {accountType === "PARENT" && childEmail && (
+                  <label className="flex items-start gap-2 text-sm text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={parentalConsent}
+                      onChange={(e) => setParentalConsent(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-stone-300 text-[#534AB7] focus:ring-[#534AB7]"
+                    />
+                    <span>
+                      I am the parent or legal guardian of this athlete and I consent to the collection
+                      and use of their information as described above.
+                    </span>
+                  </label>
+                )}
+
+                {accountType === "MINOR_ATHLETE" && (
+                  <p className="text-xs text-stone-500 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+                    We&apos;ll email your parent or guardian a consent link. Your account can be used once they confirm.
+                  </p>
+                )}
 
                 {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 

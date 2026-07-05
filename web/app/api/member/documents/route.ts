@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -63,6 +64,11 @@ export async function GET(req: Request) {
     contextMemberId = linkedMemberProfile.id;
   } else if (viewer.guardianOf[0]) {
     contextMemberId = viewer.guardianOf[0].member.id;
+  }
+
+  // COPPA: don't surface a minor's documents to a guardian until consent is on file.
+  if (contextMemberId && (await guardianActionBlocked(session.user.id, contextMemberId))) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
   }
 
   const now = new Date();

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
@@ -58,6 +59,11 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
 
   const child = await loadGuardianChild(session.user.id, params.memberId, session.user.clubId);
   if (!child) return NextResponse.json({ error: "Not a linked child" }, { status: 403 });
+
+  // COPPA: don't surface a minor's profile/controls to a guardian until consent is on file.
+  if (await guardianActionBlocked(session.user.id, child.id)) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+  }
 
   // Everyone who can manage this athlete, oldest link first. Additive,
   // read-only: the viewer is already an authorized guardian of the child, so
@@ -151,6 +157,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ memberId:
 
   const child = await loadGuardianChild(session.user.id, params.memberId, session.user.clubId);
   if (!child) return NextResponse.json({ error: "Not a linked child" }, { status: 403 });
+
+  // COPPA: block editing a minor's profile/controls until consent is on file.
+  if (await guardianActionBlocked(session.user.id, child.id)) {
+    return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
+  }
 
   if (!(await isPrimaryGuardian(session.user.id, child.id))) {
     return NextResponse.json(
