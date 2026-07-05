@@ -6,6 +6,9 @@ import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import { requestGuardianLink } from "@/lib/guardianLink";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
 import { normalizeFreeTrialConfig, trialWindowDays } from "@/lib/freeTrial";
+import { createGuardianConsentRequest, recordParentalConsent } from "@/lib/parentalConsent";
+import { sendGuardianConsentRequestEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 const schema = z.object({
   clubSlug: z.string().min(1),
@@ -28,6 +31,8 @@ const schema = z.object({
   termsVersion: z.string().min(1),
   privacyVersion: z.string().min(1),
   signedDocumentIds: z.array(z.string()).optional().default([]),
+  // A PARENT signing up may explicitly consent for the child they link.
+  parentalConsent: z.boolean().optional(),
   // Came from the club's public free-trial link (?trial=1). Server-validated
   // against Club.freeTrialConfig — the flag alone grants nothing.
   requestTrial: z.boolean().optional().default(false),
@@ -124,6 +129,16 @@ export async function POST(req: Request) {
 
     const passwordHash = await bcrypt.hash(data.password, 12);
     const isMinor = data.accountType === "MINOR_ATHLETE";
+
+    // COPPA: a minor cannot self-activate. We need a guardian email to send the
+    // consent link, and the account stays gated (login/actions blocked) until a
+    // guardian completes consent.
+    if (isMinor && !(data.guardianEmail || "").trim()) {
+      return NextResponse.json(
+        { error: "A parent or guardian email is required to sign up a minor. Their consent is needed before the account can be used." },
+        { status: 400 },
+      );
+    }
 
     // Find existing Member record by email (case-insensitive via stored lowercase) to link up
     const existingMember = await prisma.member.findFirst({
@@ -226,6 +241,7 @@ export async function POST(req: Request) {
     // guardian-of-record — is established. This prevents an unauthenticated
     // signup from silently claiming any club-mate by email.
     let guardianLinkPending = false;
+    let pendingGuardianConsent = false;
     if (data.accountType === "PARENT" && data.childEmail) {
       const childMember = await prisma.member.findFirst({
         where: { clubId: club.id, email: data.childEmail.toLowerCase(), deletedAt: null },
@@ -272,6 +288,30 @@ export async function POST(req: Request) {
           // Queued — do NOT establish any guardian relationship yet.
           guardianLinkPending = true;
         }
+
+        // Record the parent's explicit consent for this (minor) child when they
+        // checked the consent box. Immutable audit row; portal access still
+        // follows the link/approval rules above.
+        if (childMember.isMinor && data.parentalConsent) {
+          try {
+            await recordParentalConsent(prisma, {
+              clubId: club.id,
+              memberId: childMember.id,
+              childUserId: childMember.userId ?? null,
+              guardianUserId: user.id,
+              guardianName: `${data.firstName} ${data.lastName}`.trim(),
+              guardianEmail: data.email.toLowerCase(),
+              relationship: data.relationship || null,
+              clubName: club.name,
+              childName: `${childMember.firstName} ${childMember.lastName}`.trim(),
+              ipAddress: ipFromRequest(req),
+              userAgent: req.headers.get("user-agent"),
+              source: "SIGNUP",
+            });
+          } catch (e) {
+            console.error("Failed to record parental consent (member signup PARENT):", e);
+          }
+        }
       }
     }
 
@@ -287,6 +327,37 @@ export async function POST(req: Request) {
           guardianRelationship: data.guardianRelationship || existingMember.guardianRelationship,
         },
       });
+    }
+
+    // COPPA: a minor self-signup does NOT activate. Create a guardian consent
+    // request and email the parent/guardian the consent link. The minor's own
+    // login stays blocked (authorize()) until a guardian records consent.
+    if (isMinor && user.memberProfile) {
+      const guardianEmail = (data.guardianEmail || "").toLowerCase();
+      try {
+        const reqRow = await createGuardianConsentRequest(prisma, {
+          clubId: club.id,
+          memberId: user.memberProfile.id,
+          guardianName: data.guardianName || null,
+          guardianEmail,
+          relationship: data.guardianRelationship || null,
+          source: "SIGNUP",
+        });
+        pendingGuardianConsent = true;
+        const consentUrl = `${getAppBaseUrl()}/guardian-consent/${reqRow.token}`;
+        await sendGuardianConsentRequestEmail({
+          to: guardianEmail,
+          guardianName: data.guardianName,
+          childName: `${data.firstName} ${data.lastName}`.trim(),
+          clubName: club.name,
+          consentUrl,
+        });
+      } catch (e) {
+        // The request row (if created) lets the owner resend later. Never break
+        // signup on a consent-email failure.
+        console.error("Failed to create/send guardian consent request:", e);
+        pendingGuardianConsent = true;
+      }
     }
 
     // Record terms/privacy consent — 2 rows per signup (TOS + PRIVACY).
@@ -373,7 +444,7 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, clubSlug: club.slug, guardianLinkPending }, { status: 201 });
+    return NextResponse.json({ ok: true, clubSlug: club.slug, guardianLinkPending, pendingGuardianConsent }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
     console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });

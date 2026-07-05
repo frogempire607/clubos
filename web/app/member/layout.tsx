@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import ProfileSwitcher from "@/components/member/ProfileSwitcher";
 import BackButton from "@/components/BackButton";
+import ParentalConsentGate from "@/components/member/ParentalConsentGate";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
 import type { BrandedAppConfig } from "@/lib/brandedApp";
 
@@ -412,6 +413,10 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         </div>
         {children}
       </main>
+
+      {/* COPPA: blocking consent overlay for guardians who still owe consent
+          for a minor. Inert unless FEATURE_PARENTAL_CONSENT is enabled. */}
+      <ParentalConsentGate />
 
       {/* ── Mobile bottom tab bar ── */}
       <nav className={`fixed bottom-0 left-0 right-0 z-40 border-t border-stone-200 md:hidden safe-area-bottom transition-transform duration-300 ${navHidden ? "translate-y-full" : "translate-y-0"}`} style={{ background: navBg }}>
