@@ -60,6 +60,7 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
   INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   PAUSED: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   MIGRATING: { bg: "#1F1F23", fg: "#fff" },
+  PENDING: { bg: "#EDEBFF", fg: "#4F46E5" },
 };
 
 const REL_TYPES = ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "PARENT", "CHILD", "SPOUSE", "OTHER"];
@@ -93,13 +94,20 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
 
   // Mid-migration members sit as PROSPECT in the DB but are existing members
   // being switched over — show them as "Migrating", not "Prospect".
+  const activeSub = m.subscriptions.find((s) => s.status === "active");
+  const pendingSub = m.subscriptions.find((s) => s.status === "pending");
+  const pastSubs = m.subscriptions.filter((s) => s.status !== "active");
+  const inTrial = !!m.trialEndsAt && new Date(m.trialEndsAt) > new Date();
+  // An ACTIVE account with no active paid membership (and not on a staff-granted
+  // trial) is really a Prospect — that's Kelly's case. If a purchase is mid-flight,
+  // surface it as Pending instead so it reads clearly as "not charged yet".
   const displayStatus =
     m.status === "PROSPECT" && m.migrationStatus && m.migrationStatus !== "COMPLETED"
       ? "MIGRATING"
-      : m.status;
+      : m.status === "ACTIVE" && !activeSub && !inTrial
+        ? (pendingSub ? "PENDING" : "PROSPECT")
+        : m.status;
   const sc = statusColors[displayStatus] ?? statusColors.INACTIVE;
-  const activeSub = m.subscriptions.find((s) => s.status === "active");
-  const pastSubs = m.subscriptions.filter((s) => s.status !== "active");
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -120,7 +128,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             <span className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.fg }}>
               {displayStatus === "MIGRATING"
                 ? "Migrating"
-                : m.status.charAt(0) + m.status.slice(1).toLowerCase()}
+                : displayStatus.charAt(0) + displayStatus.slice(1).toLowerCase()}
             </span>
             {displayStatus === "MIGRATING" && m.legacyMembershipName && (
               <span
@@ -130,14 +138,15 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                 {m.legacyMembershipName}
               </span>
             )}
-            {/* Distinguish an activated account from a paying member: ACTIVE with
-                no active subscription means the account exists but isn't on a plan. */}
-            {m.status === "ACTIVE" && !activeSub && (
+            {/* A purchase mid-flight (pending sub) — make it explicit that nothing
+                has been charged yet. A true Prospect (no sub at all) needs no chip;
+                the status pill already reads "Prospect". */}
+            {pendingSub && !activeSub && (
               <span
                 className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-orange-accent/20 text-text-primary"
-                title="This account is activated but has no active paid membership."
+                title="A membership purchase is in progress — nothing has been charged yet."
               >
-                No membership
+                Not charged yet
               </span>
             )}
             {m.isMinor && <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Minor</span>}
@@ -176,6 +185,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         <Card title="Current membership">
           {activeSub ? (
             <SubRow sub={activeSub} onEdit={() => setEditingSub(activeSub)} />
+          ) : pendingSub ? (
+            <div className="space-y-2">
+              <p className="text-xs text-text-muted">
+                Purchase in progress — <strong className="text-text-primary">not charged yet</strong>.
+                Activates when payment completes or staff approves.
+              </p>
+              <SubRow sub={pendingSub} onEdit={() => setEditingSub(pendingSub)} />
+            </div>
           ) : (
             <p className="text-sm text-text-muted">No active membership.</p>
           )}

@@ -50,7 +50,9 @@ async function fetchUser(userId: string) {
         include: {
           membership: true,
           subscriptions: {
-            where: { status: { in: ["active", "past_due"] } },
+            // include pending so the portal can show the upcoming/first-charge
+            // date and a "purchase in progress" status (migrated + card flows).
+            where: { status: { in: ["active", "past_due", "pending"] } },
             include: { membership: true },
           },
           bookings: {

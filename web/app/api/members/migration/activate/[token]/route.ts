@@ -139,10 +139,24 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   const existingActivationUser = checkEmail
     ? await prisma.user.findUnique({
         where: { clubId_email: { clubId: m.clubId, email: checkEmail } },
-        select: { deletedAt: true },
+        select: { deletedAt: true, role: true },
       })
     : null;
-  const hasAccount = !!(existingActivationUser && !existingActivationUser.deletedAt);
+  // An OWNER/STAFF login must NEVER be treated as this member's account — a
+  // member activation attaching to a privileged login is the "owner logged in
+  // as the member" bug. Only a live MEMBER login counts as "you already have an
+  // account"; a staff/owner collision is surfaced separately so the page warns
+  // instead of telling them to "sign in with your existing password".
+  const staffAccountConflict = !!(
+    existingActivationUser &&
+    !existingActivationUser.deletedAt &&
+    existingActivationUser.role !== "MEMBER"
+  );
+  const hasAccount = !!(
+    existingActivationUser &&
+    !existingActivationUser.deletedAt &&
+    existingActivationUser.role === "MEMBER"
+  );
 
   // FAMILY ONBOARDING. When a guardian manages this minor (their guardian email
   // is the contact), surface the guardian's OTHER pending children so the
@@ -204,6 +218,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   return NextResponse.json({
     completed: m.migrationStatus === MIGRATION_STATUS.COMPLETED,
     hasAccount,
+    staffAccountConflict,
     accountEmail: checkEmail,
     // Card on file & waiting for the club to review/approve billing.
     pendingApproval: m.approvalStatus === "PENDING_APPROVAL",
@@ -398,6 +413,20 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   let user = await prisma.user.findUnique({
     where: { clubId_email: { clubId: club.id, email: contactEmail } },
   });
+  // OWNER/STAFF COLLISION GUARD. A migrated member must NEVER attach to (or
+  // resurrect) a privileged OWNER/STAFF login — that links member.userId to the
+  // owner and the owner ends up "logged in as" the member (the John Doe bug).
+  // Owner emails must never become member/minor accounts.
+  if (user && user.role !== "MEMBER") {
+    return NextResponse.json(
+      {
+        error:
+          "This email is already used by a staff or owner account at this club. Use a " +
+          "different email for the member, or update the member's email before activating.",
+      },
+      { status: 409 },
+    );
+  }
   if (user && user.deletedAt) {
     // RESURRECT a soft-deleted login. This happens when a member is deleted
     // (which soft-deletes their MEMBER-role login, leaving deletedAt set) and is

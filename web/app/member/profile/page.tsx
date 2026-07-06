@@ -63,6 +63,14 @@ type PortalSubscription = {
   id: string;
   status: string;
   currentPeriodEnd?: string | null;
+  // Snapshot fields on the subscription itself — the source of truth for what
+  // was actually purchased and the migrated first-charge date.
+  price?: number | string | null;
+  billingPeriod?: string | null;
+  billingType?: string | null;
+  billingAnchorDate?: string | null;
+  endDate?: string | null;
+  autoRenew?: boolean | null;
   membership: { name: string; price: number; billingPeriod?: string | null } | null;
 };
 
@@ -921,7 +929,31 @@ export default function MemberAccountPage() {
               const showPrice        = vis?.showPrice        ?? true;
               const showInvoices     = vis?.showInvoices     ?? true;
               const subs = extras?.user?.memberProfile?.subscriptions ?? [];
-              const active = subs.find((s) => s.status === "active") || subs[0];
+              // Prefer a live plan; otherwise surface a purchase-in-progress
+              // (pending) so migrated members still see their upcoming first charge.
+              const active =
+                subs.find((s) => s.status === "active") ||
+                subs.find((s) => s.status === "pending") ||
+                subs[0];
+              // Price / period / next-billing come from the SUBSCRIPTION snapshot,
+              // not the plan template (Membership.price lives in an options JSON).
+              // The migrated first-charge date is billingAnchorDate.
+              const subPrice =
+                active?.price != null ? Number(active.price) : active?.membership?.price ?? null;
+              const subPeriod = active?.billingPeriod || active?.membership?.billingPeriod || null;
+              const nextBilling =
+                active?.billingAnchorDate || active?.endDate || active?.currentPeriodEnd || null;
+              const statusLabel = active
+                ? ((
+                    {
+                      active: "Active",
+                      pending: "Pending — not charged yet",
+                      past_due: "Past due",
+                      canceled: "Canceled",
+                      expired: "Expired",
+                    } as Record<string, string>
+                  )[active.status] ?? active.status)
+                : null;
               const anyVisible = showPlan || showNextBilling || showPrice || showInvoices;
               if (!anyVisible) return null;
               return (
@@ -935,18 +967,19 @@ export default function MemberAccountPage() {
                       {showPlan && active.membership?.name && (
                         <ProfileRow label="Plan" value={active.membership.name} />
                       )}
-                      {showPrice && active.membership?.price != null && (
+                      {showPlan && statusLabel && (
+                        <ProfileRow label="Status" value={statusLabel} />
+                      )}
+                      {showPrice && subPrice != null && (
                         <ProfileRow
                           label="Price"
-                          value={`$${active.membership.price.toFixed(2)}${
-                            active.membership.billingPeriod ? ` / ${active.membership.billingPeriod}` : ""
-                          }`}
+                          value={`$${subPrice.toFixed(2)}${subPeriod ? ` / ${subPeriod.toLowerCase()}` : ""}`}
                         />
                       )}
-                      {showNextBilling && active.currentPeriodEnd && (
+                      {showNextBilling && nextBilling && active.status !== "canceled" && active.status !== "expired" && (
                         <ProfileRow
-                          label="Next billing"
-                          value={new Date(active.currentPeriodEnd).toLocaleDateString("en-US", {
+                          label={active.status === "pending" ? "First billing" : "Next billing"}
+                          value={new Date(nextBilling).toLocaleDateString("en-US", {
                             month: "long", day: "numeric", year: "numeric",
                           })}
                         />

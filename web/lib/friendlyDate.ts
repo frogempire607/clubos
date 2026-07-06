@@ -26,7 +26,11 @@ export function dayDelta(input: Date | string | number): number {
 export function friendlyTime(input: Date | string | number): string {
   const d = asDate(input);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  // Class/event times are stored as wall-clock pinned to UTC (a 5:30 PM class is
+  // 17:30Z) and the owner dashboard renders them in UTC. Render the member portal
+  // in UTC too so both sides show the same 5:30 PM — otherwise the member's
+  // browser localizes 17:30Z to e.g. 1:30 PM (the ~4-hour-off bug).
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
 }
 
 /**
@@ -74,11 +78,13 @@ export function friendlyTimeRange(
   const e = asDate(end);
   if (Number.isNaN(s.getTime())) return "";
   if (Number.isNaN(e.getTime())) return friendlyTime(s);
-  const sMer = s.getHours() < 12 ? "AM" : "PM";
-  const eMer = e.getHours() < 12 ? "AM" : "PM";
+  // UTC to match how session times are stored/rendered (see friendlyTime).
+  const sMer = s.getUTCHours() < 12 ? "AM" : "PM";
+  const eMer = e.getUTCHours() < 12 ? "AM" : "PM";
   const sStr = s.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "UTC",
     ...(sMer === eMer ? { hour12: true } : {}),
   });
   // Drop the meridiem from the start label when both ends share it.

@@ -123,6 +123,7 @@ type Row = {
 
 const FILTERS = [
   { key: "all", label: "All" },
+  { key: "legacy", label: "From old system" },
   { key: "imported", label: "Imported" },
   { key: "invited", label: "Invited" },
   { key: "activated", label: "Activated" },

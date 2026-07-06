@@ -8,6 +8,7 @@ type PlanOption = { label: string; price: number; billingPeriod: string };
 type Data = {
   completed: boolean;
   hasAccount?: boolean;
+  staffAccountConflict?: boolean;
   accountEmail?: string | null;
   pendingApproval: boolean;
   finalPeriodPaid: boolean;
@@ -255,10 +256,7 @@ export default function ActivatePage() {
             <div className="text-center">
               <p className="text-3xl mb-2">🎉</p>
               <p className="text-stone-700 leading-relaxed">{doneMsg}</p>
-              <p className="text-sm text-stone-500 mt-3">
-                You can sign in any time at the {data.club.name} member portal.
-              </p>
-              {nextSibling && (
+              {nextSibling ? (
                 <a
                   href={`/activate/${nextSibling.token}`}
                   className="mt-5 inline-block w-full py-3 rounded-xl text-white font-semibold text-center"
@@ -266,9 +264,24 @@ export default function ActivatePage() {
                 >
                   Set up next athlete: {nextSibling.firstName} →
                 </a>
-              )}
-              {isFamily && !nextSibling && (
-                <p className="text-sm text-stone-500 mt-4">That&apos;s everyone — your whole family is set up. 🎉</p>
+              ) : (
+                <>
+                  <p className="text-sm text-stone-500 mt-3">
+                    You&apos;re all set — sign in to your {data.club.name} member portal.
+                  </p>
+                  {/* Bug 3: carry the club slug so the member lands on login with
+                      their club pre-filled — no generic landing, no needing to know it. */}
+                  <a
+                    href={`/login?club=${encodeURIComponent(data.club.slug)}&role=member`}
+                    className="mt-4 inline-block w-full py-3 rounded-xl text-white font-semibold text-center"
+                    style={{ background: accent }}
+                  >
+                    Sign in →
+                  </a>
+                  {isFamily && (
+                    <p className="text-sm text-stone-500 mt-4">That&apos;s everyone — your whole family is set up. 🎉</p>
+                  )}
+                </>
               )}
             </div>
           ) : isJoin ? (
@@ -298,7 +311,11 @@ export default function ActivatePage() {
                     className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
                     placeholder="(555) 555-5555" />
                 </div>
-                {data.hasAccount ? (
+                {data.staffAccountConflict ? (
+                  <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[13px] text-red-700">
+                    This email belongs to a staff or owner account at {data.club.name}, so it can&apos;t be used for a member. Use a different email, or ask your club to update the member&apos;s email.
+                  </div>
+                ) : data.hasAccount ? (
                   <div className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-[13px] text-stone-600">
                     You already have a {data.club.name} account{data.accountEmail ? <> (<strong>{data.accountEmail}</strong>)</> : null}. We&apos;ll add this to it — just sign in with your existing password.
                   </div>
@@ -316,7 +333,7 @@ export default function ActivatePage() {
                 )}
               </div>
               {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</div>}
-              <button onClick={submit} disabled={submitting}
+              <button onClick={submit} disabled={submitting || !!data.staffAccountConflict}
                 className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-50" style={{ background: accent }}>
                 {submitting ? "Creating…" : "Create my free account"}
               </button>
@@ -410,7 +427,11 @@ export default function ActivatePage() {
                     className={`w-full px-3 py-2 border rounded-lg text-sm ${data.editable.phone ? "border-stone-300" : "border-stone-200 bg-stone-50 text-stone-500"}`}
                     placeholder="(555) 555-5555" />
                 </div>
-                {data.hasAccount ? (
+                {data.staffAccountConflict ? (
+                  <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[13px] text-red-700">
+                    This email belongs to a staff or owner account at {data.club.name}, so it can&apos;t be used for a member. Use a different email, or ask your club to update the member&apos;s email before activating.
+                  </div>
+                ) : data.hasAccount ? (
                   <div className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-[13px] text-stone-600">
                     You already have a {data.club.name} account{data.accountEmail ? <> (<strong>{data.accountEmail}</strong>)</> : null}. This membership will be added to it — just sign in with your existing password.
                   </div>
@@ -582,7 +603,7 @@ export default function ActivatePage() {
 
               <button
                 onClick={submit}
-                disabled={submitting}
+                disabled={submitting || !!data.staffAccountConflict}
                 className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-50"
                 style={{ background: accent }}
               >

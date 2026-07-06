@@ -582,7 +582,7 @@ function ScheduleInner() {
                               <span className="block text-[11.5px] text-stone-500 truncate">
                                 {friendlyDate(item.startsAt, { relative: true })}
                                 {" "}
-                                {new Date(item.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                                {new Date(item.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })}
                                 {" · "}
                                 {item.bookingStatus ? item.statusText : item.price ? `$${item.price}` : item.statusText}
                               </span>

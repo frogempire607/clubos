@@ -45,7 +45,11 @@ export async function GET(req: Request) {
                     paymentSetupStatus: PAYMENT_SETUP.REQUIRED,
                     migrationStatus: { not: MIGRATION_STATUS.COMPLETED },
                   }
-                : {};
+                : filter === "legacy"
+                  ? // Clients who carried a membership over from the previous
+                    // software — the set an owner needs to activate/set up.
+                    { legacyMembershipName: { not: null } }
+                  : {};
 
   const search: Prisma.MemberWhereInput = q
     ? {

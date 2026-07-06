@@ -36,7 +36,8 @@ export async function GET(req: Request) {
     include: {
       membership: { select: { name: true } },
       subscriptions: {
-        where: { status: { in: ["active", "past_due"] } },
+        // include pending so the list can surface a "purchase in progress" state
+        where: { status: { in: ["active", "past_due", "pending"] } },
         include: { membership: { select: { name: true } } },
       },
       guardian: true,

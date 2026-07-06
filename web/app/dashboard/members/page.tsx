@@ -68,6 +68,7 @@ type Member = {
   activationEmailSentAt?: string | null;
   legacyMembershipName?: string | null;
   userId?: string | null;
+  trialEndsAt?: string | null;
 };
 
 type CustomField = { id: string; label: string; fieldType: string; required: boolean; options: string };
@@ -80,6 +81,7 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
   INACTIVE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
   PAUSED: { bg: "var(--color-warning)", fg: "#fff" },
   MIGRATING: { bg: "#1F1F23", fg: "#fff" },
+  PENDING: { bg: "#EDEBFF", fg: "#4F46E5" },
 };
 const statusLabels: Record<string, string> = {
   ACTIVE: "Active",
@@ -87,6 +89,7 @@ const statusLabels: Record<string, string> = {
   INACTIVE: "Inactive",
   PAUSED: "Paused",
   MIGRATING: "Migrating",
+  PENDING: "Pending",
 };
 
 // Membership status as the owner should read it. Members mid-migration sit as
@@ -96,6 +99,16 @@ const statusLabels: Record<string, string> = {
 function displayStatusOf(m: Member): string {
   if (m.status === "PROSPECT" && m.migrationStatus && m.migrationStatus !== "COMPLETED") {
     return "MIGRATING";
+  }
+  // An ACTIVE account with no active paid membership is really a Prospect
+  // (Kelly's case). A purchase mid-flight shows as Pending; a live staff-granted
+  // trial keeps Active.
+  if (m.status === "ACTIVE") {
+    const hasActive = m.subscriptions?.some((s) => s.status === "active");
+    const inTrial = !!m.trialEndsAt && new Date(m.trialEndsAt) > new Date();
+    if (!hasActive && !inTrial) {
+      return m.subscriptions?.some((s) => s.status === "pending") ? "PENDING" : "PROSPECT";
+    }
   }
   return m.status;
 }
@@ -579,10 +592,11 @@ export default function MembersPage() {
                         <span className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
                           {statusLabels[ds] ?? ds}
                         </span>
-                        {/* Activated account vs paying member: flag ACTIVE rows with no active plan. */}
-                        {m.status === "ACTIVE" && !m.subscriptions?.some((s) => s.status === "active") && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-accent/20 text-text-primary whitespace-nowrap" title="Activated account, no active membership.">
-                            no plan
+                        {/* Purchase mid-flight — make clear nothing has been charged yet.
+                            (A true Prospect needs no chip; the pill already says so.) */}
+                        {ds === "PENDING" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-accent/20 text-text-primary whitespace-nowrap" title="A membership purchase is in progress — nothing has been charged yet.">
+                            not charged
                           </span>
                         )}
                       </div>
