@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -20,47 +21,11 @@ import { resolveCardSnapshot, type CardSnapshot } from "@/lib/memberCard";
 
 export const dynamic = "force-dynamic";
 
-// Selected the same way the profile card used to: a live plan wins, else a
-// purchase-in-progress (pending, e.g. a migrated member awaiting first charge).
-type SubRow = {
-  id: string;
-  status: string;
-  price: unknown;
-  billingPeriod: string | null;
-  billingAnchorDate: Date | null;
-  endDate: Date | null;
-  membership: { name: string; billingPeriod: string | null } | null;
-};
-type MemberRow = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  isMinor: boolean;
-  status: string;
-  stripeCustomerId: string | null;
-  stripeSetupCustomerId: string | null;
-  subscriptions: SubRow[];
-};
-
-function pickActive(subs: SubRow[]): SubRow | null {
-  return (
-    subs.find((s) => s.status === "active") ||
-    subs.find((s) => s.status === "pending") ||
-    subs.find((s) => s.status === "past_due") ||
-    subs[0] ||
-    null
-  );
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  active: "Active",
-  pending: "Pending — not charged yet",
-  past_due: "Past due",
-  canceled: "Canceled",
-  expired: "Expired",
-};
-
-const memberSelect = {
+// Prisma.validator gives us a reusable select that is fully type-inferred
+// (Prisma infers the exact result shape) WITHOUT `as const` — an `as const`
+// select makes the `status.in` array a readonly tuple, which Prisma's generated
+// types reject (they require a mutable string[]).
+const memberSelect = Prisma.validator<Prisma.MemberSelect>()({
   id: true,
   firstName: true,
   lastName: true,
@@ -77,11 +42,35 @@ const memberSelect = {
       billingPeriod: true,
       billingAnchorDate: true,
       endDate: true,
-      membership: { select: { name: true, billingPeriod: true } },
+      // Membership has no scalar billingPeriod/price (they live in an options
+      // JSON); the period comes from the subscription snapshot below.
+      membership: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
   },
-} as const;
+});
+type MemberPayload = Prisma.MemberGetPayload<{ select: typeof memberSelect }>;
+type SubPayload = MemberPayload["subscriptions"][number];
+
+// Selected the same way the profile card used to: a live plan wins, else a
+// purchase-in-progress (pending, e.g. a migrated member awaiting first charge).
+function pickActive(subs: SubPayload[]): SubPayload | null {
+  return (
+    subs.find((s) => s.status === "active") ||
+    subs.find((s) => s.status === "pending") ||
+    subs.find((s) => s.status === "past_due") ||
+    subs[0] ||
+    null
+  );
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  active: "Active",
+  pending: "Pending — not charged yet",
+  past_due: "Past due",
+  canceled: "Canceled",
+  expired: "Expired",
+};
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -106,9 +95,9 @@ export async function GET() {
 
   const stripeAccountId = club?.stripeAccountId ?? null;
 
-  const persons: { m: MemberRow; isSelf: boolean }[] = [
-    ...(user?.memberProfile ? [{ m: user.memberProfile as MemberRow, isSelf: true }] : []),
-    ...(user?.guardianOf ?? []).map((g) => ({ m: g.member as MemberRow, isSelf: false })),
+  const persons: { m: MemberPayload; isSelf: boolean }[] = [
+    ...(user?.memberProfile ? [{ m: user.memberProfile, isSelf: true }] : []),
+    ...(user?.guardianOf ?? []).map((g) => ({ m: g.member, isSelf: false })),
   ];
 
   const people = await Promise.all(
@@ -132,7 +121,7 @@ export async function GET() {
         status: active?.status ?? null,
         statusLabel: active ? STATUS_LABEL[active.status] ?? active.status : null,
         price,
-        period: active?.billingPeriod ?? active?.membership?.billingPeriod ?? null,
+        period: active?.billingPeriod ?? null,
         nextBilling: active?.billingAnchorDate ?? active?.endDate ?? null,
         subscriptionId: active?.id ?? null,
         hasCard: !!customerId,
