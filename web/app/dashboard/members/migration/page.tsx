@@ -353,6 +353,12 @@ export default function MigrationPage() {
             {f.label}
           </button>
         ))}
+        <Link
+          href="/dashboard/members/duplicates"
+          className="text-xs px-3 py-1.5 rounded-full border border-brand/40 text-brand hover:bg-brand/5 font-medium"
+        >
+          Review duplicates
+        </Link>
         <input
           value={q}
           onChange={(e) => { setQ(e.target.value); setPage(1); }}

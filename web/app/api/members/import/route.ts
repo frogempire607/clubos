@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { upsertGuardianProfile, type GuardianInput } from "@/lib/guardian";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { normalizeImportedMemberContact, validateMemberContact } from "@/lib/memberValidation";
+import { resolveIsMinor } from "@/lib/parentalConsent";
 import {
   resolveName,
   parseFlexibleDate,
@@ -149,7 +150,15 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const isMinor = m.isMinor ?? !!(m.guardianName || m.guardianEmail);
+      // Minor detection must consider DOB, not just guardian columns. A CSV with
+      // one email column and a kid's DOB used to import as an ADULT — keeping the
+      // parent's email as the child's OWN login. That's exactly the Titus/Max
+      // guardian-email-as-athlete case. resolveIsMinor lets DOB (<18) win, so the
+      // normalizer below then routes that single email to the guardian.
+      const dobForMinor = parseFlexibleDate(m.dateOfBirth);
+      const isMinor =
+        resolveIsMinor({ isMinor: m.isMinor, dateOfBirth: dobForMinor }) ||
+        !!(m.guardianName || m.guardianEmail);
 
       // Most other gym/CRM exports keep ONE contact column and never separate
       // the parent from the child. For a minor, that single email/phone is
