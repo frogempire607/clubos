@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { resolveFeedScope, feedItems, type FeedItem } from "@/lib/calendarFeed";
+import { kindIsWallClockUTC } from "@/lib/datetime";
 
 // Embeddable, auto-updating HTML calendar. Public but token-gated (same
 // tokens as the ICS feed) — safe to iframe on a club's website. Server
@@ -10,8 +11,15 @@ function dayKey(d: Date): string {
   return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
-function fmtTime(d: Date): string {
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+// Classes are wall-clock pinned to UTC, so render them in UTC to show their
+// true time regardless of the (UTC) server timezone. Events/privates are true
+// instants and render in the server timezone.
+function fmtTime(d: Date, utc: boolean): string {
+  return d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(utc ? { timeZone: "UTC" } : {}),
+  });
 }
 
 export default async function EmbeddedCalendarPage(context: {
@@ -60,7 +68,7 @@ export default async function EmbeddedCalendarPage(context: {
               >
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#1c1917" }}>{item.title}</div>
                 <div style={{ fontSize: 12, color: "#78716c" }}>
-                  {fmtTime(item.startsAt)} – {fmtTime(item.endsAt)}
+                  {fmtTime(item.startsAt, kindIsWallClockUTC(item.kind))} – {fmtTime(item.endsAt, kindIsWallClockUTC(item.kind))}
                   {item.location ? ` · ${item.location}` : ""}
                 </div>
               </div>

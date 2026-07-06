@@ -4,11 +4,16 @@
 // ‹ Today › paging. Presentational: items in, chip clicks out.
 
 import { useState } from "react";
+import { kindIsWallClockUTC } from "@/lib/datetime";
 
 export type CalItem = {
   id: string;
   title: string;
   startsAt: string;
+  // "class" times are wall-clock pinned to UTC; everything else is a true
+  // instant. Drives whether the chip time renders in UTC or device-local so a
+  // member sees the same time the owner scheduled. Optional → defaults local.
+  kind?: "class" | "event";
   color: string;
   textColor: string;
 };
@@ -116,7 +121,11 @@ export default function WeekCalendar({
               </span>
               {dayItems.map((it) => {
                 const time = new Date(it.startsAt)
-                  .toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                  .toLocaleTimeString("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    ...(kindIsWallClockUTC(it.kind ?? "event") ? { timeZone: "UTC" } : {}),
+                  })
                   .replace(":00", "")
                   .replace(" ", "")
                   .toLowerCase();

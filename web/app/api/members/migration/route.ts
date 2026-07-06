@@ -122,10 +122,43 @@ export async function GET(req: Request) {
         activatedAt: true,
         migrationCompletedAt: true,
         importedAt: true,
+        // Owner-configured setup signals (set by the Set-up drawer's PATCH), used
+        // to derive `setupComplete` below. Not surfaced raw to the client.
+        migrationMembershipId: true,
+        migrationSelectedOption: true,
+        migrationPriceOverride: true,
+        migrationFinalPeriodPaid: true,
       },
     }),
     prisma.member.count({ where }),
   ]);
+
+  // A member is "set up" once an owner/staff configured their migration (picked
+  // a plan / option / price override / final-paid) OR an activation invite went
+  // out OR they've progressed past IMPORTED. billingAnchorDate is deliberately
+  // NOT a signal — it can be pre-filled from the CSV import. This drives the
+  // "Set up ✓" badge so staff don't redo a member another staffer already set up.
+  const members = rows.map((r) => {
+    const {
+      migrationMembershipId,
+      migrationSelectedOption,
+      migrationPriceOverride,
+      migrationFinalPeriodPaid,
+      ...rest
+    } = r;
+    const setupComplete =
+      !!(
+        migrationMembershipId ||
+        migrationSelectedOption ||
+        migrationPriceOverride ||
+        migrationFinalPeriodPaid ||
+        rest.activationEmailSentAt
+      ) ||
+      rest.migrationStatus === MIGRATION_STATUS.INVITED ||
+      rest.migrationStatus === MIGRATION_STATUS.ACTIVATED ||
+      rest.migrationStatus === MIGRATION_STATUS.COMPLETED;
+    return { ...rest, setupComplete };
+  });
 
   return NextResponse.json({
     stats: {
@@ -139,7 +172,7 @@ export async function GET(req: Request) {
       missingContact,
       activationEmailsSent: emailsSentAgg._sum.activationEmailSendCount ?? 0,
     },
-    members: rows,
+    members,
     page,
     pageSize,
     pageCount: Math.ceil(pageCount / pageSize),

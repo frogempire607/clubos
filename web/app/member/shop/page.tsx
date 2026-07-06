@@ -20,7 +20,7 @@ import AthleteRail, { useAthleteProfiles } from "@/components/member/AthleteRail
 import CategoryGrid, { CategoryCard } from "@/components/member/CategoryCard";
 import ItemCard, { type ItemKind } from "@/components/member/ItemCard";
 import { Skeleton } from "@/components/member/ui";
-import { friendlyDate } from "@/lib/friendlyDate";
+import { friendlyDate, friendlyTime } from "@/lib/friendlyDate";
 
 type FeedItem = {
   key: string;
@@ -113,7 +113,7 @@ export default function MemberBookPage() {
           key: `class:${it.id}`,
           kind: "class" as const,
           title: it.title,
-          meta: `${friendlyDate(it.startsAt, { relative: true, weekday: true })} · ${new Date(it.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+          meta: `${friendlyDate(it.startsAt, { relative: true, weekday: true }, true)} · ${friendlyTime(it.startsAt, true)}`,
           price: it.bookingTier === "MEMBERSHIP" ? "Included" : it.price ? `$${it.price}` : null,
           cta: "Book",
           href: "/member/schedule",

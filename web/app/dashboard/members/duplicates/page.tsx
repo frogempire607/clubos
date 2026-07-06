@@ -21,11 +21,27 @@ type DupMember = {
 };
 type DupGroup = { reason: string; suggestedPrimaryId: string; members: DupMember[] };
 
+// A record with none of this data is clearly a junk duplicate that can be
+// removed outright; anything with data must be MERGED (which preserves it).
+function hasNoData(m: DupMember): boolean {
+  return (
+    !m.hasLogin &&
+    m.counts.memberships === 0 &&
+    m.counts.attendance === 0 &&
+    m.counts.bookings === 0 &&
+    m.counts.payments === 0
+  );
+}
+
+const groupKey = (g: DupGroup) => g.members.map((m) => m.id).sort().join("|");
+
 export default function DuplicatesPage() {
   const [groups, setGroups] = useState<DupGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  // Which record the owner chose to keep, per group (overrides the suggestion).
+  const [primaryPick, setPrimaryPick] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
     setLoading(true);
@@ -40,8 +56,8 @@ export default function DuplicatesPage() {
     if (!confirm(
       `Merge "${loser.name}" INTO "${winnerName}"?\n\n` +
       `All of ${loser.name}'s history (memberships, attendance, payments, documents, ` +
-      `relationships) moves to ${winnerName}. The duplicate is archived — soft-deleted ` +
-      `and reversible. Nothing is charged.`,
+      `messages, family links) moves to ${winnerName}. The duplicate is archived — ` +
+      `soft-deleted and reversible. Nothing is charged.`,
     )) return;
     setBusy(loser.id); setMsg("");
     try {
@@ -61,6 +77,27 @@ export default function DuplicatesPage() {
     }
   }
 
+  async function remove(m: DupMember) {
+    if (!confirm(
+      `Remove "${m.name}"?\n\n` +
+      `This archives the duplicate (soft delete — reversible) and frees its login slot. ` +
+      `Only offered for records with no memberships, attendance, bookings or payments. ` +
+      `Nothing is charged. To keep a record's data, use Merge instead.`,
+    )) return;
+    setBusy(m.id); setMsg("");
+    try {
+      const res = await fetch(`/api/members/${m.id}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(d.error || "Remove failed."); setBusy(null); return; }
+      setMsg(`Removed ${m.name}.`);
+      setBusy(null);
+      load();
+    } catch {
+      setMsg("Remove failed — please try again.");
+      setBusy(null);
+    }
+  }
+
   const fmtDob = (d: string | null) =>
     d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—";
 
@@ -72,9 +109,10 @@ export default function DuplicatesPage() {
       <h1 className="text-2xl font-semibold text-text-primary mt-3">Review duplicates</h1>
       <p className="text-sm text-text-muted mt-1 max-w-2xl">
         Likely duplicate members, grouped by matching email, name&nbsp;+&nbsp;date of birth,
-        or phone&nbsp;+&nbsp;last name. Siblings are never grouped. Merge the extras into the
-        record marked <strong className="text-text-primary">Keep</strong> — the duplicate is
-        archived (reversible) and <strong className="text-text-primary">nothing is charged</strong>.
+        or phone&nbsp;+&nbsp;last name. Siblings are never grouped. Pick which record to
+        <strong className="text-text-primary"> Keep</strong>, then merge the others into it —
+        the duplicate is archived (reversible) and <strong className="text-text-primary">nothing is charged</strong>.
+        Empty junk records can be removed outright.
       </p>
 
       {msg && (
@@ -90,16 +128,18 @@ export default function DuplicatesPage() {
         </div>
       ) : (
         <div className="mt-6 space-y-5">
-          {groups.map((g, gi) => {
-            const primary = g.members.find((m) => m.id === g.suggestedPrimaryId) || g.members[0];
+          {groups.map((g) => {
+            const gk = groupKey(g);
+            const primaryId = primaryPick[gk] ?? g.suggestedPrimaryId;
+            const primary = g.members.find((m) => m.id === primaryId) || g.members[0];
             return (
-              <div key={gi} className="rounded-xl border border-app-border bg-surface p-5">
+              <div key={gk} className="rounded-xl border border-app-border bg-surface p-5">
                 <div className="text-xs uppercase tracking-wide text-text-muted mb-3">
                   {g.members.length} records · matched on {g.reason}
                 </div>
                 <div className="space-y-2">
                   {g.members.map((m) => {
-                    const isPrimary = m.id === g.suggestedPrimaryId;
+                    const isPrimary = m.id === primary.id;
                     return (
                       <div
                         key={m.id}
@@ -123,13 +163,33 @@ export default function DuplicatesPage() {
                           </div>
                         </div>
                         {!isPrimary && (
-                          <button
-                            onClick={() => merge(primary.id, primary.name, m)}
-                            disabled={busy === m.id}
-                            className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
-                          >
-                            {busy === m.id ? "Merging…" : `Merge into ${primary.name.split(" ")[0]}`}
-                          </button>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <button
+                              onClick={() => setPrimaryPick((p) => ({ ...p, [gk]: m.id }))}
+                              disabled={busy === m.id}
+                              className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+                              title="Keep this record as the main account instead"
+                            >
+                              Keep this one
+                            </button>
+                            <button
+                              onClick={() => merge(primary.id, primary.name, m)}
+                              disabled={busy === m.id}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
+                            >
+                              {busy === m.id ? "Merging…" : `Merge into ${primary.name.split(" ")[0]}`}
+                            </button>
+                            {hasNoData(m) && (
+                              <button
+                                onClick={() => remove(m)}
+                                disabled={busy === m.id}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                title="Archive this empty duplicate (reversible)"
+                              >
+                                {busy === m.id ? "Removing…" : "Remove"}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     );

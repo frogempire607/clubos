@@ -13,6 +13,24 @@ import { CheckSquare, MessageCircle } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 import SegmentedControl from "@/components/member/SegmentedControl";
 import { EmptyState, AccentButton } from "@/components/member/ui";
+import { kindIsWallClockUTC } from "@/lib/datetime";
+
+// Classes store the owner's wall clock pinned to UTC; events/privates are true
+// instants. Render each in the right frame so My Bookings matches the schedule
+// and the owner dashboard (task: fix calendar time mismatch).
+function timeOpts(kind: Booking["kind"]): Intl.DateTimeFormatOptions {
+  return {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(kindIsWallClockUTC(kind ?? "event") ? { timeZone: "UTC" as const } : {}),
+  };
+}
+function dateOpts(
+  kind: Booking["kind"],
+  base: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormatOptions {
+  return { ...base, ...(kindIsWallClockUTC(kind ?? "event") ? { timeZone: "UTC" as const } : {}) };
+}
 
 type Booking = {
   id: string;
@@ -522,12 +540,12 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                   return (
                     <tr key={b.id} className="border-t border-stone-100">
                       <td className="px-4 py-3 text-[12.5px] font-semibold text-stone-900 whitespace-nowrap">
-                        {new Date(b.event.startsAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        {new Date(b.event.startsAt).toLocaleDateString("en-US", dateOpts(b.kind, { month: "short", day: "numeric" }))}
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-[13px] font-semibold text-stone-900">{b.event.name}</div>
                         <div className="text-[11.5px] text-stone-500">
-                          {new Date(b.event.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                          {new Date(b.event.startsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                           {b.coach ? ` · ${b.coach}` : ""}
                         </div>
                       </td>
@@ -563,9 +581,9 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                       className="w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0 text-base font-bold leading-none"
                       style={{ background: c.bg, color: c.fg }}
                     >
-                      {new Date(b.event.startsAt).getDate()}
+                      {new Date(b.event.startsAt).toLocaleDateString("en-US", dateOpts(b.kind, { day: "numeric" }))}
                       <span className="text-[9px] font-extrabold mt-0.5 tracking-wide">
-                        {new Date(b.event.startsAt).toLocaleDateString("en-US", { month: "short" }).toUpperCase()}
+                        {new Date(b.event.startsAt).toLocaleDateString("en-US", dateOpts(b.kind, { month: "short" })).toUpperCase()}
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -585,13 +603,13 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                         </span>
                       </div>
                       <p className="text-xs text-stone-500">
-                        {new Date(b.event.startsAt).toLocaleDateString("en-US", {
+                        {new Date(b.event.startsAt).toLocaleDateString("en-US", dateOpts(b.kind, {
                           weekday: "long", month: "long", day: "numeric",
-                        })}
+                        }))}
                         {" · "}
-                        {new Date(b.event.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        {new Date(b.event.startsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                         {" – "}
-                        {new Date(b.event.endsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        {new Date(b.event.endsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                         {b.coach ? ` · Coach ${b.coach}` : ""}
                       </p>
                     </div>

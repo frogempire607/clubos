@@ -14,18 +14,24 @@ import { requirePermission } from "@/lib/apiGuard";
 //     is destroyed and the DB CASCADE rules never fire; it's fully reversible
 //   • runs in ONE transaction: any error rolls the whole thing back
 // It refuses to merge two records that BOTH have a login (that needs a human).
+//
+// Data preservation: memberships, transactions, attendance, private lessons,
+// approvals, migration history, etc. all move to the winner. For the handful of
+// tables with a UNIQUE constraint on (someId, memberId) — bookings, document
+// signatures, guardian links, relationships — a loser row that would DUPLICATE
+// an existing winner row (same event, same document, same guardian) is dropped
+// first so the reassignment can't hit a unique violation; the winner's
+// equivalent row is kept, so no distinct information is lost. Messages "about"
+// the loser child (messages.subjectMemberId) are repointed to the winner.
 
-// Every table with a plain memberId -> members(id) FK (from the DB catalog).
-// None of these columns has a unique constraint, so reassignment can't collide.
-const MEMBER_ID_TABLES = [
+// Tables with a plain memberId -> members(id) FK and NO unique constraint on
+// memberId: a straight bulk reassignment can never collide.
+const SAFE_MEMBER_ID_TABLES = [
   "attendance_records",
-  "bookings",
   "campaign_attributions",
-  "document_signatures",
   "event_registrations",
   "guardian_consent_requests",
   "invoice_splits",
-  "member_guardian_users",
   "member_migration_events",
   "member_subscriptions",
   "parental_consents",
@@ -35,6 +41,14 @@ const MEMBER_ID_TABLES = [
   "private_credit_ledger",
   "product_sales",
   "transactions",
+];
+
+// Tables with a UNIQUE constraint (otherCol, memberId): drop the loser's
+// colliding rows first, then reassign the rest.
+const UNIQUE_MEMBER_ID_TABLES: { table: string; otherCol: string }[] = [
+  { table: "bookings", otherCol: "eventId" },
+  { table: "document_signatures", otherCol: "documentId" },
+  { table: "member_guardian_users", otherCol: "userId" },
 ];
 
 const bodySchema = z.object({
@@ -86,20 +100,55 @@ export async function POST(req: Request) {
       await tx.member.update({ where: { id: winnerId }, data: { userId: loser.userId } });
     }
 
-    // Reassign every memberId FK: loser -> winner.
-    for (const table of MEMBER_ID_TABLES) {
+    // Reassign every no-unique memberId FK: loser -> winner.
+    for (const table of SAFE_MEMBER_ID_TABLES) {
       await tx.$executeRawUnsafe(
         `UPDATE "${table}" SET "memberId" = $1 WHERE "memberId" = $2`,
         winnerId,
         loserId,
       );
     }
-    // member_relationships also points back via relatedMemberId. Reassign both
-    // sides, then drop any self-relationship the merge produced (winner<->winner).
+
+    // Unique-constrained tables: drop the loser's rows that would collide with an
+    // existing winner row on the unique key, then reassign what remains.
+    for (const { table, otherCol } of UNIQUE_MEMBER_ID_TABLES) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM "${table}" WHERE "memberId" = $1 AND "${otherCol}" IN (SELECT "${otherCol}" FROM "${table}" WHERE "memberId" = $2)`,
+        loserId,
+        winnerId,
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE "${table}" SET "memberId" = $1 WHERE "memberId" = $2`,
+        winnerId,
+        loserId,
+      );
+    }
+
+    // Messages "about" the loser child (scalar subjectMemberId, no FK) follow the
+    // survivor so a guardian↔coach thread scoped to the merged child still resolves.
+    await tx.$executeRawUnsafe(
+      `UPDATE "messages" SET "subjectMemberId" = $1 WHERE "subjectMemberId" = $2`,
+      winnerId,
+      loserId,
+    );
+
+    // member_relationships points back via BOTH memberId and relatedMemberId, with
+    // a unique on (memberId, relatedMemberId). Drop the loser's colliding rows on
+    // each side, reassign the rest, then remove any self-relationship produced.
+    await tx.$executeRawUnsafe(
+      `DELETE FROM "member_relationships" WHERE "memberId" = $1 AND "relatedMemberId" IN (SELECT "relatedMemberId" FROM "member_relationships" WHERE "memberId" = $2)`,
+      loserId,
+      winnerId,
+    );
     await tx.$executeRawUnsafe(
       `UPDATE "member_relationships" SET "memberId" = $1 WHERE "memberId" = $2`,
       winnerId,
       loserId,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM "member_relationships" WHERE "relatedMemberId" = $1 AND "memberId" IN (SELECT "memberId" FROM "member_relationships" WHERE "relatedMemberId" = $2)`,
+      loserId,
+      winnerId,
     );
     await tx.$executeRawUnsafe(
       `UPDATE "member_relationships" SET "relatedMemberId" = $1 WHERE "relatedMemberId" = $2`,

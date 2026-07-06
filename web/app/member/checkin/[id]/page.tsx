@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, AlertTriangle, Users } from "lucide-react";
+import { kindIsWallClockUTC } from "@/lib/datetime";
 
 // Lands here after the attendance-QR flow (/c/[id] → signup or login). Keeps
 // the scanned class/event intent: single-profile accounts are checked in
@@ -65,8 +66,11 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
+  // Classes store wall-clock pinned to UTC; events are true instants. Render in
+  // the matching frame so the check-in time matches the schedule.
+  const whenUtc = info ? kindIsWallClockUTC(info.target.kind) : false;
   const when = info
-    ? `${new Date(info.target.startsAt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · ${new Date(info.target.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+    ? `${new Date(info.target.startsAt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", ...(whenUtc ? { timeZone: "UTC" } : {}) })} · ${new Date(info.target.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...(whenUtc ? { timeZone: "UTC" } : {}) })}`
     : "";
 
   return (

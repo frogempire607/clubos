@@ -13,7 +13,8 @@ import {
   onActiveProfileChange,
   resolveActiveProfileId,
 } from "@/lib/activeProfile";
-import { friendlyDate, friendlyTimeRange } from "@/lib/friendlyDate";
+import { friendlyDate, friendlyTimeRange, friendlyTime, datePillParts } from "@/lib/friendlyDate";
+import { kindIsWallClockUTC } from "@/lib/datetime";
 import SegmentedControl from "@/components/member/SegmentedControl";
 import AthleteRail, { useAthleteProfiles } from "@/components/member/AthleteRail";
 import BookingsPanel from "@/components/member/BookingsPanel";
@@ -72,13 +73,16 @@ const filters = [
   { key: "event", label: "Events" },
 ] as const;
 
+// Classes are wall-clock pinned to UTC; events are true instants. Render each
+// in the right frame so a member sees the same time the owner set (task: fix
+// calendar time mismatch). kindIsWallClockUTC("class") === true.
 function formatTimeRange(item: ScheduleItem) {
-  return friendlyTimeRange(item.startsAt, item.endsAt);
+  return friendlyTimeRange(item.startsAt, item.endsAt, kindIsWallClockUTC(item.kind));
 }
 
 // Group/section header — friendly + relative ("Today", "Tomorrow", "Sat, Jun 21").
 function formatLongDate(item: ScheduleItem) {
-  return friendlyDate(item.startsAt, { relative: true, weekday: true });
+  return friendlyDate(item.startsAt, { relative: true, weekday: true }, kindIsWallClockUTC(item.kind));
 }
 
 // Day-window quick filters so parents can answer "what's on this week?" fast.
@@ -125,9 +129,11 @@ function ItemCard({ item, onClick }: { item: ScheduleItem; onClick: () => void }
       <div className="flex items-start gap-4">
         <div className="w-14 rounded-lg py-2 flex flex-col items-center justify-center flex-shrink-0" style={c}>
           <span className="text-[10px] uppercase font-medium opacity-80">
-            {new Date(item.startsAt).toLocaleDateString("en-US", { month: "short" })}
+            {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).month}
           </span>
-          <span className="text-xl font-bold leading-none">{new Date(item.startsAt).getDate()}</span>
+          <span className="text-xl font-bold leading-none">
+            {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).day}
+          </span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -137,7 +143,7 @@ function ItemCard({ item, onClick }: { item: ScheduleItem; onClick: () => void }
             </span>
           </div>
           <p className="text-xs text-stone-500">
-            {friendlyDate(item.startsAt, { relative: true, weekday: true })}
+            {formatLongDate(item)}
             {" · "}
             {formatTimeRange(item)}
             {item.location ? ` · ${item.location}` : ""}
@@ -312,6 +318,7 @@ function ScheduleInner() {
           id: item.id,
           title: item.title,
           startsAt: item.startsAt,
+          kind: item.kind,
           color: c.background,
           textColor: c.color,
         };
@@ -572,17 +579,17 @@ function ScheduleInner() {
                               className="w-10 h-[42px] rounded-xl flex flex-col items-center justify-center flex-shrink-0 text-[15px] font-extrabold leading-none"
                               style={c}
                             >
-                              {new Date(item.startsAt).getDate()}
+                              {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).day}
                               <span className="text-[8px] font-extrabold tracking-wide mt-0.5">
-                                {new Date(item.startsAt).toLocaleDateString("en-US", { month: "short" }).toUpperCase()}
+                                {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).month}
                               </span>
                             </span>
                             <span className="min-w-0">
                               <span className="block text-[12.5px] font-semibold text-stone-900 truncate">{item.title}</span>
                               <span className="block text-[11.5px] text-stone-500 truncate">
-                                {friendlyDate(item.startsAt, { relative: true })}
+                                {friendlyDate(item.startsAt, { relative: true }, kindIsWallClockUTC(item.kind))}
                                 {" "}
-                                {new Date(item.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })}
+                                {friendlyTime(item.startsAt, kindIsWallClockUTC(item.kind))}
                                 {" · "}
                                 {item.bookingStatus ? item.statusText : item.price ? `$${item.price}` : item.statusText}
                               </span>

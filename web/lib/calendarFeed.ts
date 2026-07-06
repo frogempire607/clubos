@@ -65,6 +65,10 @@ export type FeedItem = {
   endsAt: Date;
   description?: string | null;
   location?: string | null;
+  // "class" times are the owner's wall clock pinned to UTC; "event"/"private"
+  // are true instants. Lets the HTML embed render class times in UTC (their
+  // true wall clock) regardless of the server's timezone.
+  kind: "class" | "event" | "private";
 };
 
 /** Fetch calendar items for a scope. Window: 30 days back, 180 forward. */
@@ -153,6 +157,7 @@ export async function feedItems(clubId: string, scope: FeedScope): Promise<{ clu
           endsAt: s.endsAt,
           description: e.description,
           location: e.location?.name ?? null,
+          kind: "event",
         });
       }
     } else {
@@ -163,6 +168,7 @@ export async function feedItems(clubId: string, scope: FeedScope): Promise<{ clu
         endsAt: e.endsAt,
         description: e.description,
         location: e.location?.name ?? null,
+        kind: "event",
       });
     }
   }
@@ -174,6 +180,7 @@ export async function feedItems(clubId: string, scope: FeedScope): Promise<{ clu
       endsAt: s.endsAt,
       description: s.recurringClass.description,
       location: s.recurringClass.location?.name ?? null,
+      kind: "class",
     });
   }
   for (const b of privateBookings) {
@@ -185,6 +192,7 @@ export async function feedItems(clubId: string, scope: FeedScope): Promise<{ clu
       endsAt: b.confirmedEndAt,
       description: b.coach ? `Coach ${b.coach.firstName} ${b.coach.lastName}` : null,
       location: null,
+      kind: "private",
     });
   }
 

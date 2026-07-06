@@ -119,6 +119,10 @@ type Row = {
   requestedBillingDate: string | null;
   activationEmailSentAt: string | null; activationEmailSendCount: number;
   activatedAt: string | null; migrationCompletedAt: string | null; importedAt: string | null;
+  // Derived server-side: an owner/staff already configured this member's setup
+  // (plan/option/override/final-paid) or invited them. Drives the "Set up ✓"
+  // badge + "Edit setup" label so staff don't repeat someone else's work.
+  setupComplete: boolean;
 };
 
 const FILTERS = [
@@ -158,6 +162,7 @@ export default function MigrationPage() {
   const [historyFor, setHistoryFor] = useState<Row | null>(null);
   const [drawerFor, setDrawerFor] = useState<Row | null>(null);
   const [showFamilies, setShowFamilies] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -233,6 +238,74 @@ export default function MigrationPage() {
     setBusy(false);
     setMsg(res.ok ? "Reminder sent." : typeof d.error === "string" ? d.error : "Could not send");
     load();
+  }
+
+  // Export the WHOLE current-filter roster (all pages) as a PDF the owner can
+  // keep or hand off during migration. Client-side via jsPDF + autoTable (both
+  // already bundled) — no server route, no data leaves the owner's browser.
+  async function downloadPdf() {
+    setPdfBusy(true);
+    setMsg("");
+    try {
+      const all: Row[] = [];
+      for (let p = 1; p <= 60; p++) {
+        const params = new URLSearchParams({ filter, q, page: String(p), pageSize: "100" });
+        const res = await fetch(`/api/members/migration?${params}`);
+        if (!res.ok) break;
+        const d = await res.json();
+        const batch: Row[] = d.members ?? [];
+        all.push(...batch);
+        if (batch.length === 0 || p >= (d.pageCount ?? 1)) break;
+      }
+      let clubName = "Your club";
+      try {
+        const info = await fetch("/api/club/info").then((r) => (r.ok ? r.json() : null));
+        if (info?.name && typeof info.name === "string") clubName = info.name;
+      } catch { /* fall back to generic title */ }
+
+      const { jsPDF } = await import("jspdf");
+      const autoTable = (await import("jspdf-autotable")).default;
+      const doc = new jsPDF({ orientation: "landscape" });
+      const filterLabel = FILTERS.find((f) => f.key === filter)?.label ?? "All";
+
+      doc.setFontSize(16);
+      doc.setTextColor(17, 17, 17);
+      doc.text(`${clubName} — Migration summary`, 14, 16);
+      doc.setFontSize(10);
+      doc.setTextColor(120, 120, 120);
+      doc.text(
+        `${all.length} member(s) · Filter: ${filterLabel}${q ? ` · Search: "${q}"` : ""} · Generated ${new Date().toLocaleDateString()}`,
+        14,
+        22,
+      );
+
+      autoTable(doc, {
+        startY: 28,
+        head: [["Name", "Contact", "Plan", "Price", "Next billing", "Status", "Setup"]],
+        body: all.map((r) => [
+          `${r.firstName} ${r.lastName}`.trim() + (r.isMinor ? " (minor)" : ""),
+          r.email || r.guardianEmail || "—",
+          r.legacyMembershipName || "—",
+          r.legacyMembershipPrice != null
+            ? `$${Number(r.legacyMembershipPrice).toFixed(2)}${r.legacyBillingFrequency ? `/${r.legacyBillingFrequency.toLowerCase()}` : ""}`
+            : "—",
+          r.billingAnchorDate ? new Date(r.billingAnchorDate).toLocaleDateString() : "—",
+          (r.migrationStatus?.replace("_", " ") ?? "—") +
+            (r.approvalStatus === "PENDING_APPROVAL" ? " · needs approval" : ""),
+          r.migrationStatus === "COMPLETED" ? "Completed" : r.setupComplete ? "Set up" : "Not set up",
+        ]),
+        styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak" },
+        headStyles: { fillColor: [31, 31, 35], textColor: [255, 255, 255] },
+        columnStyles: { 1: { cellWidth: 55 } },
+      });
+
+      doc.save(`migration-summary-${new Date().toISOString().slice(0, 10)}.pdf`);
+      setMsg(`Downloaded ${all.length} member(s).`);
+    } catch {
+      setMsg("Could not build the PDF. Please try again.");
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
@@ -359,6 +432,14 @@ export default function MigrationPage() {
         >
           Review duplicates
         </Link>
+        <button
+          onClick={downloadPdf}
+          disabled={pdfBusy || loading}
+          title="Download the full migrated roster (current filter) as a PDF."
+          className="text-xs px-3 py-1.5 rounded-full border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50 font-medium"
+        >
+          {pdfBusy ? "Building PDF…" : "Download migration PDF"}
+        </button>
         <input
           value={q}
           onChange={(e) => { setQ(e.target.value); setPage(1); }}
@@ -477,6 +558,17 @@ export default function MigrationPage() {
                           Needs approval
                         </span>
                       )}
+                      {/* Positive "already configured" signal so a second staffer
+                          doesn't re-run setup. Hidden once fully COMPLETED (the
+                          status pill already says so). */}
+                      {r.setupComplete && r.migrationStatus !== "COMPLETED" && (
+                        <span
+                          className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-lime-accent/25 text-text-primary"
+                          title="An owner or staff member has already set up this member's plan/billing."
+                        >
+                          Set up ✓
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-xs text-text-muted">
                       {r.activationEmailSendCount > 0
@@ -495,9 +587,10 @@ export default function MigrationPage() {
                         <button
                           onClick={() => setDrawerFor(r)}
                           disabled={r.migrationStatus === "COMPLETED"}
+                          title={r.setupComplete ? "Already set up — open to review or edit" : "Set up this member's plan & billing"}
                           className="text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
                         >
-                          Set up
+                          {r.setupComplete ? "Edit setup" : "Set up"}
                         </button>
                       )}
                       <button

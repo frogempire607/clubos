@@ -126,12 +126,52 @@ type PortalExtras = {
   >;
 };
 
+// Per-person billing from /api/member/billing — the account holder plus every
+// managed child, each with their own plan, status, price, next-billing date and
+// saved card. Powers the Payment & billing card so a guardian on mobile sees
+// full billing for each athlete, not just a bare "Card on file".
+type PersonBilling = {
+  memberId: string;
+  name: string;
+  fullName: string;
+  isSelf: boolean;
+  isMinor: boolean;
+  memberStatus: string;
+  plan: string | null;
+  status: string | null;
+  statusLabel: string | null;
+  price: number | null;
+  period: string | null;
+  nextBilling: string | null;
+  subscriptionId: string | null;
+  hasCard: boolean;
+  card: { brand: string; last4: string; cardholder: string | null } | null;
+};
+type BillingResponse = {
+  people: PersonBilling[];
+  visibility: {
+    showPlan?: boolean;
+    showNextBilling?: boolean;
+    showPrice?: boolean;
+    showInvoices?: boolean;
+  } | null;
+};
+
+// Stripe card brands come lower-cased ("visa", "american_express").
+function prettyBrand(brand: string): string {
+  return brand
+    .split(/[_\s]+/)
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
 type DocSummary = { total: number; needsSignature: number };
 
 export default function MemberAccountPage() {
   const router = useRouter();
   const [me, setMe] = useState<MeUser | null>(null);
   const [extras, setExtras] = useState<PortalExtras | null>(null);
+  const [billing, setBilling] = useState<BillingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const { profiles } = useAthleteProfiles();
 
@@ -230,6 +270,12 @@ export default function MemberAccountPage() {
       loadDocs(ids);
       setLoading(false);
     });
+    // Per-person billing (plan/status/price/next-billing + saved card) loads on
+    // its own so the Stripe card lookups never block the rest of the page.
+    fetch("/api/member/billing")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => setBilling(b))
+      .catch(() => setBilling(null));
   }
   useEffect(() => { load(); }, []);
 
@@ -918,148 +964,111 @@ export default function MemberAccountPage() {
               </div>
             )}
 
-            {/* Billing — owner controls what members see via
-                club.memberBillingVisibility. null/undefined = show everything.
-                Members can't change their own plan / card / cancellation; they
-                contact their club. */}
+            {/* Billing — one block PER PERSON (self + each managed child) so a
+                guardian on mobile sees plan, status, price, next billing and the
+                saved card (brand · last4 · cardholder) for every athlete, not
+                just a bare "Card on file". Owner controls visibility via
+                club.memberBillingVisibility (null/undefined = show everything).
+                Members can't change their own plan / card / cancellation. */}
             {!isMinor && (() => {
-              const vis = extras?.club?.memberBillingVisibility ?? null;
+              const vis = billing?.visibility ?? extras?.club?.memberBillingVisibility ?? null;
               const showPlan         = vis?.showPlan         ?? true;
               const showNextBilling  = vis?.showNextBilling  ?? true;
               const showPrice        = vis?.showPrice        ?? true;
               const showInvoices     = vis?.showInvoices     ?? true;
-              const subs = extras?.user?.memberProfile?.subscriptions ?? [];
-              // Prefer a live plan; otherwise surface a purchase-in-progress
-              // (pending) so migrated members still see their upcoming first charge.
-              const active =
-                subs.find((s) => s.status === "active") ||
-                subs.find((s) => s.status === "pending") ||
-                subs[0];
-              // Price / period / next-billing come from the SUBSCRIPTION snapshot,
-              // not the plan template (Membership.price lives in an options JSON).
-              // The migrated first-charge date is billingAnchorDate.
-              const subPrice =
-                active?.price != null ? Number(active.price) : active?.membership?.price ?? null;
-              const subPeriod = active?.billingPeriod || active?.membership?.billingPeriod || null;
-              const nextBilling =
-                active?.billingAnchorDate || active?.endDate || active?.currentPeriodEnd || null;
-              const statusLabel = active
-                ? ((
-                    {
-                      active: "Active",
-                      pending: "Pending — not charged yet",
-                      past_due: "Past due",
-                      canceled: "Canceled",
-                      expired: "Expired",
-                    } as Record<string, string>
-                  )[active.status] ?? active.status)
-                : null;
               const anyVisible = showPlan || showNextBilling || showPrice || showInvoices;
               if (!anyVisible) return null;
+              const people = billing?.people ?? [];
               return (
                 <div className="pcard p-5">
                   <h2 className="text-sm font-semibold text-stone-900">Payment &amp; billing</h2>
-                  <p className="text-[11.5px] text-stone-500 mt-0.5 mb-2">
+                  <p className="text-[11.5px] text-stone-500 mt-0.5 mb-1">
                     Each person keeps their own cards — you never spend another guardian&apos;s saved card.
                   </p>
-                  {active && (showPlan || showPrice || showNextBilling) ? (
-                    <dl className="space-y-1.5 mb-2">
-                      {showPlan && active.membership?.name && (
-                        <ProfileRow label="Plan" value={active.membership.name} />
-                      )}
-                      {showPlan && statusLabel && (
-                        <ProfileRow label="Status" value={statusLabel} />
-                      )}
-                      {showPrice && subPrice != null && (
-                        <ProfileRow
-                          label="Price"
-                          value={`$${subPrice.toFixed(2)}${subPeriod ? ` / ${subPeriod.toLowerCase()}` : ""}`}
-                        />
-                      )}
-                      {showNextBilling && nextBilling && active.status !== "canceled" && active.status !== "expired" && (
-                        <ProfileRow
-                          label={active.status === "pending" ? "First billing" : "Next billing"}
-                          value={new Date(nextBilling).toLocaleDateString("en-US", {
-                            month: "long", day: "numeric", year: "numeric",
-                          })}
-                        />
-                      )}
-                    </dl>
-                  ) : null}
 
-                  {/* Per-person payment rows: self + each linked athlete. */}
-                  {me.memberProfile && (
-                    <div className="flex items-center gap-2.5 py-2 border-t border-stone-100">
-                      <Avatar name={`${me.firstName} ${me.lastName}`} size={28} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12.5px] font-semibold text-stone-900">You</p>
-                        <p className="text-[11.5px] text-stone-500">
-                          {memberHasBilling(me.memberProfile) ? "Card on file" : "Cash / check at club"}
-                        </p>
-                      </div>
-                      {showInvoices && memberHasBilling(me.memberProfile) ? (
-                        <button
-                          onClick={() => openBillingPortal()}
-                          disabled={openingPortal}
-                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
-                        >
-                          {openingPortal ? "Opening…" : "Manage"}
-                        </button>
-                      ) : !memberHasBilling(me.memberProfile) ? (
-                        <button
-                          onClick={() => addCard()}
-                          disabled={openingPortal}
-                          title="Save a card securely for future purchases — nothing is charged now."
-                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
-                        >
-                          {openingPortal ? "Opening…" : "Add card"}
-                        </button>
-                      ) : null}
-                    </div>
-                  )}
-                  {guardianOf.map((g) => (
-                    <div key={g.member.id} className="flex items-center gap-2.5 py-2 border-t border-stone-100">
-                      <Avatar name={`${g.member.firstName} ${g.member.lastName}`} size={28} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12.5px] font-semibold text-stone-900 truncate">
-                          {g.member.firstName} {g.member.lastName}
-                        </p>
-                        <p className="text-[11.5px] text-stone-500">
-                          {memberHasBilling(g.member) ? "Card on file" : "Cash / check at club"}
-                        </p>
-                      </div>
-                      {memberHasBilling(g.member) ? (
-                        <button
-                          type="button"
-                          onClick={() => openBillingPortal(g.member.id)}
-                          disabled={openingPortal}
-                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
-                        >
-                          {openingPortal ? "Opening…" : "Manage"}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => addCard(g.member.id)}
-                          disabled={openingPortal}
-                          title="Save a card securely for future purchases — nothing is charged now."
-                          className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
-                        >
-                          {openingPortal ? "Opening…" : "Add card"}
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {billing === null ? (
+                    <p className="text-[11.5px] text-stone-400 py-3">Loading billing…</p>
+                  ) : people.length === 0 ? (
+                    <p className="text-[11.5px] text-stone-400 py-3">No billing on file yet.</p>
+                  ) : (
+                    people.map((p) => {
+                      const cardLine = p.card
+                        ? `${prettyBrand(p.card.brand)} ···· ${p.card.last4}${p.card.cardholder ? ` · ${p.card.cardholder}` : ""}`
+                        : "Cash / check at club";
+                      const showDetails =
+                        (showPlan && (!!p.plan || !!p.statusLabel)) ||
+                        (showPrice && p.price != null) ||
+                        (showNextBilling && !!p.nextBilling);
+                      return (
+                        <div key={p.memberId} className="py-3 border-t border-stone-100 first:border-t-0 first:pt-2">
+                          <div className="flex items-center gap-2.5">
+                            <Avatar name={p.fullName} size={28} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[12.5px] font-semibold text-stone-900 truncate">
+                                {p.isSelf ? "You" : p.fullName}
+                              </p>
+                              <p className="text-[11.5px] text-stone-500 truncate">{cardLine}</p>
+                            </div>
+                            {p.hasCard ? (
+                              showInvoices ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openBillingPortal(p.isSelf ? undefined : p.memberId)}
+                                  disabled={openingPortal}
+                                  className="shrink-0 text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                                >
+                                  {openingPortal ? "Opening…" : "Manage"}
+                                </button>
+                              ) : null
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => addCard(p.isSelf ? undefined : p.memberId)}
+                                disabled={openingPortal}
+                                title="Save a card securely for future purchases — nothing is charged now."
+                                className="shrink-0 text-xs px-3 py-1.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                              >
+                                {openingPortal ? "Opening…" : "Add card"}
+                              </button>
+                            )}
+                          </div>
 
-                  {active && active.status === "active" && (
-                    <button
-                      onClick={() => requestCancellation(active.id)}
-                      disabled={requestingCancel}
-                      className="mt-2 text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-                    >
-                      {requestingCancel ? "Sending…" : "Request cancellation"}
-                    </button>
+                          {showDetails && (
+                            <dl className="mt-2 ml-[38px] space-y-1">
+                              {showPlan && p.plan && <ProfileRow label="Plan" value={p.plan} />}
+                              {showPlan && p.statusLabel && <ProfileRow label="Status" value={p.statusLabel} />}
+                              {showPrice && p.price != null && (
+                                <ProfileRow
+                                  label="Price"
+                                  value={`$${p.price.toFixed(2)}${p.period ? ` / ${p.period.toLowerCase()}` : ""}`}
+                                />
+                              )}
+                              {showNextBilling && p.nextBilling && p.status !== "canceled" && p.status !== "expired" && (
+                                <ProfileRow
+                                  label={p.status === "pending" ? "First billing" : "Next billing"}
+                                  value={new Date(p.nextBilling).toLocaleDateString("en-US", {
+                                    month: "long", day: "numeric", year: "numeric",
+                                  })}
+                                />
+                              )}
+                            </dl>
+                          )}
+
+                          {p.subscriptionId && p.status === "active" && (
+                            <button
+                              type="button"
+                              onClick={() => requestCancellation(p.subscriptionId!)}
+                              disabled={requestingCancel}
+                              className="mt-2 ml-[38px] text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                            >
+                              {requestingCancel ? "Sending…" : "Request cancellation"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
+
                   {cancelMsg && (
                     <div className="mt-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                       {cancelMsg}
