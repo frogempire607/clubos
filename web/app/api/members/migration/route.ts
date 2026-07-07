@@ -30,7 +30,10 @@ export async function GET(req: Request) {
   };
 
   const filterWhere: Prisma.MemberWhereInput =
-    filter === "imported"
+    // "not_invited" is the actionable initial-invite bucket: still IMPORTED means
+    // no activation link has gone out yet (the first send — email OR a family
+    // token — flips a member to INVITED). "imported" kept as an alias.
+    filter === "imported" || filter === "not_invited"
       ? { migrationStatus: MIGRATION_STATUS.IMPORTED }
       : filter === "invited"
         ? { migrationStatus: MIGRATION_STATUS.INVITED }

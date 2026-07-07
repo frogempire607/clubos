@@ -128,7 +128,7 @@ type Row = {
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "legacy", label: "From old system" },
-  { key: "imported", label: "Imported" },
+  { key: "not_invited", label: "Not invited" },
   { key: "invited", label: "Invited" },
   { key: "activated", label: "Activated" },
   { key: "payment_required", label: "Payment Required" },
@@ -163,6 +163,11 @@ export default function MigrationPage() {
   const [drawerFor, setDrawerFor] = useState<Row | null>(null);
   const [showFamilies, setShowFamilies] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
+  // id → family signals so a "select all" send can group by family exactly like
+  // the server (one invite per guardian) without re-fetching. Populated as rows
+  // load and as select-all sweeps every page.
+  const metaRef = useRef<Map<string, { isMinor: boolean; guardianEmail: string | null }>>(new Map());
 
   const load = useCallback(() => {
     setLoading(true);
@@ -175,36 +180,79 @@ export default function MigrationPage() {
           setRows(d.members);
           setPageCount(d.pageCount || 1);
           setTotalInFilter(d.totalInFilter || 0);
+          for (const m of (d.members ?? []) as Row[]) {
+            metaRef.current.set(m.id, { isMinor: m.isMinor, guardianEmail: m.guardianEmail });
+          }
         }
         setLoading(false);
       });
   }, [filter, q, page]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setSelected(new Set()); }, [filter, page]);
+  // Clear selection when the underlying set changes (filter/search) — but NOT on
+  // page changes, so a selection can span every page ("select all matching").
+  useEffect(() => { setSelected(new Set()); }, [filter, q]);
 
-  async function sendBulk(scope: "selected" | "all_pending", reminder: boolean) {
+  // Send activation links to an explicit set of member ids (selection or a
+  // family group). The server collapses each family to ONE guardian email, but
+  // only within a single request — so we group by family client-side and send
+  // family-sized chunks. This never splits a family across requests (which would
+  // double-email a guardian) and never exceeds the server's per-request family
+  // cap, so a whole-filter "select all" of any size sends correctly.
+  async function postSend(memberIds: string[], reminder: boolean) {
+    if (memberIds.length === 0) return;
+    setBusy(true);
+    setMsg("");
+    const FAM_PER_CHUNK = 120; // server caps at 150 families/request — leave headroom
+    const famGroups = new Map<string, string[]>();
+    for (const id of memberIds) {
+      const m = metaRef.current.get(id);
+      const key = m && m.isMinor && m.guardianEmail ? `g:${m.guardianEmail.toLowerCase()}` : `m:${id}`;
+      const list = famGroups.get(key) ?? [];
+      list.push(id);
+      famGroups.set(key, list);
+    }
+    const families = [...famGroups.values()];
+    let sent = 0, covered = 0, failed = 0;
+    for (let i = 0; i < families.length; i += FAM_PER_CHUNK) {
+      const chunkIds = families.slice(i, i + FAM_PER_CHUNK).flat();
+      const res = await fetch("/api/members/migration/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "selected", memberIds: chunkIds, reminder }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(typeof d.error === "string" ? d.error : "Send failed"); setBusy(false); return; }
+      sent += d.sent || 0;
+      covered += d.membersInvited || 0;
+      failed += d.failed || 0;
+      setMsg(`Sending… ${sent} sent${covered ? ` · ${covered} sibling(s) covered` : ""}${failed ? ` · ${failed} failed` : ""}`);
+    }
+    setBusy(false);
+    setMsg(`Done — ${sent} ${reminder ? "reminder" : "activation"} email(s) sent${covered ? ` · ${covered} sibling(s) covered` : ""}${failed ? ` · ${failed} failed` : ""}.`);
+    setSelected(new Set());
+    load();
+  }
+
+  // "Send reminders to all pending" — server resolves the target set itself and
+  // batches, looping until nothing remains.
+  async function sendAllPending(reminder: boolean) {
     setBusy(true);
     setMsg("");
     let totalSent = 0, totalFailed = 0, guard = 0;
-    // Loop batches until the server reports nothing remaining.
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const res = await fetch("/api/members/migration/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          scope === "selected"
-            ? { scope: "selected", memberIds: [...selected], reminder }
-            : { scope: "all_pending", reminder },
-        ),
+        body: JSON.stringify({ scope: "all_pending", reminder }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setMsg(typeof d.error === "string" ? d.error : "Send failed"); break; }
       totalSent += d.sent || 0;
       totalFailed += d.failed || 0;
       setMsg(`Sending… ${totalSent} sent${totalFailed ? `, ${totalFailed} failed` : ""}${d.remaining ? ` · ${d.remaining} queued` : ""}`);
-      if (!d.remaining || scope === "selected" || ++guard > 50) break;
+      if (!d.remaining || ++guard > 50) break;
     }
     setBusy(false);
     setMsg(`Done — ${totalSent} ${reminder ? "reminder" : "activation"} email(s) sent${totalFailed ? `, ${totalFailed} failed` : ""}.`);
@@ -212,23 +260,26 @@ export default function MigrationPage() {
     load();
   }
 
-  // Send to an explicit set of member ids (used by the family panel to send one
-  // invite per family). The server collapses a family to a single guardian email.
-  async function sendBulkIds(memberIds: string[], reminder: boolean) {
-    if (memberIds.length === 0) return;
-    setBusy(true);
-    setMsg("");
-    const res = await fetch("/api/members/migration/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scope: "selected", memberIds, reminder }),
-    });
-    const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) { setMsg(typeof d.error === "string" ? d.error : "Send failed"); return; }
-    setMsg(`Sent ${d.sent || 0} invite(s)${d.membersInvited ? ` covering ${d.membersInvited} sibling(s)` : ""}.`);
-    setSelected(new Set());
-    load();
+  // Pull every id matching the current filter + search across ALL pages so the
+  // owner can act on the whole set, not just the 25 visible. Mirrors the PDF
+  // export's paged sweep and records family meta for a correct grouped send.
+  async function selectAllMatching() {
+    setSelectingAll(true);
+    const ids: string[] = [];
+    for (let p = 1; p <= 200; p++) {
+      const params = new URLSearchParams({ filter, q, page: String(p), pageSize: "100" });
+      const res = await fetch(`/api/members/migration?${params}`);
+      if (!res.ok) break;
+      const d = await res.json();
+      const batch: Row[] = d.members ?? [];
+      for (const m of batch) {
+        ids.push(m.id);
+        metaRef.current.set(m.id, { isMinor: m.isMinor, guardianEmail: m.guardianEmail });
+      }
+      if (batch.length === 0 || p >= (d.pageCount ?? 1)) break;
+    }
+    setSelected(new Set(ids));
+    setSelectingAll(false);
   }
 
   async function resendOne(id: string) {
@@ -309,6 +360,9 @@ export default function MigrationPage() {
   }
 
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const someOnPageSelected = rows.some((r) => selected.has(r.id));
+  const moreThanPage = totalInFilter > rows.length;
+  const allMatchingSelected = totalInFilter > 0 && selected.size >= totalInFilter;
 
   return (
     <div className="p-8 max-w-7xl">
@@ -451,14 +505,14 @@ export default function MigrationPage() {
       {/* Bulk actions */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
-          onClick={() => sendBulk("selected", false)}
+          onClick={() => postSend([...selected], false)}
           disabled={busy || selected.size === 0}
           className="text-xs px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
         >
           Send Activation Links ({selected.size})
         </button>
         <button
-          onClick={() => sendBulk("all_pending", true)}
+          onClick={() => sendAllPending(true)}
           disabled={busy}
           className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
         >
@@ -478,13 +532,38 @@ export default function MigrationPage() {
       {showFamilies && (
         <FamiliesPanel
           busy={busy}
-          onSendFamily={async (childIds) => {
-            setSelected(new Set(childIds));
-            // Defer so the selection state is applied before send reads it.
-            await new Promise((r) => setTimeout(r, 0));
-            await sendBulkIds(childIds, false);
-          }}
+          onSendFamily={async (childIds) => { await postSend(childIds, false); }}
         />
+      )}
+
+      {/* Select all across every page of the current filter (Gmail-style). */}
+      {!loading && rows.length > 0 && (allMatchingSelected || (allOnPageSelected && moreThanPage)) && (
+        <div className="flex flex-wrap items-center justify-center gap-2 text-xs bg-brand/5 border border-brand/20 rounded-lg px-3 py-2 mb-3">
+          {allMatchingSelected ? (
+            <>
+              <span className="text-text-primary">
+                All <strong>{totalInFilter}</strong> member(s) matching “{FILTERS.find((f) => f.key === filter)?.label}” are selected.
+              </span>
+              <button
+                onClick={() => setSelected(new Set())}
+                className="underline text-brand hover:text-brand-hover font-medium"
+              >
+                Clear selection
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="text-text-primary">All <strong>{rows.length}</strong> on this page selected.</span>
+              <button
+                onClick={selectAllMatching}
+                disabled={selectingAll}
+                className="underline text-brand hover:text-brand-hover font-medium disabled:opacity-50"
+              >
+                {selectingAll ? "Selecting…" : `Select all ${totalInFilter} matching this filter`}
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {/* Table */}
@@ -496,9 +575,18 @@ export default function MigrationPage() {
                 <th className="px-3 py-2.5 w-8">
                   <input
                     type="checkbox"
+                    aria-label="Select all on this page"
+                    ref={(el) => { if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected; }}
                     checked={allOnPageSelected}
                     onChange={() =>
-                      setSelected(allOnPageSelected ? new Set() : new Set(rows.map((r) => r.id)))
+                      // Add/remove only this page's rows so selections on other
+                      // pages survive (enables select-all across every page).
+                      setSelected((prev) => {
+                        const n = new Set(prev);
+                        if (allOnPageSelected) rows.forEach((r) => n.delete(r.id));
+                        else rows.forEach((r) => n.add(r.id));
+                        return n;
+                      })
                     }
                   />
                 </th>
