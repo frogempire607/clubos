@@ -42,6 +42,12 @@ const memberSelect = Prisma.validator<Prisma.MemberSelect>()({
       billingPeriod: true,
       billingAnchorDate: true,
       endDate: true,
+      // Reconciled-from-Stripe facts (lib/stripeSync.ts). currentPeriodEnd is
+      // Stripe's real next-billing date; stripeStatus is the raw sub status;
+      // stripeSnapshot carries the last invoice + card brand/last4.
+      currentPeriodEnd: true,
+      stripeStatus: true,
+      stripeSnapshot: true,
       // Membership has no scalar billingPeriod/price (they live in an options
       // JSON); the period comes from the subscription snapshot below.
       membership: { select: { name: true } },
@@ -110,6 +116,15 @@ export async function GET() {
       }
       const rawPrice = active && active.price != null ? Number(active.price) : null;
       const price = rawPrice != null && Number.isFinite(rawPrice) ? rawPrice : null;
+      const snap = (active?.stripeSnapshot as Record<string, unknown> | null) ?? null;
+      const lastInvoice = snap && typeof snap.latestInvoice === "object" ? (snap.latestInvoice as {
+        amountPaid?: number | null;
+        paidAt?: string | null;
+      }) : null;
+      const lastPayment =
+        lastInvoice && lastInvoice.paidAt
+          ? { amount: (lastInvoice.amountPaid ?? 0) / 100, paidAt: lastInvoice.paidAt }
+          : null;
       return {
         memberId: m.id,
         name: isSelf ? "You" : `${m.firstName} ${m.lastName}`.trim(),
@@ -120,9 +135,14 @@ export async function GET() {
         plan: active?.membership?.name ?? null,
         status: active?.status ?? null,
         statusLabel: active ? STATUS_LABEL[active.status] ?? active.status : null,
+        // Raw Stripe status, present once reconciled — lets the UI show the true
+        // Stripe state (e.g. "trialing") alongside our normalized status.
+        stripeStatus: active?.stripeStatus ?? null,
         price,
         period: active?.billingPeriod ?? null,
-        nextBilling: active?.billingAnchorDate ?? active?.endDate ?? null,
+        // Prefer Stripe's real next-billing date once reconciled.
+        nextBilling: active?.currentPeriodEnd ?? active?.billingAnchorDate ?? active?.endDate ?? null,
+        lastPayment,
         subscriptionId: active?.id ?? null,
         hasCard: !!customerId,
         card,

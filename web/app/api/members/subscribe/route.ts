@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -200,20 +201,29 @@ export async function POST(req: Request) {
     const recurringAmount =
       checkoutMode === "subscription" ? recurringUnitWithFee(amountInCents, passFees) : amountInCents;
 
+    // Reference the plan's reusable catalog Product (populates the club's Stripe
+    // product catalog); fall back to inline product_data if catalog sync isn't
+    // ready. Charged amount is identical either way.
+    const catalogProductId = await ensureMembershipProduct(membership, club);
+    const productField = catalogProductId
+      ? { product: catalogProductId }
+      : {
+          product_data: {
+            name: `${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
+            ...((() => {
+              const d =
+                (membership.description ?? "") +
+                (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
+              return d.trim() ? { description: d.trim() } : {};
+            })()),
+          },
+        };
     const lineItem: Record<string, unknown> = {
       quantity: 1,
       price_data: {
         currency: "usd",
         unit_amount: recurringAmount,
-        product_data: {
-          name: `${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
-          ...((() => {
-            const d =
-              (membership.description ?? "") +
-              (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
-            return d.trim() ? { description: d.trim() } : {};
-          })()),
-        },
+        ...productField,
         ...(isRecurring ? { recurring: stripeInterval } : {}),
       },
     };

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -77,6 +78,15 @@ export async function POST(req: Request) {
         trialAppliesToReturning: data.trialAppliesToReturning,
       },
     });
+
+    // Pre-provision the plan's Stripe catalog Product so owners never have to
+    // create products in Stripe by hand. No-op (returns null) until the club
+    // finishes Connect onboarding; safe + non-blocking (errors are swallowed).
+    const club = await prisma.club.findUnique({
+      where: { id: session.user.clubId },
+      select: { id: true, stripeAccountId: true, stripeChargesEnabled: true },
+    });
+    if (club) await ensureMembershipProduct(membership, club);
 
     return NextResponse.json(membership, { status: 201 });
   } catch (err) {
