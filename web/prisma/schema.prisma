@@ -185,6 +185,7 @@ model Club {
   invoiceSplits               InvoiceSplit[]
   parentalConsents            ParentalConsent[]
   guardianConsentRequests     GuardianConsentRequest[]
+  stripeReconciliations       StripeReconciliation[]
 
   @@index([slug])
   @@map("clubs")
@@ -756,7 +757,16 @@ model MemberSubscription {
   // Stripe
   stripeSubscriptionId    String? @unique
   stripePriceId           String?
+  stripeProductId         String?
   stripeCheckoutSessionId String?
+
+  // Reconciliation snapshot — latest facts pulled FROM Stripe (raw status, next
+  // billing date, price/product, card brand+last4, last invoice). Stripe stays
+  // the billing source of truth; these are cached for display so the owner sees
+  // the real state without a live API call. Written by lib/stripeSync.ts.
+  currentPeriodEnd DateTime? // Stripe current_period_end = next billing date
+  stripeStatus     String? //   raw Stripe status: trialing|active|past_due|canceled|…
+  stripeSnapshot   Json? //     { defaultPaymentMethod:{brand,last4}, latestInvoice:{amountPaid,paidAt}, cancelAt, unitAmount, interval, syncedAt }
 
   // Renewal chain — plain string ref to avoid self-relation complexity
   renewedFromId String?
@@ -828,6 +838,14 @@ model Membership {
   options        Json    @default("[]") // [{ label, price, billingPeriod }]
   active         Boolean @default(true)
   purchaseAccess String  @default("ANYONE") // ANYONE | STAFF_ONLY
+
+  // Stripe product catalog (on the club's CONNECTED account). One reusable
+  // Product per plan; stripePriceIds caches reusable recurring Prices keyed by
+  // "<BILLING_PERIOD>:<amountCents>" so a plan's Product/Price exist in Stripe
+  // instead of being recreated inline on every charge. Populated lazily by
+  // lib/stripeCatalog.ts; null until first sync. See Financial OS / Stripe docs.
+  stripeProductId String? // reusable Stripe Product id on the connected account
+  stripePriceIds  Json    @default("{}") // { "MONTHLY:5000": "price_..." }
 
   // Plan-level defaults & permissions
   autoRenewDefault        Boolean @default(true)
@@ -1326,6 +1344,43 @@ model StripeWebhookEvent {
   @@index([clubId])
   @@index([createdAt])
   @@map("stripe_webhook_events")
+}
+
+// Reconciliation review queue. A subscription that exists in the club's Stripe
+// (connected account) but can't be confidently linked to an AthletixOS member
+// lands here for OWNER review. We NEVER auto-create billing or mutate a live
+// subscription from a guess — the owner confirms the match. Confident matches
+// (exact metadata / stored customer id) are applied directly to the member's
+// MemberSubscription snapshot and never create a row here. See lib/stripeSync.ts.
+model StripeReconciliation {
+  id                   String    @id @default(cuid())
+  clubId               String
+  stripeSubscriptionId String    @unique
+  stripeCustomerId     String?
+  customerEmail        String?
+  customerName         String?
+  stripeStatus         String?
+  amountCents          Int?
+  interval             String?
+  priceId              String?
+  productId            String?
+  currentPeriodEnd     DateTime?
+  // Best-guess member match for the owner to confirm, plus why we guessed.
+  suggestedMemberId    String?
+  matchConfidence      String    @default("NONE") // EXACT | CUSTOMER | EMAIL | NONE
+  snapshot             Json?
+  // OPEN = needs review; LINKED = owner attached it to a member; IGNORED = owner dismissed.
+  status               String    @default("OPEN")
+  resolvedMemberId     String?
+  resolvedAt           DateTime?
+  resolvedById         String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status])
+  @@map("stripe_reconciliations")
 }
 
 // File metadata for uploads. The file bytes live on disk under

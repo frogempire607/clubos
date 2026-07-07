@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
@@ -216,20 +217,31 @@ export async function POST(req: Request) {
     // a separate, clearly labeled "Processing fee" line.
     const recurringAmount =
       checkoutMode === "subscription" ? recurringUnitWithFee(amountInCents, passFees) : amountInCents;
+
+    // Reference the plan's reusable catalog Product so the charge shows up under
+    // a real product in the club's Stripe (instead of an anonymous product_data
+    // blob). Falls back to inline product_data if the catalog isn't ready — the
+    // amount charged is identical either way.
+    const catalogProductId = await ensureMembershipProduct(membership, club);
+    const productField = catalogProductId
+      ? { product: catalogProductId }
+      : {
+          product_data: {
+            name: `${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
+            ...((() => {
+              const d =
+                (membership.description ?? "") +
+                (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
+              return d.trim() ? { description: d.trim() } : {};
+            })()),
+          },
+        };
     const lineItem: Record<string, unknown> = {
       quantity: 1,
       price_data: {
         currency: "usd",
         unit_amount: recurringAmount,
-        product_data: {
-          name: `${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
-          ...((() => {
-            const d =
-              (membership.description ?? "") +
-              (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
-            return d.trim() ? { description: d.trim() } : {};
-          })()),
-        },
+        ...productField,
         ...(isRecurring ? { recurring: stripeInterval } : {}),
       },
     };

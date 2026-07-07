@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { recurringUnitWithFee } from "@/lib/fees";
 import { MIGRATION_STATUS, resolveBillingAnchor } from "@/lib/migration";
 import { sendMembershipActivatedEmail } from "@/lib/email";
@@ -218,12 +219,27 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   let memberSub;
   try {
-    // Subscription price_data needs an existing Product (no inline
-    // product_data like Checkout), so create one on the connected account.
-    const product = await stripe.products.create(
-      { name: `${planName} — continued from ${member.legacySource || "previous club"}` },
-      { stripeAccount: club.stripeAccountId! },
-    );
+    // Subscription price_data needs an existing Product (no inline product_data
+    // like Checkout). Reuse the plan's reusable catalog Product so every
+    // migrated member on a plan shares ONE Stripe product, instead of minting a
+    // throwaway "continued from…" product per member (which littered the
+    // catalog). Fall back to a plan-scoped product only if catalog sync hiccups
+    // — never block activation.
+    const catalogMembership = await prisma.membership.findFirst({
+      where: { id: membershipId!, clubId: club.id },
+      select: { id: true, clubId: true, name: true, description: true, stripeProductId: true, stripePriceIds: true },
+    });
+    let productId = catalogMembership ? await ensureMembershipProduct(catalogMembership, club) : null;
+    if (!productId) {
+      const product = await stripe.products.create(
+        {
+          name: planName,
+          metadata: { athletixMembershipId: membershipId!, clubId: club.id, kind: "membership" },
+        },
+        { stripeAccount: club.stripeAccountId! },
+      );
+      productId = product.id;
+    }
     const sub = await stripe.subscriptions.create(
       {
         customer: member.stripeSetupCustomerId!,
@@ -232,7 +248,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           {
             price_data: {
               currency: "usd",
-              product: product.id,
+              product: productId,
               unit_amount: amountCents,
               recurring: interval,
             },
@@ -259,6 +275,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         startDate: member.membershipStartDate ?? new Date(),
         billingAnchorDate: anchor,
         stripeSubscriptionId: sub.id,
+        stripePriceId: sub.items?.data?.[0]?.price?.id ?? null,
         notes: `Migrated from ${member.legacySource || "previous software"} — approved by club`,
       },
     });
