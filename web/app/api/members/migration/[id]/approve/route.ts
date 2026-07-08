@@ -27,6 +27,11 @@ const schema = z.object({
   // If omitted we use requestedBillingDate (if accepting it) → billingAnchor.
   billingAnchorDate: z.string().optional().nullable(),
   acceptRequestedDate: z.boolean().optional().default(false),
+  // Explicit owner opt-in to bill this member OFFLINE (cash/check/manual) even
+  // though card billing looked intended. Without this, a card-intended member
+  // whose Stripe card setup is incomplete is BLOCKED with an actionable error
+  // instead of being silently dropped onto manual billing.
+  forceManual: z.boolean().optional().default(false),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -136,6 +141,34 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     price > 0 &&
     !!member.stripeSetupCustomerId &&
     !!member.stripeSetupPaymentMethodId;
+
+  // Was OFFLINE billing genuinely intended? Only these cases legitimately end up
+  // on a MANUAL (offline) subscription: a free/$0 plan, the club has no online
+  // payments, or the member explicitly chose cash/check.
+  const offlineIntended =
+    price <= 0 ||
+    !club.stripeAccountId ||
+    !club.stripeChargesEnabled ||
+    member.requestedPaymentMethod === "CASH" ||
+    member.requestedPaymentMethod === "CHECK";
+
+  // Card billing was intended but Stripe setup is incomplete (no captured
+  // payment method — almost always the missing Connect webhook). Previously this
+  // SILENTLY created a manual/offline subscription, so a member who should have
+  // been charged was quietly never billed. Now: block with an actionable error
+  // and do NOT start any subscription, unless the owner explicitly forces manual.
+  if (!canCharge && !offlineIntended && !body.forceManual) {
+    return NextResponse.json(
+      {
+        error: "Card setup incomplete — billing not started",
+        code: "CARD_SETUP_INCOMPLETE",
+        message: member.stripeSetupCustomerId
+          ? "This member started card setup, but Stripe never returned a saved payment method (usually a missing/failed Connect webhook). Billing was NOT started and they were NOT set to manual. Fix the Connect webhook or run the payment-method backfill, then approve again — or resend the card-setup link. To bill this member offline instead, approve again with forceManual."
+          : "This member has no saved card on file yet. Send them the card-setup link (or import a payment method), then approve again. To bill this member offline instead, approve again with forceManual.",
+      },
+      { status: 409 },
+    );
+  }
 
   if (!canCharge) {
     // Free ($0) or manually-billed membership: there's no Stripe charge, but the
