@@ -7,11 +7,17 @@
  *
  * CUSTOMER-DRIVEN: it scans every customer on the club's connected account,
  * finds the ones that actually have a saved card, and matches each back to a
- * member via customer metadata (`migrationMemberId` from activation or
- * `memberId` from the portal add-card flow; email as a last resort). This
- * catches cards saved on customers we never recorded locally (activation
- * retries, legacy `stripeCustomerId`, family-reuse) — not just members whose
+ * member ONLY via exact customer metadata (`migrationMemberId` from activation
+ * or `memberId` from the portal add-card flow). This catches cards saved on
+ * customers we never recorded locally (activation retries, legacy
+ * `stripeCustomerId`, family-reuse) — not just members whose
  * `stripeSetupCustomerId` is already stored.
+ *
+ * NO EMAIL FALLBACK (deliberate): matching by email is unsafe — a shared
+ * guardian email maps to multiple siblings, and owner/test customers can share
+ * an email with a real member row. A card is repaired only when the Stripe
+ * customer carries an exact member id in its metadata; everything else is left
+ * for manual review.
  *
  * SAFE: reads Stripe and writes ONLY the two member card fields. It never
  * creates/modifies/cancels a subscription and never mutates the Stripe customer.
@@ -77,7 +83,7 @@ async function main() {
         if (detail.includes("ambiguous")) skippedCustomers.push(`${customer.id} (${detail})`);
         continue;
       }
-      // Match customer -> member via metadata, then email.
+      // Match customer -> member via EXACT metadata only. No email fallback.
       const metaId =
         (customer.metadata?.migrationMemberId as string) ||
         (customer.metadata?.memberId as string) ||
@@ -87,16 +93,10 @@ async function main() {
         const m = await prisma.member.findFirst({ where: { id: metaId, clubId: club.id }, select: { id: true } });
         if (m) memberId = m.id;
       }
-      if (!memberId && customer.email) {
-        const matches = await prisma.member.findMany({
-          where: { clubId: club.id, deletedAt: null, OR: [{ email: customer.email }, { guardianEmail: customer.email }] },
-          select: { id: true },
-          take: 2,
-        });
-        if (matches.length === 1) memberId = matches[0].id;
-      }
       if (!memberId) {
-        unmatchedCustomers.push(`${customer.id} (${customer.email ?? "no email"})`);
+        unmatchedCustomers.push(
+          `${customer.id} (${customer.email ?? "no email"})${metaId ? ` — metadata member ${metaId} not found` : " — no member metadata"}`,
+        );
         continue;
       }
       const list = byMember.get(memberId) ?? [];
