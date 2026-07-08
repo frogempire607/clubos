@@ -45,17 +45,45 @@ export async function POST(req: Request) {
 
   const body = await req.text();
   const sig = (await headers()).get("stripe-signature");
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
 
-  if (!sig || !secret) {
+  // We run TWO Stripe webhook endpoints at this same URL — one for PLATFORM
+  // events (the ClubOS-own subscription) and one Connect endpoint for CONNECTED
+  // account events (member payments). Each Stripe endpoint signs with its OWN
+  // secret, so we must try every configured secret and accept the first that
+  // verifies — otherwise events from whichever endpoint doesn't match the single
+  // secret get dropped as "invalid signature" (this is exactly why connected-
+  // account events were silently failing). Set both in the environment:
+  //   STRIPE_WEBHOOK_SECRET          — platform endpoint (may be comma-separated)
+  //   STRIPE_CONNECT_WEBHOOK_SECRET  — Connect endpoint
+  const secrets = [
+    ...(process.env.STRIPE_WEBHOOK_SECRET ?? "").split(","),
+    ...(process.env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "").split(","),
+  ]
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!sig || secrets.length === 0) {
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
 
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(body, sig, secret);
-  } catch (err) {
-    console.error("Webhook signature verification failed:", err);
+  let event: Stripe.Event | null = null;
+  let lastErr: unknown = null;
+  for (const secret of secrets) {
+    try {
+      event = stripe.webhooks.constructEvent(body, sig, secret);
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!event) {
+    // Verified against NONE of the configured secrets. Almost always a
+    // missing/rotated secret for one of the two endpoints — surface it loudly so
+    // it can't silently swallow connected-account events again.
+    console.error(
+      `Webhook signature verification failed against all ${secrets.length} configured secret(s):`,
+      lastErr,
+    );
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
