@@ -140,9 +140,13 @@ type PersonBilling = {
   plan: string | null;
   status: string | null;
   statusLabel: string | null;
+  // Raw Stripe subscription status once reconciled (e.g. "trialing") — shown
+  // alongside our normalized status when it says something the label doesn't.
+  stripeStatus: string | null;
   price: number | null;
   period: string | null;
   nextBilling: string | null;
+  lastPayment: { amount: number; paidAt: string } | null;
   subscriptionId: string | null;
   hasCard: boolean;
   card: { brand: string; last4: string; cardholder: string | null } | null;
@@ -998,7 +1002,8 @@ export default function MemberAccountPage() {
                       const showDetails =
                         (showPlan && (!!p.plan || !!p.statusLabel)) ||
                         (showPrice && p.price != null) ||
-                        (showNextBilling && !!p.nextBilling);
+                        (showNextBilling && !!p.nextBilling) ||
+                        (showInvoices && !!p.lastPayment);
                       return (
                         <div key={p.memberId} className="py-3 border-t border-stone-100 first:border-t-0 first:pt-2">
                           <div className="flex items-center gap-2.5">
@@ -1036,7 +1041,16 @@ export default function MemberAccountPage() {
                           {showDetails && (
                             <dl className="mt-2 ml-[38px] space-y-1">
                               {showPlan && p.plan && <ProfileRow label="Plan" value={p.plan} />}
-                              {showPlan && p.statusLabel && <ProfileRow label="Status" value={p.statusLabel} />}
+                              {showPlan && p.statusLabel && (
+                                <ProfileRow
+                                  label="Status"
+                                  value={
+                                    p.stripeStatus && p.stripeStatus !== p.status
+                                      ? `${p.statusLabel} · ${prettyBrand(p.stripeStatus)}`
+                                      : p.statusLabel
+                                  }
+                                />
+                              )}
                               {showPrice && p.price != null && (
                                 <ProfileRow
                                   label="Price"
@@ -1049,6 +1063,14 @@ export default function MemberAccountPage() {
                                   value={new Date(p.nextBilling).toLocaleDateString("en-US", {
                                     month: "long", day: "numeric", year: "numeric",
                                   })}
+                                />
+                              )}
+                              {showInvoices && p.lastPayment && (
+                                <ProfileRow
+                                  label="Last payment"
+                                  value={`$${p.lastPayment.amount.toFixed(2)} on ${new Date(p.lastPayment.paidAt).toLocaleDateString("en-US", {
+                                    month: "long", day: "numeric", year: "numeric",
+                                  })}`}
                                 />
                               )}
                             </dl>
