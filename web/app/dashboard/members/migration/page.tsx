@@ -123,6 +123,10 @@ type Row = {
   // (plan/option/override/final-paid) or invited them. Drives the "Set up ✓"
   // badge + "Edit setup" label so staff don't repeat someone else's work.
   setupComplete: boolean;
+  // Latest Set-up drawer save: staffer's name + when (from the migration event
+  // log). null when setup was implied (e.g. invite sent) rather than configured.
+  setupBy: string | null;
+  setupAt: string | null;
 };
 
 const FILTERS = [
@@ -652,9 +656,13 @@ export default function MigrationPage() {
                       {r.setupComplete && r.migrationStatus !== "COMPLETED" && (
                         <span
                           className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-lime-accent/25 text-text-primary"
-                          title="An owner or staff member has already set up this member's plan/billing."
+                          title={
+                            r.setupBy
+                              ? `Set up by ${r.setupBy}${r.setupAt ? ` on ${new Date(r.setupAt).toLocaleDateString()}` : ""} — no need to redo it.`
+                              : "An owner or staff member has already set up this member's plan/billing."
+                          }
                         >
-                          Set up ✓
+                          Set up ✓{r.setupBy ? ` · ${r.setupBy.split(" ")[0]}` : ""}
                         </span>
                       )}
                     </td>
@@ -675,7 +683,13 @@ export default function MigrationPage() {
                         <button
                           onClick={() => setDrawerFor(r)}
                           disabled={r.migrationStatus === "COMPLETED"}
-                          title={r.setupComplete ? "Already set up — open to review or edit" : "Set up this member's plan & billing"}
+                          title={
+                            r.setupComplete
+                              ? r.setupBy
+                                ? `Already set up by ${r.setupBy}${r.setupAt ? ` on ${new Date(r.setupAt).toLocaleDateString()}` : ""} — open to review or edit`
+                                : "Already set up — open to review or edit"
+                              : "Set up this member's plan & billing"
+                          }
                           className="text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
                         >
                           {r.setupComplete ? "Edit setup" : "Set up"}

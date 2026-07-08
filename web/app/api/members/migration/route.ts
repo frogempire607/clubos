@@ -141,6 +141,37 @@ export async function GET(req: Request) {
   // out OR they've progressed past IMPORTED. billingAnchorDate is deliberately
   // NOT a signal — it can be pre-filled from the CSV import. This drives the
   // "Set up ✓" badge so staff don't redo a member another staffer already set up.
+  // Who configured each row, and when: every Set-up drawer PATCH logs a NOTE
+  // MemberMigrationEvent with the actor, so the latest one per member tells a
+  // second staffer the setup isn't theirs to redo. actorUserId is a bare
+  // string (no relation), hence the two-step name lookup.
+  const pageIds = rows.map((r) => r.id);
+  const setupEvents = pageIds.length
+    ? await prisma.memberMigrationEvent.findMany({
+        where: {
+          memberId: { in: pageIds },
+          type: "NOTE",
+          message: { startsWith: "Migration setup updated" },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { memberId: true, createdAt: true, actorUserId: true },
+      })
+    : [];
+  const latestSetupByMember = new Map<string, { createdAt: Date; actorUserId: string | null }>();
+  for (const e of setupEvents) {
+    if (!latestSetupByMember.has(e.memberId)) latestSetupByMember.set(e.memberId, e);
+  }
+  const actorIds = [
+    ...new Set([...latestSetupByMember.values()].map((e) => e.actorUserId).filter((x): x is string => !!x)),
+  ];
+  const actors = actorIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : [];
+  const actorName = new Map(actors.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+
   const members = rows.map((r) => {
     const {
       migrationMembershipId,
@@ -160,7 +191,13 @@ export async function GET(req: Request) {
       rest.migrationStatus === MIGRATION_STATUS.INVITED ||
       rest.migrationStatus === MIGRATION_STATUS.ACTIVATED ||
       rest.migrationStatus === MIGRATION_STATUS.COMPLETED;
-    return { ...rest, setupComplete };
+    const setupEvent = latestSetupByMember.get(r.id);
+    return {
+      ...rest,
+      setupComplete,
+      setupBy: setupEvent?.actorUserId ? actorName.get(setupEvent.actorUserId) ?? null : null,
+      setupAt: setupEvent?.createdAt ?? null,
+    };
   });
 
   return NextResponse.json({
