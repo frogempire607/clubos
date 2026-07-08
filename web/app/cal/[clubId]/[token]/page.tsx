@@ -7,18 +7,30 @@ import { kindIsWallClockUTC } from "@/lib/datetime";
 // component: every load reflects the current schedule.
 export const dynamic = "force-dynamic";
 
-function dayKey(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-}
-
 // Classes are wall-clock pinned to UTC, so render them in UTC to show their
 // true time regardless of the (UTC) server timezone. Events/privates are true
-// instants and render in the server timezone.
-function fmtTime(d: Date, utc: boolean): string {
+// instants: with Club.timezone set they render in the club's local time (so a
+// server-rendered embed matches the clock on the gym wall); without it they
+// fall back to the server timezone (pre-timezone behavior).
+function tzOpt(utc: boolean, clubTz: string | null): { timeZone?: string } {
+  if (utc) return { timeZone: "UTC" };
+  return clubTz ? { timeZone: clubTz } : {};
+}
+
+function dayKey(d: Date, utc: boolean, clubTz: string | null): string {
+  return d.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    ...tzOpt(utc, clubTz),
+  });
+}
+
+function fmtTime(d: Date, utc: boolean, clubTz: string | null): string {
   return d.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
-    ...(utc ? { timeZone: "UTC" } : {}),
+    ...tzOpt(utc, clubTz),
   });
 }
 
@@ -32,11 +44,22 @@ export default async function EmbeddedCalendarPage(context: {
   const data = await feedItems(clubId, scope);
   if (!data) notFound();
 
+  // A bad stored timezone must degrade to the no-timezone rendering, never 500
+  // a public embed.
+  let clubTz: string | null = data.timezone;
+  if (clubTz) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: clubTz });
+    } catch {
+      clubTz = null;
+    }
+  }
+
   const now = Date.now();
   const upcoming = data.items.filter((i) => i.endsAt.getTime() >= now).slice(0, 200);
   const byDay = new Map<string, FeedItem[]>();
   for (const item of upcoming) {
-    const key = dayKey(item.startsAt);
+    const key = dayKey(item.startsAt, kindIsWallClockUTC(item.kind), clubTz);
     const list = byDay.get(key) ?? [];
     list.push(item);
     byDay.set(key, list);
@@ -46,7 +69,9 @@ export default async function EmbeddedCalendarPage(context: {
     <main style={{ fontFamily: "system-ui, sans-serif", maxWidth: 720, margin: "0 auto", padding: 16 }}>
       <h1 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 4px" }}>{data.clubName} — schedule</h1>
       <p style={{ fontSize: 12, color: "#78716c", margin: "0 0 16px" }}>
-        Updates automatically. Times shown in your device timezone may differ — see the club for details.
+        {clubTz
+          ? `Updates automatically. All times are in the club's local time (${clubTz.replace(/_/g, " ")}).`
+          : "Updates automatically. Times shown in your device timezone may differ — see the club for details."}
       </p>
       {byDay.size === 0 && (
         <p style={{ fontSize: 14, color: "#57534e" }}>Nothing scheduled in the next few months.</p>
@@ -68,7 +93,7 @@ export default async function EmbeddedCalendarPage(context: {
               >
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#1c1917" }}>{item.title}</div>
                 <div style={{ fontSize: 12, color: "#78716c" }}>
-                  {fmtTime(item.startsAt, kindIsWallClockUTC(item.kind))} – {fmtTime(item.endsAt, kindIsWallClockUTC(item.kind))}
+                  {fmtTime(item.startsAt, kindIsWallClockUTC(item.kind), clubTz)} – {fmtTime(item.endsAt, kindIsWallClockUTC(item.kind), clubTz)}
                   {item.location ? ` · ${item.location}` : ""}
                 </div>
               </div>

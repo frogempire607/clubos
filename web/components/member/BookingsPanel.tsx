@@ -13,7 +13,7 @@ import { CheckSquare, MessageCircle } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
 import SegmentedControl from "@/components/member/SegmentedControl";
 import { EmptyState, AccentButton } from "@/components/member/ui";
-import { kindIsWallClockUTC } from "@/lib/datetime";
+import { kindIsWallClockUTC, wallClockUTCToInstant } from "@/lib/datetime";
 
 // Classes store the owner's wall clock pinned to UTC; events/privates are true
 // instants. Render each in the right frame so My Bookings matches the schedule
@@ -228,12 +228,19 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
   // state from the portal payload, so we track success locally).
   const [eventCheckedIn, setEventCheckedIn] = useState<Set<string>>(new Set());
 
+  // Club.timezone (IANA) from the portal payload. Class times are stored as
+  // wall clock pinned to UTC, so the check-in window needs this to know the
+  // REAL instant a class starts. null = not set: fall back to treating the
+  // stored stamp as the instant (pre-timezone behavior).
+  const [clubTz, setClubTz] = useState<string | null>(null);
+
   // Check-in opens 1h before start and closes 12h after end (mirrors the
   // server rules in /api/member/checkin/[id]).
   function withinCheckinWindow(b: Booking): boolean {
     const now = Date.now();
-    const start = new Date(b.event.startsAt).getTime();
-    const end = new Date(b.event.endsAt).getTime();
+    const isClass = b.kind === "class";
+    const start = (isClass ? wallClockUTCToInstant(b.event.startsAt, clubTz) : new Date(b.event.startsAt)).getTime();
+    const end = (isClass ? wallClockUTCToInstant(b.event.endsAt, clubTz) : new Date(b.event.endsAt)).getTime();
     return now >= start - 60 * 60_000 && now <= end + 12 * 3_600_000;
   }
 
@@ -283,6 +290,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
     (async () => {
       const portal = await fetch("/api/member/portal").then((r) => (r.ok ? r.json() : null));
       if (!portal) { setLoading(false); return; }
+      if (typeof portal?.club?.timezone === "string") setClubTz(portal.club.timezone);
 
       // Resolve coach names for class attendance records by looking up the
       // assigned staff IDs we already have in the payload.

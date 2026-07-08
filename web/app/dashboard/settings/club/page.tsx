@@ -33,6 +33,28 @@ const SPORTS = [
 
 const BRAND_COLORS = ["#6D5DF6", "#1F1F23", "#A3E635", "#FF6A00", "#A32D2D"];
 
+// IANA timezone options. Every modern browser ships supportedValuesOf; the
+// curated list is only a fallback for older WebViews.
+const TIMEZONE_FALLBACK = [
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Phoenix",
+  "America/Los_Angeles",
+  "America/Anchorage",
+  "Pacific/Honolulu",
+  "America/Puerto_Rico",
+  "America/Toronto",
+  "America/Vancouver",
+  "America/Mexico_City",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Australia/Sydney",
+];
+const TIMEZONES: string[] =
+  typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : TIMEZONE_FALLBACK;
+
 export default function ClubSettingsPage() {
   const { data: session } = useSession();
 
@@ -55,6 +77,9 @@ export default function ClubSettingsPage() {
     showInvoices: boolean;
   }>({ showPlan: true, showNextBilling: true, showPrice: true, showInvoices: true });
   const [hours, setHours] = useState<Record<string, string>>({});
+  // IANA timezone of the physical club ("" = not set). Fixes class times on
+  // the ICS feed / website embed and the check-in window.
+  const [timezone, setTimezone] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -87,6 +112,7 @@ export default function ClubSettingsPage() {
         });
         const h = club.hoursOfOperation && typeof club.hoursOfOperation === "object" ? club.hoursOfOperation : {};
         setHours(h as Record<string, string>);
+        setTimezone(club.timezone || "");
       }
       setLoading(false);
     }
@@ -112,6 +138,7 @@ export default function ClubSettingsPage() {
         websiteUrl: websiteUrl || null,
         socialLinks: socialLinks.filter((l) => l.label.trim() && l.url.trim()),
         hoursOfOperation: Object.keys(hours).length > 0 ? hours : null,
+        timezone: timezone || null,
         memberBillingVisibility: billingVisibility,
       }),
     });
@@ -334,6 +361,34 @@ export default function ClubSettingsPage() {
         {/* Hours */}
         <div className="bg-white rounded-xl border border-app-border p-6 space-y-3">
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Hours</p>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Timezone</label>
+            <div className="flex items-center gap-2">
+              <select
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                className="flex-1 px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand"
+              >
+                <option value="">Not set</option>
+                {/* Keep a saved zone selectable even if this browser's list lacks it. */}
+                {(timezone && !TIMEZONES.includes(timezone) ? [timezone, ...TIMEZONES] : TIMEZONES).map((tz) => (
+                  <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)}
+                className="text-xs text-brand hover:underline whitespace-nowrap"
+                title="Use this device's timezone"
+              >
+                Use my timezone
+              </button>
+            </div>
+            <p className="text-xs text-text-muted mt-1">
+              Where the club physically is. Keeps class times correct on shared calendar
+              feeds, the website schedule embed, and check-in windows.
+            </p>
+          </div>
           <p className="text-xs text-text-muted">Leave a day blank to mark it closed.</p>
           <div className="space-y-2">
             {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((day) => (
