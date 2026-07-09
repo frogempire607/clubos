@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 
-// POST /api/members/merge  { winnerId, loserId }
+// POST /api/members/merge  { winnerId, loserId, fields? }
 //
 // Confirmation-gated, owner/staff-only. Merges a duplicate member (loser) INTO
 // the survivor (winner):
@@ -14,6 +15,12 @@ import { requirePermission } from "@/lib/apiGuard";
 //     is destroyed and the DB CASCADE rules never fire; it's fully reversible
 //   • runs in ONE transaction: any error rolls the whole thing back
 // It refuses to merge two records that BOTH have a login (that needs a human).
+//
+// `fields` is the owner's per-field pick from the merge preview: a map of
+// profile column -> "winner" | "loser". Only whitelisted columns are accepted,
+// and the VALUE is always read server-side from the loser row — the client can
+// choose which record's value survives but can never inject a new one. Omitted
+// fields (and "winner" picks) keep the survivor's value untouched.
 //
 // Data preservation: memberships, transactions, attendance, private lessons,
 // approvals, migration history, etc. all move to the winner. For the handful of
@@ -51,9 +58,32 @@ const UNIQUE_MEMBER_ID_TABLES: { table: string; otherCol: string }[] = [
   { table: "member_guardian_users", otherCol: "userId" },
 ];
 
+// Profile columns the owner may pick per-record in the merge preview. Nothing
+// billing- or identity-critical is here (no userId, no stripe ids, no status).
+const MERGEABLE_FIELDS = [
+  "firstName",
+  "lastName",
+  "dateOfBirth",
+  "email",
+  "phone",
+  "streetAddress",
+  "city",
+  "state",
+  "zipCode",
+  "gender",
+  "guardianName",
+  "guardianEmail",
+  "guardianPhone",
+  "guardianRelationship",
+] as const;
+type MergeableField = (typeof MERGEABLE_FIELDS)[number];
+
 const bodySchema = z.object({
   winnerId: z.string().min(1),
   loserId: z.string().min(1),
+  // Keys are validated against MERGEABLE_FIELDS below (z.record with an enum
+  // key infers an all-keys-required type in zod 3, which is not what we want).
+  fields: z.record(z.enum(["winner", "loser"])).optional(),
 });
 
 export async function POST(req: Request) {
@@ -89,6 +119,21 @@ export async function POST(req: Request) {
       { error: "Both records have their own login. Remove one login first, then merge." },
       { status: 409 },
     );
+  }
+
+  // Owner's per-field picks from the preview: for every whitelisted field
+  // marked "loser", the duplicate's value is carried onto the survivor. Values
+  // come from the loser row we just loaded — never from the request body.
+  // Values are column-for-column copies off the loser row, so the shape is
+  // correct per column even though TS only sees the cross-field union here.
+  const fieldCarry: Partial<Record<MergeableField, string | Date | null>> = {};
+  for (const [field, choice] of Object.entries(body.fields ?? {})) {
+    if (!(MERGEABLE_FIELDS as readonly string[]).includes(field)) {
+      return NextResponse.json({ error: `"${field}" is not a mergeable field.` }, { status: 400 });
+    }
+    if (choice === "loser") {
+      fieldCarry[field as MergeableField] = loser[field as MergeableField];
+    }
   }
 
   await prisma.$transaction(async (tx) => {
@@ -170,10 +215,12 @@ export async function POST(req: Request) {
         notes: `${loser.notes ? loser.notes + " " : ""}[merged into ${winnerId} on ${today}]`,
       },
     });
-    // Audit breadcrumb on the survivor.
+    // Audit breadcrumb on the survivor + the owner's field picks (values read
+    // from the loser row above).
     await tx.member.update({
       where: { id: winnerId },
       data: {
+        ...(fieldCarry as Prisma.MemberUncheckedUpdateInput),
         notes: `${winner.notes ? winner.notes + " " : ""}[merged duplicate ${loser.firstName} ${loser.lastName} (${loserId}) on ${today}]`,
       },
     });

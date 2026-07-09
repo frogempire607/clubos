@@ -142,7 +142,7 @@ export async function GET() {
         select: {
           id: true, name: true, slug: true, sport: true,
           primaryColor: true, logoUrl: true, tier: true,
-          memberBillingVisibility: true,
+          memberBillingVisibility: true, timezone: true,
         },
       });
       return NextResponse.json({
@@ -178,7 +178,7 @@ export async function GET() {
     select: {
       id: true, name: true, slug: true, sport: true,
       primaryColor: true, logoUrl: true, tier: true,
-      memberBillingVisibility: true,
+      memberBillingVisibility: true, timezone: true,
     },
   });
 

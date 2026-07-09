@@ -33,6 +33,7 @@ export async function GET() {
       clubProfile: true,
       builtInEventColors: true,
       memberBillingVisibility: true,
+      timezone: true,
     },
   });
 

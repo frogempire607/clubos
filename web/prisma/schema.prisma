@@ -129,6 +129,11 @@ model Club {
   socialLinks              Json      @default("[]")
   // JSON map of {monday: "9-5", tuesday: "...", ...} or free-form blob
   hoursOfOperation         Json?
+  // IANA timezone of the physical club (e.g. "America/Chicago"). Resolves the
+  // wall-clock-UTC class convention (lib/datetime.ts) to real instants for the
+  // ICS feed, the /cal embed, and check-in windows. null = not set: those
+  // surfaces keep the pre-timezone behavior (class stamps emitted as-is).
+  timezone                 String?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
   deletedAt                DateTime?

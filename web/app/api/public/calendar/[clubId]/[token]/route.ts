@@ -18,7 +18,7 @@ export async function GET(req: Request, context: { params: Promise<{ clubId: str
   const data = await feedItems(clubId, scope);
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return new NextResponse(buildIcs(data.clubName, scope, data.items), {
+  return new NextResponse(buildIcs(data.clubName, scope, data.items, data.timezone), {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Content-Disposition": 'inline; filename="calendar.ics"',

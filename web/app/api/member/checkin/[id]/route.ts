@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
+import { wallClockUTCToInstant } from "@/lib/datetime";
 
 // /api/member/checkin/[id] — completes the attendance-QR intent AFTER the
 // scanner is signed in. `id` is a ClassSession id or an Event id (same ids the
@@ -17,9 +18,24 @@ import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 // else (brand-new prospects, active trial windows) → TRIAL, so staff can flip
 // to Drop-In and charge from the roster if the club wants payment.
 
+// startsAt/endsAt are the STORED stamps (classes: wall-clock pinned to UTC;
+// events: true instants) — the check-in page renders them with the matching
+// convention, so they must not be converted. windowStartsAt/windowEndsAt are
+// the real instants used for open/closed math against Date.now(): for classes
+// they're resolved through Club.timezone (when set); for events they equal
+// the stored stamps.
 type Target =
-  | { kind: "class"; classSessionId: string; title: string; startsAt: Date; endsAt: Date; acceptedMembershipIds: string[] }
-  | { kind: "event"; eventId: string; title: string; startsAt: Date; endsAt: Date };
+  | {
+      kind: "class";
+      classSessionId: string;
+      title: string;
+      startsAt: Date;
+      endsAt: Date;
+      windowStartsAt: Date;
+      windowEndsAt: Date;
+      acceptedMembershipIds: string[];
+    }
+  | { kind: "event"; eventId: string; title: string; startsAt: Date; endsAt: Date; windowStartsAt: Date; windowEndsAt: Date };
 
 async function resolveTarget(id: string, clubId: string): Promise<Target | null> {
   const ses = await prisma.classSession.findFirst({
@@ -35,12 +51,15 @@ async function resolveTarget(id: string, clubId: string): Promise<Target | null>
     const opts = Array.isArray(ses.recurringClass.pricingOptions)
       ? (ses.recurringClass.pricingOptions as Array<{ type?: string; membershipId?: string }>)
       : [];
+    const club = await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } });
     return {
       kind: "class",
       classSessionId: ses.id,
       title: ses.recurringClass.name,
       startsAt: ses.startsAt,
       endsAt: ses.endsAt,
+      windowStartsAt: wallClockUTCToInstant(ses.startsAt, club?.timezone),
+      windowEndsAt: wallClockUTCToInstant(ses.endsAt, club?.timezone),
       acceptedMembershipIds: opts
         .filter((o) => o?.type === "membership" && !!o.membershipId)
         .map((o) => o.membershipId as string),
@@ -50,7 +69,17 @@ async function resolveTarget(id: string, clubId: string): Promise<Target | null>
     where: { id, clubId, deletedAt: null },
     select: { id: true, name: true, startsAt: true, endsAt: true },
   });
-  if (ev) return { kind: "event", eventId: ev.id, title: ev.name, startsAt: ev.startsAt, endsAt: ev.endsAt };
+  if (ev) {
+    return {
+      kind: "event",
+      eventId: ev.id,
+      title: ev.name,
+      startsAt: ev.startsAt,
+      endsAt: ev.endsAt,
+      windowStartsAt: ev.startsAt,
+      windowEndsAt: ev.endsAt,
+    };
+  }
   return null;
 }
 
@@ -58,7 +87,7 @@ function sessionEnded(target: Target): boolean {
   // Allow generous late check-in (the coach may run the roster after class),
   // but a stale poster for a long-past session shouldn't create records.
   const graceMs = 12 * 60 * 60 * 1000;
-  return target.endsAt.getTime() + graceMs < Date.now();
+  return target.windowEndsAt.getTime() + graceMs < Date.now();
 }
 
 // Check-in opens 60 minutes before start. The QR poster is scanned at the
@@ -67,7 +96,7 @@ function sessionEnded(target: Target): boolean {
 const CHECKIN_OPENS_BEFORE_MS = 60 * 60 * 1000;
 
 function checkinNotOpenYet(target: Target): boolean {
-  return target.startsAt.getTime() - CHECKIN_OPENS_BEFORE_MS > Date.now();
+  return target.windowStartsAt.getTime() - CHECKIN_OPENS_BEFORE_MS > Date.now();
 }
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {

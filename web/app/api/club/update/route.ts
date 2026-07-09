@@ -22,6 +22,26 @@ const schema = z.object({
   websiteUrl: z.string().optional().nullable(),
   socialLinks: z.array(z.object({ label: z.string(), url: z.string() })).optional(),
   hoursOfOperation: z.record(z.string()).optional().nullable(),
+  // IANA timezone of the physical club (e.g. "America/Chicago"); resolves
+  // class wall-clock times to real instants for the ICS feed, /cal embed and
+  // check-in windows. Must be a zone Intl accepts, or null/"" to unset.
+  timezone: z
+    .string()
+    .max(64)
+    .optional()
+    .nullable()
+    .refine(
+      (tz) => {
+        if (!tz) return true;
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: tz });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: "Not a valid timezone" },
+    ),
   // Branded app personalization
   appFontFamily: z.string().max(200).optional().nullable(),
   appTextAlign: z.enum(["left", "center", "right"]).optional().nullable(),
@@ -70,6 +90,7 @@ export async function PATCH(req: Request) {
         ...(data.websiteUrl !== undefined ? { websiteUrl: data.websiteUrl || null } : {}),
         ...(data.socialLinks !== undefined ? { socialLinks: data.socialLinks } : {}),
         ...(data.hoursOfOperation !== undefined ? { hoursOfOperation: data.hoursOfOperation ?? undefined } : {}),
+        ...(data.timezone !== undefined ? { timezone: data.timezone || null } : {}),
         ...(data.appFontFamily !== undefined ? { appFontFamily: data.appFontFamily || null } : {}),
         ...(data.appTextAlign !== undefined ? { appTextAlign: data.appTextAlign || null } : {}),
         ...(data.appHomeContent !== undefined ? { appHomeContent: data.appHomeContent || null } : {}),

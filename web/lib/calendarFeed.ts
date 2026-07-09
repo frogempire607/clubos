@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { wallClockUTCToInstant } from "@/lib/datetime";
 
 // Auto-updating calendar feeds
 // ----------------------------
@@ -72,8 +73,11 @@ export type FeedItem = {
 };
 
 /** Fetch calendar items for a scope. Window: 30 days back, 180 forward. */
-export async function feedItems(clubId: string, scope: FeedScope): Promise<{ clubName: string; items: FeedItem[] } | null> {
-  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { name: true } });
+export async function feedItems(
+  clubId: string,
+  scope: FeedScope,
+): Promise<{ clubName: string; timezone: string | null; items: FeedItem[] } | null> {
+  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { name: true, timezone: true } });
   if (!club) return null;
 
   const now = new Date();
@@ -197,7 +201,7 @@ export async function feedItems(clubId: string, scope: FeedScope): Promise<{ clu
   }
 
   items.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
-  return { clubName: club.name, items };
+  return { clubName: club.name, timezone: club.timezone, items };
 }
 
 // ── ICS serialization ──────────────────────────────────────────────────────
@@ -226,7 +230,17 @@ function foldLine(line: string): string {
   return parts.join("\r\n");
 }
 
-export function buildIcs(clubName: string, scope: FeedScope, items: FeedItem[]): string {
+// `timezone` (Club.timezone, IANA) resolves the wall-clock-UTC class stamps to
+// real instants so calendar apps show a 5:30 PM class at 5:30 PM club time.
+// Without it, class stamps are emitted as-is (pre-timezone behavior: correct
+// wall clock only for viewers whose calendar runs in UTC). Events/privates are
+// already true instants and are never converted.
+export function buildIcs(
+  clubName: string,
+  scope: FeedScope,
+  items: FeedItem[],
+  timezone?: string | null,
+): string {
   const calName = scope === "STAFF" ? `${clubName} — staff calendar` : `${clubName} calendar`;
   const stamp = icsDate(new Date());
   const lines: string[] = [
@@ -241,12 +255,15 @@ export function buildIcs(clubName: string, scope: FeedScope, items: FeedItem[]):
     "X-PUBLISHED-TTL:PT1H",
   ];
   for (const item of items) {
+    const isClass = item.kind === "class";
+    const startsAt = isClass ? wallClockUTCToInstant(item.startsAt, timezone) : item.startsAt;
+    const endsAt = isClass ? wallClockUTCToInstant(item.endsAt, timezone) : item.endsAt;
     lines.push(
       "BEGIN:VEVENT",
       `UID:${icsEscape(item.uid)}@athletix-os.com`,
       `DTSTAMP:${stamp}`,
-      `DTSTART:${icsDate(item.startsAt)}`,
-      `DTEND:${icsDate(item.endsAt)}`,
+      `DTSTART:${icsDate(startsAt)}`,
+      `DTEND:${icsDate(endsAt)}`,
       `SUMMARY:${icsEscape(item.title)}`,
     );
     if (item.description) lines.push(`DESCRIPTION:${icsEscape(item.description)}`);

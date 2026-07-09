@@ -51,6 +51,54 @@ export function kindIsWallClockUTC(kind: string): boolean {
   return kind === "class";
 }
 
+// ── Club timezone (Club.timezone, IANA string) ──────────────────────────────
+//
+// Class times are stored as the owner's wall clock pinned to UTC (see above),
+// which is deliberately timezone-less. Some surfaces need the REAL instant a
+// class happens — the ICS feed (calendar apps demand instants), and check-in
+// windows (compared against Date.now()). Given the club's IANA timezone these
+// helpers resolve the stored wall clock to that instant. Isomorphic: safe in
+// both server routes and client components.
+
+/** UTC offset of `timeZone` at instant `at`, in ms (positive east of UTC). */
+export function tzOffsetMs(timeZone: string, at: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    era: "short",
+  }).formatToParts(at);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  // hourCycle quirk: some ICU versions emit "24" for midnight with hour12:false.
+  const hour = get("hour") % 24;
+  const asUTC = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
+  return asUTC - Math.floor(at.getTime() / 1000) * 1000;
+}
+
+/**
+ * The real instant of a wall-clock-UTC stamp (a ClassSession startsAt/endsAt)
+ * for a club in `timeZone`. E.g. stored 17:30Z ("5:30 PM wall clock") in
+ * America/Chicago (UTC-5 in summer) → 22:30Z. Invalid/empty timezone returns
+ * the stamp unchanged, matching the no-timezone behavior.
+ */
+export function wallClockUTCToInstant(d: Stamp, timeZone: string | null | undefined): Date {
+  const stamp = new Date(d);
+  if (!timeZone) return stamp;
+  try {
+    // Two passes so a DST boundary between the naive guess and the true
+    // instant resolves to the offset in force at the actual time.
+    const guess = new Date(stamp.getTime() - tzOffsetMs(timeZone, stamp));
+    return new Date(stamp.getTime() - tzOffsetMs(timeZone, guess));
+  } catch {
+    return stamp;
+  }
+}
+
 // ── "Today" / date-input helpers ─────────────────────────────────────────────
 //
 // CRITICAL: never derive a calendar day from `new Date().toISOString()` — that
