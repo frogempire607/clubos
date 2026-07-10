@@ -127,6 +127,18 @@ type Row = {
   // log). null when setup was implied (e.g. invite sent) rather than configured.
   setupBy: string | null;
   setupAt: string | null;
+  // Billing-control triage + derived readiness (server-side, DB facts only).
+  migrationGroup: string | null;
+  migrationFinalAction: string | null;
+  migrationGroupNote: string | null;
+  migrationFinalBillingDate: string | null;
+  hasCapturedCard: boolean;
+  resolvedPrice: number | null;
+  resolvedPeriod: string | null;
+  readiness: string;
+  readinessLabel: string;
+  readinessReasons: string[];
+  reactivationStatus: string | null;
 };
 
 const FILTERS = [
@@ -149,11 +161,40 @@ const STATUS_STYLE: Record<string, string> = {
   FAILED: "bg-red-50 text-red-700",
 };
 
+// Operational triage groups (planning only — never charge/mutate Stripe).
+const GROUP_FILTERS = [
+  { key: "", label: "All groups" },
+  { key: "A", label: "Group A" },
+  { key: "B", label: "Group B" },
+  { key: "C", label: "Group C" },
+  { key: "LEAVE_ALONE", label: "Leave alone" },
+  { key: "FUTURE_FOLLOW_UP", label: "Follow-up" },
+  { key: "NEEDS_PAYMENT_METHOD", label: "Needs card" },
+  { key: "none", label: "Unclassified" },
+];
+const READINESS_FILTERS = [
+  { key: "", label: "Any readiness" },
+  { key: "READY", label: "Ready" },
+  { key: "WAITING_OWNER", label: "Waiting on owner" },
+  { key: "WAITING_CLIENT", label: "Waiting on client" },
+  { key: "HOLD", label: "Hold" },
+  { key: "LEAVE_ALONE", label: "Active / leave alone" },
+];
+const READINESS_STYLE: Record<string, string> = {
+  READY: "bg-lime-accent/25 text-text-primary",
+  WAITING_OWNER: "bg-orange-accent/20 text-text-primary",
+  WAITING_CLIENT: "bg-brand/10 text-brand",
+  HOLD: "bg-red-50 text-red-700",
+  LEAVE_ALONE: "bg-app-bg text-text-muted",
+};
+
 export default function MigrationPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [group, setGroup] = useState("");
+  const [readiness, setReadiness] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
@@ -176,6 +217,8 @@ export default function MigrationPage() {
   const load = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams({ filter, q, page: String(page), pageSize: "25" });
+    if (group) params.set("group", group);
+    if (readiness) params.set("readiness", readiness);
     fetch(`/api/members/migration?${params}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -190,12 +233,12 @@ export default function MigrationPage() {
         }
         setLoading(false);
       });
-  }, [filter, q, page]);
+  }, [filter, q, page, group, readiness]);
 
   useEffect(() => { load(); }, [load]);
   // Clear selection when the underlying set changes (filter/search) — but NOT on
   // page changes, so a selection can span every page ("select all matching").
-  useEffect(() => { setSelected(new Set()); }, [filter, q]);
+  useEffect(() => { setSelected(new Set()); }, [filter, q, group, readiness]);
 
   // Send activation links to an explicit set of member ids (selection or a
   // family group). The server collapses each family to ONE guardian email, but
@@ -295,6 +338,80 @@ export default function MigrationPage() {
     load();
   }
 
+  // Pull the WHOLE current-filter roster (all pages) for exports.
+  async function fetchAllPages(): Promise<Row[]> {
+    const all: Row[] = [];
+    for (let p = 1; p <= 60; p++) {
+      const params = new URLSearchParams({ filter, q, page: String(p), pageSize: "100" });
+      if (group) params.set("group", group);
+      if (readiness) params.set("readiness", readiness);
+      const res = await fetch(`/api/members/migration?${params}`);
+      if (!res.ok) break;
+      const d = await res.json();
+      const batch: Row[] = d.members ?? [];
+      all.push(...batch);
+      if (batch.length === 0 || p >= (d.pageCount ?? 1)) break;
+    }
+    return all;
+  }
+
+  // Export the reviewed plan as CSV — the owner's sign-off sheet for the
+  // billing migration (group, readiness, dates, notes). Client-side; nothing
+  // leaves the browser.
+  async function downloadCsv() {
+    setPdfBusy(true);
+    setMsg("");
+    try {
+      const all = await fetchAllPages();
+      const esc = (v: unknown) => {
+        const s = v == null ? "" : String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const header = [
+        "Name", "Minor", "Contact", "Plan", "Price", "Frequency", "Group", "Final action",
+        "Final billing date", "Readiness", "Readiness notes", "Saved card", "Status", "Approval",
+        "Reactivation", "Triage note",
+      ];
+      const lines = [header.join(",")].concat(
+        all.map((r) =>
+          [
+            `${r.firstName} ${r.lastName}`.trim(),
+            r.isMinor ? "yes" : "",
+            r.email || r.guardianEmail || "",
+            r.legacyMembershipName || "",
+            r.resolvedPrice != null ? r.resolvedPrice.toFixed(2) : "",
+            r.resolvedPeriod || r.legacyBillingFrequency || "",
+            r.migrationGroup || "",
+            r.migrationFinalAction || "",
+            r.migrationFinalBillingDate
+              ? new Date(r.migrationFinalBillingDate).toLocaleDateString()
+              : r.billingAnchorDate
+                ? new Date(r.billingAnchorDate).toLocaleDateString()
+                : "",
+            r.readinessLabel || "",
+            (r.readinessReasons || []).join("; "),
+            r.hasCapturedCard ? "yes" : "no",
+            r.migrationStatus || "",
+            r.approvalStatus || "",
+            r.reactivationStatus || "",
+            r.migrationGroupNote || "",
+          ].map(esc).join(","),
+        ),
+      );
+      const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `migration-plan-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setMsg(`Exported ${all.length} member(s).`);
+    } catch {
+      setMsg("Could not build the CSV. Please try again.");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   // Export the WHOLE current-filter roster (all pages) as a PDF the owner can
   // keep or hand off during migration. Client-side via jsPDF + autoTable (both
   // already bundled) — no server route, no data leaves the owner's browser.
@@ -302,16 +419,7 @@ export default function MigrationPage() {
     setPdfBusy(true);
     setMsg("");
     try {
-      const all: Row[] = [];
-      for (let p = 1; p <= 60; p++) {
-        const params = new URLSearchParams({ filter, q, page: String(p), pageSize: "100" });
-        const res = await fetch(`/api/members/migration?${params}`);
-        if (!res.ok) break;
-        const d = await res.json();
-        const batch: Row[] = d.members ?? [];
-        all.push(...batch);
-        if (batch.length === 0 || p >= (d.pageCount ?? 1)) break;
-      }
+      const all: Row[] = await fetchAllPages();
       let clubName = "Your club";
       try {
         const info = await fetch("/api/club/info").then((r) => (r.ok ? r.json() : null));
@@ -336,18 +444,26 @@ export default function MigrationPage() {
 
       autoTable(doc, {
         startY: 28,
-        head: [["Name", "Contact", "Plan", "Price", "Next billing", "Status", "Setup"]],
+        head: [["Name", "Contact", "Plan", "Price", "Final billing", "Group", "Readiness", "Status", "Notes"]],
         body: all.map((r) => [
           `${r.firstName} ${r.lastName}`.trim() + (r.isMinor ? " (minor)" : ""),
           r.email || r.guardianEmail || "—",
           r.legacyMembershipName || "—",
-          r.legacyMembershipPrice != null
-            ? `$${Number(r.legacyMembershipPrice).toFixed(2)}${r.legacyBillingFrequency ? `/${r.legacyBillingFrequency.toLowerCase()}` : ""}`
-            : "—",
-          r.billingAnchorDate ? new Date(r.billingAnchorDate).toLocaleDateString() : "—",
+          r.resolvedPrice != null
+            ? `$${r.resolvedPrice.toFixed(2)}${(r.resolvedPeriod || r.legacyBillingFrequency) ? `/${(r.resolvedPeriod || r.legacyBillingFrequency)!.toLowerCase()}` : ""}`
+            : r.legacyMembershipPrice != null
+              ? `$${Number(r.legacyMembershipPrice).toFixed(2)}${r.legacyBillingFrequency ? `/${r.legacyBillingFrequency.toLowerCase()}` : ""}`
+              : "—",
+          r.migrationFinalBillingDate
+            ? new Date(r.migrationFinalBillingDate).toLocaleDateString()
+            : r.billingAnchorDate
+              ? new Date(r.billingAnchorDate).toLocaleDateString()
+              : "—",
+          r.migrationGroup || "—",
+          r.readinessLabel || "—",
           (r.migrationStatus?.replace("_", " ") ?? "—") +
             (r.approvalStatus === "PENDING_APPROVAL" ? " · needs approval" : ""),
-          r.migrationStatus === "COMPLETED" ? "Completed" : r.setupComplete ? "Set up" : "Not set up",
+          r.migrationGroupNote || "",
         ]),
         styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak" },
         headStyles: { fillColor: [31, 31, 35], textColor: [255, 255, 255] },
@@ -498,12 +614,50 @@ export default function MigrationPage() {
         >
           {pdfBusy ? "Building PDF…" : "Download migration PDF"}
         </button>
+        <button
+          onClick={downloadCsv}
+          disabled={pdfBusy || loading}
+          title="Download the reviewed plan (current filter) as CSV — groups, readiness, dates, notes."
+          className="text-xs px-3 py-1.5 rounded-full border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50 font-medium"
+        >
+          Export plan CSV
+        </button>
         <input
           value={q}
           onChange={(e) => { setQ(e.target.value); setPage(1); }}
           placeholder="Search name, email, legacy ID…"
           className="ml-auto text-sm px-3 py-1.5 border border-app-border rounded-lg bg-surface w-64"
         />
+      </div>
+
+      {/* Triage group + readiness filters (planning layer — never charges) */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 -mt-2">
+        {GROUP_FILTERS.map((f) => (
+          <button
+            key={f.key || "allg"}
+            onClick={() => { setGroup(f.key); setPage(1); }}
+            className={`text-xs px-3 py-1 rounded-full border transition ${
+              group === f.key ? "border-charcoal bg-charcoal text-white" : "border-app-border text-text-muted hover:bg-app-bg"
+            }`}
+          >
+            {f.label}
+            {f.key && stats && (stats as unknown as { groups?: Record<string, number> }).groups?.[f.key] != null
+              ? ` (${(stats as unknown as { groups: Record<string, number> }).groups[f.key]})`
+              : ""}
+          </button>
+        ))}
+        <span className="text-app-border">|</span>
+        {READINESS_FILTERS.map((f) => (
+          <button
+            key={f.key || "allr"}
+            onClick={() => { setReadiness(f.key); setPage(1); }}
+            className={`text-xs px-3 py-1 rounded-full border transition ${
+              readiness === f.key ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted hover:bg-app-bg"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {/* Bulk actions */}
@@ -597,6 +751,7 @@ export default function MigrationPage() {
                 <th className="px-3 py-2.5 font-medium">Member</th>
                 <th className="px-3 py-2.5 font-medium">Membership</th>
                 <th className="px-3 py-2.5 font-medium">Next billing</th>
+                <th className="px-3 py-2.5 font-medium">Group / readiness</th>
                 <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 font-medium">Emails</th>
                 <th className="px-3 py-2.5 font-medium"></th>
@@ -604,9 +759,9 @@ export default function MigrationPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="px-3 py-10 text-center text-text-muted">Loading…</td></tr>
+                <tr><td colSpan={8} className="px-3 py-10 text-center text-text-muted">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-10 text-center text-text-muted">
+                <tr><td colSpan={8} className="px-3 py-10 text-center text-text-muted">
                   No migrated members yet. Use “Import / Migrate Members” to begin.
                 </td></tr>
               ) : rows.map((r) => {
@@ -639,7 +794,29 @@ export default function MigrationPage() {
                       )}
                     </td>
                     <td className="px-3 py-3 text-text-muted text-xs">
-                      {r.billingAnchorDate ? new Date(r.billingAnchorDate).toLocaleDateString() : "—"}
+                      {r.migrationFinalBillingDate
+                        ? new Date(r.migrationFinalBillingDate).toLocaleDateString()
+                        : r.billingAnchorDate
+                          ? <span title="Imported anchor — no owner-approved final date yet">{new Date(r.billingAnchorDate).toLocaleDateString()}*</span>
+                          : "—"}
+                    </td>
+                    <td className="px-3 py-3">
+                      {r.migrationGroup && (
+                        <span className="inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium bg-charcoal text-white mr-1">
+                          {r.migrationGroup.replace(/_/g, " ")}
+                        </span>
+                      )}
+                      <span
+                        className={`inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium ${READINESS_STYLE[r.readiness] || "bg-app-bg text-text-muted"}`}
+                        title={(r.readinessReasons || []).join("; ") || undefined}
+                      >
+                        {r.readinessLabel}
+                      </span>
+                      {r.reactivationStatus && (
+                        <span className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand/10 text-brand">
+                          Offer {r.reactivationStatus.toLowerCase()}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <span className={`inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[r.migrationStatus] || "bg-app-bg text-text-muted"}`}>
@@ -708,6 +885,13 @@ export default function MigrationPage() {
                       >
                         History
                       </button>
+                      <Link
+                        href={`/dashboard/members/${r.id}/billing`}
+                        className="text-xs px-2 py-1 ml-1 text-brand hover:underline"
+                        title="Open the billing control center — plan, dates, payment methods, reactivation."
+                      >
+                        Billing
+                      </Link>
                     </td>
                   </tr>
                 );
@@ -983,19 +1167,32 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
     if (res.ok) onChanged();
   }
 
-  async function approve(acceptRequested: boolean) {
-    if (!confirm("Approve this member? Billing is scheduled on the agreed date. If that date has already passed, the charge runs now and renews each cycle from today.")) return;
+  async function approve(acceptRequested: boolean, confirmImmediateCharge = false) {
+    if (!confirmImmediateCharge && !confirm("Approve this member? Billing is scheduled on the agreed date — you'll get a separate, explicit confirmation if the date means charging immediately.")) return;
     setSaving(true); setMsg("");
     const res = await fetch(`/api/members/migration/${memberId}/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        acceptRequested ? { acceptRequestedDate: true } : { billingAnchorDate: approveDate || null },
-      ),
+      body: JSON.stringify({
+        ...(acceptRequested ? { acceptRequestedDate: true } : { billingAnchorDate: approveDate || null }),
+        ...(confirmImmediateCharge ? { confirmImmediateCharge: true } : {}),
+      }),
     });
     const r = await res.json().catch(() => ({}));
     setSaving(false);
-    if (!res.ok) { setMsg(typeof r.error === "string" ? r.error : "Approval failed"); return; }
+    if (!res.ok) {
+      // The billing date is today/past: the server refuses to charge silently.
+      // Surface an unmissable second confirmation with the exact amount.
+      if (r.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") {
+        const amount = typeof r.price === "number" ? `$${r.price.toFixed(2)}` : "the full cycle amount";
+        if (confirm(`⚠ The billing date is today or already passed.\n\nApproving will charge ${amount} to the saved card RIGHT NOW, and the cycle renews from today.\n\nPrefer a future date? Cancel and set one above.\n\nCharge ${amount} immediately?`)) {
+          await approve(acceptRequested, true);
+        }
+        return;
+      }
+      setMsg(typeof r.error === "string" ? r.error : "Approval failed");
+      return;
+    }
     onChanged();
   }
 
@@ -1016,7 +1213,16 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
           <h2 className="text-base font-semibold text-text-primary">
             {pending ? "Review & approve" : "Set up migration"}{d ? ` · ${d.firstName} ${d.lastName}` : ""}
           </h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/dashboard/members/${memberId}/billing`}
+              className="text-xs text-brand hover:underline whitespace-nowrap"
+              title="Full billing control center — payment methods, triage, reactivation offer."
+            >
+              Billing center
+            </Link>
+            <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+          </div>
         </div>
         <div className="p-6 space-y-5">
           {loading || !d ? (

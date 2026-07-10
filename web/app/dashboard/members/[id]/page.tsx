@@ -182,7 +182,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Current membership */}
-        <Card title="Current membership">
+        <Card
+          title="Current membership"
+          action={
+            <Link href={`/dashboard/members/${id}/billing`} className="text-xs text-brand hover:underline">
+              Manage billing
+            </Link>
+          }
+        >
           {activeSub ? (
             <SubRow sub={activeSub} onEdit={() => setEditingSub(activeSub)} />
           ) : pendingSub ? (

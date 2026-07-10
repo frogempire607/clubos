@@ -191,10 +191,22 @@ export default function DuplicatesPage() {
             const gk = groupKey(g);
             const primaryId = primaryPick[gk] ?? g.suggestedPrimaryId;
             const primary = g.members.find((m) => m.id === primaryId) || g.members[0];
+            // Both records carrying billing (memberships or payments) is a real
+            // conflict — the owner must reconcile which one bills before merging.
+            const billingConflict =
+              g.members.filter((m) => m.counts.memberships > 0 || m.counts.payments > 0).length >= 2;
             return (
               <div key={gk} className="rounded-xl border border-app-border bg-surface p-5">
-                <div className="text-xs uppercase tracking-wide text-text-muted mb-3">
-                  {g.members.length} records · matched on {g.reason}
+                <div className="text-xs uppercase tracking-wide text-text-muted mb-3 flex items-center gap-2 flex-wrap">
+                  <span>{g.members.length} records · matched on {g.reason}</span>
+                  {billingConflict && (
+                    <span
+                      className="normal-case tracking-normal text-[10px] px-2 py-0.5 rounded-full bg-orange-accent/20 text-text-primary font-semibold"
+                      title="More than one of these records has memberships or payments. Open each record's billing page and decide which one bills before merging."
+                    >
+                      Billing conflict — review before merging
+                    </span>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {g.members.map((m) => {
@@ -219,6 +231,14 @@ export default function DuplicatesPage() {
                           </div>
                           <div className="text-[11px] text-text-muted mt-1">
                             {m.counts.memberships} memberships · {m.counts.attendance} attendance · {m.counts.bookings} bookings · {m.counts.payments} payments · {m.status.toLowerCase()}
+                            {(m.counts.memberships > 0 || m.counts.payments > 0) && (
+                              <>
+                                {" · "}
+                                <Link href={`/dashboard/members/${m.id}/billing`} className="text-brand hover:underline">
+                                  Review billing
+                                </Link>
+                              </>
+                            )}
                           </div>
                         </div>
                         {!isPrimary && (
