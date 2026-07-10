@@ -256,6 +256,61 @@ export async function POST(req: Request) {
           }
         }
 
+        // ── Owner/staff billing control center: add/replace a card ──────────
+        // SETUP-mode checkout opened from /dashboard/members/[id]/billing.
+        // ADD: the captured method becomes the member's on-file card (there is
+        // nothing else it could break). REPLACE: collect-first — the method is
+        // now attached to the customer, but the member pointer, customer
+        // default, and live subscriptions keep the OLD card until staff
+        // explicitly confirms via make-default. Never charges anything.
+        if (session.metadata?.adminCardSetupMemberId && session.mode === "setup") {
+          const adminMemberId = session.metadata.adminCardSetupMemberId;
+          const intent = session.metadata.adminCardSetupIntent === "REPLACE" ? "REPLACE" : "ADD";
+          try {
+            const target = await prisma.member.findUnique({
+              where: { id: adminMemberId },
+              select: { id: true, clubId: true, club: { select: { stripeAccountId: true } } },
+            });
+            if (target) {
+              let pmId: string | null = null;
+              const siId = session.setup_intent as string | null;
+              if (siId && target.club.stripeAccountId) {
+                try {
+                  const si = await stripe.setupIntents.retrieve(siId, {
+                    stripeAccount: target.club.stripeAccountId,
+                  });
+                  pmId = (si.payment_method as string) || null;
+                } catch (e) {
+                  console.error("Admin card-setup SetupIntent retrieve failed:", e);
+                }
+              }
+              if (intent === "ADD") {
+                await prisma.member.update({
+                  where: { id: adminMemberId },
+                  data: {
+                    stripeSetupCustomerId:
+                      (session.customer as string) || session.metadata.setupCustomerId || undefined,
+                    ...(pmId ? { stripeSetupPaymentMethodId: pmId, paymentSetupStatus: "COMPLETE" } : {}),
+                  },
+                });
+              }
+              const { writeBillingAudit } = await import("@/lib/billingAudit");
+              await writeBillingAudit({
+                clubId: target.clubId,
+                memberId: target.id,
+                action: intent === "ADD" ? "PM_ADDED" : "PM_COLLECTED_AWAITING_CONFIRM",
+                note:
+                  intent === "ADD"
+                    ? "New payment method saved via Stripe and set as the on-file method."
+                    : "Replacement payment method collected via Stripe — awaiting staff confirmation before it becomes the default.",
+              });
+            }
+          } catch (e) {
+            console.error("Admin card-setup webhook handling failed:", e);
+          }
+          break;
+        }
+
         // ── Save-card-for-later (member portal "Add a card") ─────────────────
         // SETUP-mode checkout with NO charge and NO membership/migration side
         // effects: just persist the customer + payment method on the member so
