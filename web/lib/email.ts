@@ -809,3 +809,138 @@ export async function sendClubJoinInviteEmail({
     }),
   });
 }
+
+// Membership reactivation: the owner-approved offer a client reviews and
+// confirms via a secure expiring link. AthletixOS supplies the consistent
+// transactional wording, membership details, support info, and security
+// language; the owner's personal note is a clearly-separated optional block.
+// Charge timing is ALWAYS explicit — the CTA repeats the exact first-payment
+// date (or says the charge is immediate).
+export type ReactivationEmailParams = {
+  to: string;
+  athleteName: string;
+  clubName: string;
+  clubLogoUrl?: string | null;
+  clubPrimaryColor?: string | null;
+  membershipName: string;
+  optionLabel?: string | null;
+  priceLabel: string; // "$110.00" or "Free"
+  periodLabel: string; // "monthly", "quarterly", …
+  startDateLabel?: string | null;
+  firstChargeLabel: string | null; // "July 19, 2026"; null = no charge
+  immediateCharge: boolean;
+  commitmentLabel?: string | null;
+  cardSummary?: string | null; // "Amex ···· 1005 (Adam Alexander)"
+  payerName?: string | null;
+  personalNote?: string | null;
+  reactivationUrl: string;
+  expiresLabel: string; // "July 24, 2026"
+  supportEmail?: string | null;
+  fromName?: string | null;
+  replyTo?: string | null;
+};
+
+/** Render the reactivation email without sending — powers the owner preview. */
+export function renderMembershipReactivationEmail({
+  athleteName,
+  clubName,
+  clubLogoUrl,
+  clubPrimaryColor,
+  membershipName,
+  optionLabel,
+  priceLabel,
+  periodLabel,
+  startDateLabel,
+  firstChargeLabel,
+  immediateCharge,
+  commitmentLabel,
+  cardSummary,
+  payerName,
+  personalNote,
+  reactivationUrl,
+  expiresLabel,
+  supportEmail,
+}: ReactivationEmailParams): { subject: string; html: string } {
+  const brand = clubPrimaryColor && /^#[0-9a-fA-F]{6}$/.test(clubPrimaryColor)
+    ? clubPrimaryColor
+    : "#534AB7";
+  const safeAthlete = escapeHtml(athleteName);
+  const safeClub = escapeHtml(clubName);
+  const isFree = priceLabel === "Free";
+
+  const row = (label: string, value: string) => `
+    <tr>
+      <td style="padding:6px 0;color:#78716c;font-size:13px;white-space:nowrap;vertical-align:top">${label}</td>
+      <td style="padding:6px 0 6px 16px;color:#1c1917;font-size:13px;font-weight:600;text-align:right">${value}</td>
+    </tr>`;
+
+  const detailRows = [
+    row("Athlete", safeAthlete),
+    row("Membership", escapeHtml(membershipName) + (optionLabel ? ` · ${escapeHtml(optionLabel)}` : "")),
+    row("Price", isFree ? "Free" : `${escapeHtml(priceLabel)} ${escapeHtml(periodLabel)}`),
+    startDateLabel ? row("Membership start", escapeHtml(startDateLabel)) : "",
+    firstChargeLabel
+      ? row("First payment", immediateCharge ? `${escapeHtml(firstChargeLabel)} (charged on confirmation)` : escapeHtml(firstChargeLabel))
+      : "",
+    firstChargeLabel && !immediateCharge ? row("Then recurring", escapeHtml(periodLabel)) : "",
+    commitmentLabel ? row("Commitment through", escapeHtml(commitmentLabel)) : "",
+    cardSummary ? row("Payment method", escapeHtml(cardSummary)) : row("Payment method", "You'll add one securely"),
+    payerName ? row("Billed to", escapeHtml(payerName)) : "",
+  ].join("");
+
+  const noteBlock = personalNote?.trim()
+    ? `
+      <div style="border-left:3px solid ${brand};background:#fafaf9;border-radius:0 10px 10px 0;padding:12px 16px;margin:0 0 18px">
+        <p style="color:#78716c;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;margin:0 0 6px">A note from ${safeClub}</p>
+        <p style="color:#44403c;font-size:14px;line-height:1.6;margin:0;white-space:pre-line">${escapeHtml(personalNote.trim())}</p>
+      </div>`
+    : "";
+
+  const ctaLabel = isFree || !firstChargeLabel
+    ? "Review & confirm membership"
+    : immediateCharge
+      ? `Review & confirm — payment due today`
+      : `Review & confirm — first payment ${escapeHtml(firstChargeLabel)}`;
+
+  const subject = `Action needed: confirm ${athleteName}'s ${clubName} membership`;
+  const html = clubBrandedLayout({
+    clubName,
+    clubLogoUrl,
+    clubPrimaryColor,
+    content: `
+        <h2 style="color:#1c1917;margin:0 0 6px;font-size:20px;font-weight:700">Confirm ${safeAthlete}'s membership</h2>
+        <p style="color:#57534e;line-height:1.6;margin:0 0 18px;font-size:14px">
+          ${safeClub} has your membership set up and ready — it just needs your review and confirmation.
+          You already have an account, so this takes about a minute and nothing is charged until the
+          date shown below${immediateCharge && !isFree ? ", except that confirming today starts your billing immediately" : ""}.
+        </p>
+        ${noteBlock}
+        <div style="border:1px solid #e7e5e4;border-radius:12px;padding:14px 18px;margin:0 0 20px">
+          <table style="width:100%;border-collapse:collapse">${detailRows}</table>
+        </div>
+        <div style="text-align:center;margin:0 0 18px">
+          <a href="${escapeHtml(reactivationUrl)}"
+             style="display:inline-block;background:${brand};color:#fff;font-weight:600;font-size:15px;padding:13px 28px;border-radius:10px;text-decoration:none">
+            ${ctaLabel}
+          </a>
+        </div>
+        <p style="color:#a8a29e;font-size:12px;line-height:1.6;margin:0">
+          This secure link is personal to you and expires ${escapeHtml(expiresLabel)}. Nothing is charged
+          until you review the details and confirm. If you weren't expecting this email or anything looks
+          wrong, don't confirm — reply to this email${supportEmail ? ` or contact <a href="mailto:${escapeHtml(supportEmail)}" style="color:#78716C">${escapeHtml(supportEmail)}</a>` : ""} and the club will sort it out.
+        </p>
+      `,
+  });
+  return { subject, html };
+}
+
+export async function sendMembershipReactivationEmail(params: ReactivationEmailParams) {
+  const { subject, html } = renderMembershipReactivationEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject,
+    fromName: params.fromName,
+    replyTo: params.replyTo,
+    html,
+  });
+}

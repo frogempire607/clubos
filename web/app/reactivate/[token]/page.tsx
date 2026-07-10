@@ -1,0 +1,271 @@
+"use client";
+
+// Public, token-gated membership reactivation page (mobile-first). The client
+// already has an account — no onboarding here. They review the owner-approved
+// terms and confirm. Charge timing is spelled out ON the button; an
+// immediate charge additionally requires an explicit checkbox. If no usable
+// payment method exists, a secure Stripe setup page collects one — card
+// details never touch AthletixOS.
+
+import { useCallback, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+
+type Payload = {
+  confirmed?: boolean;
+  athleteName?: string;
+  confirmedAt?: string;
+  error?: string;
+  code?: string;
+  club?: { name: string; logoUrl: string | null; primaryColor: string | null; contactEmail?: string | null };
+  athlete?: { firstName: string; lastName: string; isMinor: boolean };
+  offer?: {
+    planName: string; optionLabel: string | null; price: number; billingPeriod: string;
+    periodLabel: string; startDate: string | null; firstChargeDate: string | null;
+    commitmentEndDate: string | null; paymentMode: string; offerVersion: number;
+  };
+  chargeTiming?: { immediate: boolean; isFree: boolean };
+  card?: { brand: string; last4: string; cardholder: string | null } | null;
+  hasUsableCard?: boolean;
+  payerName?: string | null;
+  personalNote?: string | null;
+  tokenExpires?: string;
+  terms?: { authorization: string };
+};
+
+const longDate = (s: string | null | undefined) =>
+  s ? new Date(s).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : null;
+
+export default function ReactivatePage() {
+  const params = useParams<{ token: string }>();
+  const token = params.token;
+  const search = useSearchParams();
+  const [data, setData] = useState<Payload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ackImmediate, setAckImmediate] = useState(false);
+  const [done, setDone] = useState<{ chargedNow: boolean; firstChargeDate: string | null } | null>(null);
+  const [cardPoll, setCardPoll] = useState(0);
+
+  const load = useCallback(() => {
+    fetch(`/api/reactivate/${token}`)
+      .then(async (r) => ({ ok: r.ok, body: (await r.json().catch(() => ({}))) as Payload }))
+      .then(({ body }) => { setData(body); setLoading(false); })
+      .catch(() => { setData({ error: "Something went wrong. Refresh to try again." }); setLoading(false); });
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  // Back from Stripe card entry: the webhook may land a beat after the
+  // redirect, so poll a few times until the saved card shows up.
+  useEffect(() => {
+    if (!search.get("card_saved")) return;
+    if (data?.hasUsableCard) return;
+    if (cardPoll >= 5) return;
+    const t = setTimeout(() => { setCardPoll((n) => n + 1); load(); }, 2000);
+    return () => clearTimeout(t);
+  }, [search, data?.hasUsableCard, cardPoll, load]);
+
+  const brand = data?.club?.primaryColor && /^#[0-9a-fA-F]{6}$/.test(data.club.primaryColor)
+    ? data.club.primaryColor
+    : "#534AB7";
+
+  const addCard = async () => {
+    setBusy(true); setErr(null);
+    const r = await fetch(`/api/reactivate/${token}/payment-setup`, { method: "POST" });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (r.ok && d.url) window.location.href = d.url;
+    else setErr(d.error || "Could not open the secure card page.");
+  };
+
+  const confirm = async () => {
+    setBusy(true); setErr(null);
+    const r = await fetch(`/api/reactivate/${token}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acknowledgeImmediateCharge: ackImmediate }),
+    });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (r.ok) setDone({ chargedNow: !!d.chargedNow, firstChargeDate: d.firstChargeDate ?? null });
+    else if (d.code === "NEEDS_PAYMENT_METHOD") setErr("Add a payment method below first — then confirm.");
+    else setErr(d.error || "The confirmation couldn't be completed. Nothing was finalized.");
+  };
+
+  if (loading) {
+    return <Shell brand={brand}><p className="text-center text-stone-500 text-sm py-10">Loading your membership…</p></Shell>;
+  }
+  if (!data || (data.error && !data.offer)) {
+    return (
+      <Shell brand={brand} club={data?.club}>
+        <div className="text-center py-8">
+          <p className="text-stone-800 font-medium">{data?.error || "This link isn't valid."}</p>
+          {data?.code === "EXPIRED" && (
+            <p className="text-sm text-stone-500 mt-2">Links expire for your security. Contact the club and they&apos;ll send a fresh one.</p>
+          )}
+        </div>
+      </Shell>
+    );
+  }
+  if (data.confirmed || done) {
+    const chargedNow = done?.chargedNow ?? false;
+    return (
+      <Shell brand={brand} club={data.club}>
+        <div className="text-center py-8">
+          <div className="w-14 h-14 mx-auto rounded-full flex items-center justify-center text-2xl text-white mb-4" style={{ background: brand }}>✓</div>
+          <h2 className="text-xl font-semibold text-stone-900">Membership confirmed</h2>
+          <p className="text-sm text-stone-600 mt-2">
+            {done
+              ? chargedNow
+                ? "Your first payment was processed today. A receipt is on its way to your email."
+                : done.firstChargeDate
+                  ? `Nothing was charged today — your first payment runs on ${longDate(done.firstChargeDate)}. A confirmation email is on its way.`
+                  : "You're all set — a confirmation email is on its way."
+              : `This membership was already confirmed${data.confirmedAt ? ` on ${longDate(data.confirmedAt)}` : ""}. You're all set.`}
+          </p>
+          <a href="/member" className="inline-block mt-5 text-sm font-medium text-white rounded-xl px-6 py-3" style={{ background: brand }}>
+            Go to your member portal
+          </a>
+        </div>
+      </Shell>
+    );
+  }
+
+  const offer = data.offer!;
+  const timing = data.chargeTiming!;
+  const isFree = timing.isFree;
+  const needsCard = offer.paymentMode === "CARD" && !data.hasUsableCard;
+  const firstChargeLabel = longDate(offer.firstChargeDate);
+  const btnLabel = isFree
+    ? "Confirm membership"
+    : offer.paymentMode === "OFFLINE"
+      ? "Confirm membership — the club collects payment offline"
+      : timing.immediate
+        ? `Confirm membership — $${offer.price.toFixed(2)} charged today`
+        : `Confirm membership — first payment ${firstChargeLabel}`;
+
+  return (
+    <Shell brand={brand} club={data.club}>
+      <h1 className="text-xl font-semibold text-stone-900">
+        Confirm {data.athlete?.firstName}&apos;s membership
+      </h1>
+      <p className="text-sm text-stone-600 mt-1 mb-4">
+        {data.club?.name} set this up for you — review it and confirm. You already have an account; there&apos;s
+        nothing else to fill out.
+      </p>
+
+      {data.personalNote && (
+        <div className="rounded-xl px-4 py-3 mb-4 bg-stone-50 border-l-4" style={{ borderColor: brand }}>
+          <p className="text-[11px] font-bold uppercase tracking-wide text-stone-500 mb-1">A note from {data.club?.name}</p>
+          <p className="text-sm text-stone-700 whitespace-pre-line">{data.personalNote}</p>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-stone-200 divide-y divide-stone-100 mb-4">
+        <Item label="Athlete" value={`${data.athlete?.firstName} ${data.athlete?.lastName}`} />
+        <Item label="Membership" value={`${offer.planName}${offer.optionLabel ? ` · ${offer.optionLabel}` : ""}`} />
+        <Item label="Price" value={isFree ? "Free" : `$${offer.price.toFixed(2)} ${offer.periodLabel}`} />
+        {offer.startDate && <Item label="Membership start" value={longDate(offer.startDate)!} />}
+        {!isFree && offer.paymentMode === "CARD" && (
+          <Item
+            label="First payment"
+            value={timing.immediate ? "Today, when you confirm" : firstChargeLabel || "—"}
+            highlight={timing.immediate}
+          />
+        )}
+        {!isFree && !timing.immediate && offer.paymentMode === "CARD" && (
+          <Item label="Then recurring" value={offer.periodLabel} />
+        )}
+        {offer.commitmentEndDate && <Item label="Commitment through" value={longDate(offer.commitmentEndDate)!} />}
+        {offer.paymentMode === "CARD" && (
+          <Item
+            label="Payment method"
+            value={
+              data.card
+                ? `${data.card.brand} ···· ${data.card.last4}${data.card.cardholder ? ` (${data.card.cardholder})` : ""}`
+                : needsCard
+                  ? "None on file yet"
+                  : "Saved method on file"
+            }
+          />
+        )}
+        {data.payerName && <Item label="Billed to" value={data.payerName} />}
+      </div>
+
+      {needsCard && (
+        <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 mb-4">
+          <p className="text-sm text-stone-700 mb-2">
+            Add a payment method to continue. You&apos;ll enter it on a secure Stripe page — nothing is charged when you
+            save it.
+          </p>
+          <button disabled={busy} onClick={addCard} className="w-full text-sm font-medium text-white rounded-xl px-4 py-3" style={{ background: brand }}>
+            {busy ? "Opening…" : "Add payment method securely"}
+          </button>
+          {search.get("card_saved") && !data.hasUsableCard && (
+            <p className="text-xs text-stone-500 mt-2">Waiting for your saved card to register… this takes a few seconds.</p>
+          )}
+        </div>
+      )}
+
+      {!isFree && offer.paymentMode === "CARD" && timing.immediate && (
+        <label className="flex items-start gap-2 text-sm text-stone-700 mb-4 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3">
+          <input type="checkbox" checked={ackImmediate} onChange={(e) => setAckImmediate(e.target.checked)} className="mt-0.5" />
+          <span>
+            I understand <strong>${offer.price.toFixed(2)} is charged today</strong> when I confirm, and the membership
+            then renews {offer.periodLabel}.
+          </span>
+        </label>
+      )}
+
+      {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
+
+      <button
+        disabled={busy || needsCard || (timing.immediate && !isFree && offer.paymentMode === "CARD" && !ackImmediate)}
+        onClick={confirm}
+        className="w-full text-[15px] font-semibold text-white rounded-xl px-4 py-3.5 disabled:opacity-50"
+        style={{ background: brand }}
+      >
+        {busy ? "Confirming…" : btnLabel}
+      </button>
+
+      <p className="text-xs text-stone-500 mt-3 leading-relaxed">{data.terms?.authorization}</p>
+      <p className="text-xs text-stone-400 mt-2 leading-relaxed">
+        This secure link expires {longDate(data.tokenExpires)}. If anything looks wrong, don&apos;t confirm —
+        contact {data.club?.name}{data.club?.contactEmail ? ` at ${data.club.contactEmail}` : ""} and they&apos;ll fix it first.
+      </p>
+    </Shell>
+  );
+}
+
+function Item({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3 px-4 py-2.5">
+      <span className="text-xs text-stone-500 pt-0.5 whitespace-nowrap">{label}</span>
+      <span className={`text-sm text-right font-medium ${highlight ? "text-orange-600" : "text-stone-900"}`}>{value}</span>
+    </div>
+  );
+}
+
+function Shell({ brand, club, children }: { brand: string; club?: Payload["club"]; children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-stone-100 py-6 px-4">
+      <div className="max-w-md mx-auto">
+        <div className="rounded-2xl overflow-hidden border border-stone-200 bg-white shadow-sm">
+          <div className="px-5 py-5 text-center" style={{ background: brand }}>
+            {club?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={club.logoUrl} alt={club?.name || ""} className="w-14 h-14 rounded-2xl object-cover mx-auto mb-2" />
+            ) : (
+              <div className="w-14 h-14 rounded-2xl bg-white/20 text-white text-xl font-bold flex items-center justify-center mx-auto mb-2">
+                {(club?.name?.[0] || "A").toUpperCase()}
+              </div>
+            )}
+            <p className="text-white/95 text-sm font-semibold">{club?.name || "AthletixOS"}</p>
+          </div>
+          <div className="p-5">{children}</div>
+        </div>
+        <p className="text-center text-[11px] text-stone-400 mt-3">Secure membership confirmation · powered by AthletixOS</p>
+      </div>
+    </div>
+  );
+}
