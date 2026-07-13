@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
 
 // POST /api/reactivate/[token]/payment-setup — the no-card path on the public
@@ -9,7 +9,7 @@ import { writeBillingAudit } from "@/lib/billingAudit";
 // connected account (saves a card/wallet, charges NOTHING) and returns its
 // URL. Uses the existing `saveCardMemberId` webhook capture, so the saved
 // method lands exactly where confirm will look for it.
-export async function POST(_req: Request, context: { params: Promise<{ token: string }> }) {
+export async function POST(req: Request, context: { params: Promise<{ token: string }> }) {
   const { token } = await context.params;
   if (!token || token.length < 20) return NextResponse.json({ error: "Invalid link" }, { status: 400 });
 
@@ -55,7 +55,7 @@ export async function POST(_req: Request, context: { params: Promise<{ token: st
     });
   }
 
-  const baseUrl = getAppBaseUrl();
+  const baseUrl = baseUrlFromRequest(req);
   const checkout = await stripe.checkout.sessions.create(
     {
       mode: "setup",

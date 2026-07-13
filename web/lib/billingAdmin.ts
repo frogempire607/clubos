@@ -108,6 +108,15 @@ export function deriveReadiness(input: ReadinessInput): { state: Readiness; reas
   if (group === "FUTURE_FOLLOW_UP" || action === "FUTURE_FOLLOW_UP") {
     return { state: "HOLD", reasons: ["Parked for future follow-up"] };
   }
+  // An OPEN offer outranks a completed migration: the owner deliberately
+  // re-opened this member's billing, so "already done, leave alone" would be
+  // misleading while the client's confirmation is pending.
+  if (input.reactivationStatus === "SENT") {
+    return { state: "WAITING_CLIENT", reasons: ["Reactivation email sent — awaiting client confirmation"] };
+  }
+  if (input.reactivationStatus === "DRAFT") {
+    return { state: "WAITING_OWNER", reasons: ["Reactivation offer drafted — preview and send it"] };
+  }
   if (input.migrationStatus === "COMPLETED") {
     return { state: "LEAVE_ALONE", reasons: ["Migration already completed"] };
   }
@@ -195,6 +204,120 @@ export function deriveBillingMode(input: BillingModeInput): BillingMode {
   if (input.migrationStatus === "IMPORTED" || input.migrationStatus === "NEEDS_REVIEW") {
     return "INCOMPLETE";
   }
+  return "NONE";
+}
+
+// ── Authoritative billing state ───────────────────────────────────────────
+// ONE state per member, with strict precedence, so the page can never show
+// "Free" and "will be charged $5" side by side without explanation. This is
+// about what IS true right now — readiness (above) is about what's blocking
+// the migration plan.
+
+export type BillingState =
+  | "ACTIVE_STRIPE" // live Stripe subscription, billing normally
+  | "SCHEDULED" // Stripe subscription exists, first charge on a future date
+  | "PENDING_APPROVAL" // client finished setup; staff approval starts billing
+  | "OFFER_SENT" // reactivation offer sent; waiting for client confirmation
+  | "OFFER_DRAFT" // offer drafted, not sent yet
+  | "DRAFT_CONFIG" // owner configured paid billing but nothing is scheduled/sent
+  | "MANUAL_OFFLINE" // active manual/offline membership (club collects payment)
+  | "FREE" // genuinely $0 membership
+  | "LEAVE_ALONE" // completed/settled, nothing open
+  | "INCOMPLETE" // imported, nothing configured
+  | "NONE";
+
+export const BILLING_STATE_META: Record<BillingState, { label: string; explanation: string }> = {
+  ACTIVE_STRIPE: {
+    label: "Active Stripe subscription",
+    explanation: "Billing is live in Stripe and renews automatically.",
+  },
+  SCHEDULED: {
+    label: "Scheduled for activation",
+    explanation: "A Stripe subscription exists with the first charge anchored to a future date. Nothing has been charged yet.",
+  },
+  PENDING_APPROVAL: {
+    label: "Waiting for staff approval",
+    explanation: "The client finished setup. Billing starts only when an authorized user approves.",
+  },
+  OFFER_SENT: {
+    label: "Waiting for client confirmation",
+    explanation: "A reactivation offer was sent. Billing starts only when the client reviews and confirms it — nothing is charged until then.",
+  },
+  OFFER_DRAFT: {
+    label: "Draft offer — not sent",
+    explanation: "A reactivation offer is drafted. Preview and send it; nothing happens until the client confirms.",
+  },
+  DRAFT_CONFIG: {
+    label: "Draft billing configuration",
+    explanation: "Paid billing is configured here but nothing is scheduled, sent, or charged. It takes effect only when the client confirms a reactivation offer or an authorized user explicitly activates the membership.",
+  },
+  MANUAL_OFFLINE: {
+    label: "Manual / offline billing",
+    explanation: "The club collects payment outside Stripe. Nothing charges automatically.",
+  },
+  FREE: {
+    label: "Free membership",
+    explanation: "A genuinely $0 membership — there is nothing to charge.",
+  },
+  LEAVE_ALONE: {
+    label: "Settled — leave alone",
+    explanation: "This member's billing is resolved and nothing is pending.",
+  },
+  INCOMPLETE: {
+    label: "Incomplete",
+    explanation: "Imported from the previous software; billing hasn't been configured yet.",
+  },
+  NONE: {
+    label: "No billing",
+    explanation: "No membership billing exists for this member.",
+  },
+};
+
+export type BillingStateInput = {
+  /** Best current subscription (active > pending > past_due), if any. */
+  sub: {
+    billingType: string;
+    status: string;
+    stripeStatus?: string | null;
+    price: number;
+    hasStripe: boolean;
+  } | null;
+  /** Resolved CURRENT configured price (plan/option/override precedence). */
+  configuredPrice: number | null;
+  migrationStatus?: string | null;
+  approvalStatus?: string | null;
+  /** Latest open reactivation offer status (DRAFT | SENT), if any. */
+  openOfferStatus?: string | null;
+};
+
+export function deriveBillingState(input: BillingStateInput): BillingState {
+  const sub = input.sub;
+  // 1. A live Stripe subscription is the strongest fact there is.
+  if (sub?.hasStripe && (sub.status === "active" || sub.status === "past_due" || sub.status === "pending")) {
+    if (sub.stripeStatus === "trialing") return "SCHEDULED";
+    if (!sub.stripeStatus || ["active", "past_due", "unpaid"].includes(sub.stripeStatus)) return "ACTIVE_STRIPE";
+    if (sub.stripeStatus === "canceled") {
+      /* fall through to the non-Stripe facts below */
+    } else {
+      return "ACTIVE_STRIPE";
+    }
+  }
+  // 2. Anything the owner has put in motion outranks historical settledness.
+  if (input.openOfferStatus === "SENT") return "OFFER_SENT";
+  if (input.openOfferStatus === "DRAFT") return "OFFER_DRAFT";
+  if (input.approvalStatus === "PENDING_APPROVAL") return "PENDING_APPROVAL";
+  // 3. A PAID configuration on top of a free/absent subscription is a draft —
+  //    never show "Free" while the owner has priced this member.
+  const paidDraft = (input.configuredPrice ?? 0) > 0 && (!sub || sub.price <= 0 || !["active", "past_due"].includes(sub.status));
+  if (paidDraft) return "DRAFT_CONFIG";
+  // 4. The standing subscription, if any.
+  if (sub && (sub.status === "active" || sub.status === "past_due")) {
+    if (sub.price <= 0) return "FREE";
+    return "MANUAL_OFFLINE";
+  }
+  if (input.migrationStatus === "COMPLETED") return "LEAVE_ALONE";
+  if (input.migrationStatus === "INVITED" || input.migrationStatus === "ACTIVATED") return "PENDING_APPROVAL";
+  if (input.migrationStatus === "IMPORTED" || input.migrationStatus === "NEEDS_REVIEW") return "INCOMPLETE";
   return "NONE";
 }
 

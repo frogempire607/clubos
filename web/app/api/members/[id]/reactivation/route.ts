@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { buildOffer, createReactivation, reactivationUrl } from "@/lib/reactivation";
 import { chargeTiming } from "@/lib/billingAdmin";
@@ -17,7 +17,7 @@ import { chargeTiming } from "@/lib/billingAdmin";
 //        date and the optional personal note. A past date is rejected unless
 //        the owner explicitly acknowledges the immediate charge.
 
-export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -35,7 +35,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     orderBy: { createdAt: "desc" },
     take: 10,
   });
-  const baseUrl = getAppBaseUrl();
+  const baseUrl = baseUrlFromRequest(req);
   return NextResponse.json({
     reactivations: rows.map((r) => ({
       id: r.id,
@@ -179,7 +179,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       offer: reactivation.offer,
       personalNote: reactivation.personalNote,
       tokenExpires: reactivation.tokenExpires,
-      url: reactivationUrl(getAppBaseUrl(), reactivation.token),
+      url: reactivationUrl(baseUrlFromRequest(req), reactivation.token),
     },
   });
 }

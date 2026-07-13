@@ -795,9 +795,9 @@ export default function MigrationPage() {
                     </td>
                     <td className="px-3 py-3 text-text-muted text-xs">
                       {r.migrationFinalBillingDate
-                        ? new Date(r.migrationFinalBillingDate).toLocaleDateString()
+                        ? new Date(r.migrationFinalBillingDate).toLocaleDateString("en-US", { timeZone: "UTC" })
                         : r.billingAnchorDate
-                          ? <span title="Imported anchor — no owner-approved final date yet">{new Date(r.billingAnchorDate).toLocaleDateString()}*</span>
+                          ? <span title="Imported anchor — no owner-approved final date yet">{new Date(r.billingAnchorDate).toLocaleDateString("en-US", { timeZone: "UTC" })}*</span>
                           : "—"}
                     </td>
                     <td className="px-3 py-3">

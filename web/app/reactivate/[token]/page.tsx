@@ -32,8 +32,10 @@ type Payload = {
   terms?: { authorization: string };
 };
 
+// Billing dates are date-only values pinned to 00:00 UTC — format in UTC so
+// the page shows the same calendar day the owner approved.
 const longDate = (s: string | null | undefined) =>
-  s ? new Date(s).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : null;
+  s ? new Date(s).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : null;
 
 export default function ReactivatePage() {
   const params = useParams<{ token: string }>();

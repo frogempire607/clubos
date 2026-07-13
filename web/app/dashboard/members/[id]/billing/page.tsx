@@ -37,8 +37,10 @@ type Data = {
   };
   guardians: { userId: string; name: string; email: string; relationship: string | null; isPayer: boolean }[];
   payer: { userId: string; name: string; email: string } | null;
+  billingState: { key: string; label: string; explanation: string };
+  hasPendingCharge: boolean;
+  anchorMismatch: boolean;
   billing: {
-    mode: string; modeLabel: string;
     planId: string | null; planName: string; optionLabel: string | null;
     price: number; period: string; periodLabel: string;
     priceOverride: number | null; discountNote: string | null;
@@ -70,10 +72,15 @@ type Data = {
     requestedBillingDate: string | null; requestedBillingNote: string | null; activationNote: string | null;
   };
   reactivation: {
-    id: string; status: string; offerVersion: number; offer: Record<string, unknown>;
+    id: string; status: string; offerVersion: number; offer: {
+      planName?: string; optionLabel?: string | null; price?: number; billingPeriod?: string;
+      startDate?: string | null; firstChargeDate?: string | null; commitmentEndDate?: string | null;
+      paymentMode?: string; payerUserId?: string | null;
+    };
     personalNote: string | null; emailSentAt: string | null; emailSendCount: number;
     sentToEmail: string | null; viewedAt: string | null; confirmedAt: string | null;
-    consent: Record<string, unknown> | null; tokenExpires: string; url: string | null;
+    consent: Record<string, unknown> | null; tokenExpires: string; createdAt: string; updatedAt: string;
+    open: boolean; sync: { matches: boolean; changed: string[] } | null; url: string | null;
   } | null;
   readiness: { state: string; label: string; reasons: string[] };
   lastChangedBy: { name: string; at: string } | null;
@@ -83,6 +90,11 @@ type Data = {
 
 const fmtDate = (s: string | null | undefined) =>
   s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+// Billing DATES (anchor / final / commitment / start) are date-only values
+// pinned to 00:00 UTC — render them in UTC or they show as the previous day
+// in US timezones and appear to contradict the date inputs.
+const fmtDateUTC = (s: string | null | undefined) =>
+  s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—";
 const fmtMoney = (n: number) => `$${n.toFixed(2)}`;
 const dateInput = (s: string | null | undefined) => (s ? new Date(s).toISOString().slice(0, 10) : "");
 
@@ -176,10 +188,12 @@ export default function MemberBillingPage() {
             {m.firstName} {m.lastName} <span className="text-text-muted font-normal">· Billing</span>
           </h1>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-charcoal text-white" title={data.billingState.explanation}>
+              {data.billingState.label}
+            </span>
             <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: rs.bg, color: rs.fg }} title={data.readiness.reasons.join("; ") || undefined}>
               {data.readiness.label}
             </span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">{b.modeLabel}</span>
             {m.isMinor && <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Minor</span>}
             {data.lastChangedBy && (
               <span className="text-xs text-text-muted">
@@ -187,8 +201,9 @@ export default function MemberBillingPage() {
               </span>
             )}
           </div>
+          <p className="text-xs text-text-muted mt-1">{data.billingState.explanation}</p>
           {data.readiness.reasons.length > 0 && (
-            <p className="text-xs text-text-muted mt-1">{data.readiness.reasons.join(" · ")}</p>
+            <p className="text-xs text-text-muted mt-0.5">{data.readiness.reasons.join(" · ")}</p>
           )}
         </div>
         <button onClick={() => load()} className="text-xs inline-flex items-center gap-1 text-text-muted hover:text-text-primary border border-app-border rounded-lg px-2.5 py-1.5">
@@ -214,13 +229,19 @@ export default function MemberBillingPage() {
           {b.priceOverride != null && (
             <Row label="Owner price override">{fmtMoney(b.priceOverride)}{b.discountNote ? ` — ${b.discountNote}` : ""}</Row>
           )}
-          <Row label="Membership start">{fmtDate(b.startDate)}</Row>
-          <Row label="Billing anchor">{fmtDate(b.billingAnchorDate)}</Row>
+          <Row label="Membership start">{fmtDateUTC(b.startDate)}</Row>
+          <Row label="Imported billing anchor">{fmtDateUTC(b.billingAnchorDate)}</Row>
           <Row label="Owner-approved final billing date">
-            {b.finalBillingDate ? fmtDate(b.finalBillingDate) : <span className="text-orange-accent font-medium">Not set</span>}
+            {b.finalBillingDate ? fmtDateUTC(b.finalBillingDate) : <span className="text-orange-accent font-medium">Not set</span>}
           </Row>
-          <Row label="Next billing">{fmtDate(b.nextBillingDate)}</Row>
-          {b.commitmentEndDate && <Row label="Commitment through">{fmtDate(b.commitmentEndDate)}</Row>}
+          {data.anchorMismatch && (
+            <p className="text-xs text-orange-accent mt-1">
+              The final billing date differs from the imported anchor — the final date is what billing
+              flows use when they start.
+            </p>
+          )}
+          <Row label="Next billing">{fmtDateUTC(b.nextBillingDate)}</Row>
+          {b.commitmentEndDate && <Row label="Commitment through">{fmtDateUTC(b.commitmentEndDate)}</Row>}
           {b.finalPeriodPaid && <Row label="Final period">Already paid — non-renewing</Row>}
           {b.lastPayment && <Row label="Last successful payment">{fmtMoney(b.lastPayment.amount)} on {fmtDate(b.lastPayment.at)}</Row>}
           {b.stripeStatus && <Row label="Stripe subscription state">{b.stripeStatus}</Row>}
@@ -233,7 +254,12 @@ export default function MemberBillingPage() {
           <p className="text-xs mt-2 pt-2 border-t border-app-border text-text-muted">
             If billing started now it {b.chargeTiming.immediate
               ? <strong className="text-orange-accent">would charge immediately</strong>
-              : <>would first charge on <strong className="text-text-primary">{fmtDate(b.finalBillingDate || b.billingAnchorDate)}</strong></>}.
+              : <>would first charge on <strong className="text-text-primary">{fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}</strong></>}.
+          </p>
+          <p className="text-xs mt-2 text-text-muted">
+            Saving changes here does <strong className="text-text-primary">not</strong> charge the client.
+            They take effect only when the client confirms the reactivation offer or an authorized user
+            explicitly activates the membership.
           </p>
         </Card>
 
@@ -285,7 +311,7 @@ export default function MemberBillingPage() {
           ) : (
             <div className="space-y-2">
               {data.paymentMethods.map((pm) => (
-                <PaymentMethodRow key={pm.ref} pm={pm} memberId={id} onChanged={() => { setMsg(null); load(); }} onMsg={setMsg} />
+                <PaymentMethodRow key={pm.ref} pm={pm} memberId={id} hasPendingCharge={data.hasPendingCharge} onChanged={() => { setMsg(null); load(); }} onMsg={setMsg} />
               ))}
             </div>
           )}
@@ -304,9 +330,42 @@ export default function MemberBillingPage() {
               <Row label="Status" strong>
                 {data.reactivation.status}{data.reactivation.status === "SENT" ? ` — to ${data.reactivation.sentToEmail} (${data.reactivation.emailSendCount}×)` : ""}
               </Row>
+              <Row label="Offer version">v{data.reactivation.offerVersion}</Row>
+              <Row label="Last updated">{fmtDate(data.reactivation.updatedAt)}</Row>
               {data.reactivation.emailSentAt && <Row label="Last sent">{fmtDate(data.reactivation.emailSentAt)}</Row>}
               {data.reactivation.viewedAt && <Row label="First viewed">{fmtDate(data.reactivation.viewedAt)}</Row>}
               {data.reactivation.confirmedAt && <Row label="Confirmed">{fmtDate(data.reactivation.confirmedAt)}</Row>}
+
+              {/* The offer is an immutable snapshot — show EXACTLY what the
+                  client's link presents, independent of later billing edits. */}
+              <div className="mt-2 pt-2 border-t border-app-border">
+                <p className="text-xs font-semibold text-text-primary mb-1">What this offer contains (frozen at send time)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+                  <Row label="Plan">{data.reactivation.offer.planName || "—"}{data.reactivation.offer.optionLabel ? ` · ${data.reactivation.offer.optionLabel}` : ""}</Row>
+                  <Row label="Price">
+                    {(data.reactivation.offer.price ?? 0) <= 0 ? "Free" : `${fmtMoney(data.reactivation.offer.price!)} ${(data.reactivation.offer.billingPeriod || "").toLowerCase()}`}
+                  </Row>
+                  <Row label="Start">{fmtDateUTC(data.reactivation.offer.startDate)}</Row>
+                  <Row label="First payment">{data.reactivation.offer.firstChargeDate ? fmtDateUTC(data.reactivation.offer.firstChargeDate) : "No charge"}</Row>
+                  <Row label="Commitment through">{fmtDateUTC(data.reactivation.offer.commitmentEndDate)}</Row>
+                  <Row label="Payment">{data.reactivation.offer.paymentMode === "CARD" ? "Saved card at confirmation" : data.reactivation.offer.paymentMode === "OFFLINE" ? "Offline / club collects" : "Free — none"}</Row>
+                </div>
+              </div>
+
+              {data.reactivation.open && data.reactivation.sync && (
+                data.reactivation.sync.matches ? (
+                  <p className="text-xs mt-2 px-2.5 py-1.5 rounded-lg bg-lime-accent/20 text-text-primary">
+                    ✓ Matches the current billing setup — the client will confirm exactly what this page shows.
+                  </p>
+                ) : (
+                  <div className="text-xs mt-2 px-2.5 py-2 rounded-lg border border-orange-accent/50 bg-orange-accent/10 text-text-primary">
+                    <p className="font-semibold">✗ Out of date — billing changed after this offer was created</p>
+                    <p className="mt-0.5 text-text-muted">Changed: {data.reactivation.sync.changed.join(", ")}. The client&apos;s
+                    link is now <strong className="text-text-primary">blocked from confirming</strong>. Regenerate the offer
+                    (new version + fresh link), preview, and resend.</p>
+                  </div>
+                )
+              )}
               {data.reactivation.consent != null && (
                 <div className="mt-2 pt-2 border-t border-app-border">
                   <p className="text-xs font-semibold text-text-primary mb-1">Consent record</p>
@@ -415,7 +474,7 @@ function PMButton({ id, intent, label, onMsg }: { id: string; intent: "ADD" | "R
   );
 }
 
-function PaymentMethodRow({ pm, memberId, onChanged, onMsg }: { pm: PaymentMethod; memberId: string; onChanged: () => void; onMsg: (s: string) => void }) {
+function PaymentMethodRow({ pm, memberId, hasPendingCharge, onChanged, onMsg }: { pm: PaymentMethod; memberId: string; hasPendingCharge: boolean; onChanged: () => void; onMsg: (s: string) => void }) {
   const [busy, setBusy] = useState(false);
   const label = pm.type === "link"
     ? `Link wallet${pm.linkEmail ? ` (${pm.linkEmail})` : ""}`
@@ -454,7 +513,11 @@ function PaymentMethodRow({ pm, memberId, onChanged, onMsg }: { pm: PaymentMetho
         <div className="text-xs text-text-muted mt-0.5 flex flex-wrap gap-x-2">
           {pm.customerName || pm.customerEmail ? <span>Owner: {pm.customerName || pm.customerEmail}</span> : null}
           {pm.isDefault && <span className="text-brand font-medium">Customer default</span>}
-          {pm.isCapturedForActivation && <span className="text-brand font-medium">Will be charged on activation</span>}
+          {pm.isCapturedForActivation && (
+            <span className="text-brand font-medium">
+              {hasPendingCharge ? "Will be charged when the pending activation completes" : "On file for future billing"}
+            </span>
+          )}
           {pm.backsLiveSubscription && <span className="text-orange-accent font-medium">Backs a live subscription</span>}
           {pm.customerRole === "LEGACY" && <span>Legacy customer</span>}
         </div>
@@ -511,7 +574,9 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
   return (
     <Card title="Migration triage" className="lg:col-span-2">
       <p className="text-xs text-text-muted mb-3">
-        Planning only — classifying a client never charges anyone or touches Stripe.
+        Planning only — classifying a client never charges anyone or touches Stripe. Saving these changes
+        does not charge the client; billing changes take effect only when the client confirms the
+        reactivation offer or an authorized user explicitly activates the membership.
         {mig.migrationStatus ? ` Migration status: ${mig.migrationStatus}${mig.approvalStatus ? ` · ${mig.approvalStatus}` : ""}.` : ""}
         {mig.activationEmailSentAt ? ` Activation email sent ${mig.activationEmailSendCount}× (last ${fmtDate(mig.activationEmailSentAt)}).` : " No activation email sent yet."}
       </p>
@@ -642,7 +707,12 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => !busy && onClose()}>
       <div className="bg-surface w-full sm:max-w-lg rounded-t-2xl sm:rounded-xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-text-primary mb-3">Edit billing setup</h3>
+        <h3 className="text-base font-semibold text-text-primary mb-1">Edit billing setup</h3>
+        <p className="text-xs text-text-muted mb-3">
+          Saving these changes does not charge the client. They take effect only when the client confirms
+          the reactivation offer or an authorized user explicitly activates the membership. If an offer is
+          already out, changing these fields marks it out of date — you&apos;ll regenerate and resend.
+        </p>
 
         {!diff ? (
           <div className="space-y-3">

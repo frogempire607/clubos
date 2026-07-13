@@ -161,9 +161,51 @@ export function reactivationUrl(baseUrl: string, token: string): string {
   return `${baseUrl}/reactivate/${token}`;
 }
 
+// ── Offer ↔ current-setup synchronization ──────────────────────────────────
+// An offer is an IMMUTABLE snapshot: editing billing afterwards never mutates
+// what a sent token represents. Instead, staleness is COMPUTED — the current
+// setup is rebuilt and compared field-by-field. An out-of-date offer is shown
+// as such to the owner and is BLOCKED at confirmation; the owner regenerates
+// (new version, new token) and resends.
+
+const dateOnly = (iso: string | null) => (iso ? iso.slice(0, 10) : null);
+
+/** Field-by-field comparison of a stored offer against a freshly-built one. */
+export function diffOffer(stored: ReactivationOffer, current: ReactivationOffer): string[] {
+  const changed: string[] = [];
+  if (stored.planName !== current.planName) changed.push("plan");
+  if ((stored.optionLabel ?? null) !== (current.optionLabel ?? null)) changed.push("purchase option");
+  if (stored.price !== current.price) changed.push("price");
+  if (stored.billingPeriod !== current.billingPeriod) changed.push("billing frequency");
+  if (stored.paymentMode !== current.paymentMode) changed.push("payment mode");
+  if (dateOnly(stored.firstChargeDate) !== dateOnly(current.firstChargeDate)) changed.push("first billing date");
+  if (dateOnly(stored.commitmentEndDate) !== dateOnly(current.commitmentEndDate)) changed.push("commitment end date");
+  if ((stored.payerUserId ?? null) !== (current.payerUserId ?? null)) changed.push("responsible payer");
+  return changed;
+}
+
+/**
+ * Rebuild the offer from the member's CURRENT billing setup and compare it to
+ * a stored offer. The current first-charge date is the member's saved
+ * `migrationFinalBillingDate ?? billingAnchorDate` (what a fresh offer would
+ * use) — so an owner date edit after sending marks the offer out of date.
+ */
+export async function compareOfferToCurrent(
+  member: OfferMember & { migrationFinalBillingDate: Date | null; billingAnchorDate: Date | null },
+  club: { stripeAccountId: string | null; stripeChargesEnabled: boolean },
+  stored: ReactivationOffer,
+): Promise<{ matches: boolean; changed: string[]; current: ReactivationOffer }> {
+  const currentFirstCharge = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
+  const { offer: current } = await buildOffer(member, club, currentFirstCharge);
+  const changed = diffOffer(stored, current);
+  return { matches: changed.length === 0, changed, current };
+}
+
+// Billing dates are date-only 00:00-UTC values — format in UTC so the email
+// names the same calendar day the owner approved.
 const longDate = (iso: string | null) =>
   iso
-    ? new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    ? new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
     : null;
 
 /**
@@ -224,7 +266,7 @@ export function buildReactivationEmailParams(args: {
  * payer name. Used by BOTH the send route and the owner preview so they can
  * never drift apart. Returns an error string on any precondition failure.
  */
-export async function loadReactivationEmailContext(memberId: string, clubId: string) {
+export async function loadReactivationEmailContext(memberId: string, clubId: string, baseUrl?: string) {
   const { resolveCardSnapshot, prettyBrand } = await import("@/lib/memberCard");
   const { publicClubLogoUrl } = await import("@/lib/clubLogo");
   const { getAppBaseUrl } = await import("@/lib/baseUrl");
@@ -281,7 +323,9 @@ export async function loadReactivationEmailContext(memberId: string, clubId: str
     clubLogoPublicUrl: publicClubLogoUrl(member.club.id, member.club.logoUrl),
     cardSummary,
     payerName,
-    baseUrl: getAppBaseUrl(),
+    // Caller passes the request-derived origin so links in the email point
+    // at the deployment the owner is actually working on (preview or prod).
+    baseUrl: baseUrl || getAppBaseUrl(),
   });
   if (!params) return { error: "The offer snapshot is unreadable — regenerate the offer." as const };
 

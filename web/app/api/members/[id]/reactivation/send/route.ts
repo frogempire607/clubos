@@ -6,12 +6,13 @@ import { requirePermission } from "@/lib/apiGuard";
 import { sendMembershipReactivationEmail, smtpMissingVars } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { loadReactivationEmailContext } from "@/lib/reactivation";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 
 // POST /api/members/[id]/reactivation/send  (billing:full)
 // Send (or resend) the standard AthletixOS reactivation email for the
 // member's open offer. What goes out is exactly what the preview endpoint
 // rendered — same context loader. Sending never charges anything.
-export async function POST(_req: Request, context: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -26,7 +27,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
     );
   }
 
-  const ctx = await loadReactivationEmailContext(id, session.user.clubId);
+  const ctx = await loadReactivationEmailContext(id, session.user.clubId, baseUrlFromRequest(req));
   if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: 409 });
 
   try {

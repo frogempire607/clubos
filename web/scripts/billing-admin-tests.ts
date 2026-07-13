@@ -7,12 +7,15 @@
 import {
   deriveReadiness,
   deriveBillingMode,
+  deriveBillingState,
   chargeTiming,
   resolveOfferPricing,
   canRemovePaymentMethod,
   pmRef,
   prettyPeriod,
 } from "../lib/billingAdmin";
+import { diffOffer, type ReactivationOffer } from "../lib/reactivation";
+import { baseUrlFromRequest, getAppBaseUrl } from "../lib/baseUrl";
 import { PERMISSION_CATALOG, DEFAULT_PERMISSIONS, resolvePermissions, hasPermission } from "../lib/permissions";
 import { parseOffer } from "../lib/reactivation";
 
@@ -64,6 +67,69 @@ check("sent reactivation → waiting on client",
   deriveReadiness({ ...base, reactivationStatus: "SENT" }).state === "WAITING_CLIENT");
 check("completed migration → leave alone",
   deriveReadiness({ ...base, migrationStatus: "COMPLETED" }).state === "LEAVE_ALONE");
+
+check("SENT offer outranks completed migration (John Doe demo case)",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", reactivationStatus: "SENT" }).state === "WAITING_CLIENT");
+check("DRAFT offer waits on owner to send",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", reactivationStatus: "DRAFT" }).state === "WAITING_OWNER");
+
+// ── Authoritative billing state ────────────────────────────────────────────
+console.log("\nderiveBillingState:");
+const freeSub = { billingType: "MANUAL", status: "active", stripeStatus: null, price: 0, hasStripe: false };
+check("live Stripe sub → ACTIVE_STRIPE",
+  deriveBillingState({ sub: { billingType: "RECURRING", status: "active", stripeStatus: "active", price: 110, hasStripe: true }, configuredPrice: 110 }) === "ACTIVE_STRIPE");
+check("trialing Stripe sub → SCHEDULED (first charge on a future date)",
+  deriveBillingState({ sub: { billingType: "RECURRING", status: "active", stripeStatus: "trialing", price: 110, hasStripe: true }, configuredPrice: 110 }) === "SCHEDULED");
+check("SENT offer beats free sub + completed migration (never 'Free' + 'leave alone' while an offer is out)",
+  deriveBillingState({ sub: freeSub, configuredPrice: 5, migrationStatus: "COMPLETED", approvalStatus: "APPROVED", openOfferStatus: "SENT" }) === "OFFER_SENT");
+check("DRAFT offer → OFFER_DRAFT",
+  deriveBillingState({ sub: freeSub, configuredPrice: 5, migrationStatus: "COMPLETED", openOfferStatus: "DRAFT" }) === "OFFER_DRAFT");
+check("pending approval → PENDING_APPROVAL",
+  deriveBillingState({ sub: null, configuredPrice: 110, approvalStatus: "PENDING_APPROVAL" }) === "PENDING_APPROVAL");
+check("paid override over a free sub with no offer → DRAFT_CONFIG, never FREE",
+  deriveBillingState({ sub: freeSub, configuredPrice: 5, migrationStatus: "COMPLETED" }) === "DRAFT_CONFIG");
+check("genuinely $0 stays FREE",
+  deriveBillingState({ sub: freeSub, configuredPrice: 0, migrationStatus: "COMPLETED" }) === "FREE");
+check("paid manual sub → MANUAL_OFFLINE",
+  deriveBillingState({ sub: { billingType: "MANUAL", status: "active", stripeStatus: null, price: 190, hasStripe: false }, configuredPrice: 190 }) === "MANUAL_OFFLINE");
+check("completed with nothing open → LEAVE_ALONE",
+  deriveBillingState({ sub: null, configuredPrice: null, migrationStatus: "COMPLETED" }) === "LEAVE_ALONE");
+check("imported, unconfigured → INCOMPLETE",
+  deriveBillingState({ sub: null, configuredPrice: null, migrationStatus: "IMPORTED" }) === "INCOMPLETE");
+
+// ── Offer immutability / staleness diff ────────────────────────────────────
+console.log("\ndiffOffer:");
+const offerA: ReactivationOffer = {
+  membershipId: "m1", planName: "Jr Frogs", optionLabel: "Monthly", price: 110, billingPeriod: "MONTHLY",
+  startDate: "2026-03-11T00:00:00.000Z", firstChargeDate: "2026-07-19T00:00:00.000Z",
+  commitmentEndDate: null, paymentMode: "CARD", payerUserId: null,
+};
+check("identical offers match", diffOffer(offerA, { ...offerA }).length === 0);
+check("price edit marks it out of date", diffOffer(offerA, { ...offerA, price: 120 }).join() === "price");
+check("date edit marks it out of date (day-level)",
+  diffOffer(offerA, { ...offerA, firstChargeDate: "2026-07-20T00:00:00.000Z" }).join() === "first billing date");
+check("time-of-day within the same date does NOT invalidate",
+  diffOffer(offerA, { ...offerA, firstChargeDate: "2026-07-19T18:30:00.000Z" }).length === 0);
+check("plan + frequency changes are both reported",
+  diffOffer(offerA, { ...offerA, planName: "MS/HS", billingPeriod: "QUARTERLY" }).length === 2);
+check("payer change is reported", diffOffer(offerA, { ...offerA, payerUserId: "u1" }).join() === "responsible payer");
+check("start date alone never invalidates (non-deterministic when unset)",
+  diffOffer(offerA, { ...offerA, startDate: "2026-04-01T00:00:00.000Z" }).length === 0);
+
+// ── Request-derived base URLs ───────────────────────────────────────────────
+console.log("\nbaseUrlFromRequest:");
+const mkReq = (headers: Record<string, string>) => new Request("http://internal/", { headers });
+check("netlify preview host is trusted (fixes the 404 return/link bug)",
+  baseUrlFromRequest(mkReq({ "x-forwarded-host": "deploy-preview-6--athletix-os.netlify.app", "x-forwarded-proto": "https" }))
+    === "https://deploy-preview-6--athletix-os.netlify.app");
+check("plain Host header works too",
+  baseUrlFromRequest(mkReq({ host: "branch--athletix-os.netlify.app" })) === "https://branch--athletix-os.netlify.app");
+check("unknown host falls back to configured base (host-header-injection safe)",
+  !baseUrlFromRequest(mkReq({ "x-forwarded-host": "evil.example.com", "x-forwarded-proto": "https" })).includes("evil"));
+check("no headers falls back to configured base",
+  baseUrlFromRequest(mkReq({})) === getAppBaseUrl());
+check("localhost stays http",
+  baseUrlFromRequest(mkReq({ host: "127.0.0.1:3000" })) === "http://127.0.0.1:3000");
 
 // ── Billing mode ────────────────────────────────────────────────────────────
 console.log("\nderiveBillingMode:");

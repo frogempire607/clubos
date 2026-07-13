@@ -6,21 +6,21 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 import {
-  deriveBillingMode,
+  deriveBillingState,
   deriveReadiness,
   chargeTiming,
   resolveOfferPricing,
   pmRef,
   prettyPeriod,
-  BILLING_MODE_LABELS,
+  BILLING_STATE_META,
   READINESS_LABELS,
   MIGRATION_GROUPS,
   FINAL_ACTIONS,
 } from "@/lib/billingAdmin";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { reactivationUrl } from "@/lib/reactivation";
+import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 
 export const dynamic = "force-dynamic";
 
@@ -104,7 +104,7 @@ async function listCustomerPaymentMethods(
   return { methods, liveSubCount: liveSubs.length };
 }
 
-export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -231,39 +231,77 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     if (u) payer = { userId: u.id, name: `${u.firstName} ${u.lastName}`.trim(), email: u.email };
   }
 
-  // ── Reactivation offer status ───────────────────────────────────────────
+  // ── Reactivation offer status + synchronization ─────────────────────────
   const reactivation = await prisma.membershipReactivation.findFirst({
     where: { memberId: member.id, clubId: club.id },
     orderBy: { createdAt: "desc" },
   });
+  const offerOpen =
+    !!reactivation &&
+    (reactivation.status === "DRAFT" || reactivation.status === "SENT") &&
+    reactivation.tokenExpires > new Date();
+  // An offer is an IMMUTABLE snapshot — billing edits after send never change
+  // what the token represents. Instead we rebuild the current setup and diff:
+  // a mismatch marks the offer "out of date" here and BLOCKS confirmation.
+  let offerSync: { matches: boolean; changed: string[] } | null = null;
+  if (offerOpen) {
+    const stored = parseOffer(reactivation!.offer);
+    if (stored) {
+      const cmp = await compareOfferToCurrent(member, club, stored);
+      offerSync = { matches: cmp.matches, changed: cmp.changed };
+    } else {
+      offerSync = { matches: false, changed: ["offer snapshot unreadable"] };
+    }
+  }
 
-  // ── Mode / readiness / timing derivations ──────────────────────────────
-  const mode = deriveBillingMode({
-    sub: activeSub
-      ? { billingType: activeSub.billingType, status: activeSub.status, price: activeSub.price, stripeSubscriptionId: activeSub.hasStripe ? "yes" : null }
-      : null,
-    migrationStatus: member.migrationStatus,
-    approvalStatus: member.approvalStatus,
-  });
+  // ── State / readiness / timing derivations ─────────────────────────────
   const offlineIntended =
     !club.stripeAccountId || !club.stripeChargesEnabled ||
     member.requestedPaymentMethod === "CASH" || member.requestedPaymentMethod === "CHECK";
+  const hasConfiguredPrice =
+    !!plan || !!member.migrationSelectedOption || member.migrationPriceOverride != null || member.legacyMembershipPrice != null;
+  const billingState = deriveBillingState({
+    sub: activeSub
+      ? {
+          billingType: activeSub.billingType,
+          status: activeSub.status,
+          stripeStatus: activeSub.stripeStatus,
+          price: activeSub.price,
+          hasStripe: activeSub.hasStripe,
+        }
+      : null,
+    configuredPrice: hasConfiguredPrice ? pricing.price : null,
+    migrationStatus: member.migrationStatus,
+    approvalStatus: member.approvalStatus,
+    openOfferStatus: offerOpen ? reactivation!.status : null,
+  });
+  // Something pending would actually charge the captured card; without it the
+  // card is merely on file (drives the payment-method badge wording).
+  const hasPendingCharge =
+    billingState === "OFFER_SENT" || billingState === "OFFER_DRAFT" || billingState === "PENDING_APPROVAL";
   const finalBillingDate = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
   const readiness = deriveReadiness({
     migrationGroup: member.migrationGroup,
     migrationFinalAction: member.migrationFinalAction,
     migrationStatus: member.migrationStatus,
     approvalStatus: member.approvalStatus,
-    price: plan || member.migrationSelectedOption || member.migrationPriceOverride != null || member.legacyMembershipPrice != null ? pricing.price : null,
+    price: hasConfiguredPrice ? pricing.price : null,
     hasPlan: !!plan || !!member.legacyMembershipName,
     hasCapturedCard: !!member.stripeSetupPaymentMethodId,
     offlineIntended,
     finalPeriodPaid: member.migrationFinalPeriodPaid,
     finalBillingDate,
     hasLiveStripeSub,
-    reactivationStatus: reactivation?.status ?? null,
+    reactivationStatus: offerOpen ? reactivation!.status : null,
   });
   const timing = chargeTiming(finalBillingDate);
+  // The two owner date fields can disagree (imported anchor vs the approved
+  // final date). The final date always wins when billing starts — surface the
+  // mismatch instead of letting the page show two different "next" dates.
+  const anchorMismatch =
+    !!member.migrationFinalBillingDate &&
+    !!member.billingAnchorDate &&
+    member.migrationFinalBillingDate.toISOString().slice(0, 10) !== member.billingAnchorDate.toISOString().slice(0, 10);
 
   // ── Who last changed billing ────────────────────────────────────────────
   let lastChangedBy: { name: string; at: Date } | null = null;
@@ -329,8 +367,17 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     },
     guardians,
     payer,
+    // ONE authoritative state with strict precedence (live Stripe > pending
+    // offer/approval > paid draft config > manual > free > settled) so the
+    // page can never show contradictory chips without explanation.
+    billingState: {
+      key: billingState,
+      label: BILLING_STATE_META[billingState].label,
+      explanation: BILLING_STATE_META[billingState].explanation,
+    },
+    hasPendingCharge,
+    anchorMismatch,
     billing: {
-      mode, modeLabel: BILLING_MODE_LABELS[mode],
       planId: plan?.id ?? null,
       planName: pricing.planName,
       optionLabel: pricing.optionLabel,
@@ -388,7 +435,13 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
           confirmedAt: reactivation.confirmedAt,
           consent: reactivation.consent,
           tokenExpires: reactivation.tokenExpires,
-          url: reactivationUrl(getAppBaseUrl(), reactivation.token),
+          createdAt: reactivation.createdAt,
+          updatedAt: reactivation.updatedAt,
+          open: offerOpen,
+          // null when the offer is closed; otherwise whether the snapshot
+          // still matches the member's CURRENT billing setup.
+          sync: offerSync,
+          url: reactivationUrl(baseUrlFromRequest(req), reactivation.token),
         }
       : null,
     readiness: { state: readiness.state, label: READINESS_LABELS[readiness.state], reasons: readiness.reasons },

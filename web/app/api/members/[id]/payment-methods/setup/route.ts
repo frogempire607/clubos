@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
 
 // POST /api/members/[id]/payment-methods/setup  (billing:full)
@@ -81,7 +81,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // REPLACE only makes sense when something is already on file.
   const intent = data.intent === "REPLACE" && member.stripeSetupPaymentMethodId ? "REPLACE" : "ADD";
 
-  const baseUrl = getAppBaseUrl();
+  // Request-derived origin: on a deploy preview the Stripe success/cancel
+  // return must land back on the SAME deployment, not production.
+  const baseUrl = baseUrlFromRequest(req);
   const checkout = await stripe.checkout.sessions.create(
     {
       mode: "setup",

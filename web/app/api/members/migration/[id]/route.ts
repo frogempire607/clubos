@@ -5,12 +5,12 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 
 // GET /api/members/migration/[id]
 // Full migration detail for the Set-up / Review-&-approve drawer, including
 // the client's submitted requests and the resolved activation link.
-export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -35,7 +35,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   });
   if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const baseUrl = getAppBaseUrl();
+  const baseUrl = baseUrlFromRequest(req);
   const activationUrl = m.activationToken ? `${baseUrl}/activate/${m.activationToken}` : null;
 
   return NextResponse.json({ member: m, activationUrl });

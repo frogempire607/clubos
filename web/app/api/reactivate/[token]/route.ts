@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { parseOffer } from "@/lib/reactivation";
+import { parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 import { chargeTiming, prettyPeriod } from "@/lib/billingAdmin";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
@@ -22,10 +22,17 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     include: {
       member: {
         select: {
-          id: true, firstName: true, lastName: true, isMinor: true,
+          id: true, clubId: true, firstName: true, lastName: true, isMinor: true,
           email: true, guardianEmail: true, guardianName: true,
           stripeSetupCustomerId: true, stripeCustomerId: true, stripeSetupPaymentMethodId: true,
           responsiblePayerUserId: true,
+          // Staleness comparison inputs — the CURRENT setup is rebuilt and
+          // diffed against the offer snapshot on every view.
+          membershipStartDate: true, commitmentEndDate: true, requestedCancellationDate: true,
+          requestedPaymentMethod: true, migrationMembershipId: true,
+          legacyMembershipName: true, legacyMembershipPrice: true, legacyBillingFrequency: true,
+          migrationSelectedOption: true, migrationPriceOverride: true,
+          migrationFinalBillingDate: true, billingAnchorDate: true,
         },
       },
       club: {
@@ -62,6 +69,30 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   const offer = parseOffer(r.offer);
   if (!offer) {
     return NextResponse.json({ error: "This offer can't be loaded. Contact the club." }, { status: 500 });
+  }
+
+  // The offer is an immutable snapshot. If the club's current billing setup
+  // no longer matches it, this link must not be confirmable — the club
+  // regenerates and resends a fresh version instead.
+  try {
+    const cmp = await compareOfferToCurrent(r.member, r.club, offer);
+    if (!cmp.matches) {
+      return NextResponse.json(
+        {
+          error:
+            "This offer has been updated by the club since it was sent, so this link can no longer be confirmed. Ask the club to resend the latest version.",
+          code: "OFFER_OUT_OF_DATE",
+        },
+        { status: 409 },
+      );
+    }
+  } catch (e) {
+    console.error("reactivate GET: staleness check failed", e);
+    // Fail closed on comparison errors — never show possibly-wrong terms.
+    return NextResponse.json(
+      { error: "This offer can't be verified right now. Try again in a minute.", code: "OFFER_UNVERIFIED" },
+      { status: 503 },
+    );
   }
 
   // First view stamp (best-effort).
@@ -132,7 +163,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     terms: {
       authorization: isFree
         ? `By confirming you accept ${r.club.name}'s membership terms.`
-        : `By confirming you authorize ${r.club.name} to charge the payment method on file $${offer.price.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
+        : `By confirming you authorize ${r.club.name} to charge the payment method on file $${offer.price.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
     },
   });
 }

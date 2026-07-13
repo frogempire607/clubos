@@ -10,7 +10,7 @@ import { recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { parseOffer } from "@/lib/reactivation";
+import { parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 import { chargeTiming } from "@/lib/billingAdmin";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
@@ -84,6 +84,29 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   const offer = parseOffer(r.offer);
   if (!offer) return NextResponse.json({ error: "This offer can't be loaded. Contact the club." }, { status: 500 });
 
+  // The offer is an immutable snapshot: if the club edited billing after it
+  // was sent, this token is out of date and MUST NOT confirm the old terms.
+  // Fail closed if the comparison itself errors.
+  try {
+    const cmp = await compareOfferToCurrent(member, club, offer);
+    if (!cmp.matches) {
+      return NextResponse.json(
+        {
+          error:
+            "This offer was updated by the club after it was sent, so it can no longer be confirmed. Ask the club to resend the latest version. Nothing was charged.",
+          code: "OFFER_OUT_OF_DATE",
+        },
+        { status: 409 },
+      );
+    }
+  } catch (e) {
+    console.error("reactivate confirm: staleness check failed", e);
+    return NextResponse.json(
+      { error: "The offer can't be verified right now. Nothing was charged — try again in a minute." },
+      { status: 503 },
+    );
+  }
+
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
   const isOffline = offer.paymentMode === "OFFLINE";
   const isCard = !isFree && !isOffline;
@@ -127,7 +150,42 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   if (isCard && (!club.stripeAccountId || !club.stripeChargesEnabled)) {
     return NextResponse.json({ error: "The club doesn't accept online payments right now. Contact the club." }, { status: 409 });
   }
-  if (isCard && (!member.stripeSetupCustomerId || !member.stripeSetupPaymentMethodId)) {
+  // The captured-method pointer is normally set by the card-save webhook, but
+  // webhooks only reach the PRODUCTION deployment — a card saved while
+  // testing on a preview (or during a webhook outage) is attached to the
+  // Stripe customer without the pointer. Fall back to reading the customer's
+  // default/only card live from Stripe and persist it, so a genuinely saved
+  // card never dead-ends the confirmation.
+  let paymentMethodId = member.stripeSetupPaymentMethodId;
+  if (isCard && member.stripeSetupCustomerId && !paymentMethodId && club.stripeAccountId) {
+    try {
+      const customer = await stripe.customers.retrieve(member.stripeSetupCustomerId, {
+        stripeAccount: club.stripeAccountId,
+      });
+      if (customer && !("deleted" in customer && customer.deleted)) {
+        const def = (customer as { invoice_settings?: { default_payment_method?: string | { id: string } | null } })
+          .invoice_settings?.default_payment_method;
+        paymentMethodId = typeof def === "string" ? def : def?.id ?? null;
+      }
+      if (!paymentMethodId) {
+        const cards = await stripe.paymentMethods.list(
+          { customer: member.stripeSetupCustomerId, type: "card", limit: 2 },
+          { stripeAccount: club.stripeAccountId },
+        );
+        // Only when unambiguous — never guess between multiple cards.
+        if (cards.data.length === 1) paymentMethodId = cards.data[0].id;
+      }
+      if (paymentMethodId) {
+        await prisma.member.update({
+          where: { id: member.id },
+          data: { stripeSetupPaymentMethodId: paymentMethodId, paymentSetupStatus: "COMPLETE" },
+        });
+      }
+    } catch (e) {
+      console.error("reactivate confirm: PM fallback resolve failed", e);
+    }
+  }
+  if (isCard && (!member.stripeSetupCustomerId || !paymentMethodId)) {
     return NextResponse.json(
       { error: "Add a payment method first.", code: "NEEDS_PAYMENT_METHOD" },
       { status: 409 },
@@ -180,7 +238,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         ? `Confirm membership — $${offer.price.toFixed(2)} charged today`
         : isFree
           ? "Confirm membership"
-          : `Confirm membership — first payment ${firstCharge?.toLocaleDateString("en-US", { month: "long", day: "numeric" })}`,
+          : `Confirm membership — first payment ${firstCharge?.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}`,
       acknowledgedImmediateCharge: chargesNow ? true : undefined,
     };
 
@@ -239,7 +297,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       const sub = await stripe.subscriptions.create(
         {
           customer: member.stripeSetupCustomerId!,
-          default_payment_method: member.stripeSetupPaymentMethodId!,
+          default_payment_method: paymentMethodId!,
           items: [
             {
               price_data: {
@@ -304,6 +362,24 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       });
       memberSubId = memberSub.id;
     }
+
+    // Supersede any standing non-Stripe subscription (e.g. the placeholder
+    // MANUAL/free row from the original migration) so the member doesn't end
+    // up with two "active" memberships. Rows are kept — canceled with a
+    // breadcrumb, never deleted.
+    await prisma.memberSubscription.updateMany({
+      where: {
+        memberId: member.id,
+        id: { not: memberSubId },
+        stripeSubscriptionId: null,
+        status: { in: ["active", "pending", "past_due"] },
+      },
+      data: {
+        status: "canceled",
+        canceledAt: new Date(),
+        autoRenew: false,
+      },
+    });
 
     await prisma.member.update({
       where: { id: member.id },
