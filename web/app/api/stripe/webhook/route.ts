@@ -228,6 +228,19 @@ export async function POST(req: Request) {
               });
             }
 
+            // Capture the Stripe customer this purchase created/used so the
+            // member can open the billing portal later (update card, view
+            // invoices). Self-serve Checkout historically minted a fresh
+            // anonymous customer that was never saved — leaving the member
+            // with NO billing account on file. Never clobber an existing id
+            // (customers can't be merged; the stored one stays canonical).
+            if (session.customer) {
+              await prisma.member.updateMany({
+                where: { id: memberSub.memberId, stripeCustomerId: null },
+                data: { stripeCustomerId: session.customer as string },
+              });
+            }
+
             // Now that this member has an active subscription, promote them to ACTIVE.
             await recomputeMemberStatus(memberSub.memberId, memberSub.member.clubId);
 

@@ -165,6 +165,60 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // SILENTLY created a manual/offline subscription, so a member who should have
   // been charged was quietly never billed. Now: block with an actionable error
   // and do NOT start any subscription, unless the owner explicitly forces manual.
+  // ── Existing-subscription preflight (same protection as reactivation
+  // confirm). Approving a member who ALREADY has a live Stripe subscription
+  // would mint a second one and double-bill them — block with an actionable
+  // error instead. Checked locally AND live against Stripe on every customer
+  // id we know for this member; the live check fails CLOSED (billing must be
+  // verifiable before it starts).
+  const localLive = await prisma.memberSubscription.findFirst({
+    where: {
+      memberId: member.id,
+      stripeSubscriptionId: { not: null },
+      status: { in: ["active", "past_due"] },
+    },
+    select: { id: true, optionLabel: true },
+  });
+  if (localLive) {
+    return NextResponse.json(
+      {
+        error: "This member already has a live Stripe subscription — approving again would double-bill them",
+        code: "ALREADY_SUBSCRIBED",
+        message: `A live subscription ("${localLive.optionLabel}") already exists. Review it in the billing control center; nothing was created or charged.`,
+      },
+      { status: 409 },
+    );
+  }
+  if (canCharge) {
+    const LIVE_STATUSES = ["active", "trialing", "past_due", "unpaid"];
+    for (const custId of [member.stripeSetupCustomerId, member.stripeCustomerId]) {
+      if (!custId) continue;
+      try {
+        const subs = await stripe.subscriptions.list(
+          { customer: custId, status: "all", limit: 20 },
+          { stripeAccount: club.stripeAccountId! },
+        );
+        if (subs.data.some((s) => LIVE_STATUSES.includes(s.status))) {
+          return NextResponse.json(
+            {
+              error: "This member already has a live subscription in the club's Stripe — approving again would double-bill them",
+              code: "ALREADY_SUBSCRIBED",
+              message:
+                "Stripe shows a live subscription on this member's customer. Run a billing sync or review them in the billing control center; nothing was created or charged.",
+            },
+            { status: 409 },
+          );
+        }
+      } catch (e) {
+        console.error("Approve: live-subscription preflight failed:", e);
+        return NextResponse.json(
+          { error: "Stripe couldn't be reached to verify existing billing. Nothing was charged — try again in a minute." },
+          { status: 502 },
+        );
+      }
+    }
+  }
+
   // A past/today billing date means the charge runs NOW. Never silently: the
   // caller must acknowledge the immediate charge explicitly (the migration
   // drawer and billing control center both surface a second confirmation).
