@@ -191,6 +191,8 @@ model Club {
   parentalConsents            ParentalConsent[]
   guardianConsentRequests     GuardianConsentRequest[]
   stripeReconciliations       StripeReconciliation[]
+  billingAuditLogs            BillingAuditLog[]
+  membershipReactivations     MembershipReactivation[]
 
   @@index([slug])
   @@map("clubs")
@@ -655,6 +657,27 @@ model Member {
   stripeSetupCustomerId      String?
   stripeSetupPaymentMethodId String?
 
+  // ── Billing control center / migration triage (2026-07-10) ──────────────
+  // Operational classification for the pre-migration review. These fields are
+  // PLANNING data — setting them never charges anyone or touches Stripe.
+  // A | B | C | LEAVE_ALONE | FUTURE_FOLLOW_UP | NEEDS_PAYMENT_METHOD
+  migrationGroup             String?
+  // MANUAL_APPROVE | ACTIVATION_EMAIL | LEAVE_ALONE | FUTURE_FOLLOW_UP |
+  // NEEDS_CARD | OWNER_REVIEW
+  migrationFinalAction       String?
+  migrationGroupNote         String?
+  // The owner-approved FINAL first-charge date. Approval/reactivation read it
+  // as the proposed anchor and still validate it is not silently in the past.
+  migrationFinalBillingDate  DateTime?
+  // Deliberate payer assignment: the portal User (usually a guardian) whose
+  // Stripe customer/payment method funds this athlete's membership. Bare id
+  // (actorUserId convention); resolved to a name at read time.
+  responsiblePayerUserId     String?
+  // Who last changed the billing setup, and when (roster display; the full
+  // before/after trail lives in billing_audit_logs).
+  billingUpdatedAt           DateTime?
+  billingUpdatedById         String?
+
   club              Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user              User?                 @relation(fields: [userId], references: [id])
   membership        Membership?           @relation(fields: [membershipId], references: [id])
@@ -678,6 +701,8 @@ model Member {
   invoiceSplits      InvoiceSplit[]
   parentalConsents   ParentalConsent[]
   guardianConsentRequests GuardianConsentRequest[]
+  billingAuditLogs   BillingAuditLog[]
+  reactivations      MembershipReactivation[]
 
   @@index([clubId])
   @@index([status])
@@ -705,6 +730,75 @@ model MemberMigrationEvent {
   @@index([clubId])
   @@index([memberId])
   @@map("member_migration_events")
+}
+
+// Append-only audit trail for BILLING mutations (billing control center,
+// payment-method management, reactivation offers, approval hardening, apply-
+// mode scripts). One row per mutation with a before/after diff so any billing
+// change can be reconstructed. Never deleted, never updated.
+model BillingAuditLog {
+  id          String   @id @default(cuid())
+  clubId      String
+  memberId    String?
+  // Portal user who performed the action; null for system/webhook/script
+  // actors (the note says which).
+  actorUserId String?
+  // Machine-readable action key, e.g. BILLING_SETUP_UPDATED, PM_ADD_STARTED,
+  // PM_MADE_DEFAULT, PM_REMOVED, PENDING_ACTIVATION_CANCELED,
+  // SUBSCRIPTION_REASSIGNED, REACTIVATION_CREATED, REACTIVATION_SENT,
+  // REACTIVATION_CONFIRMED, MIGRATION_APPROVED, SCRIPT_MANUAL_TO_STRIPE.
+  action      String
+  before      Json?
+  after       Json?
+  note        String?
+  createdAt   DateTime @default(now())
+
+  club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member? @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, createdAt])
+  @@index([memberId])
+  @@map("billing_audit_logs")
+}
+
+// A membership reactivation offer: the owner-approved terms a client reviews
+// and confirms via a secure expiring link (/reactivate/[token]). The `offer`
+// JSON is the server-side source of truth snapshotted at creation and
+// RE-VALIDATED at confirm — the client can never submit its own price/dates.
+// Shape: { membershipId, planName, optionLabel, price, billingPeriod,
+//          startDate, firstChargeDate, commitmentEndDate,
+//          paymentMode: "CARD"|"OFFLINE"|"FREE", payerUserId? }
+// Lifecycle: DRAFT → SENT → CONFIRMED; CANCELED (owner) or SUPERSEDED
+// (regenerated) end an offer without deleting its history. Consent JSON:
+// { at, email, offerVersion, ip, userAgent, buttonLabel }.
+model MembershipReactivation {
+  id                   String    @id @default(cuid())
+  clubId               String
+  memberId             String
+  token                String    @unique
+  tokenExpires         DateTime
+  offerVersion         Int       @default(1)
+  offer                Json
+  personalNote         String?
+  status               String    @default("DRAFT")
+  emailSentAt          DateTime?
+  emailSendCount       Int       @default(0)
+  sentToEmail          String?
+  viewedAt             DateTime?
+  confirmedAt          DateTime?
+  confirmedByUserId    String?
+  consent              Json?
+  memberSubscriptionId String?
+  createdById          String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status])
+  @@index([memberId])
+  @@map("membership_reactivations")
 }
 
 // A relationship between two members (siblings, cousins, friends, teammates,

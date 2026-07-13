@@ -23,6 +23,7 @@ export type PermissionKey =
   | "messages"
   | "documents"
   | "finances"
+  | "billing"
   | "reports"
   | "staff";
 
@@ -41,6 +42,11 @@ export const PERMISSION_CATALOG: {
   { key: "messages", label: "Messaging", description: "Message members & post announcements", levels: ["none", "view", "send", "full"] },
   { key: "documents", label: "Documents", description: "View / edit waivers & forms", levels: ["none", "view", "edit", "full"] },
   { key: "finances", label: "Financials & payroll", description: "Revenue, transactions, payouts", levels: ["none", "view", "full"] },
+  // Explicit, opt-in financial control over MEMBER billing: membership plans/
+  // prices/dates, payment-method management, and reactivation offers. Distinct
+  // from `finances` (reporting/payroll) so a coach with day-to-day access never
+  // silently gains the power to change what a client is charged.
+  { key: "billing", label: "Billing management", description: "Member billing setup, payment methods, reactivation", levels: ["none", "view", "full"] },
   { key: "reports", label: "Reports", description: "View club reports", levels: ["none", "view"] },
   { key: "staff", label: "Staff & contractors", description: "Manage staff and contractors", levels: ["none", "view", "full"] },
 ];
@@ -58,6 +64,7 @@ export const DEFAULT_PERMISSIONS: Record<PermissionKey, PermissionLevel> = {
   messages: "send",
   documents: "view",
   finances: "none",
+  billing: "none",
   reports: "none",
   staff: "none",
 };

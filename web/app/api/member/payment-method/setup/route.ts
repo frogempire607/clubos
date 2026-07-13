@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 
 // POST /api/member/payment-method/setup
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const baseUrl = getAppBaseUrl();
+  const baseUrl = baseUrlFromRequest(req);
   const checkout = await stripe.checkout.sessions.create(
     {
       mode: "setup",

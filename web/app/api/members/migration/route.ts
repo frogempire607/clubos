@@ -4,9 +4,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
+import { deriveReadiness, resolveOfferPricing, READINESS_LABELS, type Readiness } from "@/lib/billingAdmin";
 import type { Prisma } from "@prisma/client";
 
-// GET /api/members/migration?filter=&page=&pageSize=&q=
+// GET /api/members/migration?filter=&page=&pageSize=&q=&group=&readiness=
 // Migration dashboard: bucket counts + a paginated, filtered member list.
 // NOT tier-gated. Permission-gated on `members` view like the rest of the app.
 export async function GET(req: Request) {
@@ -19,6 +20,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const filter = url.searchParams.get("filter") || "all";
   const q = (url.searchParams.get("q") || "").trim();
+  const group = url.searchParams.get("group") || "";
+  const readinessFilter = (url.searchParams.get("readiness") || "") as Readiness | "";
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(100, Math.max(10, parseInt(url.searchParams.get("pageSize") || "25", 10)));
 
@@ -66,7 +69,20 @@ export async function GET(req: Request) {
       }
     : {};
 
-  const where: Prisma.MemberWhereInput = { AND: [base, filterWhere, search] };
+  // Operational group filter (Group A/B/C / Leave alone / …). "none" = not
+  // yet classified.
+  const groupWhere: Prisma.MemberWhereInput = group
+    ? group === "none"
+      ? ({ migrationGroup: null } as Prisma.MemberWhereInput)
+      : ({ migrationGroup: group } as Prisma.MemberWhereInput)
+    : {};
+
+  const where: Prisma.MemberWhereInput = { AND: [base, filterWhere, search, groupWhere] };
+
+  // Readiness is DERIVED per row (plan + date + saved card + triage), so a
+  // readiness filter can't run in SQL — pull the whole candidate set (capped),
+  // derive, then paginate in memory. Fine at this club's scale (~hundreds).
+  const readinessMode = !!readinessFilter;
 
   const [
     total,
@@ -99,8 +115,8 @@ export async function GET(req: Request) {
     prisma.member.findMany({
       where,
       orderBy: { importedAt: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      skip: readinessMode ? 0 : (page - 1) * pageSize,
+      take: readinessMode ? 1000 : pageSize,
       select: {
         id: true,
         firstName: true,
@@ -131,6 +147,16 @@ export async function GET(req: Request) {
         migrationSelectedOption: true,
         migrationPriceOverride: true,
         migrationFinalPeriodPaid: true,
+        // Billing-control triage + readiness inputs.
+        migrationGroup: true,
+        migrationFinalAction: true,
+        migrationGroupNote: true,
+        migrationFinalBillingDate: true,
+        requestedPaymentMethod: true,
+        stripeSetupPaymentMethodId: true,
+        subscriptions: {
+          select: { status: true, stripeSubscriptionId: true, stripeStatus: true, billingType: true },
+        },
       },
     }),
     prisma.member.count({ where }),
@@ -172,12 +198,42 @@ export async function GET(req: Request) {
     : [];
   const actorName = new Map(actors.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
 
-  const members = rows.map((r) => {
+  // Readiness inputs shared across rows: club Stripe flags, the plans rows
+  // reference (for real option prices), and each row's latest reactivation.
+  const club = await prisma.club.findUnique({
+    where: { id: clubId },
+    select: { stripeAccountId: true, stripeChargesEnabled: true },
+  });
+  const planIds = [...new Set(rows.map((r) => r.migrationMembershipId).filter((x): x is string => !!x))];
+  const plans = planIds.length
+    ? await prisma.membership.findMany({
+        where: { id: { in: planIds }, clubId, deletedAt: null },
+        select: { id: true, name: true, options: true },
+      })
+    : [];
+  const planById = new Map(plans.map((p) => [p.id, p]));
+  const reactivations = pageIds.length || readinessMode
+    ? await prisma.membershipReactivation.findMany({
+        where: { memberId: { in: rows.map((r) => r.id) }, clubId },
+        orderBy: { createdAt: "desc" },
+        select: { memberId: true, status: true },
+      })
+    : [];
+  const latestReactivation = new Map<string, string>();
+  for (const r of reactivations) {
+    if (!latestReactivation.has(r.memberId)) latestReactivation.set(r.memberId, r.status);
+  }
+  const LIVE = new Set(["active", "trialing", "past_due", "unpaid"]);
+
+  const mapped = rows.map((r) => {
     const {
       migrationMembershipId,
       migrationSelectedOption,
       migrationPriceOverride,
       migrationFinalPeriodPaid,
+      requestedPaymentMethod,
+      stripeSetupPaymentMethodId,
+      subscriptions,
       ...rest
     } = r;
     const setupComplete =
@@ -192,12 +248,70 @@ export async function GET(req: Request) {
       rest.migrationStatus === MIGRATION_STATUS.ACTIVATED ||
       rest.migrationStatus === MIGRATION_STATUS.COMPLETED;
     const setupEvent = latestSetupByMember.get(r.id);
+
+    const plan = migrationMembershipId ? planById.get(migrationMembershipId) ?? null : null;
+    const pricing = resolveOfferPricing(
+      {
+        legacyMembershipName: rest.legacyMembershipName,
+        legacyMembershipPrice: rest.legacyMembershipPrice as unknown as string | null,
+        legacyBillingFrequency: rest.legacyBillingFrequency,
+        migrationSelectedOption,
+        migrationPriceOverride: migrationPriceOverride as unknown as string | null,
+      },
+      plan ? { name: plan.name, options: plan.options } : null,
+    );
+    const hasPlan = !!plan || !!rest.legacyMembershipName;
+    const hasLiveStripeSub = subscriptions.some(
+      (s) =>
+        s.stripeSubscriptionId &&
+        (s.status === "active" || s.status === "past_due") &&
+        (!s.stripeStatus || LIVE.has(s.stripeStatus)),
+    );
+    const offlineIntended =
+      !club?.stripeAccountId ||
+      !club?.stripeChargesEnabled ||
+      requestedPaymentMethod === "CASH" ||
+      requestedPaymentMethod === "CHECK";
+    const readiness = deriveReadiness({
+      migrationGroup: rest.migrationGroup,
+      migrationFinalAction: rest.migrationFinalAction,
+      migrationStatus: rest.migrationStatus,
+      approvalStatus: rest.approvalStatus,
+      price: hasPlan || migrationPriceOverride != null ? pricing.price : null,
+      hasPlan,
+      hasCapturedCard: !!stripeSetupPaymentMethodId,
+      offlineIntended,
+      finalPeriodPaid: migrationFinalPeriodPaid,
+      finalBillingDate: rest.migrationFinalBillingDate ?? rest.billingAnchorDate ?? null,
+      hasLiveStripeSub,
+      reactivationStatus: latestReactivation.get(r.id) ?? null,
+    });
+
     return {
       ...rest,
       setupComplete,
       setupBy: setupEvent?.actorUserId ? actorName.get(setupEvent.actorUserId) ?? null : null,
       setupAt: setupEvent?.createdAt ?? null,
+      hasCapturedCard: !!stripeSetupPaymentMethodId,
+      resolvedPrice: hasPlan || migrationPriceOverride != null ? pricing.price : null,
+      resolvedPeriod: pricing.period,
+      readiness: readiness.state,
+      readinessLabel: READINESS_LABELS[readiness.state],
+      readinessReasons: readiness.reasons,
+      reactivationStatus: latestReactivation.get(r.id) ?? null,
     };
+  });
+
+  // Readiness filter paginates in memory (derived value, see above).
+  const filtered = readinessMode ? mapped.filter((m) => m.readiness === readinessFilter) : mapped;
+  const members = readinessMode ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered;
+  const totalInFilter = readinessMode ? filtered.length : pageCount;
+
+  // Group counts for the filter chips.
+  const groupCounts = await prisma.member.groupBy({
+    by: ["migrationGroup"],
+    where: base,
+    _count: { _all: true },
   });
 
   return NextResponse.json({
@@ -211,11 +325,12 @@ export async function GET(req: Request) {
       paymentRequired,
       missingContact,
       activationEmailsSent: emailsSentAgg._sum.activationEmailSendCount ?? 0,
+      groups: Object.fromEntries(groupCounts.map((g) => [g.migrationGroup ?? "none", g._count._all])),
     },
     members,
     page,
     pageSize,
-    pageCount: Math.ceil(pageCount / pageSize),
-    totalInFilter: pageCount,
+    pageCount: Math.max(1, Math.ceil(totalInFilter / pageSize)),
+    totalInFilter,
   });
 }

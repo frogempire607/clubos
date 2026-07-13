@@ -34,6 +34,43 @@ let warnedThisProcess = false;
 // allowed to use restricted network port" error).
 const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
 
+// Base URL derived from the INCOMING REQUEST's origin, for URLs the current
+// visitor will navigate to next (Stripe success/cancel returns, links echoed
+// back into the UI, reactivation emails sent from an owner session). Why:
+// NEXTAUTH_URL is one value for every Netlify context, so on a deploy
+// preview / branch deploy getAppBaseUrl() points at the PRODUCTION domain —
+// which 404s for any route that only exists on the preview. Deriving from
+// the request keeps the whole flow on the deployment the user is actually
+// using (and on production it IS the production origin).
+//
+// Host-header safety: the host is attacker-influencable in principle, and
+// these URLs land in emails — so only hosts we recognize are trusted
+// (the configured NEXTAUTH_URL host, *.netlify.app deploy domains, and
+// local dev). Anything else falls back to getAppBaseUrl().
+export function baseUrlFromRequest(req: Request): string {
+  const configured = getAppBaseUrl();
+  try {
+    const rawHost = (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase();
+    if (!rawHost) return configured;
+    const hostname = rawHost.split(":")[0];
+    const configuredHost = new URL(configured).hostname.toLowerCase();
+    const trusted =
+      hostname === configuredHost ||
+      hostname.endsWith(".netlify.app") ||
+      hostname === "localhost" ||
+      hostname === "127.0.0.1";
+    if (!trusted) return configured;
+    const proto = (req.headers.get("x-forwarded-proto") ?? "").split(",")[0].trim() ||
+      (hostname === "localhost" || hostname === "127.0.0.1" ? "http" : "https");
+    return `${proto}://${rawHost}`;
+  } catch {
+    return configured;
+  }
+}
+
 export function getAppBaseUrl(): string {
   const raw = process.env.NEXTAUTH_URL;
   if (raw) {

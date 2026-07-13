@@ -10,6 +10,7 @@ import { recurringUnitWithFee } from "@/lib/fees";
 import { MIGRATION_STATUS, resolveBillingAnchor } from "@/lib/migration";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { writeBillingAudit } from "@/lib/billingAudit";
 
 // Athlete (or guardian for minors) contact email for activation/approval notices.
 function memberContactEmail(m: { isMinor: boolean; email: string | null; guardianEmail: string | null }) {
@@ -32,13 +33,20 @@ const schema = z.object({
   // whose Stripe card setup is incomplete is BLOCKED with an actionable error
   // instead of being silently dropped onto manual billing.
   forceManual: z.boolean().optional().default(false),
+  // The resolved billing date being today/past means approval charges NOW.
+  // That must never happen silently — the caller has to acknowledge it
+  // explicitly (the UI shows a second, unmissable confirmation).
+  confirmImmediateCharge: z.boolean().optional().default(false),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "members", "edit");
+  // Approval STARTS BILLING — that's financial control, so it requires the
+  // explicit billing permission (owners bypass; a coach with members:edit
+  // can run the roster but can no longer start charges).
+  const denied = requirePermission(session, "billing", "full");
   if (denied) return denied;
 
   let body: z.infer<typeof schema>;
@@ -81,7 +89,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // If the agreed billing date already passed (member activated late), the
   // missed charge is collected NOW and the cycle recurs every frequency from
   // this charge — we do not skip ahead to the next cycle.
-  const billsImmediately = !!anchor && anchor.getTime() <= Date.now() + 60_000;
+  const billsImmediately = !anchor || anchor.getTime() <= Date.now() + 60_000;
   if (billsImmediately) anchor = new Date();
 
   // Resolve the plan: owner-assigned Membership first, else legacy snapshot.
@@ -157,6 +165,22 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // SILENTLY created a manual/offline subscription, so a member who should have
   // been charged was quietly never billed. Now: block with an actionable error
   // and do NOT start any subscription, unless the owner explicitly forces manual.
+  // A past/today billing date means the charge runs NOW. Never silently: the
+  // caller must acknowledge the immediate charge explicitly (the migration
+  // drawer and billing control center both surface a second confirmation).
+  if (canCharge && billsImmediately && !body.confirmImmediateCharge) {
+    return NextResponse.json(
+      {
+        error: "This approval would charge the saved card immediately",
+        code: "IMMEDIATE_CHARGE_CONFIRM_REQUIRED",
+        message:
+          "The billing date is today or already passed, so approving will charge the saved card right now. Pick a new future billing date, or resubmit with the immediate charge explicitly confirmed.",
+        price,
+      },
+      { status: 409 },
+    );
+  }
+
   if (!canCharge && !offlineIntended && !body.forceManual) {
     return NextResponse.json(
       {
@@ -219,6 +243,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             : "Approved — active; club handles billing manually (no card on file / online payments off).",
         actorUserId: session.user.id,
       },
+    });
+    await writeBillingAudit({
+      clubId: club.id,
+      memberId: member.id,
+      actorUserId: session.user.id,
+      action: "MIGRATION_APPROVED",
+      before: { migrationStatus: member.migrationStatus, approvalStatus: member.approvalStatus },
+      after: { billingType: "MANUAL", plan: planName, price, period, anchor: anchor?.toISOString() ?? null },
+      note: price <= 0 ? "Approved as free/grandfathered (no charge)." : "Approved on manual/offline billing.",
     });
     const toNoPay = memberContactEmail(member);
     if (toNoPay) {
@@ -292,7 +325,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         application_fee_percent: 0,
         metadata: { migrationMemberId: member.id, clubId: club.id },
       },
-      { stripeAccount: club.stripeAccountId! },
+      {
+        stripeAccount: club.stripeAccountId!,
+        // A double-submit (double click, retry after a network blip) must not
+        // fork a second subscription — Stripe returns the first one instead.
+        idempotencyKey: `aox-migration-approve-${member.id}`,
+      },
     );
 
     memberSub = await prisma.memberSubscription.create({
@@ -338,6 +376,25 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         : `Approved — billing continues ${anchor ? `from ${anchor.toLocaleDateString()}` : "on file"} (${planName})`,
       actorUserId: session.user.id,
     },
+  });
+
+  await writeBillingAudit({
+    clubId: club.id,
+    memberId: member.id,
+    actorUserId: session.user.id,
+    action: "MIGRATION_APPROVED",
+    before: { migrationStatus: member.migrationStatus, approvalStatus: member.approvalStatus },
+    after: {
+      billingType: "RECURRING",
+      plan: planName,
+      price,
+      period,
+      anchor: anchor?.toISOString() ?? null,
+      chargedImmediately: billsImmediately,
+    },
+    note: billsImmediately
+      ? "Approved with an explicitly confirmed immediate charge."
+      : `Approved — first charge anchored to ${anchor?.toLocaleDateString() ?? "the saved date"}.`,
   });
 
   const toPaid = memberContactEmail(member);
