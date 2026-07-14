@@ -67,6 +67,31 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const club = member.club;
 
+  // ── Nothing-configured guard ─────────────────────────────────────────────
+  // Approving a member with NO plan, NO purchase option, NO price override,
+  // and NO imported membership used to fall through every pricing fallback to
+  // a $0 plan literally named "Continued membership" — manufacturing a fake
+  // free membership and flipping the member ACTIVE. Refuse instead: the owner
+  // must configure something (or explicitly mark them free via a $0 price
+  // override) before approval means anything.
+  const nothingConfigured =
+    !member.migrationMembershipId &&
+    !member.migrationSelectedOption &&
+    member.migrationPriceOverride == null &&
+    !member.legacyMembershipName &&
+    member.legacyMembershipPrice == null;
+  if (nothingConfigured) {
+    return NextResponse.json(
+      {
+        error: "Nothing is configured to approve",
+        code: "NOTHING_CONFIGURED",
+        message:
+          "This member has no membership plan, no purchase option, no imported plan, and no price set. Open their setup (or the billing control center) and assign a plan — or explicitly mark them free with a $0 price override — before approving. Nothing was changed.",
+      },
+      { status: 409 },
+    );
+  }
+
   // Resolve the agreed billing anchor.
   let anchor: Date | null = null;
   if (body.billingAnchorDate) {
@@ -165,6 +190,60 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // SILENTLY created a manual/offline subscription, so a member who should have
   // been charged was quietly never billed. Now: block with an actionable error
   // and do NOT start any subscription, unless the owner explicitly forces manual.
+  // ── Existing-subscription preflight (same protection as reactivation
+  // confirm). Approving a member who ALREADY has a live Stripe subscription
+  // would mint a second one and double-bill them — block with an actionable
+  // error instead. Checked locally AND live against Stripe on every customer
+  // id we know for this member; the live check fails CLOSED (billing must be
+  // verifiable before it starts).
+  const localLive = await prisma.memberSubscription.findFirst({
+    where: {
+      memberId: member.id,
+      stripeSubscriptionId: { not: null },
+      status: { in: ["active", "past_due"] },
+    },
+    select: { id: true, optionLabel: true },
+  });
+  if (localLive) {
+    return NextResponse.json(
+      {
+        error: "This member already has a live Stripe subscription — approving again would double-bill them",
+        code: "ALREADY_SUBSCRIBED",
+        message: `A live subscription ("${localLive.optionLabel}") already exists. Review it in the billing control center; nothing was created or charged.`,
+      },
+      { status: 409 },
+    );
+  }
+  if (canCharge) {
+    const LIVE_STATUSES = ["active", "trialing", "past_due", "unpaid"];
+    for (const custId of [member.stripeSetupCustomerId, member.stripeCustomerId]) {
+      if (!custId) continue;
+      try {
+        const subs = await stripe.subscriptions.list(
+          { customer: custId, status: "all", limit: 20 },
+          { stripeAccount: club.stripeAccountId! },
+        );
+        if (subs.data.some((s) => LIVE_STATUSES.includes(s.status))) {
+          return NextResponse.json(
+            {
+              error: "This member already has a live subscription in the club's Stripe — approving again would double-bill them",
+              code: "ALREADY_SUBSCRIBED",
+              message:
+                "Stripe shows a live subscription on this member's customer. Run a billing sync or review them in the billing control center; nothing was created or charged.",
+            },
+            { status: 409 },
+          );
+        }
+      } catch (e) {
+        console.error("Approve: live-subscription preflight failed:", e);
+        return NextResponse.json(
+          { error: "Stripe couldn't be reached to verify existing billing. Nothing was charged — try again in a minute." },
+          { status: 502 },
+        );
+      }
+    }
+  }
+
   // A past/today billing date means the charge runs NOW. Never silently: the
   // caller must acknowledge the immediate charge explicitly (the migration
   // drawer and billing control center both surface a second confirmation).

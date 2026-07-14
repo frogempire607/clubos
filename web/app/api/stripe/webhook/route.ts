@@ -211,8 +211,11 @@ export async function POST(req: Request) {
               });
             }
 
-            // Record a transaction for the initial purchase in both cases
-            if (memberId && session.amount_total && session.amount_total > 0) {
+            // Record a transaction for ONE-TIME purchases only. Subscription
+            // money (first charge AND renewals) is recorded exclusively by the
+            // invoice.paid handler — one source of truth per dollar, deduped
+            // by invoice id, so the first payment can't double-count.
+            if (memberId && session.mode === "payment" && session.amount_total && session.amount_total > 0) {
               await prisma.transaction.create({
                 data: {
                   clubId,
@@ -225,6 +228,19 @@ export async function POST(req: Request) {
                   category: "memberships",
                   paymentMethod: "STRIPE",
                 },
+              });
+            }
+
+            // Capture the Stripe customer this purchase created/used so the
+            // member can open the billing portal later (update card, view
+            // invoices). Self-serve Checkout historically minted a fresh
+            // anonymous customer that was never saved — leaving the member
+            // with NO billing account on file. Never clobber an existing id
+            // (customers can't be merged; the stored one stays canonical).
+            if (session.customer) {
+              await prisma.member.updateMany({
+                where: { id: memberSub.memberId, stripeCustomerId: null },
+                data: { stripeCustomerId: session.customer as string },
               });
             }
 
@@ -692,27 +708,69 @@ export async function POST(req: Request) {
         break;
       }
 
-      // ── Recurring invoice paid (renewal) ───────────────────────────────────
+      // ── Invoice paid (first charge OR renewal) ─────────────────────────────
       case "invoice.paid": {
         const invoice = event.data.object as Stripe.Invoice;
         const subscriptionId = invoice.subscription as string | null;
         if (!subscriptionId) break;
+        // $0 invoices (trial starts) don't belong in the money ledger.
+        if (!invoice.amount_paid || invoice.amount_paid <= 0) break;
+
+        // Redelivery / double-processing guard: one Transaction per invoice.
+        const already = await prisma.transaction.findFirst({
+          where: { stripeInvoiceId: invoice.id },
+          select: { id: true },
+        });
+        if (already) break;
 
         const memberSub = await prisma.memberSubscription.findFirst({
           where: { stripeSubscriptionId: subscriptionId },
           include: { member: true },
         });
-        if (!memberSub) break;
+
+        // The FIRST invoice of a server-created subscription (migration
+        // approve, reactivation confirm) fires the instant Stripe creates the
+        // subscription — often BEFORE the app finishes writing the local
+        // MemberSubscription row. Falling out silently here is how paid money
+        // went missing from Financials. Resolve the member from the
+        // subscription's metadata instead (we stamp memberId/migrationMemberId
+        // on every subscription we create).
+        let clubId: string | null = memberSub?.member.clubId ?? null;
+        let memberId: string | null = memberSub?.memberId ?? null;
+        let label = memberSub?.optionLabel ?? null;
+        if (!memberId && event.account) {
+          try {
+            const sub = await stripe.subscriptions.retrieve(subscriptionId, {
+              stripeAccount: event.account,
+            });
+            const metaMemberId =
+              sub.metadata?.memberId || sub.metadata?.migrationMemberId || null;
+            if (metaMemberId) {
+              const m = await prisma.member.findUnique({
+                where: { id: metaMemberId },
+                select: { id: true, clubId: true },
+              });
+              if (m) {
+                memberId = m.id;
+                clubId = m.clubId;
+                label = sub.items?.data?.[0]?.price?.nickname ?? null;
+              }
+            }
+          } catch (e) {
+            console.error("invoice.paid: metadata member resolution failed", e);
+          }
+        }
+        if (!memberId || !clubId) break;
 
         await prisma.transaction.create({
           data: {
-            clubId:  memberSub.member.clubId,
-            memberId: memberSub.memberId,
-            amount:  (invoice.amount_paid || 0) / 100,
+            clubId,
+            memberId,
+            amount:  invoice.amount_paid / 100,
             status:  "SUCCEEDED",
             stripePaymentIntentId: invoice.payment_intent as string,
             stripeInvoiceId: invoice.id,
-            description: `Membership renewal: ${memberSub.optionLabel}`,
+            description: `Membership ${invoice.billing_reason === "subscription_create" ? "payment" : "renewal"}: ${label ?? "membership"}`,
             type: "MEMBERSHIP",
             category: "memberships",
             paymentMethod: "STRIPE",
@@ -720,10 +778,12 @@ export async function POST(req: Request) {
         });
 
         // Keep status active on renewal
-        await prisma.memberSubscription.update({
-          where: { id: memberSub.id },
-          data: { status: "active" },
-        });
+        if (memberSub) {
+          await prisma.memberSubscription.update({
+            where: { id: memberSub.id },
+            data: { status: "active" },
+          });
+        }
         break;
       }
 

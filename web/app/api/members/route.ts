@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
-import { expireStaleProspects } from "@/lib/memberStatus";
+import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { validateMemberContact } from "@/lib/memberValidation";
 
@@ -17,7 +17,11 @@ export async function GET(req: Request) {
   const guardianEmail = url.searchParams.get("guardianEmail");
 
   // Self-heal: lazily flip prospects older than the TTL to INACTIVE.
-  await expireStaleProspects(session.user.clubId);
+  // Lazily expire ended MANUAL non-renewing subscriptions (final-period-paid
+  // members past their end date) so ACTIVE always means a live membership.
+  // The old prospect-TTL decay was removed: prospects never auto-age to
+  // INACTIVE — INACTIVE is reserved for members whose membership ended.
+  await expireEndedManualSubscriptions(session.user.clubId);
 
   const members = await prisma.member.findMany({
     where: {

@@ -114,7 +114,7 @@ export async function POST(req: Request) {
   const methodLabels: Record<string, string> = {
     CASH: "Cash payment",
     CHECK: "Check payment",
-    CREDIT: "Card payment",
+    CREDIT: "Card payment (collected outside AthletixOS — no Stripe charge)",
     COMP: "Comped",
     INVOICE: "Invoice",
   };

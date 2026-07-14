@@ -257,10 +257,17 @@ export async function POST(req: Request) {
       if (trial) trialPeriodDays = await eligibleForSubscriptionTrial(member.id, membershipId, trial);
     }
 
+    // Reuse the member's existing Stripe customer so every purchase accrues on
+    // ONE customer (billing portal, saved methods, invoices) instead of
+    // Checkout minting a fresh anonymous customer per purchase. Members with
+    // no customer yet get one from Checkout, captured by the webhook.
+    const existingCustomerId = member.stripeCustomerId ?? member.stripeSetupCustomerId ?? null;
+
     const checkoutSession = await stripe.checkout.sessions.create(
       {
         mode: checkoutMode,
         line_items: feeItem ? [lineItem, feeItem] : [lineItem],
+        ...(existingCustomerId ? { customer: existingCustomerId } : {}),
         success_url: `${baseUrl}/member/memberships?subscribed=true`,
         cancel_url:  `${baseUrl}/member/memberships?canceled=true`,
         metadata: {

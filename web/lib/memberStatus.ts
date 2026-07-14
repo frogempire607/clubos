@@ -1,20 +1,18 @@
 import { prisma } from "@/lib/prisma";
 
-// Prospects auto-expire to INACTIVE this many days after they were added if
-// they never converted to an active membership.
-export const PROSPECT_TTL_DAYS = 30;
+// Status policy (owner-confirmed 2026-07-13):
+//   - ACTIVE   = currently has an active membership subscription.
+//   - INACTIVE = previously had a valid membership that ended.
+//   - PROSPECT = has NEVER had a valid membership — regardless of how long
+//     they've had an account or whether they have a saved payment method.
+//     Prospects are NEVER auto-aged into INACTIVE (the old 30-day TTL decay
+//     was removed deliberately; INACTIVE is reserved for lapsed members).
+//   - PAUSED is owner-controlled and always preserved.
 
 /**
- * Recompute a member's `status` based on whether they have any active membership
- * subscription. Rules:
- *   - At least one MemberSubscription with status="active" → member status="ACTIVE"
- *   - No active subscription, current status was "ACTIVE"  → demote to "INACTIVE"
- *   - PROSPECT older than PROSPECT_TTL_DAYS with no active sub → "INACTIVE"
- *   - PROSPECT within the window (no sub) is preserved
- *   - PAUSED is owner-controlled and is preserved
- *
- * Call this after a subscription's status changes (Stripe webhook), or after
- * a manual subscription update.
+ * Recompute a member's `status` from their subscriptions.
+ * Call after a subscription's status changes (Stripe webhook, manual update,
+ * expiry sweep).
  */
 export async function recomputeMemberStatus(memberId: string, clubId: string): Promise<void> {
   // Defense-in-depth: every caller already resolved memberId from a clubId-
@@ -22,7 +20,7 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
   // tenancy by passing a foreign memberId.
   const member = await prisma.member.findFirst({
     where: { id: memberId, clubId },
-    select: { id: true, status: true, joinedAt: true, createdAt: true, migrationStatus: true },
+    select: { id: true, status: true },
   });
   if (!member) return;
   // PAUSED is sticky — owner controls that explicitly.
@@ -32,21 +30,14 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
     where: { memberId, status: "active" },
   });
 
-  let next: "ACTIVE" | "INACTIVE" | "PROSPECT" | null = null;
+  let next: "ACTIVE" | "INACTIVE" | null = null;
   if (activeCount > 0) {
     if (member.status !== "ACTIVE") next = "ACTIVE";
-  } else {
-    if (member.status === "ACTIVE") {
-      next = "INACTIVE";
-    } else if (member.status === "PROSPECT" && !member.migrationStatus) {
-      // Members in the migration/onboarding lifecycle are NOT funnel prospects —
-      // they sit as PROSPECT only until activation/approval, which can take
-      // longer than the TTL. Never decay them to INACTIVE while they wait.
-      const since = member.joinedAt ?? member.createdAt;
-      const ageDays = (Date.now() - new Date(since).getTime()) / 86_400_000;
-      if (ageDays >= PROSPECT_TTL_DAYS) next = "INACTIVE";
-    }
+  } else if (member.status === "ACTIVE") {
+    // Their membership ended — a former member, not a prospect.
+    next = "INACTIVE";
   }
+  // PROSPECT with no sub stays PROSPECT forever (never had a membership).
 
   if (next) {
     await prisma.member.update({ where: { id: memberId }, data: { status: next } });
@@ -54,29 +45,33 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
 }
 
 /**
- * Sweep a club's stale prospects to INACTIVE. Cheap to call lazily whenever the
- * members list is loaded so the dashboard self-heals without a cron job.
+ * Expire MANUAL non-renewing subscriptions whose end date has passed, then
+ * recompute each affected member's status (ACTIVE → INACTIVE when nothing
+ * else is active). Stripe-linked subscriptions are deliberately untouched —
+ * Stripe owns their lifecycle via webhooks. Rows are marked `expired` with a
+ * timestamp, never deleted. Cheap to call lazily when the members list loads
+ * so the roster self-heals without a cron job.
  */
-export async function expireStaleProspects(clubId: string): Promise<number> {
-  const cutoff = new Date(Date.now() - PROSPECT_TTL_DAYS * 86_400_000);
-  const stale = await prisma.member.findMany({
+export async function expireEndedManualSubscriptions(clubId: string): Promise<number> {
+  const ended = await prisma.memberSubscription.findMany({
     where: {
-      clubId,
-      deletedAt: null,
-      status: "PROSPECT",
-      // Migrated/onboarding members (any migrationStatus) are exempt — they are
-      // existing members mid-switch, not stale leads, and activation can take
-      // longer than the TTL. Only true never-had-a-membership prospects decay.
-      migrationStatus: null,
-      joinedAt: { lt: cutoff },
-      subscriptions: { none: { status: "active" } },
+      member: { clubId, deletedAt: null },
+      billingType: "MANUAL",
+      status: "active",
+      autoRenew: false,
+      stripeSubscriptionId: null,
+      endDate: { lt: new Date() },
     },
-    select: { id: true },
+    select: { id: true, memberId: true },
   });
-  if (stale.length === 0) return 0;
-  await prisma.member.updateMany({
-    where: { id: { in: stale.map((m) => m.id) } },
-    data: { status: "INACTIVE" },
+  if (ended.length === 0) return 0;
+
+  await prisma.memberSubscription.updateMany({
+    where: { id: { in: ended.map((s) => s.id) } },
+    data: { status: "expired", expiredAt: new Date() },
   });
-  return stale.length;
+  for (const memberId of new Set(ended.map((s) => s.memberId))) {
+    await recomputeMemberStatus(memberId, clubId);
+  }
+  return ended.length;
 }
