@@ -563,7 +563,7 @@ function QuickAddForm({
                           payMethod === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
                         }`}
                       >
-                        {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Credit" : pm === "COMP" ? "Comp / Free" : "Invoice"}
+                        {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Card (external)" : pm === "COMP" ? "Comp / Free" : "Invoice"}
                       </button>
                     ))}
                   </div>
@@ -591,6 +591,11 @@ function QuickAddForm({
                     placeholder="Notes (optional)"
                     className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
                   />
+                  {payMethod === "CREDIT" && (
+                    <p className="text-[11px] text-orange-accent">
+                      AthletixOS does not charge this card — use only after collecting on your own card reader. This records the payment.
+                    </p>
+                  )}
                   <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
                     <input
                       type="checkbox"
@@ -611,7 +616,9 @@ function QuickAddForm({
                         ? "Record comped attendance"
                         : payMethod === "INVOICE"
                           ? "Record as unpaid invoice"
-                          : `Record ${payMethod === "CHECK" ? "check" : payMethod === "CREDIT" ? "card" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
+                          : payMethod === "CREDIT"
+                          ? `Record externally-collected card payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`
+                          : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
                   </button>
                   {error && <p className="text-red-600 text-xs">{error}</p>}
                 </div>
@@ -924,7 +931,7 @@ function AttendancePanel({
                                     chargeMethod === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
                                   }`}
                                 >
-                                  {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Card" : pm === "COMP" ? "Comp / Free" : "Invoice"}
+                                  {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Card (external)" : pm === "COMP" ? "Comp / Free" : "Invoice"}
                                 </button>
                               ))}
                             </div>
@@ -935,6 +942,11 @@ function AttendancePanel({
                               placeholder={chargeMethod === "COMP" ? "Value (optional)" : "Drop-in amount"}
                               className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
                             />
+                            {chargeMethod === "CREDIT" && (
+                              <p className="text-[11px] text-orange-accent">
+                                AthletixOS does not charge this card — use only after collecting on your own card reader. This records the payment.
+                              </p>
+                            )}
                             <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
                               <input
                                 type="checkbox"
@@ -954,6 +966,8 @@ function AttendancePanel({
                                   ? "Saving…"
                                   : chargeMethod === "COMP"
                                     ? "Mark Drop-in (comped)"
+                                    : chargeMethod === "CREDIT"
+                                    ? `Record external card${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`
                                     : `Charge${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`}
                               </button>
                               <button
