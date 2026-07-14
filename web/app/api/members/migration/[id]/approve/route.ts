@@ -67,6 +67,31 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const club = member.club;
 
+  // ── Nothing-configured guard ─────────────────────────────────────────────
+  // Approving a member with NO plan, NO purchase option, NO price override,
+  // and NO imported membership used to fall through every pricing fallback to
+  // a $0 plan literally named "Continued membership" — manufacturing a fake
+  // free membership and flipping the member ACTIVE. Refuse instead: the owner
+  // must configure something (or explicitly mark them free via a $0 price
+  // override) before approval means anything.
+  const nothingConfigured =
+    !member.migrationMembershipId &&
+    !member.migrationSelectedOption &&
+    member.migrationPriceOverride == null &&
+    !member.legacyMembershipName &&
+    member.legacyMembershipPrice == null;
+  if (nothingConfigured) {
+    return NextResponse.json(
+      {
+        error: "Nothing is configured to approve",
+        code: "NOTHING_CONFIGURED",
+        message:
+          "This member has no membership plan, no purchase option, no imported plan, and no price set. Open their setup (or the billing control center) and assign a plan — or explicitly mark them free with a $0 price override — before approving. Nothing was changed.",
+      },
+      { status: 409 },
+    );
+  }
+
   // Resolve the agreed billing anchor.
   let anchor: Date | null = null;
   if (body.billingAnchorDate) {
