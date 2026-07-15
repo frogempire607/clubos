@@ -181,23 +181,33 @@ export async function POST(req: Request) {
               ? {
                   memberProfile: { connect: { id: existingMember.id } },
                 }
-              : {
-                  memberProfile: {
-                    create: {
-                      clubId: club.id,
-                      firstName: data.firstName,
-                      lastName: data.lastName,
-                      email: data.email.toLowerCase(),
-                      status: "ACTIVE",
-                      isMinor,
-                      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-                      guardianName: data.guardianName || null,
-                      guardianEmail: data.guardianEmail || null,
-                      guardianPhone: data.guardianPhone || null,
-                      guardianRelationship: data.guardianRelationship || null,
+              : data.accountType === "PARENT"
+                ? {
+                    // GUARDIAN-ONLY account: a parent creating a portal login
+                    // to manage a child is NOT an athlete/member — no Member
+                    // row is created. They can add an adult member profile
+                    // later (self-profile) or staff can add one explicitly.
+                  }
+                : {
+                    memberProfile: {
+                      create: {
+                        clubId: club.id,
+                        firstName: data.firstName,
+                        lastName: data.lastName,
+                        email: data.email.toLowerCase(),
+                        // Signing up NEVER makes someone Active — ACTIVE means
+                        // a valid membership exists. New signups are PROSPECT
+                        // until they purchase / are assigned a membership.
+                        status: "PROSPECT",
+                        isMinor,
+                        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+                        guardianName: data.guardianName || null,
+                        guardianEmail: data.guardianEmail || null,
+                        guardianPhone: data.guardianPhone || null,
+                        guardianRelationship: data.guardianRelationship || null,
+                      },
                     },
-                  },
-                }),
+                  }),
           },
           include: { memberProfile: true },
         })
@@ -213,23 +223,33 @@ export async function POST(req: Request) {
               ? {
                   memberProfile: { connect: { id: existingMember.id } },
                 }
-              : {
-                  memberProfile: {
-                    create: {
-                      clubId: club.id,
-                      firstName: data.firstName,
-                      lastName: data.lastName,
-                      email: data.email.toLowerCase(),
-                      status: "ACTIVE",
-                      isMinor,
-                      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-                      guardianName: data.guardianName || null,
-                      guardianEmail: data.guardianEmail || null,
-                      guardianPhone: data.guardianPhone || null,
-                      guardianRelationship: data.guardianRelationship || null,
+              : data.accountType === "PARENT"
+                ? {
+                    // GUARDIAN-ONLY account: a parent creating a portal login
+                    // to manage a child is NOT an athlete/member — no Member
+                    // row is created. They can add an adult member profile
+                    // later (self-profile) or staff can add one explicitly.
+                  }
+                : {
+                    memberProfile: {
+                      create: {
+                        clubId: club.id,
+                        firstName: data.firstName,
+                        lastName: data.lastName,
+                        email: data.email.toLowerCase(),
+                        // Signing up NEVER makes someone Active — ACTIVE means
+                        // a valid membership exists. New signups are PROSPECT
+                        // until they purchase / are assigned a membership.
+                        status: "PROSPECT",
+                        isMinor,
+                        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+                        guardianName: data.guardianName || null,
+                        guardianEmail: data.guardianEmail || null,
+                        guardianPhone: data.guardianPhone || null,
+                        guardianRelationship: data.guardianRelationship || null,
+                      },
                     },
-                  },
-                }),
+                  }),
           },
           include: { memberProfile: true },
         });
@@ -311,6 +331,37 @@ export async function POST(req: Request) {
           } catch (e) {
             console.error("Failed to record parental consent (member signup PARENT):", e);
           }
+        }
+      }
+    }
+
+    // A parent's portal account should immediately manage EVERY child the
+    // club already lists under their email (guardianEmail match = owner-
+    // vouched, same rule requestGuardianLink enforces) — not only the one
+    // child they happened to type. This is how a manually-added child (e.g.
+    // a walk-in added at practice with mom's email as guardian) gets linked
+    // the moment mom creates her account, instead of staying orphaned.
+    if (data.accountType === "PARENT") {
+      const vouchedChildren = await prisma.member.findMany({
+        where: {
+          clubId: club.id,
+          deletedAt: null,
+          guardianEmail: { equals: data.email.toLowerCase(), mode: "insensitive" },
+          ...(data.childEmail ? { NOT: { email: data.childEmail.toLowerCase() } } : {}),
+        },
+        select: { id: true, isMinor: true, guardianEmail: true },
+      });
+      for (const child of vouchedChildren) {
+        try {
+          await requestGuardianLink({
+            clubId: club.id,
+            requestingUserId: user.id,
+            requestingUserEmail: data.email.toLowerCase(),
+            child: { id: child.id, isMinor: child.isMinor, guardianEmail: child.guardianEmail },
+            relationship: data.relationship || null,
+          });
+        } catch (e) {
+          console.error("Guardian sweep link failed for child", child.id, e);
         }
       }
     }

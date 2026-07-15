@@ -401,6 +401,12 @@ export type ResolvedPricing = {
   optionLabel: string | null;
   price: number;
   period: string;
+  // TRUE only when something real backs this pricing: an assigned plan, a
+  // selected option, an explicit price override (incl. $0 mark-free), or an
+  // imported legacy plan. FALSE ⇒ nothing is configured — the member has NO
+  // membership; surfaces must show "No membership" (never a "Continued
+  // membership"/"Free" placeholder) and offers/approvals must be blocked.
+  configured: boolean;
 };
 
 function parseOptions(raw: unknown): { label?: unknown; price?: unknown; billingPeriod?: unknown }[] {
@@ -413,7 +419,19 @@ function parseOptions(raw: unknown): { label?: unknown; price?: unknown; billing
 }
 
 export function resolveOfferPricing(member: PricingMemberInput, plan: PlanInput): ResolvedPricing {
-  let planName = member.legacyMembershipName || "Continued membership";
+  // Mirrors the approve route's NOTHING_CONFIGURED semantics: no plan, no
+  // selected option, no override, no imported legacy plan ⇒ NOT configured.
+  // The historic "Continued membership" fallback name is deliberately gone —
+  // an unconfigured member has NO membership, and displaying a free
+  // placeholder is exactly how phantom $0 memberships were born.
+  const configured = !!(
+    plan ||
+    (member.migrationSelectedOption && typeof member.migrationSelectedOption === "object") ||
+    member.migrationPriceOverride != null ||
+    member.legacyMembershipName ||
+    member.legacyMembershipPrice != null
+  );
+  let planName = member.legacyMembershipName || "No membership";
   let price = member.legacyMembershipPrice != null ? Number(member.legacyMembershipPrice) : 0;
   let period = member.legacyBillingFrequency || "MONTHLY";
   let optionLabel: string | null = null;
@@ -440,7 +458,7 @@ export function resolveOfferPricing(member: PricingMemberInput, plan: PlanInput)
     price = Number(member.migrationPriceOverride);
   }
 
-  return { planName, optionLabel, price, period };
+  return { planName, optionLabel, price, period, configured };
 }
 
 /** "MONTHLY" → "monthly", "SEMI_ANNUAL" → "every 6 months", … for display. */

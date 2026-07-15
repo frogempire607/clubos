@@ -45,8 +45,12 @@ type Data = {
   // processing fee (computed server-side from the effective price).
   feeBreakdown?: { passFees: boolean; feePercentLabel: string; base: number; fee: number; totalCharged: number };
   billing: {
-    planId: string | null; planName: string; optionLabel: string | null;
-    price: number; period: string; periodLabel: string;
+    // FALSE ⇒ this member has NO membership configured: planName/optionLabel/
+    // price/period/periodLabel are null and the fee breakdown is zeroed.
+    // UIs must show "No membership" (never "Free") and block offer creation.
+    configured: boolean;
+    planId: string | null; planName: string | null; optionLabel: string | null;
+    price: number | null; period: string | null; periodLabel: string | null;
     priceOverride: number | null; discountNote: string | null;
     startDate: string | null; billingAnchorDate: string | null; finalBillingDate: string | null;
     nextBillingDate: string | null; commitmentEndDate: string | null;
@@ -230,12 +234,24 @@ export default function MemberBillingPage() {
           title="Membership & pricing"
           action={<button onClick={() => setEditOpen(true)} className="text-xs text-brand hover:underline">Edit</button>}
         >
-          <Row label="Plan" strong>{b.planName}{b.optionLabel ? ` · ${b.optionLabel}` : ""}</Row>
-          <Row label="Price" strong>{b.price <= 0 ? "Free" : `${fmtMoney(b.price)} ${b.periodLabel}`}</Row>
-          {data.feeBreakdown?.passFees && b.price > 0 && (
-            <Row label="Total charged" strong>
-              {fmtMoney(data.feeBreakdown.totalCharged)} {b.periodLabel} (includes {fmtMoney(data.feeBreakdown.fee)} {data.feeBreakdown.feePercentLabel} processing fee)
-            </Row>
+          {b.configured ? (
+            <>
+              <Row label="Plan" strong>{b.planName}{b.optionLabel ? ` · ${b.optionLabel}` : ""}</Row>
+              <Row label="Price" strong>{(b.price ?? 0) <= 0 ? "Free" : `${fmtMoney(b.price ?? 0)} ${b.periodLabel ?? ""}`}</Row>
+              {data.feeBreakdown?.passFees && (b.price ?? 0) > 0 && (
+                <Row label="Total charged" strong>
+                  {fmtMoney(data.feeBreakdown.totalCharged)} {b.periodLabel} (includes {fmtMoney(data.feeBreakdown.fee)} {data.feeBreakdown.feePercentLabel} processing fee)
+                </Row>
+              )}
+            </>
+          ) : (
+            <div className="py-1">
+              <Row label="Plan" strong><span className="text-text-muted font-normal">No membership</span></Row>
+              <p className="text-xs text-text-muted mt-1">
+                No membership configured. This member is a prospect — assign a plan or set an explicit $0
+                price to make them deliberately free.
+              </p>
+            </div>
           )}
           {b.priceOverride != null && (
             <Row label="Owner price override">{fmtMoney(b.priceOverride)}{b.discountNote ? ` — ${b.discountNote}` : ""}</Row>
@@ -262,11 +278,13 @@ export default function MemberBillingPage() {
               {b.legacy.price != null ? ` · $${b.legacy.price}` : ""}{b.legacy.frequency ? ` ${b.legacy.frequency.toLowerCase()}` : ""}
             </p>
           )}
-          <p className="text-xs mt-2 pt-2 border-t border-app-border text-text-muted">
-            If billing started now it {b.chargeTiming.immediate
-              ? <strong className="text-orange-accent">would charge immediately</strong>
-              : <>would first charge on <strong className="text-text-primary">{fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}</strong></>}.
-          </p>
+          {b.configured && (
+            <p className="text-xs mt-2 pt-2 border-t border-app-border text-text-muted">
+              If billing started now it {b.chargeTiming.immediate
+                ? <strong className="text-orange-accent">would charge immediately</strong>
+                : <>would first charge on <strong className="text-text-primary">{fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}</strong></>}.
+            </p>
+          )}
           <p className="text-xs mt-2 text-text-muted">
             Saving changes here does <strong className="text-text-primary">not</strong> charge the client.
             They take effect only when the client confirms the reactivation offer or an authorized user
@@ -332,7 +350,12 @@ export default function MemberBillingPage() {
         <Card
           title="Reactivation offer"
           className="lg:col-span-2"
-          action={<button onClick={() => setReactOpen(true)} className="text-xs text-brand hover:underline">
+          action={<button
+            onClick={() => setReactOpen(true)}
+            disabled={!b.configured}
+            title={!b.configured ? "Assign a membership first" : undefined}
+            className="text-xs text-brand hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
+          >
             {data.reactivation && (data.reactivation.status === "DRAFT" || data.reactivation.status === "SENT") ? "Manage / resend" : "Create offer"}
           </button>}
         >
@@ -424,8 +447,9 @@ export default function MemberBillingPage() {
             </div>
           ) : (
             <p className="text-sm text-text-muted">
-              No offer yet. Create one to send the client a secure link where they review the owner-approved membership
-              and confirm — with the first-payment date spelled out before anything is charged.
+              {b.configured
+                ? "No offer yet. Create one to send the client a secure link where they review the owner-approved membership and confirm — with the first-payment date spelled out before anything is charged."
+                : "No offer yet — and none can be created until a membership is assigned. Use Edit on the pricing card to assign a plan (or an explicit $0 price for a deliberately free membership)."}
             </p>
           )}
         </Card>
@@ -882,6 +906,11 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
     setBusy(false);
     if (r.ok) { onChanged(); setSentMsg("Offer created. Preview the email, then send."); }
     else if (d.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") setNeedsAck(true);
+    else if (d.code === "PLAN_REQUIRED") {
+      // No membership configured — the server refuses to draft a $0 offer.
+      setErr(d.error || "No membership is configured for this member. Assign a plan (or an explicit $0 price) in the billing setup before creating an offer.");
+      onChanged(); // re-sync so the page flips to the "No membership" state
+    }
     else setErr(d.error || "Could not create the offer.");
   };
 
@@ -909,8 +938,11 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
       <div className="bg-surface w-full sm:max-w-2xl rounded-t-2xl sm:rounded-xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-base font-semibold text-text-primary mb-1">Reactivation offer</h3>
         <p className="text-xs text-text-muted mb-3">
-          Offer: <strong className="text-text-primary">{data.billing.planName}</strong> — {data.billing.price <= 0 ? "Free" : `$${data.billing.price.toFixed(2)} ${data.billing.periodLabel}`}
-          {data.feeBreakdown?.passFees && data.billing.price > 0
+          Offer: <strong className="text-text-primary">{data.billing.configured ? data.billing.planName : "No membership configured"}</strong>
+          {data.billing.configured
+            ? <> — {(data.billing.price ?? 0) <= 0 ? "Free" : `$${(data.billing.price ?? 0).toFixed(2)} ${data.billing.periodLabel ?? ""}`}</>
+            : null}
+          {data.billing.configured && data.feeBreakdown?.passFees && (data.billing.price ?? 0) > 0
             ? ` ($${data.feeBreakdown.totalCharged.toFixed(2)} charged incl. $${data.feeBreakdown.fee.toFixed(2)} processing fee)`
             : ""}.
           The client reviews these owner-approved terms on a secure page; nothing is charged until they confirm, and

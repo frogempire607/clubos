@@ -45,10 +45,22 @@ export async function GET(req: Request) {
         include: { membership: { select: { name: true } } },
       },
       guardian: true,
+      // Cheap existence probe: one linked guardian portal user is enough for
+      // the roster's "Profile completed" derivation (minors whose guardian
+      // registered count as completed even without their own login).
+      guardianLinks: { select: { id: true }, take: 1 },
     },
   });
 
-  return NextResponse.json(members);
+  // Additive payload field: hasGuardianAccount = the member has ≥1
+  // MemberGuardianUser row. The raw link rows themselves aren't needed
+  // client-side, so map them down to the boolean.
+  return NextResponse.json(
+    members.map(({ guardianLinks, ...m }) => ({
+      ...m,
+      hasGuardianAccount: guardianLinks.length > 0,
+    }))
+  );
 }
 
 const createSchema = z.object({

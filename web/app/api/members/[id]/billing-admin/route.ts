@@ -259,8 +259,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   const offlineIntended =
     !club.stripeAccountId || !club.stripeChargesEnabled ||
     member.requestedPaymentMethod === "CASH" || member.requestedPaymentMethod === "CHECK";
-  const hasConfiguredPrice =
-    !!plan || !!member.migrationSelectedOption || member.migrationPriceOverride != null || member.legacyMembershipPrice != null;
+  // ONE definition of "is anything real configured": resolveOfferPricing's.
+  const hasConfiguredPrice = pricing.configured;
   const billingState = deriveBillingState({
     sub: activeSub
       ? {
@@ -356,7 +356,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   // What the customer is actually charged for the effective price when the
   // club passes the Stripe processing fee (display only — lib/fees.ts owns
   // the math, and the charge paths use recurringUnitWithFee on the same base).
-  const fees = feeBreakdown(pricing.price, club.passProcessingFees);
+  // An UNCONFIGURED member has no price at all — never show $0/"Free".
+  const fees = feeBreakdown(pricing.configured ? pricing.price : 0, club.passProcessingFees);
 
   // Plans for the edit modal.
   const plans = await prisma.membership.findMany({
@@ -391,12 +392,16 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       totalCharged: fees.total,
     },
     billing: {
+      // FALSE ⇒ this member has NO membership configured: UIs must say
+      // "No membership" (never "Free"/"Continued membership"), show no charge
+      // timing, and block offer creation until a real plan is assigned.
+      configured: pricing.configured,
       planId: plan?.id ?? null,
-      planName: pricing.planName,
-      optionLabel: pricing.optionLabel,
-      price: pricing.price,
-      period: pricing.period,
-      periodLabel: prettyPeriod(pricing.period),
+      planName: pricing.configured ? pricing.planName : null,
+      optionLabel: pricing.configured ? pricing.optionLabel : null,
+      price: pricing.configured ? pricing.price : null,
+      period: pricing.configured ? pricing.period : null,
+      periodLabel: pricing.configured ? prettyPeriod(pricing.period) : null,
       priceOverride: member.migrationPriceOverride != null ? Number(member.migrationPriceOverride) : null,
       discountNote: member.migrationDiscountNote,
       startDate: member.membershipStartDate,
