@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link";
 import { UserCheck, Ban, CreditCard, ChevronDown, ChevronUp, AlertTriangle, FilePen } from "lucide-react";
 import MembersTabs from "@/components/MembersTabs";
+import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 
 type Requester = { name: string | null; email: string | null } | null;
 
@@ -136,6 +137,9 @@ type BillingAdminData = {
     commitmentEndDate?: string | null;
     stripeStatus?: string | null;
     chargeTiming?: { immediate?: boolean; label?: string } | null;
+    // Staff-selected discount + payment method for the staged offer.
+    discountCode?: string | null;
+    requestedPaymentMethod?: string | null;
   } | null;
   payer?: { name?: string | null; email?: string | null } | null;
   guardians?: { name?: string | null; email?: string | null; isPayer?: boolean }[] | null;
@@ -205,6 +209,16 @@ function periodLabel(p: string): string {
   };
   return map[p?.toUpperCase()] || p?.toLowerCase() || "mo";
 }
+
+// Staff payment-method preference (billing.requestedPaymentMethod) — shared
+// vocabulary with billing-admin's paymentMethodPreference. null = saved card.
+const PM_PREF_LABELS: Record<string, string> = {
+  CARD: "Saved card",
+  LATER: "New card (client adds)",
+  CASH: "Cash — club collects",
+  CHECK: "Check — club collects",
+};
+const pmPrefLabel = (v: string | null | undefined) => (v && PM_PREF_LABELS[v]) || "Saved card (default)";
 
 export default function MembersApprovalsPage() {
   const [approvals, setApprovals] = useState<Approval[] | null>(null);
@@ -328,7 +342,7 @@ export default function MembersApprovalsPage() {
     load();
   }
 
-  async function approveMigration(a: MigrationApproval) {
+  async function approveMigration(a: MigrationApproval, confirmImmediate = false) {
     setBusyId(a.id);
     setError("");
     setNotice(null);
@@ -338,12 +352,36 @@ export default function MembersApprovalsPage() {
     const res = await fetch(`/api/members/migration/${a.memberId}/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ acceptRequestedDate: !!a.requestedBillingDate }),
+      body: JSON.stringify({
+        acceptRequestedDate: !!a.requestedBillingDate,
+        ...(confirmImmediate ? { confirmImmediateCharge: true } : {}),
+      }),
     });
     setBusyId(null);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       const msg = typeof d.error === "string" ? d.error : "Could not approve this membership.";
+      if (d.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") {
+        // The billing date is today/past, so approving charges the saved card
+        // RIGHT NOW. Never silent — but never a dead end either: an explicit
+        // second confirmation proceeds with the charge.
+        const amt = typeof d.price === "number" ? `$${d.price.toFixed(2)}` : "the full membership price";
+        if (
+          confirm(
+            `${a.memberName}'s billing date is today or already passed.\n\nApproving now charges ${amt} to the saved card IMMEDIATELY.\n\nCharge ${amt} today?\n\n(To bill on a future date instead, cancel and set a new billing date first.)`,
+          )
+        ) {
+          await approveMigration(a, true);
+        } else {
+          setNotice({
+            tone: "error",
+            text: "Nothing was charged. Set a new future billing date, then approve — or approve again and confirm the immediate charge.",
+            href: `/dashboard/members/${a.memberId}/billing`,
+            hrefLabel: "Set billing date",
+          });
+        }
+        return;
+      }
       if (d.code === "PLAN_REQUIRED") {
         // No plan and no imported plan name — the server refuses to start
         // billing. Point at the billing center and flip the card's action.
@@ -887,6 +925,12 @@ function BillingReviewPanel({
         refresh();
         return;
       }
+      if (d.code === "DISCOUNT_INVALID") {
+        // The staged discount code no longer resolves — fix or clear it in the
+        // billing center, then create the offer again.
+        setActionErr(`${msg} Fix or clear the discount in the billing center, then create the offer again.`);
+        return;
+      }
       setActionErr(msg);
       return;
     }
@@ -1047,7 +1091,11 @@ function BillingReviewPanel({
               ? "Free"
               : `${money(price)}${billing?.periodLabel ? ` ${billing.periodLabel}` : ""}`,
         )}
+        {!unconfigured && billing?.discountCode &&
+          row("Discount", <><strong className="font-mono">{billing.discountCode}</strong> — validated server-side and frozen into the offer at create time</>)}
+        {!unconfigured && row("Pay by", pmPrefLabel(billing?.requestedPaymentMethod))}
         {!unconfigured && fees?.passFees && (price ?? 0) > 0 && fees.totalCharged != null && fees.fee != null &&
+          billing?.requestedPaymentMethod !== "CASH" && billing?.requestedPaymentMethod !== "CHECK" &&
           row("Total charged", `${money(fees.totalCharged)} incl. ${money(fees.fee)} processing fee`)}
         {!unconfigured && timing?.label &&
           row("Charge timing", timing.immediate ? <strong>{timing.label}</strong> : timing.label)}
@@ -1078,6 +1126,9 @@ function BillingReviewPanel({
                 .join(", "),
         )}
       </dl>
+
+      {/* Outstanding cash/check — record-received flow (renders only when pending) */}
+      <OfflinePaymentsCard memberId={memberId} variant="inline" onChanged={refresh} />
 
       {/* Subscriptions */}
       {subscriptions.length > 0 && (

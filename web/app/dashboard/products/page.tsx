@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Package } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
+import StaffDiscountPicker from "@/components/StaffDiscountPicker";
 
 type Category = "GEAR" | "APPAREL" | "FACILITY" | "SERVICE" | "OTHER";
 type ProductType = "GEAR" | "FACILITY_RENTAL" | "BIRTHDAY_PARTY" | "DIGITAL" | "OTHER";
@@ -639,6 +640,7 @@ function SellModal({ product, onClose, onSold }: { product: Product; onClose: ()
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
   const [manualSale, setManualSale] = useState(true);
+  const [discountCode, setDiscountCode] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
@@ -655,7 +657,7 @@ function SellModal({ product, onClose, onSold }: { product: Product; onClose: ()
     const res = await fetch(`/api/products/${product.id}/sell`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId: memberId || null, quantity, notes: notes || null, manualSale }),
+      body: JSON.stringify({ memberId: memberId || null, quantity, notes: notes || null, manualSale, discountCode }),
     });
     const data = await res.json();
     setSaving(false);
@@ -719,6 +721,14 @@ function SellModal({ product, onClose, onSold }: { product: Product; onClose: ()
             <label className="block text-sm font-medium text-text-primary mb-1">Notes (optional)</label>
             <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Size, color, special instructions…" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
+
+          <StaffDiscountPicker
+            itemType="PRODUCT"
+            value={discountCode}
+            onChange={(code) => setDiscountCode(code)}
+            originalPrice={total}
+          />
+
 
           <div className="border border-app-border rounded-lg p-3 space-y-2">
             <label className="block text-sm font-medium text-text-primary">Payment method</label>

@@ -2,7 +2,13 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { newActivationToken } from "@/lib/migration";
 import { resolveOfferPricing, type ResolvedPricing } from "@/lib/billingAdmin";
-import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
+import {
+  resolveStaffDiscount,
+  quotePayment,
+  offlineActivationPolicy,
+  isOfflineMethod,
+  discountAppliedLabel,
+} from "@/lib/staffPayments";
 import { applyProcessingFee } from "@/lib/fees";
 
 // Membership reactivation offers — server helpers shared by the owner-side
@@ -322,6 +328,9 @@ export function buildReactivationEmailParams(args: {
     // Whether the Stripe processing fee is passed to the customer — drives the
     // fee-inclusive "total charged" wording (lib/fees.ts owns the math).
     passProcessingFees?: boolean;
+    // CASH/CHECK activation rule (null/undefined ⇒ ON_PAYMENT default) —
+    // drives the offline offer's "when does the membership start" wording.
+    offlineActivationPolicy?: string | null;
   };
   clubLogoPublicUrl: string | null;
   cardSummary: string | null;
@@ -333,10 +342,29 @@ export function buildReactivationEmailParams(args: {
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
   const immediate = !!firstCharge && firstCharge.getTime() <= Date.now() + 60_000;
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
+  // Every charged-amount label is based on the DISCOUNTED price — what the
+  // client actually pays (offerEffectivePrice; the pre-discount price shows
+  // only in the Price row and the discount line's "(was …)").
+  const effective = offerEffectivePrice(offer);
+  const periodLabel = prettyPeriodLabel(offer.billingPeriod);
   // Exact card charge when the club passes the processing fee — matches what
-  // confirm creates (recurringUnitWithFee on the same cent base).
+  // confirm creates (recurringUnitWithFee on the same DISCOUNTED cent base).
   const passFees = !isFree && offer.paymentMode === "CARD" && !!args.club.passProcessingFees;
-  const fees = applyProcessingFee(Math.round(offer.price * 100), passFees);
+  const fees = applyProcessingFee(Math.round(effective * 100), passFees);
+  // "SIBLING Discount Applied — $480.00 quarterly (was $530.00)"
+  const discountLine = offer.discount
+    ? `${discountAppliedLabel({ code: offer.discount.code, description: offer.discount.name })} — $${effective.toFixed(2)} ${periodLabel} (was $${offer.price.toFixed(2)})`
+    : null;
+  // CASH/CHECK: the club collects offline — the email must say so and state,
+  // per club policy, when the membership starts. Never charge language.
+  const paymentCollection =
+    !isFree && isOfflineMethod(offer.paymentMethod)
+      ? {
+          method: offer.paymentMethod,
+          policy: offlineActivationPolicy(args.club),
+          amountLabel: `$${(fees.totalCents / 100).toFixed(2)}`,
+        }
+      : null;
   return {
     to: args.to,
     athleteName: args.athleteName,
@@ -346,9 +374,11 @@ export function buildReactivationEmailParams(args: {
     membershipName: offer.planName,
     optionLabel: offer.optionLabel,
     priceLabel: isFree ? "Free" : `$${offer.price.toFixed(2)}`,
+    discountLine,
+    paymentCollection,
     totalChargedLabel: isFree ? null : `$${(fees.totalCents / 100).toFixed(2)}`,
     processingFeeLabel: fees.feeCents > 0 ? `$${(fees.feeCents / 100).toFixed(2)}` : null,
-    periodLabel: prettyPeriodLabel(offer.billingPeriod),
+    periodLabel,
     startDateLabel: longDate(offer.startDate),
     firstChargeLabel: isFree ? null : longDate(offer.firstChargeDate),
     immediateCharge: immediate,
@@ -385,6 +415,7 @@ export async function loadReactivationEmailContext(memberId: string, clubId: str
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
           emailFromName: true, emailReplyTo: true, stripeAccountId: true, passProcessingFees: true,
+          offlineActivationPolicy: true,
         },
       },
     },

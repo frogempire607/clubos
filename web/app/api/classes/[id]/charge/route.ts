@@ -7,11 +7,16 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
 
 const schema = z.object({
   memberId: z.string(),
   classSessionId: z.string(),
   pricingType: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN", "MEMBERSHIP"]).default("MEMBER"),
+  // Optional staff-selected discount code (itemType CLASS). Validated
+  // server-side against the server-derived price; invalid = 400 BLOCK.
+  discountCode: z.string().optional().nullable(),
 });
 
 type PricingOption =
@@ -28,7 +33,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   try {
     const body = await req.json();
-    const { memberId, classSessionId, pricingType } = schema.parse(body);
+    const { memberId, classSessionId, pricingType, discountCode } = schema.parse(body);
+
+    // Resolve the discount up front — an invalid code blocks the request even
+    // if the member later turns out to be membership-covered.
+    const discountCheck = await resolveStaffDiscount(session.user.clubId, discountCode, {
+      type: "CLASS",
+    });
+    if (!discountCheck.ok) return NextResponse.json({ error: discountCheck.error }, { status: 400 });
+    const discount = discountCheck.discount;
 
     const cls = await prisma.recurringClass.findFirst({
       where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
@@ -138,7 +151,25 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json({ error: "Connect Stripe first" }, { status: 400 });
     }
 
-    const priceCents = Math.round(priced.price * 100);
+    // Discount applies to the SERVER-derived price before the checkout line
+    // item; the processing-fee item is computed on the discounted price so it
+    // matches quotePayment's math. quotePayment also guards sub-$0.50 cards.
+    const quoted = quotePayment({
+      originalPrice: priced.price,
+      discount,
+      method: "NEW_CARD",
+      passProcessingFees: club.passProcessingFees,
+    });
+    if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
+    const quote = quoted.quote;
+    if (quote.finalPrice <= 0) {
+      return NextResponse.json(
+        { error: "The discount brings the total to $0 — record the attendance as comp instead of a card charge." },
+        { status: 400 }
+      );
+    }
+
+    const priceCents = Math.round(quote.finalPrice * 100);
     const platformFee = calculatePlatformFee(priceCents, club.tier);
     const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
@@ -153,7 +184,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
               currency: "usd",
               unit_amount: priceCents,
               product_data: {
-                name: cls.name,
+                name: `${cls.name}${discount ? ` (${discount.code})` : ""}`,
                 description: `${choice.label} price · ${new Date(classSession.startsAt).toLocaleString()}`,
               },
             },
@@ -171,6 +202,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             className: cls.name,
             clubId: club.id,
             pricingType,
+            // Discount identity for the webhook's Transaction (pickup pending —
+            // the webhook is a separate workstream and is not modified here).
+            ...(discount
+              ? { discountCode: discount.code, discountAmount: String(quote.discountAmount) }
+              : {}),
           },
         },
         metadata: {
@@ -180,10 +216,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           className: cls.name,
           clubId: club.id,
           pricingType,
+          ...(discount
+            ? { discountCode: discount.code, discountAmount: String(quote.discountAmount) }
+            : {}),
         },
       },
       { stripeAccount: club.stripeAccountId }
     );
+    if (discount) await recordDiscountUse(discount.id);
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (err) {

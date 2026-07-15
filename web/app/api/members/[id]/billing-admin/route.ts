@@ -119,6 +119,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       club: {
         select: {
           id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true,
+          offlineActivationPolicy: true,
         },
       },
       membership: { select: { id: true, name: true } },
@@ -385,6 +386,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     },
     hasPendingCharge,
     anchorMismatch,
+    // Club rule for CASH/CHECK offers: does the membership activate when the
+    // client accepts, or only when staff records the money as received?
+    offlineActivationPolicy: club.offlineActivationPolicy === "ON_ACCEPTANCE" ? "ON_ACCEPTANCE" : "ON_PAYMENT",
     feeBreakdown: {
       passFees: club.passProcessingFees,
       feePercentLabel: describeProcessingFee(),

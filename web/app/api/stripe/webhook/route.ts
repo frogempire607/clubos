@@ -151,6 +151,14 @@ export async function POST(req: Request) {
               event.account ?? null,
             )
           : null;
+        // Discount identity passed through checkout metadata by the staff/member
+        // purchase routes — stamped onto every Transaction this event creates.
+        const discountFields = session.metadata?.discountCode
+          ? {
+              discountCode: session.metadata.discountCode,
+              discountAmount: session.metadata.discountAmount ? Number(session.metadata.discountAmount) : null,
+            }
+          : {};
         const memberSubscriptionId = session.metadata?.memberSubscriptionId;
         const memberId  = session.metadata?.memberId;
         const clubId    = session.metadata?.clubId || "";
@@ -272,6 +280,7 @@ export async function POST(req: Request) {
                   category: "memberships",
                   paymentMethod: "STRIPE",
                   ...verifiedStripeTxFields(checkoutMoney),
+              ...discountFields,
                 },
               });
             }
@@ -474,6 +483,7 @@ export async function POST(req: Request) {
               category: "events",
               paymentMethod: "STRIPE",
               ...verifiedStripeTxFields(checkoutMoney),
+              ...discountFields,
             },
           });
 
@@ -510,6 +520,7 @@ export async function POST(req: Request) {
               category: "events",
               paymentMethod: "STRIPE",
               ...verifiedStripeTxFields(checkoutMoney),
+              ...discountFields,
             },
           });
 
@@ -594,6 +605,7 @@ export async function POST(req: Request) {
               category: "classes",
               paymentMethod: "STRIPE",
               ...verifiedStripeTxFields(checkoutMoney),
+              ...discountFields,
             },
           });
           // Mark the member as a paid drop-in on this session
@@ -703,6 +715,7 @@ export async function POST(req: Request) {
                     category: "private_lessons",
                     paymentMethod: "STRIPE",
                     ...verifiedStripeTxFields(checkoutMoney),
+              ...discountFields,
                   },
                 });
               }
@@ -738,6 +751,7 @@ export async function POST(req: Request) {
                 category: "events",
                 paymentMethod: "STRIPE",
                 ...verifiedStripeTxFields(checkoutMoney),
+              ...discountFields,
               },
             });
             // If they matched an existing member, also create a Booking so it
@@ -840,6 +854,14 @@ export async function POST(req: Request) {
             stripePaymentIntentId: money.paymentIntentId,
             stripeInvoiceId: invoice.id,
             stripeSubscriptionId: subscriptionId,
+            // Discount identity carried by the subscription (first charge AND
+            // every renewal keeps reporting which discount priced it).
+            ...(memberSub?.discountCode
+              ? {
+                  discountCode: memberSub.discountCode,
+                  discountAmount: memberSub.discountAmount != null ? Number(memberSub.discountAmount) : null,
+                }
+              : {}),
             description,
             type: "MEMBERSHIP",
             category: "memberships",

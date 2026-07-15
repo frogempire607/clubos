@@ -22,12 +22,20 @@ type Payload = {
     planName: string; optionLabel: string | null; price: number; billingPeriod: string;
     periodLabel: string; startDate: string | null; firstChargeDate: string | null;
     commitmentEndDate: string | null; paymentMode: string; autoRenew?: boolean; offerVersion: number;
+    // Staff-selected method (CASH/CHECK ⇒ the club collects offline) and the
+    // frozen discount math — finalPrice is what the client pays.
+    paymentMethod?: "SAVED_CARD" | "NEW_CARD" | "CASH" | "CHECK" | null;
+    discount?: { code: string; name: string; type: string; value: number; amountOff: number; finalPrice: number } | null;
   };
   // Processing-fee breakdown (dollars): totalCharged is the EXACT card charge —
-  // it matches what the confirm route creates on Stripe.
+  // it matches what the confirm route creates on Stripe. base is the
+  // DISCOUNTED price when a discount applies.
   fees?: { passFees: boolean; base: number; fee: number; totalCharged: number };
   // OPEN = the club is reviewing a change request — confirmation is locked.
   changeRequestStatus?: string | null;
+  // CASH/CHECK activation rule: ON_PAYMENT (default) = the membership starts
+  // when the club records the payment; ON_ACCEPTANCE = it starts on acceptance.
+  offlinePolicy?: "ON_PAYMENT" | "ON_ACCEPTANCE";
   chargeTiming?: { immediate: boolean; isFree: boolean };
   card?: { brand: string; last4: string; cardholder: string | null } | null;
   hasUsableCard?: boolean;
@@ -116,6 +124,16 @@ export default function ReactivatePage() {
   }
   if (data.confirmed || done) {
     const chargedNow = done?.chargedNow ?? false;
+    // Offline (cash/check) confirmations never charge online — the wording
+    // follows the club's activation rule from the GET payload.
+    const doneOfflineMethod =
+      data.offer?.paymentMethod === "CASH" || data.offer?.paymentMethod === "CHECK" ? data.offer.paymentMethod : null;
+    const doneAmount = data.offer ? (data.offer.discount?.finalPrice ?? data.offer.price) : 0;
+    const offlineDoneMsg = doneOfflineMethod
+      ? data.offlinePolicy === "ON_ACCEPTANCE"
+        ? `Your membership is active — payment of $${doneAmount.toFixed(2)} is due to the club by ${doneOfflineMethod.toLowerCase()}. Nothing was charged online.`
+        : `Your membership starts once the club records your ${doneOfflineMethod.toLowerCase()} payment of $${doneAmount.toFixed(2)}. Nothing was charged online.`
+      : null;
     return (
       <Shell brand={brand} club={data.club}>
         <div className="text-center py-8">
@@ -127,7 +145,9 @@ export default function ReactivatePage() {
                 ? "Your first payment was processed today. A receipt is on its way to your email."
                 : done.firstChargeDate
                   ? `Nothing was charged today — your first payment runs on ${longDate(done.firstChargeDate)}. A confirmation email is on its way.`
-                  : "You're all set — a confirmation email is on its way."
+                  : offlineDoneMsg
+                    ? `${offlineDoneMsg} A confirmation email is on its way.`
+                    : "You're all set — a confirmation email is on its way."
               : `This membership was already confirmed${data.confirmedAt ? ` on ${longDate(data.confirmedAt)}` : ""}. You're all set.`}
           </p>
           <a href="/member" className="inline-block mt-5 text-sm font-medium text-white rounded-xl px-6 py-3" style={{ background: brand }}>
@@ -143,17 +163,25 @@ export default function ReactivatePage() {
   const isFree = timing.isFree;
   const needsCard = offer.paymentMode === "CARD" && !data.hasUsableCard;
   const firstChargeLabel = longDate(offer.firstChargeDate);
+  // Staff-frozen discount: the client pays the FINAL price everywhere below.
+  const discount = offer.discount ?? null;
+  const effectivePrice = discount ? discount.finalPrice : offer.price;
+  // CASH/CHECK ⇒ the club collects offline; confirming never pays anything.
+  const offlineMethod = offer.paymentMethod === "CASH" || offer.paymentMethod === "CHECK" ? offer.paymentMethod : null;
+  const offlineMethodWord = offlineMethod === "CHECK" ? "check" : "cash";
   // The club may pass the card processing fee — every stated amount must be
   // the EXACT total the card is charged (matches the confirm route).
   const hasFee = !!data.fees?.passFees && (data.fees?.fee ?? 0) > 0;
-  const totalCharged = data.fees?.totalCharged ?? offer.price;
+  const totalCharged = data.fees?.totalCharged ?? effectivePrice;
   const btnLabel = isFree
     ? "Confirm membership"
-    : offer.paymentMode === "OFFLINE"
-      ? "Confirm membership — the club collects payment offline"
-      : timing.immediate
-        ? `Confirm membership — $${totalCharged.toFixed(2)} charged today`
-        : `Confirm membership — first payment ${firstChargeLabel}`;
+    : offlineMethod
+      ? `Confirm membership — the club will collect $${totalCharged.toFixed(2)} by ${offlineMethodWord}`
+      : offer.paymentMode === "OFFLINE"
+        ? "Confirm membership — the club collects payment offline"
+        : timing.immediate
+          ? `Confirm membership — $${totalCharged.toFixed(2)} charged today`
+          : `Confirm membership — first payment ${firstChargeLabel}`;
 
   return (
     <Shell brand={brand} club={data.club}>
@@ -175,7 +203,20 @@ export default function ReactivatePage() {
       <div className="rounded-2xl border border-stone-200 divide-y divide-stone-100 mb-4">
         <Item label="Athlete" value={`${data.athlete?.firstName} ${data.athlete?.lastName}`} />
         <Item label="Membership" value={`${offer.planName}${offer.optionLabel ? ` · ${offer.optionLabel}` : ""}`} />
-        <Item label="Price" value={isFree ? "Free" : `$${offer.price.toFixed(2)} ${offer.periodLabel}`} />
+        {discount && !isFree ? (
+          <>
+            <div className="flex items-start justify-between gap-3 px-4 py-2.5">
+              <span className="text-xs text-stone-500 pt-0.5 whitespace-nowrap">Price</span>
+              <span className="text-sm text-right font-medium text-stone-900">
+                <span className="line-through text-stone-400 font-normal">${offer.price.toFixed(2)}</span>
+                {" → "}${effectivePrice.toFixed(2)} {offer.periodLabel}
+              </span>
+            </div>
+            <Item label="Discount" value={`${discount.name} (−$${discount.amountOff.toFixed(2)})`} />
+          </>
+        ) : (
+          <Item label="Price" value={isFree ? "Free" : `$${offer.price.toFixed(2)} ${offer.periodLabel}`} />
+        )}
         {hasFee && <Item label="Processing fee" value={`+ $${data.fees!.fee.toFixed(2)}`} />}
         {hasFee && <Item label="Total charged" value={`$${totalCharged.toFixed(2)} ${offer.periodLabel}`} />}
         {offer.startDate && <Item label="Membership start" value={longDate(offer.startDate)!} />}
@@ -214,8 +255,26 @@ export default function ReactivatePage() {
             }
           />
         )}
+        {offlineMethod && !isFree && (
+          <Item
+            label="Payment method"
+            value={offlineMethod === "CHECK" ? "Check — collected by the club" : "Cash — collected by the club"}
+          />
+        )}
         {data.payerName && <Item label="Billed to" value={data.payerName} />}
       </div>
+
+      {offlineMethod && !isFree && (
+        <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 mb-4">
+          <p className="text-sm text-stone-700">
+            Confirming does <strong>not</strong> pay anything online — {data.club?.name} collects{" "}
+            <strong>${totalCharged.toFixed(2)}</strong> by {offlineMethodWord}.{" "}
+            {data.offlinePolicy === "ON_ACCEPTANCE"
+              ? "Your membership starts as soon as you confirm; the payment is still due to the club."
+              : "Your membership starts once the club records your payment as received."}
+          </p>
+        </div>
+      )}
 
       {needsCard && (
         <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 mb-4">
@@ -237,7 +296,7 @@ export default function ReactivatePage() {
           <input type="checkbox" checked={ackImmediate} onChange={(e) => setAckImmediate(e.target.checked)} className="mt-0.5" />
           <span>
             I understand <strong>${totalCharged.toFixed(2)} is charged today</strong>
-            {hasFee ? <> (${offer.price.toFixed(2)} membership + ${data.fees!.fee.toFixed(2)} processing fee)</> : null} when
+            {hasFee ? <> (${(data.fees?.base ?? effectivePrice).toFixed(2)} membership + ${data.fees!.fee.toFixed(2)} processing fee)</> : null} when
             I confirm, and the membership then renews {offer.periodLabel}.
           </span>
         </label>

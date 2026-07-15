@@ -7,10 +7,15 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
 
 const schema = z.object({
   memberId: z.string(),
   pricingType: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN"]).optional(),
+  // Optional staff-selected discount code (itemType EVENT). Validated
+  // server-side against the server-derived price; invalid = 400 BLOCK.
+  discountCode: z.string().optional().nullable(),
   // STRIPE  -> existing online checkout link (default)
   // CASH    -> owner took cash at the door
   // TERMINAL-> owner ran the card on an in-person card reader / terminal
@@ -31,12 +36,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   try {
     const body = await req.json();
-    const { memberId, pricingType = "MEMBER", paymentMethod = "STRIPE" } = schema.parse(body);
+    const { memberId, pricingType = "MEMBER", paymentMethod = "STRIPE", discountCode } = schema.parse(body);
 
     const club = await prisma.club.findUnique({
       where: { id: session.user.clubId },
     });
     if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
+
+    // Resolve the discount up front — an invalid code blocks the request even
+    // if the flow later turns out to be membership-covered / variable-cost.
+    const discountCheck = await resolveStaffDiscount(club.id, discountCode, { type: "EVENT" });
+    if (!discountCheck.ok) return NextResponse.json({ error: discountCheck.error }, { status: 400 });
+    const discount = discountCheck.discount;
     // Stripe is only required for the online-checkout path. Cash/terminal
     // bookings are recorded manually and never touch Stripe, so a club that
     // hasn't connected Stripe can still take an at-the-door payment.
@@ -197,6 +208,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
     if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
+    // Discount applies to the SERVER-derived price. Card checkout computes its
+    // fee on the discounted price; cash/terminal records take no fee.
+    const quoted = quotePayment({
+      originalPrice: priceCents / 100,
+      discount,
+      method: paymentMethod === "STRIPE" ? "NEW_CARD" : "CASH",
+      passProcessingFees: paymentMethod === "STRIPE" ? club.passProcessingFees : false,
+    });
+    if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
+    const quote = quoted.quote;
+    const discountLabel = discountAppliedLabel(discount);
+
     // ── Cash / in-person terminal: confirm the booking and log a manual
     // transaction in Financials. No Stripe charge. Mirrors the manual-payment
     // route's transaction shape so it shows up alongside other Cash/Manual money.
@@ -208,7 +231,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
       const status =
         event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
-      const amount = +(priceCents / 100).toFixed(2);
+      const amount = quote.finalPrice;
       const methodLabel = paymentMethod === "CASH" ? "cash" : "in-person terminal";
 
       await prisma.$transaction([
@@ -221,14 +244,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             type: "MANUAL",
             category: "event_booking",
             paymentMethod, // "CASH" | "TERMINAL"
+            discountCode: discount?.code ?? null,
+            discountAmount: discount ? quote.discountAmount : null,
             legalEntityId: club.defaultLegalEntityId || null,
             source: `${member.firstName} ${member.lastName}`.trim() || null,
-            description: `${event.name} — ${priceLabel} price (${methodLabel})`,
+            description: `${event.name} — ${priceLabel} price (${methodLabel})${discountLabel ? ` — ${discountLabel}` : ""}`,
             manual: true,
             txDate: new Date(),
           },
         }),
       ]);
+      if (discount) await recordDiscountUse(discount.id);
 
       if (status === "CONFIRMED") {
         const to = member.isMinor
@@ -252,9 +278,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json({ recordedManually: true, paymentMethod, status, amount });
     }
 
-    const platformFee = calculatePlatformFee(priceCents, club.tier);
+    if (quote.finalPrice <= 0) {
+      return NextResponse.json(
+        { error: "The discount brings the total to $0 — record it as a cash/comp booking instead of a card charge." },
+        { status: 400 }
+      );
+    }
+    const chargeCents = Math.round(quote.finalPrice * 100);
+    const platformFee = calculatePlatformFee(chargeCents, club.tier);
     const baseUrl = getAppBaseUrl();
-    const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
+    const feeItem = processingFeeLineItem(chargeCents, club.passProcessingFees);
 
     const checkoutSession = await stripe.checkout.sessions.create(
       {
@@ -264,9 +297,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             quantity: 1,
             price_data: {
               currency: "usd",
-              unit_amount: priceCents,
+              unit_amount: chargeCents,
               product_data: {
-                name: event.name,
+                name: `${event.name}${discount ? ` (${discount.code})` : ""}`,
                 description: `${priceLabel} price · ${event.type}`,
               },
             },
@@ -282,6 +315,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             eventId: event.id,
             eventName: event.name,
             clubId: club.id,
+            // Discount identity for the webhook's Transaction (pickup pending —
+            // the webhook is a separate workstream and is not modified here).
+            ...(discount
+              ? { discountCode: discount.code, discountAmount: String(quote.discountAmount) }
+              : {}),
           },
         },
         metadata: {
@@ -289,12 +327,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           eventId: event.id,
           eventName: event.name,
           clubId: club.id,
+          ...(discount
+            ? { discountCode: discount.code, discountAmount: String(quote.discountAmount) }
+            : {}),
         },
       },
       // Non-null: the STRIPE path only reaches here after the top guard
       // confirmed stripeAccountId; cash/terminal returned earlier.
       { stripeAccount: club.stripeAccountId! }
     );
+    if (discount) await recordDiscountUse(discount.id);
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (err) {

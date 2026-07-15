@@ -156,6 +156,93 @@ function PayMethodChips({ value, onChange }: { value: PayMethod; onChange: (m: P
   );
 }
 
+// ─── Staff discount select (inline — components/StaffDiscountPicker.tsx is
+//     being built by another workstream and didn't exist yet; swap to it when
+//     it lands) ──────────────────────────────────────────────────────────────
+// Fed by /api/discounts/eligible?itemType=CLASS — eligible rows selectable,
+// ineligible rows disabled with their reason. All amounts shown here are a
+// display-only mirror; every route re-validates the code and recomputes the
+// price server-side.
+
+type EligibleDiscount = {
+  id: string;
+  code: string;
+  name: string;
+  type: "PERCENT" | "FIXED";
+  value: number;
+  amountLabel: string;
+  eligible: boolean;
+  reason: string | null;
+};
+
+async function fetchEligibleClassDiscounts(): Promise<EligibleDiscount[]> {
+  try {
+    const res = await fetch("/api/discounts/eligible?itemType=CLASS");
+    const d = await res.json().catch(() => ({}));
+    return res.ok && Array.isArray(d.discounts) ? (d.discounts as EligibleDiscount[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Display-only mirror of the server's PERCENT/FIXED math (clamped at $0).
+function discountMathFor(orig: number, d: EligibleDiscount | null | undefined) {
+  if (!d || !(orig > 0)) return null;
+  const cut = d.type === "PERCENT" ? (orig * d.value) / 100 : d.value;
+  const final = Math.max(0, Math.round((orig - cut) * 100) / 100);
+  return { original: orig, discountAmount: Math.round((orig - final) * 100) / 100, final };
+}
+
+function DiscountSelect({
+  discounts,
+  value,
+  onChange,
+}: {
+  discounts: EligibleDiscount[] | null; // null = still loading
+  value: string;
+  onChange: (code: string) => void;
+}) {
+  if (discounts === null) return <p className="text-[11px] text-text-muted">Loading discounts…</p>;
+  if (discounts.length === 0) return null;
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs bg-white"
+      aria-label="Discount"
+    >
+      <option value="">No discount</option>
+      {discounts.map((d) => (
+        <option key={d.id} value={d.code} disabled={!d.eligible}>
+          {d.code} — {d.amountLabel}
+          {d.eligible ? "" : ` (${d.reason ?? "not eligible"})`}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function DiscountMathRows({ orig, discount }: { orig: number; discount: EligibleDiscount | null }) {
+  const math = discountMathFor(orig, discount);
+  if (!math || !discount) return null;
+  return (
+    <div className="text-[11px] text-text-muted space-y-0.5">
+      <div className="flex justify-between">
+        <span>Original</span>
+        <span>${math.original.toFixed(2)}</span>
+      </div>
+      <div className="flex justify-between">
+        <span>{discount.name} discount</span>
+        <span>−${math.discountAmount.toFixed(2)}</span>
+      </div>
+      <div className="flex justify-between font-medium text-text-primary">
+        <span>Final</span>
+        <span>${math.final.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Charge saved card (card-on-file) panel ───────────────────────────────────
 
 type ChargeCardPreview = {
@@ -199,6 +286,7 @@ function ChargeSavedCardPanel({
   notes,
   contextLabel,
   pricingOptions,
+  discount,
   onCharged,
 }: {
   memberId: string;
@@ -208,6 +296,10 @@ function ChargeSavedCardPanel({
   notes: string | null;
   contextLabel: string;
   pricingOptions: PricingOption[];
+  // Staff-selected discount — the BASE amount is still what's POSTed; the
+  // server re-validates the code and discounts authoritatively. This prop only
+  // drives the display math + the code sent.
+  discount?: EligibleDiscount | null;
   onCharged: () => void;
 }) {
   const [preview, setPreview] = useState<ChargeCardPreview | null>(null);
@@ -264,7 +356,8 @@ function ChargeSavedCardPanel({
         body: JSON.stringify({
           memberId,
           classSessionId,
-          amount: selectedPrice,
+          amount: selectedPrice, // BASE price — the server applies the discount
+          discountCode: discount?.code ?? null,
           status,
           notes: notes || null,
           emailReceipt,
@@ -420,9 +513,16 @@ function ChargeSavedCardPanel({
     );
   }
 
+  // Display-side math only — the server recomputes everything from the BASE
+  // price + code. Discount applies before the fee, mirroring quotePayment.
   const base = selectedPrice;
-  const fee = preview.passProcessingFees && base != null ? processingFeeFor(base) : 0;
-  const total = base != null ? base + fee : null;
+  const math = base != null && discount ? discountMathFor(base, discount) : null;
+  const discountedBase = base != null ? (math ? math.final : base) : null;
+  const fee =
+    preview.passProcessingFees && discountedBase != null && discountedBase > 0
+      ? processingFeeFor(discountedBase)
+      : 0;
+  const total = discountedBase != null ? discountedBase + fee : null;
 
   return (
     <div className="space-y-2">
@@ -464,16 +564,24 @@ function ChargeSavedCardPanel({
         )}
       </div>
 
-      {base != null && preview.passProcessingFees && (
+      {base != null && (preview.passProcessingFees || math) && (
         <div className="text-[11px] text-text-muted space-y-0.5">
           <div className="flex justify-between">
             <span>Base price</span>
             <span>${base.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between">
-            <span>Processing fee</span>
-            <span>${fee.toFixed(2)}</span>
-          </div>
+          {math && discount && (
+            <div className="flex justify-between">
+              <span>{discount.name} discount</span>
+              <span>−${math.discountAmount.toFixed(2)}</span>
+            </div>
+          )}
+          {preview.passProcessingFees && (
+            <div className="flex justify-between">
+              <span>Processing fee</span>
+              <span>${fee.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-medium text-text-primary">
             <span>Total charged</span>
             <span>${(total as number).toFixed(2)}</span>
@@ -558,6 +666,18 @@ function QuickAddForm({
   const [payStatus, setPayStatus] = useState<"DROP_IN" | "TRIAL" | "PRESENT">("DROP_IN");
   const [payNotes, setPayNotes] = useState("");
   const [payEmailReceipt, setPayEmailReceipt] = useState(false);
+  // Staff discount for the drop-in panel — fetched once when a panel first
+  // opens; codes only are sent, the server recomputes every price.
+  const [payDiscounts, setPayDiscounts] = useState<EligibleDiscount[] | null>(null);
+  const [payDiscountsRequested, setPayDiscountsRequested] = useState(false);
+  const [payDiscountCode, setPayDiscountCode] = useState("");
+  const payDiscount = payDiscounts?.find((d) => d.code === payDiscountCode && d.eligible) ?? null;
+
+  // What the record buttons display — the server recomputes authoritatively.
+  const payAmountNum = Number(payAmount || 0);
+  const payFinalAmount = payDiscount
+    ? (discountMathFor(payAmountNum, payDiscount)?.final ?? payAmountNum)
+    : payAmountNum;
 
   const memberPrice    = pricingOptions.find((o) => o.type === "member")    as { type: "member"; price: number } | undefined;
   const nonMemberPrice = pricingOptions.find((o) => o.type === "nonmember") as { type: "nonmember"; price: number } | undefined;
@@ -572,7 +692,14 @@ function QuickAddForm({
     const res = await fetch(`/api/classes/${classId}/charge`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId, classSessionId: sessionId, pricingType }),
+      body: JSON.stringify({
+        memberId,
+        classSessionId: sessionId,
+        pricingType,
+        // The panel's selected discount also applies to the Stripe-checkout
+        // tier — validated + applied server-side.
+        discountCode: payDiscountCode || null,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     setSaving(false);
@@ -604,6 +731,11 @@ function QuickAddForm({
     setPayStatus("DROP_IN");
     setPayNotes("");
     setPayEmailReceipt(false);
+    setPayDiscountCode("");
+    if (!payDiscountsRequested) {
+      setPayDiscountsRequested(true);
+      fetchEligibleClassDiscounts().then(setPayDiscounts);
+    }
     setError("");
     setTrialingId(null);
     setDropInId(memberId);
@@ -624,7 +756,8 @@ function QuickAddForm({
         memberId,
         status: payStatus,
         paymentMethod: payMethod,
-        amount: Number(payAmount || 0),
+        amount: Number(payAmount || 0), // ORIGINAL price — the server discounts
+        discountCode: payDiscountCode || null,
         notes: payNotes || null,
         emailReceipt: payEmailReceipt,
       }),
@@ -901,6 +1034,7 @@ function QuickAddForm({
               {dropInId === m.id && classId && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                   <PayMethodChips value={payMethod} onChange={setPayMethod} />
+                  <DiscountSelect discounts={payDiscounts} value={payDiscountCode} onChange={setPayDiscountCode} />
                   <div className="grid grid-cols-2 gap-1.5">
                     {payMethod !== "CARD_ON_FILE" && (
                       <input
@@ -943,10 +1077,12 @@ function QuickAddForm({
                       notes={payNotes}
                       contextLabel={sessionName}
                       pricingOptions={pricingOptions}
+                      discount={payDiscount}
                       onCharged={onAdded}
                     />
                   ) : (
                     <>
+                      <DiscountMathRows orig={Number(payAmount || 0)} discount={payDiscount} />
                       <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
                         <input
                           type="checkbox"
@@ -968,8 +1104,8 @@ function QuickAddForm({
                             : payMethod === "INVOICE"
                               ? "Record as unpaid invoice"
                               : payMethod === "CREDIT"
-                              ? `Record externally-collected card payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`
-                              : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
+                              ? `Record externally-collected card payment${payAmount ? ` · $${payFinalAmount.toFixed(2)}` : ""}`
+                              : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${payFinalAmount.toFixed(2)}` : ""}`}
                       </button>
                     </>
                   )}
@@ -1068,6 +1204,16 @@ function AttendancePanel({
   const [chargeMethod, setChargeMethod] = useState<PayMethod>("CASH");
   const [chargeEmailReceipt, setChargeEmailReceipt] = useState(false);
   const [chargeError, setChargeError] = useState("");
+  // Staff discount for the roster charge form — fetched once when a form
+  // first opens; only the code is sent, the server recomputes every price.
+  const [chargeDiscounts, setChargeDiscounts] = useState<EligibleDiscount[] | null>(null);
+  const [chargeDiscountsRequested, setChargeDiscountsRequested] = useState(false);
+  const [chargeDiscountCode, setChargeDiscountCode] = useState("");
+  const chargeDiscount = chargeDiscounts?.find((d) => d.code === chargeDiscountCode && d.eligible) ?? null;
+  const chargeAmountNum = Number(chargeAmount || 0);
+  const chargeFinalAmount = chargeDiscount
+    ? (discountMathFor(chargeAmountNum, chargeDiscount)?.final ?? chargeAmountNum)
+    : chargeAmountNum;
   // Trial on a roster row asks for confirmation first — it starts the club's
   // free-trial membership window, not just an attendance mark.
   const [trialRecId, setTrialRecId] = useState<string | null>(null);
@@ -1104,6 +1250,11 @@ function AttendancePanel({
     setChargeMethod("CASH");
     setChargeEmailReceipt(false);
     setChargeError("");
+    setChargeDiscountCode("");
+    if (!chargeDiscountsRequested) {
+      setChargeDiscountsRequested(true);
+      fetchEligibleClassDiscounts().then(setChargeDiscounts);
+    }
     setTrialRecId(null);
     setChargeRecId(rec.id);
   }
@@ -1152,7 +1303,8 @@ function AttendancePanel({
         memberId: rec.member.id,
         status: "DROP_IN",
         paymentMethod: chargeMethod,
-        amount: Number(chargeAmount || 0),
+        amount: Number(chargeAmount || 0), // ORIGINAL price — the server discounts
+        discountCode: chargeDiscountCode || null,
         emailReceipt: chargeEmailReceipt,
       }),
     });
@@ -1323,6 +1475,11 @@ function AttendancePanel({
                         {chargeRecId === rec.id && (
                           <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                             <PayMethodChips value={chargeMethod} onChange={setChargeMethod} />
+                            <DiscountSelect
+                              discounts={chargeDiscounts}
+                              value={chargeDiscountCode}
+                              onChange={setChargeDiscountCode}
+                            />
                             {chargeMethod === "CARD_ON_FILE" ? (
                               <>
                                 <ChargeSavedCardPanel
@@ -1333,6 +1490,7 @@ function AttendancePanel({
                                   notes={null}
                                   contextLabel={sessionName}
                                   pricingOptions={data?.pricingOptions ?? []}
+                                  discount={chargeDiscount}
                                   onCharged={() => load()}
                                 />
                                 <button
@@ -1353,6 +1511,7 @@ function AttendancePanel({
                                   placeholder={chargeMethod === "COMP" ? "Value (optional)" : "Drop-in amount"}
                                   className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
                                 />
+                                <DiscountMathRows orig={chargeAmountNum} discount={chargeDiscount} />
                                 {chargeMethod === "CREDIT" && (
                                   <p className="text-[11px] text-orange-accent">
                                     AthletixOS does NOT charge the card — record only, collected on your external card reader.
@@ -1378,8 +1537,8 @@ function AttendancePanel({
                                       : chargeMethod === "COMP"
                                         ? "Mark Drop-in (comped)"
                                         : chargeMethod === "CREDIT"
-                                        ? `Record external card${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`
-                                        : `Charge${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`}
+                                        ? `Record external card${chargeAmount ? ` $${chargeFinalAmount.toFixed(2)}` : ""} & mark Drop-in`
+                                        : `Charge${chargeAmount ? ` $${chargeFinalAmount.toFixed(2)}` : ""} & mark Drop-in`}
                                   </button>
                                   <button
                                     disabled={updating === rec.member.id}
