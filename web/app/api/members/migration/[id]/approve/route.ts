@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -245,13 +246,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   // Manual / no-online-payment path: complete without Stripe.
-  const canCharge =
-    !!club.stripeAccountId &&
-    !!club.stripeChargesEnabled &&
-    price > 0 &&
-    !!member.stripeSetupCustomerId &&
-    !!member.stripeSetupPaymentMethodId;
-
   // Was OFFLINE billing genuinely intended? Only these cases legitimately end up
   // on a MANUAL (offline) subscription: a free/$0 plan, the club has no online
   // payments, or the member explicitly chose cash/check.
@@ -261,6 +255,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     !club.stripeChargesEnabled ||
     member.requestedPaymentMethod === "CASH" ||
     member.requestedPaymentMethod === "CHECK";
+
+  // A CASH/CHECK member NEVER gets a Stripe subscription — even with a saved
+  // card on file. Without the !offlineIntended term, approving a cash member
+  // whose family happened to have a card/Link saved would card-charge them
+  // (Adelynn Bergen near-miss, 2026-07-15).
+  const canCharge =
+    !offlineIntended &&
+    !!club.stripeAccountId &&
+    !!club.stripeChargesEnabled &&
+    price > 0 &&
+    !!member.stripeSetupCustomerId &&
+    !!member.stripeSetupPaymentMethodId;
 
   // Card billing was intended but Stripe setup is incomplete (no captured
   // payment method — almost always the missing Connect webhook). Previously this
@@ -525,7 +531,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         stripeAccount: club.stripeAccountId!,
         // A double-submit (double click, retry after a network blip) must not
         // fork a second subscription — Stripe returns the first one instead.
-        idempotencyKey: `aox-migration-approve-${member.id}`,
+        // Param-sensitive: double-clicks with IDENTICAL params dedupe to one
+        // subscription, but a corrected retry (fixed payment method, new
+        // discount/price/date) gets a fresh key. A static per-member key gets
+        // permanently "burned" by any failed attempt — Stripe then rejects
+        // every retry with "keys can only be used with the same parameters"
+        // (Mack Munroe, 2026-07-15).
+        idempotencyKey: `aox-migration-approve-${member.id}-${crypto
+          .createHash("sha256")
+          .update(JSON.stringify({ amountCents, trialEnd: trialEnd ?? null, cancelAtUnix: cancelAtUnix ?? null, pm: chargePmId, product: productId }))
+          .digest("hex")
+          .slice(0, 12)}`,
       },
     );
 

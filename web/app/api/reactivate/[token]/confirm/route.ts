@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -333,7 +334,14 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         },
         {
           stripeAccount: club.stripeAccountId!,
-          idempotencyKey: `aox-reactivation-${r.id}-v${r.offerVersion}`,
+          // Param-sensitive suffix: a retry after the PM fallback corrected a
+          // stale payment method must not collide with the burned key from
+          // the failed first attempt (Stripe binds a key to its exact params).
+          idempotencyKey: `aox-reactivation-${r.id}-v${r.offerVersion}-${crypto
+            .createHash("sha256")
+            .update(JSON.stringify({ amountCents, pm: paymentMethodId, trialEnd: trialEnd ?? null, cancelAtUnix: cancelAtUnix ?? null }))
+            .digest("hex")
+            .slice(0, 12)}`,
         },
       );
       stripeSubCreated = true;
