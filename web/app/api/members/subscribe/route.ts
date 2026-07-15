@@ -245,8 +245,10 @@ export async function POST(req: Request) {
     const subscriptionData: Record<string, unknown> = {
       application_fee_percent: appFeePercent,
       metadata: { memberSubscriptionId: memberSub.id, memberId, clubId: club.id },
-      // auto-cancel at period end if auto-renew is off
-      ...(isRecurring && !resolvedAutoRenew ? { cancel_at_period_end: true } : {}),
+      // NOTE: cancel_at_period_end is NOT a valid Checkout subscription_data
+      // param (Stripe rejects the whole session). Auto Renew OFF is applied by
+      // the checkout.session.completed webhook using the local row's
+      // autoRenew=false.
       ...(trialPeriodDays ? { trial_period_days: trialPeriodDays } : {}),
     };
     if (billingAnchorDate) {

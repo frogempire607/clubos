@@ -226,6 +226,33 @@ export async function POST(req: Request) {
                   // endDate remains null for open-ended recurring subs
                 },
               });
+              // Plan Auto Renew OFF: Checkout can't schedule a non-renewing
+              // subscription (subscription_data has no cancel_at_period_end),
+              // so apply it to the created subscription here. Idempotent —
+              // setting it twice is a no-op.
+              if (memberSub.autoRenew === false && event.account) {
+                try {
+                  const updated = await stripe.subscriptions.update(
+                    session.subscription as string,
+                    { cancel_at_period_end: true },
+                    { stripeAccount: event.account },
+                  );
+                  const periodEnd = (updated as unknown as { current_period_end?: number })
+                    .current_period_end;
+                  if (periodEnd) {
+                    await prisma.memberSubscription.update({
+                      where: { id: memberSubscriptionId },
+                      data: { endDate: new Date(periodEnd * 1000) },
+                    });
+                  }
+                } catch (e) {
+                  console.error(
+                    "checkout.completed: could not apply Auto Renew OFF (cancel_at_period_end)",
+                    session.subscription,
+                    e,
+                  );
+                }
+              }
             }
 
             // Record a transaction for ONE-TIME purchases only. Subscription

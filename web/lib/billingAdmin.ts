@@ -346,6 +346,23 @@ export function chargeTiming(firstChargeDate: Date | null | undefined, now: Date
   };
 }
 
+// ── Billing-period math ──────────────────────────────────────────────────
+// One period past `start`, matching billingPeriodToStripeInterval's mapping.
+// Used to end non-auto-renew subscriptions after their first billing period
+// when no explicit commitment/cancellation date exists.
+export function addBillingPeriod(start: Date, period: string): Date {
+  const d = new Date(start);
+  switch (period) {
+    case "WEEKLY":      d.setDate(d.getDate() + 7);   break;
+    case "MONTHLY":     d.setMonth(d.getMonth() + 1); break;
+    case "QUARTERLY":   d.setMonth(d.getMonth() + 3); break;
+    case "SEMI_ANNUAL": d.setMonth(d.getMonth() + 6); break;
+    case "ANNUAL":      d.setFullYear(d.getFullYear() + 1); break;
+    default:            d.setFullYear(d.getFullYear() + 1); break; // fallback 1 year
+  }
+  return d;
+}
+
 // ── Offer pricing precedence ─────────────────────────────────────────────
 // Mirrors the migration-approve resolution exactly: assigned plan's first
 // option → the member's registered/selected option → the owner's explicit

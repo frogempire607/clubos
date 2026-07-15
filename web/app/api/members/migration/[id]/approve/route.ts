@@ -11,6 +11,7 @@ import { MIGRATION_STATUS, resolveBillingAnchor } from "@/lib/migration";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
+import { addBillingPeriod } from "@/lib/billingAdmin";
 
 // Athlete (or guardian for minors) contact email for activation/approval notices.
 function memberContactEmail(m: { isMinor: boolean; email: string | null; guardianEmail: string | null }) {
@@ -122,13 +123,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   let price = member.legacyMembershipPrice ? Number(member.legacyMembershipPrice) : 0;
   let period = member.legacyBillingFrequency || "MONTHLY";
   let membershipId = member.migrationMembershipId;
+  // Owner's plan-level Auto Renew setting; true when no plan is assigned
+  // (legacy snapshot members keep today's renewing behavior).
+  let planAutoRenew = true;
   if (membershipId) {
     const plan = await prisma.membership.findFirst({
       where: { id: membershipId, clubId: club.id, deletedAt: null },
-      select: { id: true, name: true, options: true },
+      select: { id: true, name: true, options: true, autoRenewDefault: true },
     });
     if (plan) {
       planName = plan.name;
+      planAutoRenew = plan.autoRenewDefault;
       try {
         const opts = JSON.parse((plan.options as unknown as string) || "[]");
         if (Array.isArray(opts) && opts[0]) {
@@ -292,7 +297,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         status: "active",
         startDate: member.membershipStartDate ?? new Date(),
         billingAnchorDate: anchor,
-        ...(member.requestedCancellationDate ? { endDate: member.requestedCancellationDate } : {}),
+        // Explicit requested end wins; otherwise a non-renewing plan ends
+        // after its first billing period (expireEndedManualSubscriptions).
+        ...(member.requestedCancellationDate
+          ? { endDate: member.requestedCancellationDate }
+          : !planAutoRenew && price > 0
+            ? { endDate: addBillingPeriod(anchor ?? member.membershipStartDate ?? new Date(), period) }
+            : {}),
         notes:
           price <= 0
             ? "Free / grandfathered membership — no recurring charge"
@@ -353,7 +364,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // #5: if the member requested a cancellation/end date, schedule the Stripe
   // subscription to auto-cancel then. Must be in the future and after any
   // trial_end, or Stripe rejects it.
-  const cancelSource = member.requestedCancellationDate ?? member.commitmentEndDate ?? null;
+  let cancelSource = member.requestedCancellationDate ?? member.commitmentEndDate ?? null;
+  // Plan-level Auto Renew OFF with no explicit end date: the subscription
+  // ends after its FIRST billing period, measured from the first charge.
+  if (!cancelSource && !planAutoRenew) {
+    cancelSource = addBillingPeriod(anchor ?? new Date(), period);
+  }
   let cancelAtUnix: number | undefined;
   if (cancelSource && cancelSource.getTime() > Date.now() + 60_000) {
     const ts = Math.floor(cancelSource.getTime() / 1000);
@@ -420,10 +436,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         price,
         billingPeriod: period,
         billingType: "RECURRING",
-        autoRenew: true,
+        autoRenew: planAutoRenew,
         status: sub.status === "active" || sub.status === "trialing" ? "active" : "pending",
         startDate: member.membershipStartDate ?? new Date(),
         billingAnchorDate: anchor,
+        ...(cancelAtUnix ? { endDate: new Date(cancelAtUnix * 1000) } : {}),
         stripeSubscriptionId: sub.id,
         stripePriceId: sub.items?.data?.[0]?.price?.id ?? null,
         notes: `Migrated from ${member.legacySource || "previous software"} — approved by club`,

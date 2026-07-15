@@ -21,6 +21,10 @@ export type ReactivationOffer = {
   commitmentEndDate: string | null; // ISO
   paymentMode: "CARD" | "OFFLINE" | "FREE";
   payerUserId: string | null;
+  // Owner's plan-level Auto Renew setting, frozen into the offer. false ⇒ the
+  // subscription ends after the commitment date (or the first billing period
+  // when no commitment is set) instead of renewing.
+  autoRenew: boolean;
 };
 
 export type OfferMember = {
@@ -52,7 +56,7 @@ export async function buildOffer(
   const plan = member.migrationMembershipId
     ? await prisma.membership.findFirst({
         where: { id: member.migrationMembershipId, clubId: member.clubId, deletedAt: null },
-        select: { id: true, name: true, options: true },
+        select: { id: true, name: true, options: true, autoRenewDefault: true },
       })
     : null;
 
@@ -90,6 +94,7 @@ export async function buildOffer(
       commitmentEndDate: commitment ? commitment.toISOString() : null,
       paymentMode,
       payerUserId: member.responsiblePayerUserId ?? null,
+      autoRenew: plan?.autoRenewDefault ?? true,
     },
   };
 }
@@ -153,6 +158,9 @@ export function parseOffer(raw: unknown): ReactivationOffer | null {
     commitmentEndDate: typeof o.commitmentEndDate === "string" ? o.commitmentEndDate : null,
     paymentMode: o.paymentMode === "OFFLINE" || o.paymentMode === "FREE" ? o.paymentMode : "CARD",
     payerUserId: typeof o.payerUserId === "string" ? o.payerUserId : null,
+    // Offers created before the Auto Renew setting existed renew (the only
+    // behavior that existed then).
+    autoRenew: typeof o.autoRenew === "boolean" ? o.autoRenew : true,
   };
 }
 
@@ -181,6 +189,7 @@ export function diffOffer(stored: ReactivationOffer, current: ReactivationOffer)
   if (dateOnly(stored.firstChargeDate) !== dateOnly(current.firstChargeDate)) changed.push("first billing date");
   if (dateOnly(stored.commitmentEndDate) !== dateOnly(current.commitmentEndDate)) changed.push("commitment end date");
   if ((stored.payerUserId ?? null) !== (current.payerUserId ?? null)) changed.push("responsible payer");
+  if (stored.autoRenew !== current.autoRenew) changed.push("auto-renew");
   return changed;
 }
 

@@ -11,7 +11,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
-import { chargeTiming } from "@/lib/billingAdmin";
+import { chargeTiming, addBillingPeriod } from "@/lib/billingAdmin";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
 export const dynamic = "force-dynamic";
@@ -272,7 +272,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         firstCharge && firstCharge.getTime() > Date.now() + 60_000
           ? Math.floor(firstCharge.getTime() / 1000)
           : undefined;
-      const cancelSource = offer.commitmentEndDate ? new Date(offer.commitmentEndDate) : null;
+      let cancelSource = offer.commitmentEndDate ? new Date(offer.commitmentEndDate) : null;
+      // Plan-level Auto Renew OFF with no explicit commitment: the
+      // subscription ends after its FIRST billing period (measured from the
+      // first charge) instead of renewing.
+      if (!cancelSource && offer.autoRenew === false) {
+        cancelSource = addBillingPeriod(firstCharge ?? new Date(), offer.billingPeriod);
+      }
       let cancelAtUnix: number | undefined;
       if (cancelSource && cancelSource.getTime() > Date.now() + 60_000) {
         const ts = Math.floor(cancelSource.getTime() / 1000);
@@ -329,7 +335,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           price: offer.price,
           billingPeriod: offer.billingPeriod,
           billingType: "RECURRING",
-          autoRenew: true,
+          autoRenew: offer.autoRenew !== false,
           status: sub.status === "active" || sub.status === "trialing" ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
           billingAnchorDate: firstCharge ?? new Date(),
@@ -354,7 +360,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           autoRenew: false,
           status: "active",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
-          ...(offer.commitmentEndDate ? { endDate: new Date(offer.commitmentEndDate) } : {}),
+          // Explicit commitment wins; otherwise a non-renewing plan ends after
+          // its first billing period (expireEndedManualSubscriptions sweeps it).
+          ...(offer.commitmentEndDate
+            ? { endDate: new Date(offer.commitmentEndDate) }
+            : offer.autoRenew === false
+              ? { endDate: addBillingPeriod(offer.startDate ? new Date(offer.startDate) : new Date(), offer.billingPeriod) }
+              : {}),
           notes: isFree
             ? "Free / grandfathered membership — no recurring charge (confirmed via reactivation link)"
             : `Manual billing — ${club.name} collects payment offline (confirmed via reactivation link)`,
