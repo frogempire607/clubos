@@ -401,6 +401,35 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         migrationCompletedAt: new Date(),
       },
     });
+    // Paid cash/check activation: record the amount DUE as a PENDING
+    // transaction (never revenue, no receipt) so staff can mark it received
+    // in the billing center / Approvals — same lifecycle as offer acceptance.
+    if (price > 0 && (member.requestedPaymentMethod === "CASH" || member.requestedPaymentMethod === "CHECK")) {
+      const dueMethod = member.requestedPaymentMethod;
+      const existingDue = await prisma.transaction.findFirst({
+        where: { clubId: club.id, memberId: member.id, status: "PENDING", paymentSource: dueMethod },
+        select: { id: true },
+      });
+      if (!existingDue) {
+        await prisma.transaction.create({
+          data: {
+            clubId: club.id,
+            memberId: member.id,
+            amount: price,
+            status: "PENDING",
+            type: "MEMBERSHIP",
+            category: "memberships",
+            paymentMethod: dueMethod,
+            paymentSource: dueMethod,
+            reconciliationStatus: "OFFLINE",
+            manual: true,
+            ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
+            description: `Membership payment due: ${planName} — awaiting ${dueMethod.toLowerCase()}`,
+            notes: "Created at owner activation (cash/check). Record receipt via the billing center — only then does this become paid revenue and send a receipt.",
+          },
+        });
+      }
+    }
     await prisma.memberMigrationEvent.create({
       data: {
         clubId: club.id,
