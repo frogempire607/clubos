@@ -161,17 +161,18 @@ const STATUS_STYLE: Record<string, string> = {
   FAILED: "bg-red-50 text-red-700",
 };
 
-// Operational triage groups (planning only — never charge/mutate Stripe).
+// Operational triage states (planning only — never charge/mutate Stripe).
+// The one-time Group A/B/C planning shorthand is deprecated and hidden; rows
+// still carrying a letter group simply show no state chip.
 const GROUP_FILTERS = [
-  { key: "", label: "All groups" },
-  { key: "A", label: "Group A" },
-  { key: "B", label: "Group B" },
-  { key: "C", label: "Group C" },
+  { key: "", label: "All states" },
   { key: "LEAVE_ALONE", label: "Leave alone" },
   { key: "FUTURE_FOLLOW_UP", label: "Follow-up" },
   { key: "NEEDS_PAYMENT_METHOD", label: "Needs card" },
   { key: "none", label: "Unclassified" },
 ];
+// Deprecated letter groups render as nothing in the UI/exports.
+const groupDisplay = (g: string | null) => (!g || g === "A" || g === "B" || g === "C" ? "" : g.replace(/_/g, " "));
 const READINESS_FILTERS = [
   { key: "", label: "Any readiness" },
   { key: "READY", label: "Ready" },
@@ -368,7 +369,7 @@ export default function MigrationPage() {
         return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
       const header = [
-        "Name", "Minor", "Contact", "Plan", "Price", "Frequency", "Group", "Final action",
+        "Name", "Minor", "Contact", "Plan", "Price", "Frequency", "Owner state", "Final action",
         "Final billing date", "Readiness", "Readiness notes", "Saved card", "Status", "Approval",
         "Reactivation", "Triage note",
       ];
@@ -381,7 +382,7 @@ export default function MigrationPage() {
             r.legacyMembershipName || "",
             r.resolvedPrice != null ? r.resolvedPrice.toFixed(2) : "",
             r.resolvedPeriod || r.legacyBillingFrequency || "",
-            r.migrationGroup || "",
+            groupDisplay(r.migrationGroup),
             r.migrationFinalAction || "",
             r.migrationFinalBillingDate
               ? new Date(r.migrationFinalBillingDate).toLocaleDateString()
@@ -444,7 +445,7 @@ export default function MigrationPage() {
 
       autoTable(doc, {
         startY: 28,
-        head: [["Name", "Contact", "Plan", "Price", "Final billing", "Group", "Readiness", "Status", "Notes"]],
+        head: [["Name", "Contact", "Plan", "Price", "Final billing", "State", "Readiness", "Status", "Notes"]],
         body: all.map((r) => [
           `${r.firstName} ${r.lastName}`.trim() + (r.isMinor ? " (minor)" : ""),
           r.email || r.guardianEmail || "—",
@@ -459,7 +460,7 @@ export default function MigrationPage() {
             : r.billingAnchorDate
               ? new Date(r.billingAnchorDate).toLocaleDateString()
               : "—",
-          r.migrationGroup || "—",
+          groupDisplay(r.migrationGroup) || "—",
           r.readinessLabel || "—",
           (r.migrationStatus?.replace("_", " ") ?? "—") +
             (r.approvalStatus === "PENDING_APPROVAL" ? " · needs approval" : ""),
@@ -751,7 +752,7 @@ export default function MigrationPage() {
                 <th className="px-3 py-2.5 font-medium">Member</th>
                 <th className="px-3 py-2.5 font-medium">Membership</th>
                 <th className="px-3 py-2.5 font-medium">Next billing</th>
-                <th className="px-3 py-2.5 font-medium">Group / readiness</th>
+                <th className="px-3 py-2.5 font-medium">State / readiness</th>
                 <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 font-medium">Emails</th>
                 <th className="px-3 py-2.5 font-medium"></th>
@@ -801,9 +802,9 @@ export default function MigrationPage() {
                           : "—"}
                     </td>
                     <td className="px-3 py-3">
-                      {r.migrationGroup && (
+                      {groupDisplay(r.migrationGroup) && (
                         <span className="inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium bg-charcoal text-white mr-1">
-                          {r.migrationGroup.replace(/_/g, " ")}
+                          {groupDisplay(r.migrationGroup)}
                         </span>
                       )}
                       <span

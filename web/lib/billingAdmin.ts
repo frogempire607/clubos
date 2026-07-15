@@ -9,24 +9,39 @@ import crypto from "crypto";
 
 // ── Migration triage classification ──────────────────────────────────────
 
+// Full set of values that may exist in the DB. The letter groups (A/B/C) were
+// the owner's one-time WellnessLiving migration planning shorthand — they are
+// DEPRECATED (2026-07-15): still accepted/stored for backward compatibility
+// and still honored by deriveReadiness, but hidden from normal UI. New
+// classification uses the operational states only.
 export const MIGRATION_GROUPS = [
-  "A", // manual owner approval
-  "B", // reactivation email
-  "C", // owner review / hold
+  "A", // deprecated — manual owner approval
+  "B", // deprecated — reactivation email
+  "C", // deprecated — owner review / hold
   "LEAVE_ALONE",
   "FUTURE_FOLLOW_UP",
   "NEEDS_PAYMENT_METHOD",
 ] as const;
 export type MigrationGroup = (typeof MIGRATION_GROUPS)[number];
 
+// What the UI offers going forward.
+export const OPERATIONAL_GROUPS = ["LEAVE_ALONE", "FUTURE_FOLLOW_UP", "NEEDS_PAYMENT_METHOD"] as const;
+
 export const GROUP_LABELS: Record<MigrationGroup, string> = {
-  A: "Group A — manual approval",
-  B: "Group B — reactivation email",
-  C: "Group C — owner review",
+  A: "Manual approval (legacy group)",
+  B: "Reactivation email (legacy group)",
+  C: "Owner review (legacy group)",
   LEAVE_ALONE: "Leave alone",
   FUTURE_FOLLOW_UP: "Future follow-up",
   NEEDS_PAYMENT_METHOD: "Needs payment method",
 };
+
+/** UI display for a stored group: operational label, or null for the deprecated letter groups (hidden). */
+export function displayGroupLabel(group: string | null | undefined): string | null {
+  if (!group) return null;
+  if (group === "A" || group === "B" || group === "C") return null;
+  return GROUP_LABELS[group as MigrationGroup] ?? group.replace(/_/g, " ");
+}
 
 export const FINAL_ACTIONS = [
   "MANUAL_APPROVE",

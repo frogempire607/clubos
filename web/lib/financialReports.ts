@@ -187,7 +187,7 @@ export async function buildReport(
     const [txs, pending, donations] = await Promise.all([
       prisma.transaction.findMany({
         where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
-        select: { amount: true, paymentMethod: true },
+        select: { amount: true, paymentMethod: true, paymentSource: true },
       }),
       prisma.transaction.findMany({
         where: { clubId, status: "PENDING", manual: true, ...entityWhere, ...txDateWhere(r) },
@@ -199,42 +199,61 @@ export async function buildReport(
       }),
     ]);
     let cash = 0;
+    let check = 0;
     let card = 0;
+    let externalReader = 0; // UNVERIFIED external card records — never "card"
     let comp = 0;
-    for (const t of [...txs, ...donations]) {
+    for (const t of txs) {
+      const source = (t as { paymentSource?: string | null }).paymentSource ?? null;
       if (isCompMethod(t.paymentMethod)) comp += Number(t.amount);
+      else if (source === "EXTERNAL_READER") externalReader += Number(t.amount);
+      else if (source === "CHECK" || t.paymentMethod === "CHECK") check += Number(t.amount);
       else if (isCashMethod(t.paymentMethod)) cash += Number(t.amount);
       else card += Number(t.amount);
+    }
+    for (const d of donations) {
+      if (isCompMethod(d.paymentMethod)) comp += Number(d.amount);
+      else if (isCashMethod(d.paymentMethod)) cash += Number(d.amount);
+      else card += Number(d.amount);
     }
     const invoiced = pending.reduce((s, p) => s + Number(p.amount), 0);
     return {
       title: "Revenue by channel",
       columns: ["Channel", "Amount"],
       rows: [
-        ["Card / online / bank", money(card)],
-        ["Cash / check", money(cash)],
+        ["Verified card (Stripe)", money(card)],
+        ["Cash", money(cash)],
+        ["Check", money(check)],
+        ["External reader (record only — unverified)", money(externalReader)],
         ["Comp / free", money(comp)],
         ["Invoiced (unpaid)", money(invoiced)],
-        ["Collected total", money(cash + card)],
+        ["Collected total", money(cash + check + card + externalReader)],
       ],
     };
   }
 
   if (type === "stripe_fees") {
+    // Exact Stripe fees only — from balance transactions, never computed
+    // locally. Rows without fee data are counted so the owner knows the
+    // number is incomplete rather than silently wrong.
     const txs = await prisma.transaction.findMany({
-      where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
-      select: { amount: true, platformFee: true },
+      where: { clubId, status: "SUCCEEDED", paymentSource: "STRIPE", ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
+      select: { amount: true, platformFee: true, stripeFeeAmount: true, netAmount: true },
     });
     const gross = txs.reduce((s, t) => s + Number(t.amount), 0);
-    const fees = txs.reduce((s, t) => s + Number(t.platformFee || 0), 0);
+    const stripeFees = txs.reduce((s, t) => s + Number(t.stripeFeeAmount || 0), 0);
+    const platformFees = txs.reduce((s, t) => s + Number(t.platformFee || 0), 0);
+    const missingFeeData = txs.filter((t) => t.stripeFeeAmount == null).length;
     return {
       title: "Stripe fees summary",
       columns: ["Line", "Amount"],
       rows: [
-        ["Gross processed", money(gross)],
-        ["Platform fees recorded", money(fees)],
-        ["Net after recorded fees", money(gross - fees)],
+        ["Gross processed (Stripe)", money(gross)],
+        ["Stripe processing fees (exact)", money(stripeFees)],
+        ["AthletixOS platform fees", money(platformFees)],
+        ["Net after fees", money(gross - stripeFees - platformFees)],
         ["Transactions", String(txs.length)],
+        ["Missing fee data (run reconciliation)", String(missingFeeData)],
       ],
     };
   }
