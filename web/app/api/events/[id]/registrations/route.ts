@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { publicFixedPrice } from "@/lib/eventPricing";
 
 // GET /api/events/[id]/registrations
 // Owner/staff: list everyone who signed up (public link or matched member),
@@ -23,6 +24,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       memberPrice: true,
       nonMemberPrice: true,
       dropInFee: true,
+      publicPricingOption: true,
       variableCostEnabled: true,
       variableCostMode: true,
       variableCostTotal: true,
@@ -74,6 +76,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     invoicedCount,
     mode,
     perHead,
+    // Fixed-price events: what a public registrant owes today (0 = free).
+    // Lets the modal offer payment-link collection for unpaid registrants.
+    publicPrice: event.variableCostEnabled ? null : publicFixedPrice(event),
     // Back-compat for any existing callers.
     officialPerHead: mode === "OFFICIAL" ? perHead : null,
   });

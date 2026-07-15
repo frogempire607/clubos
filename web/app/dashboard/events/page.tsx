@@ -1864,6 +1864,7 @@ type RegistrationRow = {
   amountDue: number | null;
   amountPaid: number | null;
   paymentUrl: string | null;
+  stripeCheckoutSessionId: string | null;
   invoicedAt: string | null;
   invoiceCount: number;
   formResponses: Record<string, string | boolean>;
@@ -1890,6 +1891,7 @@ type RegistrationsData = {
   invoicedCount: number;
   mode: "ESTIMATED" | "OFFICIAL";
   perHead: number | null;
+  publicPrice: number | null;
 };
 
 function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
@@ -1920,7 +1922,11 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
     const d = await res.json().catch(() => ({}));
     setBilling(false);
     if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not send invoices."); return; }
-    const parts = [`Invoiced ${d.billed} registrant(s) at $${Number(d.perHead).toFixed(2)} each`];
+    const parts = [
+      d.perHead != null
+        ? `Emailed ${d.billed} payment link(s) at $${Number(d.perHead).toFixed(2)} each`
+        : `Emailed ${d.billed} payment link(s)`,
+    ];
     if (d.skipped) parts.push(`${d.skipped} already paid`);
     if (d.errors?.length) parts.push(`${d.errors.length} failed`);
     setMsg(parts.join(" · ") + ".");
@@ -1932,10 +1938,17 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   const isVariable = !!ev?.variableCostEnabled;
   const mode = data?.mode ?? "ESTIMATED";
 
-  const selectableIds = (data?.registrations ?? [])
-    .filter((r) => r.status !== "PAID" && r.status !== "CANCELED")
-    .map((r) => r.id);
+  // Fixed-price events: a registrant is collectable when they owe something
+  // (recorded at registration, or the event's current public price).
+  const owes = (r: RegistrationRow) =>
+    Number(r.amountDue ?? 0) > 0 ? Number(r.amountDue) : (data?.publicPrice ?? 0);
+  const collectable = (r: RegistrationRow) =>
+    r.status !== "PAID" && r.status !== "CANCELED" && (isVariable || owes(r) > 0);
+  const showInvoicing = isVariable || (data?.registrations ?? []).some(collectable);
+
+  const selectableIds = (data?.registrations ?? []).filter(collectable).map((r) => r.id);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const unpaidOwing = (data?.registrations ?? []).filter(collectable).length;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -2015,6 +2028,38 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                 </div>
               )}
 
+              {!isVariable && showInvoicing && (
+                <div className="bg-app-bg border border-app-border rounded-lg p-4 mb-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm text-text-primary font-semibold">Collect payment</p>
+                    <span className="text-[11px] text-text-muted">{unpaidOwing} unpaid</span>
+                  </div>
+                  <p className="text-xs text-text-muted mb-3">
+                    Public signups are recorded before checkout, so someone who closed the payment
+                    page stays registered but unpaid. Email each unpaid registrant a fresh Stripe
+                    payment link for what they owe.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => invoice({ force: true })}
+                      disabled={billing || unpaidOwing === 0}
+                      className="text-xs px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      {billing ? "Sending…" : `Email payment link to all unpaid (${unpaidOwing})`}
+                    </button>
+                    <button
+                      onClick={() => invoice({ registrationIds: [...selected] })}
+                      disabled={billing || selected.size === 0}
+                      className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-surface disabled:opacity-50"
+                    >
+                      Email selected ({selected.size})
+                    </button>
+                  </div>
+                  {msg && <p className="text-xs text-text-primary mt-2 bg-lime-accent/15 border border-lime-accent/30 rounded px-2 py-1">{msg}</p>}
+                  {err && <p className="text-xs text-red-700 mt-2 bg-red-50 border border-red-200 rounded px-2 py-1">{err}</p>}
+                </div>
+              )}
+
               {data.registrations.length === 0 ? (
                 <p className="text-sm text-text-muted text-center py-8">No registrations yet.</p>
               ) : (
@@ -2022,7 +2067,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-[11px] uppercase tracking-wider text-text-muted border-b border-app-border">
-                        {isVariable && (
+                        {showInvoicing && (
                           <th className="pb-2 font-medium w-8">
                             <input
                               type="checkbox"
@@ -2042,10 +2087,10 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                     </thead>
                     <tbody>
                       {data.registrations.map((r) => {
-                        const selectable = r.status !== "PAID" && r.status !== "CANCELED";
+                        const selectable = collectable(r);
                         return (
                           <tr key={r.id} className="border-b border-app-border last:border-0 align-top">
-                            {isVariable && (
+                            {showInvoicing && (
                               <td className="py-2.5">
                                 {selectable && (
                                   <input
@@ -2091,8 +2136,13 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                               ) : r.status === "CANCELED" ? (
                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Canceled</span>
                               ) : (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-accent/15 text-text-primary font-medium">
-                                  {r.amountDue ? `Owes $${Number(r.amountDue).toFixed(2)}` : "Registered"}
+                                <span>
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-accent/15 text-text-primary font-medium">
+                                    {r.amountDue ? `Owes $${Number(r.amountDue).toFixed(2)}` : "Registered"}
+                                  </span>
+                                  {r.stripeCheckoutSessionId && r.invoiceCount === 0 && Number(r.amountDue ?? 0) > 0 && (
+                                    <span className="block text-[10px] text-text-muted mt-1">Started checkout — didn&apos;t finish</span>
+                                  )}
                                 </span>
                               )}
                             </td>

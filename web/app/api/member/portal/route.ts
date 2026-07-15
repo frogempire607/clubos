@@ -5,17 +5,19 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { PREVIEW_COOKIE, readPreviewCookie, canStartPreview } from "@/lib/preview";
+import { wallClockNowUTC } from "@/lib/datetime";
 
-async function fetchUser(userId: string) {
+async function fetchUser(userId: string, clubTimezone: string | null) {
   // Class registrations live in AttendanceRecord, not Booking, so we pull
   // upcoming class sessions per-member separately and surface them as a
   // sibling `classBookings` field on each accessible member. The member
   // portal's "My Bookings" page merges them with the event bookings below.
-  const now = new Date();
+  // Class stamps are wall-clock-UTC, so compare against the club's wall
+  // clock — raw UTC now drops today's booked classes hours early.
   const classWhere = {
     classSessionId: { not: null },
     status: { in: ["PRESENT", "LATE", "DROP_IN", "TRIAL"] },
-    classSession: { startsAt: { gte: now }, canceled: false },
+    classSession: { startsAt: { gte: wallClockNowUTC(clubTimezone) }, canceled: false },
   };
   const classInclude = {
     classSession: {
@@ -162,17 +164,6 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let user = await fetchUser(session.user.id);
-  if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  // Auto-link by email if no userId-linked member profile found, then re-fetch
-  if (!user.memberProfile) {
-    const linked = await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email);
-    if (linked) {
-      user = await fetchUser(session.user.id);
-    }
-  }
-
   const club = await prisma.club.findUnique({
     where: { id: session.user.clubId },
     select: {
@@ -181,6 +172,17 @@ export async function GET() {
       memberBillingVisibility: true, timezone: true,
     },
   });
+
+  let user = await fetchUser(session.user.id, club?.timezone ?? null);
+  if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Auto-link by email if no userId-linked member profile found, then re-fetch
+  if (!user.memberProfile) {
+    const linked = await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email);
+    if (linked) {
+      user = await fetchUser(session.user.id, club?.timezone ?? null);
+    }
+  }
 
   // Per-managed-athlete summary: attendance count (last 30d), upcoming
   // bookings count, active membership name. Powers the parent quick

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { publicFixedPrice } from "@/lib/eventPricing";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 
 const schema = z.object({
@@ -101,17 +102,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   }
 
   // Immediate (charge-now) amount only applies to non-variable fixed pricing.
-  // The owner picks WHICH price the public link charges via
-  // event.publicPricingOption — null/missing falls back to nonMemberPrice.
-  let amountDue = 0;
-  if (!isVariableCost) {
-    const opt = (event as { publicPricingOption?: string | null }).publicPricingOption;
-    const chosen =
-      opt === "MEMBER" ? event.memberPrice
-      : opt === "DROP_IN" ? event.dropInFee
-      : event.nonMemberPrice;
-    if (chosen && Number(chosen) > 0) amountDue = Number(chosen);
-  }
+  const amountDue = isVariableCost ? 0 : publicFixedPrice(event);
 
   const registration = await prisma.eventRegistration.create({
     data: {
