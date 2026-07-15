@@ -10,6 +10,7 @@ import {
   isCashMethod,
   isCompMethod,
 } from "@/lib/financials";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
 import type { Prisma } from "@prisma/client";
 import { computePayrollTotalForRange } from "@/lib/payroll";
 
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
   const payrollEnd = to ?? new Date();
   const [transactions, expenses, donations, contractorPayments, staffPayrollTotal, entities] = await Promise.all([
     prisma.transaction.findMany({
-      where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateFilter },
+      where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateFilter },
       select: {
         id: true, amount: true, platformFee: true, type: true, category: true,
         paymentMethod: true, description: true, manual: true, txDate: true, createdAt: true,

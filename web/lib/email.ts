@@ -343,6 +343,55 @@ export async function sendMembershipActivatedEmail({
   });
 }
 
+// Receipt for a confirmed Stripe payment (subscription first charge or
+// renewal). Sent from the invoice.paid webhook — the ONLY trigger is a
+// Stripe-confirmed charge; never send this for offline/external records.
+export async function sendPaymentReceiptEmail({
+  to,
+  firstName,
+  clubName,
+  description,
+  amountPaid,
+  paidAt,
+  portalUrl,
+}: {
+  to: string;
+  firstName: string;
+  clubName: string;
+  description: string;
+  amountPaid: string;
+  paidAt: Date;
+  portalUrl: string;
+}) {
+  const dateStr = paidAt.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  await sendEmail({
+    to,
+    subject: `Receipt: ${amountPaid} payment to ${clubName}`,
+    html: baseLayout(`
+      <h2 style="color:#1c1917;margin:0 0 8px">Payment received</h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        Hi ${firstName}, this is your receipt for a payment to ${clubName}.
+      </p>
+      <div style="background:#F5F3EE;border-radius:8px;padding:16px;margin:0 0 16px">
+        <p style="color:#1c1917;margin:0 0 4px;font-weight:600">${description}</p>
+        <p style="color:#57534e;margin:0;font-size:14px">Amount charged: <strong>${amountPaid}</strong></p>
+        <p style="color:#57534e;margin:4px 0 0;font-size:14px">Date: <strong>${dateStr}</strong></p>
+      </div>
+      <a href="${portalUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        View billing in your portal
+      </a>
+      <p style="color:#a8a29e;font-size:13px;margin:20px 0 0">
+        Questions about this charge? Reply to this email or contact ${clubName}.
+      </p>
+    `),
+  });
+}
+
 export async function sendCancellationDecisionEmail({
   to,
   firstName,

@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { sendEmail } from "@/lib/email";
+import { attendanceMethodClassification } from "@/lib/paymentSources";
 
 // POST /api/attendance/charge
 // Record attendance + a non-Stripe payment for a (possibly non-member /
@@ -119,6 +120,10 @@ export async function POST(req: Request) {
     INVOICE: "Invoice",
   };
   const label = methodLabels[data.paymentMethod] ?? "Payment";
+  // Normalized source + verification: CREDIT (external reader) records are
+  // UNVERIFIED — AthletixOS did not charge the card and Stripe never confirms
+  // them, so they must never be bucketed as verified Stripe revenue.
+  const classification = attendanceMethodClassification(data.paymentMethod);
   await prisma.transaction.create({
     data: {
       clubId,
@@ -128,6 +133,8 @@ export async function POST(req: Request) {
       type: data.classSessionId ? "CLASS" : "EVENT",
       category,
       paymentMethod: data.paymentMethod,
+      paymentSource: classification.paymentSource,
+      reconciliationStatus: classification.reconciliationStatus,
       legalEntityId: data.legalEntityId || null,
       source: memberName,
       description: `${label} — ${memberName}${contextName ? ` — ${contextName}` : ""}`,

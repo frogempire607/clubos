@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
 import {
   resolveRevenueCategory,
   revenueCategoryLabel,
@@ -69,7 +70,7 @@ export async function buildReport(
   if (type === "pnl") {
     const [txs, expenses, donations, payrollTotal] = await Promise.all([
       prisma.transaction.findMany({
-        where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateWhere(r) },
+        where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
         select: { amount: true },
       }),
       prisma.expense.findMany({
@@ -100,7 +101,7 @@ export async function buildReport(
 
   if (type === "revenue_by_category") {
     const txs = await prisma.transaction.findMany({
-      where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateWhere(r) },
+      where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
       select: { amount: true, type: true, category: true },
     });
     const map: Record<string, number> = {};
@@ -185,7 +186,7 @@ export async function buildReport(
   if (type === "cash_vs_card") {
     const [txs, pending, donations] = await Promise.all([
       prisma.transaction.findMany({
-        where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateWhere(r) },
+        where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
         select: { amount: true, paymentMethod: true },
       }),
       prisma.transaction.findMany({
@@ -221,7 +222,7 @@ export async function buildReport(
 
   if (type === "stripe_fees") {
     const txs = await prisma.transaction.findMany({
-      where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateWhere(r) },
+      where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
       select: { amount: true, platformFee: true },
     });
     const gross = txs.reduce((s, t) => s + Number(t.amount), 0);
@@ -260,7 +261,7 @@ export async function buildReport(
 
   // uncategorized
   const txs = await prisma.transaction.findMany({
-    where: { clubId, status: "SUCCEEDED", category: null, ...entityWhere, ...txDateWhere(r) },
+    where: { clubId, status: "SUCCEEDED", category: null, ...EXCLUDE_VOID, ...entityWhere, ...txDateWhere(r) },
     orderBy: { createdAt: "desc" },
     include: { member: { select: { firstName: true, lastName: true } } },
   });

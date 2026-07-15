@@ -33,6 +33,8 @@ type Summary = {
 };
 type Tx = {
   id: string; amount: string | number; platformFee: string | number | null; status: string;
+  stripeFeeAmount: string | number | null; netAmount: string | number | null;
+  paymentSource: string | null; reconciliationStatus: string | null;
   description: string | null; category: string | null; paymentMethod: string | null;
   manual: boolean; type: string; createdAt: string; txDate: string | null;
   member: { firstName: string; lastName: string } | null;
@@ -885,9 +887,9 @@ function TaxSummaryTab({ qs }: { qs: string }) {
   );
 }
 
-/* ── Stripe (unchanged) ── */
+/* ── Stripe ── */
 function StripeTab() {
-  const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; platformFees: number; net: number } } | null>(null);
+  const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; stripeFees: number; platformFees: number; net: number } } | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     fetch("/api/transactions").then((r) => (r.ok ? r.json() : null)).then((d) => { setData(d); setLoading(false); });
@@ -897,7 +899,7 @@ function StripeTab() {
       {!loading && (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <StatCard label="Total revenue" value={money(data?.totals.revenue || 0)} hint="All time, paid" />
-          <StatCard label="Platform fees" value={money(data?.totals.platformFees || 0)} hint="Paid to AthletixOS" />
+          <StatCard label="Stripe fees" value={money(data?.totals.stripeFees || 0)} hint="Exact processing fees (Stripe)" />
           <StatCard label="Net revenue" value={money(data?.totals.net || 0)} hint="What you keep" />
         </div>
       )}
@@ -920,7 +922,7 @@ function StripeTab() {
                   <Td><span className="text-sm text-text-primary">{t.description || "Payment"}</span></Td>
                   <Td><span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-primary">{t.status.charAt(0) + t.status.slice(1).toLowerCase()}</span></Td>
                   <Td><span className="text-sm font-medium text-text-primary">{money(t.amount)}</span></Td>
-                  <Td><span className="text-xs text-text-muted">{t.platformFee ? money(t.platformFee) : "—"}</span></Td>
+                  <Td><span className="text-xs text-text-muted">{t.stripeFeeAmount ? money(t.stripeFeeAmount) : "—"}</span></Td>
                 </tr>
               ))}
             </tbody>
