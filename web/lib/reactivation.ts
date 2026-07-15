@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { newActivationToken } from "@/lib/migration";
 import { resolveOfferPricing, type ResolvedPricing } from "@/lib/billingAdmin";
+import { applyProcessingFee } from "@/lib/fees";
 
 // Membership reactivation offers — server helpers shared by the owner-side
 // composer (create/preview/send) and the public token page (view/confirm).
@@ -232,6 +233,9 @@ export function buildReactivationEmailParams(args: {
     contactEmail?: string | null;
     emailFromName?: string | null;
     emailReplyTo?: string | null;
+    // Whether the Stripe processing fee is passed to the customer — drives the
+    // fee-inclusive "total charged" wording (lib/fees.ts owns the math).
+    passProcessingFees?: boolean;
   };
   clubLogoPublicUrl: string | null;
   cardSummary: string | null;
@@ -243,6 +247,10 @@ export function buildReactivationEmailParams(args: {
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
   const immediate = !!firstCharge && firstCharge.getTime() <= Date.now() + 60_000;
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
+  // Exact card charge when the club passes the processing fee — matches what
+  // confirm creates (recurringUnitWithFee on the same cent base).
+  const passFees = !isFree && offer.paymentMode === "CARD" && !!args.club.passProcessingFees;
+  const fees = applyProcessingFee(Math.round(offer.price * 100), passFees);
   return {
     to: args.to,
     athleteName: args.athleteName,
@@ -252,6 +260,8 @@ export function buildReactivationEmailParams(args: {
     membershipName: offer.planName,
     optionLabel: offer.optionLabel,
     priceLabel: isFree ? "Free" : `$${offer.price.toFixed(2)}`,
+    totalChargedLabel: isFree ? null : `$${(fees.totalCents / 100).toFixed(2)}`,
+    processingFeeLabel: fees.feeCents > 0 ? `$${(fees.feeCents / 100).toFixed(2)}` : null,
     periodLabel: prettyPeriodLabel(offer.billingPeriod),
     startDateLabel: longDate(offer.startDate),
     firstChargeLabel: isFree ? null : longDate(offer.firstChargeDate),
@@ -288,7 +298,7 @@ export async function loadReactivationEmailContext(memberId: string, clubId: str
       club: {
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
-          emailFromName: true, emailReplyTo: true, stripeAccountId: true,
+          emailFromName: true, emailReplyTo: true, stripeAccountId: true, passProcessingFees: true,
         },
       },
     },

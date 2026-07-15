@@ -59,6 +59,16 @@ export function recurringUnitWithFee(subtotalCents: number, pass: boolean): numb
   return subtotalCents + (pass ? computeProcessingFeeCents(subtotalCents) : 0);
 }
 
+// Dollars-in / dollars-out breakdown for display surfaces (owner + client
+// billing pages, emails). Pure and client-safe — this file has no server-only
+// imports. Math routes through applyProcessingFee so a displayed total always
+// equals what recurringUnitWithFee actually charges.
+export function feeBreakdown(priceDollars: number, pass: boolean): { base: number; fee: number; total: number } {
+  const cents = Number.isFinite(priceDollars) ? Math.round(priceDollars * 100) : 0;
+  const b = applyProcessingFee(cents, pass);
+  return { base: b.subtotalCents / 100, fee: b.feeCents / 100, total: b.totalCents / 100 };
+}
+
 // Human-readable description for settings / checkout copy.
 export function describeProcessingFee(): string {
   const pct = (PROCESSING_FEE_PERCENT * 100).toFixed(1).replace(/\.0$/, "");

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveCardSnapshot, type CardSnapshot } from "@/lib/memberCard";
+import { feeBreakdown } from "@/lib/fees";
 
 // GET /api/member/billing
 //
@@ -40,6 +41,7 @@ const memberSelect = Prisma.validator<Prisma.MemberSelect>()({
       status: true,
       price: true,
       billingPeriod: true,
+      billingType: true,
       billingAnchorDate: true,
       endDate: true,
       // Reconciled-from-Stripe facts (lib/stripeSync.ts). currentPeriodEnd is
@@ -95,7 +97,7 @@ export async function GET() {
     }),
     prisma.club.findUnique({
       where: { id: clubId },
-      select: { stripeAccountId: true, memberBillingVisibility: true },
+      select: { stripeAccountId: true, memberBillingVisibility: true, passProcessingFees: true },
     }),
   ]);
 
@@ -116,6 +118,12 @@ export async function GET() {
       }
       const rawPrice = active && active.price != null ? Number(active.price) : null;
       const price = rawPrice != null && Number.isFinite(rawPrice) ? rawPrice : null;
+      // The club passes the Stripe processing fee → a RECURRING Stripe sub is
+      // actually charged base + fee. Display only; math lives in lib/fees.ts.
+      const fees =
+        club?.passProcessingFees && active?.billingType === "RECURRING" && price != null && price > 0
+          ? feeBreakdown(price, true)
+          : null;
       const snap = (active?.stripeSnapshot as Record<string, unknown> | null) ?? null;
       const lastInvoice = snap && typeof snap.latestInvoice === "object" ? (snap.latestInvoice as {
         amountPaid?: number | null;
@@ -139,6 +147,8 @@ export async function GET() {
         // Stripe state (e.g. "trialing") alongside our normalized status.
         stripeStatus: active?.stripeStatus ?? null,
         price,
+        // Present only when a processing fee applies: what's actually charged.
+        feeBreakdown: fees ? { base: fees.base, fee: fees.fee, total: fees.total } : null,
         period: active?.billingPeriod ?? null,
         // Prefer Stripe's real next-billing date once reconciled.
         nextBilling: active?.currentPeriodEnd ?? active?.billingAnchorDate ?? active?.endDate ?? null,

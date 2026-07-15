@@ -144,6 +144,9 @@ type PersonBilling = {
   // alongside our normalized status when it says something the label doesn't.
   stripeStatus: string | null;
   price: number | null;
+  // Present when the club passes the card processing fee on a recurring plan —
+  // total is what the card is actually charged each period.
+  feeBreakdown?: { base: number; fee: number; total: number } | null;
   period: string | null;
   nextBilling: string | null;
   lastPayment: { amount: number; paidAt: string } | null;
@@ -1056,6 +1059,16 @@ export default function MemberAccountPage() {
                                   label="Price"
                                   value={`$${p.price.toFixed(2)}${p.period ? ` / ${p.period.toLowerCase()}` : ""}`}
                                 />
+                              )}
+                              {showPrice && p.feeBreakdown && (
+                                <div className="flex items-start gap-4">
+                                  <dt className="w-24 flex-shrink-0" aria-hidden />
+                                  <dd className="text-[11px] text-stone-500">
+                                    ${p.feeBreakdown.total.toFixed(2)}
+                                    {p.period ? `/${p.period.toLowerCase()}` : ""} charged incl. $
+                                    {p.feeBreakdown.fee.toFixed(2)} card processing fee
+                                  </dd>
+                                </div>
                               )}
                               {showNextBilling && p.nextBilling && p.status !== "canceled" && p.status !== "expired" && (
                                 <ProfileRow

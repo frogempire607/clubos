@@ -20,6 +20,7 @@ import {
   FINAL_ACTIONS,
 } from "@/lib/billingAdmin";
 import { writeBillingAudit } from "@/lib/billingAudit";
+import { feeBreakdown, describeProcessingFee } from "@/lib/fees";
 import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 
 export const dynamic = "force-dynamic";
@@ -352,6 +353,11 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     })),
   ].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 60);
 
+  // What the customer is actually charged for the effective price when the
+  // club passes the Stripe processing fee (display only — lib/fees.ts owns
+  // the math, and the charge paths use recurringUnitWithFee on the same base).
+  const fees = feeBreakdown(pricing.price, club.passProcessingFees);
+
   // Plans for the edit modal.
   const plans = await prisma.membership.findMany({
     where: { clubId: club.id, deletedAt: null, active: true },
@@ -377,6 +383,13 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     },
     hasPendingCharge,
     anchorMismatch,
+    feeBreakdown: {
+      passFees: club.passProcessingFees,
+      feePercentLabel: describeProcessingFee(),
+      base: fees.base,
+      fee: fees.fee,
+      totalCharged: fees.total,
+    },
     billing: {
       planId: plan?.id ?? null,
       planName: pricing.planName,
@@ -441,6 +454,11 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
           // null when the offer is closed; otherwise whether the snapshot
           // still matches the member's CURRENT billing setup.
           sync: offerSync,
+          // Client change request — OPEN locks the client's confirmation
+          // until the owner approves (new version) or denies (Approvals tab).
+          changeRequest: reactivation.changeRequest,
+          changeRequestStatus: reactivation.changeRequestStatus,
+          changeRequestAt: reactivation.changeRequestAt,
           url: reactivationUrl(baseUrlFromRequest(req), reactivation.token),
         }
       : null,

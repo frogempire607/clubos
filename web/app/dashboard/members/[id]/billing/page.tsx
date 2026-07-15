@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, CreditCard, RefreshCw } from "lucide-react";
+import { feeBreakdown } from "@/lib/fees";
 
 type PaymentMethod = {
   ref: string;
@@ -40,6 +41,9 @@ type Data = {
   billingState: { key: string; label: string; explanation: string };
   hasPendingCharge: boolean;
   anchorMismatch: boolean;
+  // What the customer is actually charged when the club passes the Stripe
+  // processing fee (computed server-side from the effective price).
+  feeBreakdown?: { passFees: boolean; feePercentLabel: string; base: number; fee: number; totalCharged: number };
   billing: {
     planId: string | null; planName: string; optionLabel: string | null;
     price: number; period: string; periodLabel: string;
@@ -81,6 +85,8 @@ type Data = {
     sentToEmail: string | null; viewedAt: string | null; confirmedAt: string | null;
     consent: Record<string, unknown> | null; tokenExpires: string; createdAt: string; updatedAt: string;
     open: boolean; sync: { matches: boolean; changed: string[] } | null; url: string | null;
+    changeRequest?: { fields?: Record<string, string | null>; note?: string | null } | null;
+    changeRequestStatus?: string | null; changeRequestAt?: string | null;
   } | null;
   readiness: { state: string; label: string; reasons: string[] };
   lastChangedBy: { name: string; at: string } | null;
@@ -226,6 +232,11 @@ export default function MemberBillingPage() {
         >
           <Row label="Plan" strong>{b.planName}{b.optionLabel ? ` · ${b.optionLabel}` : ""}</Row>
           <Row label="Price" strong>{b.price <= 0 ? "Free" : `${fmtMoney(b.price)} ${b.periodLabel}`}</Row>
+          {data.feeBreakdown?.passFees && b.price > 0 && (
+            <Row label="Total charged" strong>
+              {fmtMoney(data.feeBreakdown.totalCharged)} {b.periodLabel} (includes {fmtMoney(data.feeBreakdown.fee)} {data.feeBreakdown.feePercentLabel} processing fee)
+            </Row>
+          )}
           {b.priceOverride != null && (
             <Row label="Owner price override">{fmtMoney(b.priceOverride)}{b.discountNote ? ` — ${b.discountNote}` : ""}</Row>
           )}
@@ -327,6 +338,28 @@ export default function MemberBillingPage() {
         >
           {data.reactivation ? (
             <div>
+              {data.reactivation.changeRequestStatus === "OPEN" && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 mb-2">
+                  <p className="text-xs font-semibold text-amber-800">
+                    Client requested changes — confirmation is locked
+                  </p>
+                  {data.reactivation.changeRequest?.fields && (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      {Object.entries(data.reactivation.changeRequest.fields)
+                        .filter(([, v]) => v)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(" · ") || ""}
+                    </p>
+                  )}
+                  {data.reactivation.changeRequest?.note && (
+                    <p className="text-xs text-amber-700 mt-0.5 italic">&ldquo;{data.reactivation.changeRequest.note}&rdquo;</p>
+                  )}
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    Approve or deny it from <a href="/dashboard/members/approvals" className="underline">Approvals</a> —
+                    approving regenerates a new offer version from the current setup.
+                  </p>
+                </div>
+              )}
               <Row label="Status" strong>
                 {data.reactivation.status}{data.reactivation.status === "SENT" ? ` — to ${data.reactivation.sentToEmail} (${data.reactivation.emailSendCount}×)` : ""}
               </Row>
@@ -345,6 +378,14 @@ export default function MemberBillingPage() {
                   <Row label="Price">
                     {(data.reactivation.offer.price ?? 0) <= 0 ? "Free" : `${fmtMoney(data.reactivation.offer.price!)} ${(data.reactivation.offer.billingPeriod || "").toLowerCase()}`}
                   </Row>
+                  {data.feeBreakdown?.passFees && (data.reactivation.offer.price ?? 0) > 0 && data.reactivation.offer.paymentMode === "CARD" && (() => {
+                    const fb = feeBreakdown(data.reactivation.offer.price!, true);
+                    return (
+                      <Row label="Total charged">
+                        {fmtMoney(fb.total)} (includes {fmtMoney(fb.fee)} processing fee)
+                      </Row>
+                    );
+                  })()}
                   <Row label="Start">{fmtDateUTC(data.reactivation.offer.startDate)}</Row>
                   <Row label="First payment">{data.reactivation.offer.firstChargeDate ? fmtDateUTC(data.reactivation.offer.firstChargeDate) : "No charge"}</Row>
                   <Row label="Commitment through">{fmtDateUTC(data.reactivation.offer.commitmentEndDate)}</Row>
@@ -534,11 +575,18 @@ function PaymentMethodRow({ pm, memberId, hasPendingCharge, onChanged, onMsg }: 
 
 // ── Migration triage card ──────────────────────────────────────────────────
 
-const GROUPS = [
-  ["", "— Unclassified —"], ["A", "Group A — manual approval"], ["B", "Group B — reactivation email"],
-  ["C", "Group C — owner review"], ["LEAVE_ALONE", "Leave alone"], ["FUTURE_FOLLOW_UP", "Future follow-up"],
+// Group A/B/C were one-time migration-planning shorthand — DEPRECATED and no
+// longer offered. A member still carrying one shows it as a legacy value so
+// the owner can move them to an operational state.
+const GROUPS: ReadonlyArray<readonly [string, string]> = [
+  ["", "— Unclassified —"], ["LEAVE_ALONE", "Leave alone"], ["FUTURE_FOLLOW_UP", "Future follow-up"],
   ["NEEDS_PAYMENT_METHOD", "Needs payment method"],
-] as const;
+];
+const LEGACY_GROUP_LABELS: Record<string, string> = {
+  A: "Group A (legacy — pick a new state)",
+  B: "Group B (legacy — pick a new state)",
+  C: "Group C (legacy — pick a new state)",
+};
 const ACTIONS = [
   ["", "— None —"], ["MANUAL_APPROVE", "Manual approve"], ["ACTIVATION_EMAIL", "Reactivation email"],
   ["LEAVE_ALONE", "Leave alone"], ["FUTURE_FOLLOW_UP", "Future follow-up"], ["NEEDS_CARD", "Needs card"],
@@ -581,8 +629,9 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
         {mig.activationEmailSentAt ? ` Activation email sent ${mig.activationEmailSendCount}× (last ${fmtDate(mig.activationEmailSentAt)}).` : " No activation email sent yet."}
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <label className="text-xs text-text-muted">Group
+        <label className="text-xs text-text-muted">Owner state
           <select value={group} onChange={(e) => setGroup(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary">
+            {LEGACY_GROUP_LABELS[group] && <option value={group}>{LEGACY_GROUP_LABELS[group]}</option>}
             {GROUPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
@@ -860,7 +909,10 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
       <div className="bg-surface w-full sm:max-w-2xl rounded-t-2xl sm:rounded-xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-base font-semibold text-text-primary mb-1">Reactivation offer</h3>
         <p className="text-xs text-text-muted mb-3">
-          Offer: <strong className="text-text-primary">{data.billing.planName}</strong> — {data.billing.price <= 0 ? "Free" : `$${data.billing.price.toFixed(2)} ${data.billing.periodLabel}`}.
+          Offer: <strong className="text-text-primary">{data.billing.planName}</strong> — {data.billing.price <= 0 ? "Free" : `$${data.billing.price.toFixed(2)} ${data.billing.periodLabel}`}
+          {data.feeBreakdown?.passFees && data.billing.price > 0
+            ? ` ($${data.feeBreakdown.totalCharged.toFixed(2)} charged incl. $${data.feeBreakdown.fee.toFixed(2)} processing fee)`
+            : ""}.
           The client reviews these owner-approved terms on a secure page; nothing is charged until they confirm, and
           the first-payment date is spelled out on the button itself.
         </p>

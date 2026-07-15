@@ -874,6 +874,12 @@ export type ReactivationEmailParams = {
   membershipName: string;
   optionLabel?: string | null;
   priceLabel: string; // "$110.00" or "Free"
+  // Processing-fee pass-through (club setting): the EXACT total the card is
+  // charged and the fee portion, e.g. "$545.37" / "$15.37". Both null when the
+  // club absorbs the fee (or the offer is free/offline) — the base price is
+  // then the whole story.
+  totalChargedLabel?: string | null;
+  processingFeeLabel?: string | null;
   periodLabel: string; // "monthly", "quarterly", …
   startDateLabel?: string | null;
   firstChargeLabel: string | null; // "July 19, 2026"; null = no charge
@@ -898,6 +904,8 @@ export function renderMembershipReactivationEmail({
   membershipName,
   optionLabel,
   priceLabel,
+  totalChargedLabel,
+  processingFeeLabel,
   periodLabel,
   startDateLabel,
   firstChargeLabel,
@@ -927,6 +935,11 @@ export function renderMembershipReactivationEmail({
     row("Athlete", safeAthlete),
     row("Membership", escapeHtml(membershipName) + (optionLabel ? ` · ${escapeHtml(optionLabel)}` : "")),
     row("Price", isFree ? "Free" : `${escapeHtml(priceLabel)} ${escapeHtml(periodLabel)}`),
+    // When the club passes the processing fee, the card is charged base + fee —
+    // state the exact total so the email always reconciles with Stripe.
+    !isFree && totalChargedLabel && processingFeeLabel
+      ? row("Total charged", `${escapeHtml(totalChargedLabel)} ${escapeHtml(periodLabel)} (includes ${escapeHtml(processingFeeLabel)} processing fee)`)
+      : "",
     startDateLabel ? row("Membership start", escapeHtml(startDateLabel)) : "",
     firstChargeLabel
       ? row("First payment", immediateCharge ? `${escapeHtml(firstChargeLabel)} (charged on confirmation)` : escapeHtml(firstChargeLabel))
@@ -945,10 +958,13 @@ export function renderMembershipReactivationEmail({
       </div>`
     : "";
 
+  // Charge-timing wording must state the EXACT total charged (fee-inclusive
+  // when the club passes it) — never a base price the card statement won't show.
+  const chargedAmountLabel = totalChargedLabel || priceLabel;
   const ctaLabel = isFree || !firstChargeLabel
     ? "Review & confirm membership"
     : immediateCharge
-      ? `Review & confirm — payment due today`
+      ? `Review & confirm — ${escapeHtml(chargedAmountLabel)} charged today`
       : `Review & confirm — first payment ${escapeHtml(firstChargeLabel)}`;
 
   const subject = `Action needed: confirm ${athleteName}'s ${clubName} membership`;

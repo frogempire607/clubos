@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 import { chargeTiming, prettyPeriod } from "@/lib/billingAdmin";
+import { applyProcessingFee } from "@/lib/fees";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 
@@ -38,7 +39,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       club: {
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
-          stripeAccountId: true, stripeChargesEnabled: true,
+          stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true,
         },
       },
     },
@@ -122,6 +123,13 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   const timing = chargeTiming(firstCharge);
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
 
+  // The exact card charge when the club passes the Stripe processing fee.
+  // MUST equal what confirm creates: recurringUnitWithFee(price, passFees) —
+  // both route through lib/fees.ts on the same cent base.
+  const passFees = offer.paymentMode === "CARD" && !isFree && r.club.passProcessingFees;
+  const fees = applyProcessingFee(Math.round(offer.price * 100), passFees);
+  const totalCharged = fees.totalCents / 100;
+
   return NextResponse.json({
     club: {
       name: r.club.name,
@@ -144,8 +152,22 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       firstChargeDate: offer.firstChargeDate,
       commitmentEndDate: offer.commitmentEndDate,
       paymentMode: offer.paymentMode,
+      // Plan-level renewal behavior frozen into the offer: false ⇒ the
+      // membership ends (at the commitment date) instead of renewing.
+      autoRenew: offer.autoRenew,
       offerVersion: r.offerVersion,
     },
+    // Processing-fee breakdown (dollars). fee is 0 when the club absorbs it —
+    // the page then just shows the base price.
+    fees: {
+      passFees,
+      base: fees.subtotalCents / 100,
+      fee: fees.feeCents / 100,
+      totalCharged,
+    },
+    // OPEN locks confirmation (the club is reviewing requested changes);
+    // DENIED means the original offer is open again.
+    changeRequestStatus: r.changeRequestStatus ?? null,
     chargeTiming: {
       // Recomputed at read time: a future-dated offer that the client only
       // opens after the date passed becomes an immediate charge, and the page
@@ -163,7 +185,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     terms: {
       authorization: isFree
         ? `By confirming you accept ${r.club.name}'s membership terms.`
-        : `By confirming you authorize ${r.club.name} to charge the payment method on file $${offer.price.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
+        : `By confirming you authorize ${r.club.name} to charge the payment method on file $${totalCharged.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${passFees ? ` ($${(fees.subtotalCents / 100).toFixed(2)} membership + $${(fees.feeCents / 100).toFixed(2)} processing fee)` : ""}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
     },
   });
 }

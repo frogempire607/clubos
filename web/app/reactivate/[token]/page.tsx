@@ -21,8 +21,13 @@ type Payload = {
   offer?: {
     planName: string; optionLabel: string | null; price: number; billingPeriod: string;
     periodLabel: string; startDate: string | null; firstChargeDate: string | null;
-    commitmentEndDate: string | null; paymentMode: string; offerVersion: number;
+    commitmentEndDate: string | null; paymentMode: string; autoRenew?: boolean; offerVersion: number;
   };
+  // Processing-fee breakdown (dollars): totalCharged is the EXACT card charge —
+  // it matches what the confirm route creates on Stripe.
+  fees?: { passFees: boolean; base: number; fee: number; totalCharged: number };
+  // OPEN = the club is reviewing a change request — confirmation is locked.
+  changeRequestStatus?: string | null;
   chargeTiming?: { immediate: boolean; isFree: boolean };
   card?: { brand: string; last4: string; cardholder: string | null } | null;
   hasUsableCard?: boolean;
@@ -138,12 +143,16 @@ export default function ReactivatePage() {
   const isFree = timing.isFree;
   const needsCard = offer.paymentMode === "CARD" && !data.hasUsableCard;
   const firstChargeLabel = longDate(offer.firstChargeDate);
+  // The club may pass the card processing fee — every stated amount must be
+  // the EXACT total the card is charged (matches the confirm route).
+  const hasFee = !!data.fees?.passFees && (data.fees?.fee ?? 0) > 0;
+  const totalCharged = data.fees?.totalCharged ?? offer.price;
   const btnLabel = isFree
     ? "Confirm membership"
     : offer.paymentMode === "OFFLINE"
       ? "Confirm membership — the club collects payment offline"
       : timing.immediate
-        ? `Confirm membership — $${offer.price.toFixed(2)} charged today`
+        ? `Confirm membership — $${totalCharged.toFixed(2)} charged today`
         : `Confirm membership — first payment ${firstChargeLabel}`;
 
   return (
@@ -167,6 +176,8 @@ export default function ReactivatePage() {
         <Item label="Athlete" value={`${data.athlete?.firstName} ${data.athlete?.lastName}`} />
         <Item label="Membership" value={`${offer.planName}${offer.optionLabel ? ` · ${offer.optionLabel}` : ""}`} />
         <Item label="Price" value={isFree ? "Free" : `$${offer.price.toFixed(2)} ${offer.periodLabel}`} />
+        {hasFee && <Item label="Processing fee" value={`+ $${data.fees!.fee.toFixed(2)}`} />}
+        {hasFee && <Item label="Total charged" value={`$${totalCharged.toFixed(2)} ${offer.periodLabel}`} />}
         {offer.startDate && <Item label="Membership start" value={longDate(offer.startDate)!} />}
         {!isFree && offer.paymentMode === "CARD" && (
           <Item
@@ -179,6 +190,18 @@ export default function ReactivatePage() {
           <Item label="Then recurring" value={offer.periodLabel} />
         )}
         {offer.commitmentEndDate && <Item label="Commitment through" value={longDate(offer.commitmentEndDate)!} />}
+        {!isFree && (
+          <Item
+            label="Renewal"
+            value={
+              offer.autoRenew === false
+                ? offer.commitmentEndDate
+                  ? `Ends on ${longDate(offer.commitmentEndDate)} — does not auto-renew`
+                  : "Does not auto-renew"
+                : `Renews automatically ${offer.periodLabel}`
+            }
+          />
+        )}
         {offer.paymentMode === "CARD" && (
           <Item
             label="Payment method"
@@ -213,22 +236,37 @@ export default function ReactivatePage() {
         <label className="flex items-start gap-2 text-sm text-stone-700 mb-4 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3">
           <input type="checkbox" checked={ackImmediate} onChange={(e) => setAckImmediate(e.target.checked)} className="mt-0.5" />
           <span>
-            I understand <strong>${offer.price.toFixed(2)} is charged today</strong> when I confirm, and the membership
-            then renews {offer.periodLabel}.
+            I understand <strong>${totalCharged.toFixed(2)} is charged today</strong>
+            {hasFee ? <> (${offer.price.toFixed(2)} membership + ${data.fees!.fee.toFixed(2)} processing fee)</> : null} when
+            I confirm, and the membership then renews {offer.periodLabel}.
           </span>
         </label>
       )}
 
       {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
 
-      <button
-        disabled={busy || needsCard || (timing.immediate && !isFree && offer.paymentMode === "CARD" && !ackImmediate)}
-        onClick={confirm}
-        className="w-full text-[15px] font-semibold text-white rounded-xl px-4 py-3.5 disabled:opacity-50"
-        style={{ background: brand }}
-      >
-        {busy ? "Confirming…" : btnLabel}
-      </button>
+      {data.changeRequestStatus === "OPEN" ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 mb-3">
+          <p className="text-sm text-amber-800 font-medium">Change request with the club</p>
+          <p className="text-xs text-amber-700 mt-1">
+            You asked for changes to this offer, so it can&apos;t be confirmed while {data.club?.name} reviews them.
+            They&apos;ll send an updated offer or respond shortly. Nothing has been charged.
+          </p>
+        </div>
+      ) : (
+        <button
+          disabled={busy || needsCard || (timing.immediate && !isFree && offer.paymentMode === "CARD" && !ackImmediate)}
+          onClick={confirm}
+          className="w-full text-[15px] font-semibold text-white rounded-xl px-4 py-3.5 disabled:opacity-50"
+          style={{ background: brand }}
+        >
+          {busy ? "Confirming…" : btnLabel}
+        </button>
+      )}
+
+      {data.changeRequestStatus !== "OPEN" && (
+        <ChangeRequestSection token={token} brand={brand} clubName={data.club?.name ?? "the club"} onSubmitted={load} />
+      )}
 
       <p className="text-xs text-stone-500 mt-3 leading-relaxed">{data.terms?.authorization}</p>
       <p className="text-xs text-stone-400 mt-2 leading-relaxed">
@@ -236,6 +274,135 @@ export default function ReactivatePage() {
         contact {data.club?.name}{data.club?.contactEmail ? ` at ${data.club.contactEmail}` : ""} and they&apos;ll fix it first.
       </p>
     </Shell>
+  );
+}
+
+// "Request a change" — the client asks the club to adjust the offer instead of
+// confirming it. NEVER changes billing (and there is deliberately no price
+// field); submitting locks this offer's confirmation until the club responds.
+function ChangeRequestSection({
+  token,
+  brand,
+  clubName,
+  onSubmitted,
+}: {
+  token: string;
+  brand: string;
+  clubName: string;
+  onSubmitted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [membership, setMembership] = useState("");
+  const [option, setOption] = useState("");
+  const [billingDate, setBillingDate] = useState("");
+  const [frequency, setFrequency] = useState("");
+  const [payer, setPayer] = useState("");
+  const [payMethod, setPayMethod] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    const r = await fetch(`/api/reactivate/${token}/change-request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestedMembership: membership || null,
+        requestedOption: option || null,
+        requestedBillingDate: billingDate || null,
+        requestedFrequency: frequency || null,
+        requestedPayer: payer || null,
+        requestedPaymentMethod: payMethod || null,
+        note: note || null,
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (r.ok) {
+      setSent(true);
+      onSubmitted();
+    } else setErr(d.error || "The request couldn't be sent — try again.");
+  };
+
+  if (sent) {
+    return (
+      <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 mt-3">
+        <p className="text-sm text-stone-800 font-medium">Request sent ✓</p>
+        <p className="text-xs text-stone-500 mt-1">
+          {clubName} will review it and send an updated offer or respond. This offer can&apos;t be confirmed until then.
+        </p>
+      </div>
+    );
+  }
+
+  const inputCls =
+    "mt-1 w-full border border-stone-200 rounded-lg px-2.5 py-2 text-sm text-stone-900 bg-white";
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-sm font-medium text-stone-600 border border-stone-200 rounded-xl px-4 py-2.5 hover:bg-stone-50"
+      >
+        {open ? "Cancel change request" : "Something not right? Request a change instead"}
+      </button>
+      {open && (
+        <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 mt-2 space-y-3">
+          <p className="text-xs text-stone-500">
+            Tell {clubName} what you&apos;d like different — nothing changes or gets charged until they approve and
+            send you an updated offer.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="text-xs text-stone-500">Different membership
+              <input value={membership} onChange={(e) => setMembership(e.target.value)} placeholder="e.g. Monthly plan" className={inputCls} />
+            </label>
+            <label className="text-xs text-stone-500">Different purchase option
+              <input value={option} onChange={(e) => setOption(e.target.value)} placeholder="e.g. 1 Year" className={inputCls} />
+            </label>
+            <label className="text-xs text-stone-500">Preferred billing date
+              <input type="date" value={billingDate} onChange={(e) => setBillingDate(e.target.value)} className={inputCls} />
+            </label>
+            <label className="text-xs text-stone-500">Billing frequency
+              <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className={inputCls}>
+                <option value="">No change</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="MONTHLY">Monthly</option>
+                <option value="QUARTERLY">Quarterly</option>
+                <option value="SEMI_ANNUAL">Every 6 months</option>
+                <option value="ANNUAL">Yearly</option>
+              </select>
+            </label>
+            <label className="text-xs text-stone-500">Different payer
+              <input value={payer} onChange={(e) => setPayer(e.target.value)} placeholder="Name or email" className={inputCls} />
+            </label>
+            <label className="text-xs text-stone-500">Payment method
+              <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} className={inputCls}>
+                <option value="">No change</option>
+                <option value="CARD">Card on file</option>
+                <option value="NEW_CARD">A different card</option>
+                <option value="CASH">Cash</option>
+                <option value="CHECK">Check</option>
+              </select>
+            </label>
+          </div>
+          <label className="text-xs text-stone-500 block">Anything else
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={1000}
+              placeholder="Describe what you'd like changed…" className={inputCls} />
+          </label>
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          <button
+            disabled={busy}
+            onClick={submit}
+            className="w-full text-sm font-semibold text-white rounded-xl px-4 py-2.5 disabled:opacity-50"
+            style={{ background: brand }}
+          >
+            {busy ? "Sending…" : "Send request to the club"}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
