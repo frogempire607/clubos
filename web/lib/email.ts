@@ -343,6 +343,55 @@ export async function sendMembershipActivatedEmail({
   });
 }
 
+// Receipt for a confirmed Stripe payment (subscription first charge or
+// renewal). Sent from the invoice.paid webhook — the ONLY trigger is a
+// Stripe-confirmed charge; never send this for offline/external records.
+export async function sendPaymentReceiptEmail({
+  to,
+  firstName,
+  clubName,
+  description,
+  amountPaid,
+  paidAt,
+  portalUrl,
+}: {
+  to: string;
+  firstName: string;
+  clubName: string;
+  description: string;
+  amountPaid: string;
+  paidAt: Date;
+  portalUrl: string;
+}) {
+  const dateStr = paidAt.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  await sendEmail({
+    to,
+    subject: `Receipt: ${amountPaid} payment to ${clubName}`,
+    html: baseLayout(`
+      <h2 style="color:#1c1917;margin:0 0 8px">Payment received</h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        Hi ${firstName}, this is your receipt for a payment to ${clubName}.
+      </p>
+      <div style="background:#F5F3EE;border-radius:8px;padding:16px;margin:0 0 16px">
+        <p style="color:#1c1917;margin:0 0 4px;font-weight:600">${description}</p>
+        <p style="color:#57534e;margin:0;font-size:14px">Amount charged: <strong>${amountPaid}</strong></p>
+        <p style="color:#57534e;margin:4px 0 0;font-size:14px">Date: <strong>${dateStr}</strong></p>
+      </div>
+      <a href="${portalUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        View billing in your portal
+      </a>
+      <p style="color:#a8a29e;font-size:13px;margin:20px 0 0">
+        Questions about this charge? Reply to this email or contact ${clubName}.
+      </p>
+    `),
+  });
+}
+
 export async function sendCancellationDecisionEmail({
   to,
   firstName,
@@ -825,6 +874,12 @@ export type ReactivationEmailParams = {
   membershipName: string;
   optionLabel?: string | null;
   priceLabel: string; // "$110.00" or "Free"
+  // Processing-fee pass-through (club setting): the EXACT total the card is
+  // charged and the fee portion, e.g. "$545.37" / "$15.37". Both null when the
+  // club absorbs the fee (or the offer is free/offline) — the base price is
+  // then the whole story.
+  totalChargedLabel?: string | null;
+  processingFeeLabel?: string | null;
   periodLabel: string; // "monthly", "quarterly", …
   startDateLabel?: string | null;
   firstChargeLabel: string | null; // "July 19, 2026"; null = no charge
@@ -849,6 +904,8 @@ export function renderMembershipReactivationEmail({
   membershipName,
   optionLabel,
   priceLabel,
+  totalChargedLabel,
+  processingFeeLabel,
   periodLabel,
   startDateLabel,
   firstChargeLabel,
@@ -878,6 +935,11 @@ export function renderMembershipReactivationEmail({
     row("Athlete", safeAthlete),
     row("Membership", escapeHtml(membershipName) + (optionLabel ? ` · ${escapeHtml(optionLabel)}` : "")),
     row("Price", isFree ? "Free" : `${escapeHtml(priceLabel)} ${escapeHtml(periodLabel)}`),
+    // When the club passes the processing fee, the card is charged base + fee —
+    // state the exact total so the email always reconciles with Stripe.
+    !isFree && totalChargedLabel && processingFeeLabel
+      ? row("Total charged", `${escapeHtml(totalChargedLabel)} ${escapeHtml(periodLabel)} (includes ${escapeHtml(processingFeeLabel)} processing fee)`)
+      : "",
     startDateLabel ? row("Membership start", escapeHtml(startDateLabel)) : "",
     firstChargeLabel
       ? row("First payment", immediateCharge ? `${escapeHtml(firstChargeLabel)} (charged on confirmation)` : escapeHtml(firstChargeLabel))
@@ -896,10 +958,13 @@ export function renderMembershipReactivationEmail({
       </div>`
     : "";
 
+  // Charge-timing wording must state the EXACT total charged (fee-inclusive
+  // when the club passes it) — never a base price the card statement won't show.
+  const chargedAmountLabel = totalChargedLabel || priceLabel;
   const ctaLabel = isFree || !firstChargeLabel
     ? "Review & confirm membership"
     : immediateCharge
-      ? `Review & confirm — payment due today`
+      ? `Review & confirm — ${escapeHtml(chargedAmountLabel)} charged today`
       : `Review & confirm — first payment ${escapeHtml(firstChargeLabel)}`;
 
   const subject = `Action needed: confirm ${athleteName}'s ${clubName} membership`;

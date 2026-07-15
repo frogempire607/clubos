@@ -73,3 +73,32 @@ export async function resolveCardSnapshot(
     return null;
   }
 }
+
+/**
+ * Resolve the payment-method id that an off-session charge should use:
+ * the customer's default PM, else the ONLY saved card. Returns null when the
+ * customer has multiple cards and no default — we never guess which card to
+ * charge (same rule as the reactivation confirm fallback).
+ */
+export async function resolveChargeablePaymentMethodId(
+  customerId: string | null | undefined,
+  stripeAccountId: string | null | undefined,
+): Promise<string | null> {
+  if (!customerId || !stripeAccountId) return null;
+  try {
+    const customer = await stripe.customers.retrieve(customerId, { stripeAccount: stripeAccountId });
+    if (customer && !("deleted" in customer && customer.deleted)) {
+      const def = (customer as { invoice_settings?: { default_payment_method?: string | { id: string } | null } })
+        .invoice_settings?.default_payment_method;
+      const defId = typeof def === "string" ? def : def?.id ?? null;
+      if (defId) return defId;
+    }
+    const list = await stripe.paymentMethods.list(
+      { customer: customerId, type: "card", limit: 2 },
+      { stripeAccount: stripeAccountId },
+    );
+    return list.data.length === 1 ? list.data[0].id : null;
+  } catch {
+    return null;
+  }
+}

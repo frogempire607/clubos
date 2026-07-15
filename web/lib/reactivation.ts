@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { newActivationToken } from "@/lib/migration";
 import { resolveOfferPricing, type ResolvedPricing } from "@/lib/billingAdmin";
+import { applyProcessingFee } from "@/lib/fees";
 
 // Membership reactivation offers — server helpers shared by the owner-side
 // composer (create/preview/send) and the public token page (view/confirm).
@@ -21,6 +22,10 @@ export type ReactivationOffer = {
   commitmentEndDate: string | null; // ISO
   paymentMode: "CARD" | "OFFLINE" | "FREE";
   payerUserId: string | null;
+  // Owner's plan-level Auto Renew setting, frozen into the offer. false ⇒ the
+  // subscription ends after the commitment date (or the first billing period
+  // when no commitment is set) instead of renewing.
+  autoRenew: boolean;
 };
 
 export type OfferMember = {
@@ -52,7 +57,7 @@ export async function buildOffer(
   const plan = member.migrationMembershipId
     ? await prisma.membership.findFirst({
         where: { id: member.migrationMembershipId, clubId: member.clubId, deletedAt: null },
-        select: { id: true, name: true, options: true },
+        select: { id: true, name: true, options: true, autoRenewDefault: true },
       })
     : null;
 
@@ -90,6 +95,7 @@ export async function buildOffer(
       commitmentEndDate: commitment ? commitment.toISOString() : null,
       paymentMode,
       payerUserId: member.responsiblePayerUserId ?? null,
+      autoRenew: plan?.autoRenewDefault ?? true,
     },
   };
 }
@@ -153,6 +159,9 @@ export function parseOffer(raw: unknown): ReactivationOffer | null {
     commitmentEndDate: typeof o.commitmentEndDate === "string" ? o.commitmentEndDate : null,
     paymentMode: o.paymentMode === "OFFLINE" || o.paymentMode === "FREE" ? o.paymentMode : "CARD",
     payerUserId: typeof o.payerUserId === "string" ? o.payerUserId : null,
+    // Offers created before the Auto Renew setting existed renew (the only
+    // behavior that existed then).
+    autoRenew: typeof o.autoRenew === "boolean" ? o.autoRenew : true,
   };
 }
 
@@ -181,6 +190,7 @@ export function diffOffer(stored: ReactivationOffer, current: ReactivationOffer)
   if (dateOnly(stored.firstChargeDate) !== dateOnly(current.firstChargeDate)) changed.push("first billing date");
   if (dateOnly(stored.commitmentEndDate) !== dateOnly(current.commitmentEndDate)) changed.push("commitment end date");
   if ((stored.payerUserId ?? null) !== (current.payerUserId ?? null)) changed.push("responsible payer");
+  if (stored.autoRenew !== current.autoRenew) changed.push("auto-renew");
   return changed;
 }
 
@@ -223,6 +233,9 @@ export function buildReactivationEmailParams(args: {
     contactEmail?: string | null;
     emailFromName?: string | null;
     emailReplyTo?: string | null;
+    // Whether the Stripe processing fee is passed to the customer — drives the
+    // fee-inclusive "total charged" wording (lib/fees.ts owns the math).
+    passProcessingFees?: boolean;
   };
   clubLogoPublicUrl: string | null;
   cardSummary: string | null;
@@ -234,6 +247,10 @@ export function buildReactivationEmailParams(args: {
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
   const immediate = !!firstCharge && firstCharge.getTime() <= Date.now() + 60_000;
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
+  // Exact card charge when the club passes the processing fee — matches what
+  // confirm creates (recurringUnitWithFee on the same cent base).
+  const passFees = !isFree && offer.paymentMode === "CARD" && !!args.club.passProcessingFees;
+  const fees = applyProcessingFee(Math.round(offer.price * 100), passFees);
   return {
     to: args.to,
     athleteName: args.athleteName,
@@ -243,6 +260,8 @@ export function buildReactivationEmailParams(args: {
     membershipName: offer.planName,
     optionLabel: offer.optionLabel,
     priceLabel: isFree ? "Free" : `$${offer.price.toFixed(2)}`,
+    totalChargedLabel: isFree ? null : `$${(fees.totalCents / 100).toFixed(2)}`,
+    processingFeeLabel: fees.feeCents > 0 ? `$${(fees.feeCents / 100).toFixed(2)}` : null,
     periodLabel: prettyPeriodLabel(offer.billingPeriod),
     startDateLabel: longDate(offer.startDate),
     firstChargeLabel: isFree ? null : longDate(offer.firstChargeDate),
@@ -279,7 +298,7 @@ export async function loadReactivationEmailContext(memberId: string, clubId: str
       club: {
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
-          emailFromName: true, emailReplyTo: true, stripeAccountId: true,
+          emailFromName: true, emailReplyTo: true, stripeAccountId: true, passProcessingFees: true,
         },
       },
     },

@@ -7,9 +7,17 @@ import {
   sendBookingConfirmationEmail,
   sendMembershipActivatedEmail,
   sendPaymentFailedEmail,
+  sendPaymentReceiptEmail,
 } from "@/lib/email";
 import type Stripe from "stripe";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import {
+  invoiceSubscriptionId,
+  invoiceSubscriptionMetadata,
+  moneyFactsForInvoice,
+  moneyFactsForPaymentIntent,
+  verifiedStripeTxFields,
+} from "@/lib/stripeTruth";
 
 // Resolve the best email + first name for a member. Falls back to guardian email
 // for minors, then to the linked User account.
@@ -134,6 +142,15 @@ export async function POST(req: Request) {
       // ── Checkout completed — membership purchase or event charge ───────────
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+        // Exact charge id + Stripe fee/net for this checkout's one-time
+        // payment (subscription-mode sessions have no payment_intent — that
+        // money is owned by invoice.paid). Never throws / never blocks.
+        const checkoutMoney = session.payment_intent
+          ? await moneyFactsForPaymentIntent(
+              session.payment_intent as string,
+              event.account ?? null,
+            )
+          : null;
         const memberSubscriptionId = session.metadata?.memberSubscriptionId;
         const memberId  = session.metadata?.memberId;
         const clubId    = session.metadata?.clubId || "";
@@ -209,6 +226,33 @@ export async function POST(req: Request) {
                   // endDate remains null for open-ended recurring subs
                 },
               });
+              // Plan Auto Renew OFF: Checkout can't schedule a non-renewing
+              // subscription (subscription_data has no cancel_at_period_end),
+              // so apply it to the created subscription here. Idempotent —
+              // setting it twice is a no-op.
+              if (memberSub.autoRenew === false && event.account) {
+                try {
+                  const updated = await stripe.subscriptions.update(
+                    session.subscription as string,
+                    { cancel_at_period_end: true },
+                    { stripeAccount: event.account },
+                  );
+                  const periodEnd = (updated as unknown as { current_period_end?: number })
+                    .current_period_end;
+                  if (periodEnd) {
+                    await prisma.memberSubscription.update({
+                      where: { id: memberSubscriptionId },
+                      data: { endDate: new Date(periodEnd * 1000) },
+                    });
+                  }
+                } catch (e) {
+                  console.error(
+                    "checkout.completed: could not apply Auto Renew OFF (cancel_at_period_end)",
+                    session.subscription,
+                    e,
+                  );
+                }
+              }
             }
 
             // Record a transaction for ONE-TIME purchases only. Subscription
@@ -227,6 +271,7 @@ export async function POST(req: Request) {
                   type: "MEMBERSHIP",
                   category: "memberships",
                   paymentMethod: "STRIPE",
+                  ...verifiedStripeTxFields(checkoutMoney),
                 },
               });
             }
@@ -428,6 +473,7 @@ export async function POST(req: Request) {
               type: "EVENT",
               category: "events",
               paymentMethod: "STRIPE",
+              ...verifiedStripeTxFields(checkoutMoney),
             },
           });
 
@@ -463,6 +509,7 @@ export async function POST(req: Request) {
               type: "EVENT",
               category: "events",
               paymentMethod: "STRIPE",
+              ...verifiedStripeTxFields(checkoutMoney),
             },
           });
 
@@ -546,6 +593,7 @@ export async function POST(req: Request) {
               type: "CLASS",
               category: "classes",
               paymentMethod: "STRIPE",
+              ...verifiedStripeTxFields(checkoutMoney),
             },
           });
           // Mark the member as a paid drop-in on this session
@@ -654,6 +702,7 @@ export async function POST(req: Request) {
                     type: "PRIVATE",
                     category: "private_lessons",
                     paymentMethod: "STRIPE",
+                    ...verifiedStripeTxFields(checkoutMoney),
                   },
                 });
               }
@@ -688,6 +737,7 @@ export async function POST(req: Request) {
                 type: "EVENT",
                 category: "events",
                 paymentMethod: "STRIPE",
+                ...verifiedStripeTxFields(checkoutMoney),
               },
             });
             // If they matched an existing member, also create a Booking so it
@@ -709,9 +759,14 @@ export async function POST(req: Request) {
       }
 
       // ── Invoice paid (first charge OR renewal) ─────────────────────────────
+      // NEVER read invoice.subscription / invoice.payment_intent directly —
+      // the account's webhook endpoints deliver API 2026-02-25.clover, where
+      // those fields moved (invoice.parent.subscription_details.*, payments).
+      // Reading the dead top-level fields is how 93% of real card revenue
+      // silently vanished from Financials (audit 2026-07-14).
       case "invoice.paid": {
         const invoice = event.data.object as Stripe.Invoice;
-        const subscriptionId = invoice.subscription as string | null;
+        const subscriptionId = invoiceSubscriptionId(invoice);
         if (!subscriptionId) break;
         // $0 invoices (trial starts) don't belong in the money ledger.
         if (!invoice.amount_paid || invoice.amount_paid <= 0) break;
@@ -731,49 +786,65 @@ export async function POST(req: Request) {
         // The FIRST invoice of a server-created subscription (migration
         // approve, reactivation confirm) fires the instant Stripe creates the
         // subscription — often BEFORE the app finishes writing the local
-        // MemberSubscription row. Falling out silently here is how paid money
-        // went missing from Financials. Resolve the member from the
-        // subscription's metadata instead (we stamp memberId/migrationMemberId
-        // on every subscription we create).
+        // MemberSubscription row. Resolve the member from the subscription
+        // metadata instead (we stamp memberId/migrationMemberId on every
+        // subscription we create). Clover payloads embed that metadata right
+        // on the invoice; fall back to retrieving the subscription.
         let clubId: string | null = memberSub?.member.clubId ?? null;
         let memberId: string | null = memberSub?.memberId ?? null;
         let label = memberSub?.optionLabel ?? null;
-        if (!memberId && event.account) {
-          try {
-            const sub = await stripe.subscriptions.retrieve(subscriptionId, {
-              stripeAccount: event.account,
-            });
-            const metaMemberId =
-              sub.metadata?.memberId || sub.metadata?.migrationMemberId || null;
-            if (metaMemberId) {
-              const m = await prisma.member.findUnique({
-                where: { id: metaMemberId },
-                select: { id: true, clubId: true },
+        if (!memberId) {
+          const meta = invoiceSubscriptionMetadata(invoice);
+          let metaMemberId = meta.memberId || meta.migrationMemberId || null;
+          if (!metaMemberId && event.account) {
+            try {
+              const sub = await stripe.subscriptions.retrieve(subscriptionId, {
+                stripeAccount: event.account,
               });
-              if (m) {
-                memberId = m.id;
-                clubId = m.clubId;
-                label = sub.items?.data?.[0]?.price?.nickname ?? null;
-              }
+              metaMemberId =
+                sub.metadata?.memberId || sub.metadata?.migrationMemberId || null;
+              label = sub.items?.data?.[0]?.price?.nickname ?? label;
+            } catch (e) {
+              console.error("invoice.paid: subscription retrieve failed", e);
             }
-          } catch (e) {
-            console.error("invoice.paid: metadata member resolution failed", e);
+          }
+          if (metaMemberId) {
+            const m = await prisma.member.findUnique({
+              where: { id: metaMemberId },
+              select: { id: true, clubId: true },
+            });
+            if (m) {
+              memberId = m.id;
+              clubId = m.clubId;
+            }
           }
         }
-        if (!memberId || !clubId) break;
+        if (!memberId || !clubId) {
+          // Loud — a paid invoice we cannot attribute must surface, not vanish.
+          console.error(
+            `invoice.paid UNRESOLVED: invoice ${invoice.id} sub ${subscriptionId} amount ${invoice.amount_paid} has no resolvable member — needs reconciliation`,
+          );
+          break;
+        }
 
+        // Exact charge id + Stripe fee/net (never throws, never blocks).
+        const money = await moneyFactsForInvoice(invoice, event.account ?? null);
+
+        const description = `Membership ${invoice.billing_reason === "subscription_create" ? "payment" : "renewal"}: ${label ?? "membership"}`;
         await prisma.transaction.create({
           data: {
             clubId,
             memberId,
             amount:  invoice.amount_paid / 100,
             status:  "SUCCEEDED",
-            stripePaymentIntentId: invoice.payment_intent as string,
+            stripePaymentIntentId: money.paymentIntentId,
             stripeInvoiceId: invoice.id,
-            description: `Membership ${invoice.billing_reason === "subscription_create" ? "payment" : "renewal"}: ${label ?? "membership"}`,
+            stripeSubscriptionId: subscriptionId,
+            description,
             type: "MEMBERSHIP",
             category: "memberships",
             paymentMethod: "STRIPE",
+            ...verifiedStripeTxFields(money),
           },
         });
 
@@ -784,13 +855,34 @@ export async function POST(req: Request) {
             data: { status: "active" },
           });
         }
+
+        // Receipt — every real subscription charge emails a receipt.
+        {
+          const resolvedMemberId = memberId;
+          const amountPaid = invoice.amount_paid / 100;
+          safeAsync(async () => {
+            const contact = await memberContact(resolvedMemberId);
+            const to = invoice.customer_email || contact.email;
+            if (!to) return;
+            await sendPaymentReceiptEmail({
+              to,
+              firstName: contact.firstName || "there",
+              clubName: contact.clubName,
+              description,
+              amountPaid: `$${amountPaid.toFixed(2)}`,
+              paidAt: new Date(),
+              portalUrl: `${BASE_URL}/member/profile`,
+            });
+          });
+        }
         break;
       }
 
       // ── Payment failed ─────────────────────────────────────────────────────
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
-        const subscriptionId = invoice.subscription as string | null;
+        // Version-safe (clover payloads have no top-level invoice.subscription).
+        const subscriptionId = invoiceSubscriptionId(invoice);
         if (subscriptionId) {
           const subs = await prisma.memberSubscription.findMany({
             where: { stripeSubscriptionId: subscriptionId },

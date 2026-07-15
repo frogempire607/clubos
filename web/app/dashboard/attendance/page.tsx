@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList } from "@/components/LoadingSkeleton";
@@ -121,10 +121,408 @@ type PricingOption =
 type AcceptedMembership = { id: string; name: string };
 type FreeTrialSummary = { active: boolean; name: string; days: number; renewable: boolean };
 
+// ─── Payment methods (shared by both charge panels) ──────────────────────────
+
+// CARD_ON_FILE is client-side only — it drives the ChargeSavedCardPanel flow
+// against /api/attendance/charge-card and is NEVER sent to /api/attendance/charge.
+const PAY_METHODS = ["CASH", "CHECK", "CARD_ON_FILE", "CREDIT", "COMP", "INVOICE"] as const;
+type PayMethod = (typeof PAY_METHODS)[number];
+
+const PAY_METHOD_LABELS: Record<PayMethod, string> = {
+  CASH: "Cash",
+  CHECK: "Check",
+  CARD_ON_FILE: "Charge saved card",
+  CREDIT: "External reader — record only",
+  COMP: "Comp / Free",
+  INVOICE: "Invoice",
+};
+
+function PayMethodChips({ value, onChange }: { value: PayMethod; onChange: (m: PayMethod) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {PAY_METHODS.map((pm) => (
+        <button
+          key={pm}
+          type="button"
+          onClick={() => onChange(pm)}
+          className={`px-2 py-1 text-[11px] rounded border ${
+            value === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
+          }`}
+        >
+          {PAY_METHOD_LABELS[pm]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── Charge saved card (card-on-file) panel ───────────────────────────────────
+
+type ChargeCardPreview = {
+  member: { id: string; name: string; isMinor: boolean };
+  hasSavedCard: boolean;
+  card: { brand: string; last4: string; cardholder: string } | null;
+  guardians: { name: string; email: string; relationship: string }[];
+  payerManagesOthers: string[];
+  allowedPrices: { label: string; price: number }[];
+  passProcessingFees: boolean;
+};
+
+type ChargeResult =
+  | { kind: "success"; total: number }
+  | { kind: "processing" }
+  | { kind: "declined"; message: string }
+  | { kind: "requires_action"; message: string }
+  | { kind: "no_card" }
+  | { kind: "error"; message: string };
+
+function titleCaseBrand(brand: string) {
+  return brand ? brand.charAt(0).toUpperCase() + brand.slice(1).toLowerCase() : "Card";
+}
+
+// Display-only estimate; the server computes the real fee/total.
+function processingFeeFor(base: number) {
+  return Math.round(base * 100 * 0.029) / 100;
+}
+
+function newClientKey(): string {
+  const c = typeof crypto !== "undefined" ? (crypto as Crypto & { randomUUID?: () => string }) : undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  return `ck-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function ChargeSavedCardPanel({
+  memberId,
+  classSessionId,
+  classId,
+  status,
+  notes,
+  contextLabel,
+  pricingOptions,
+  onCharged,
+}: {
+  memberId: string;
+  classSessionId: string;
+  classId: string | null;
+  status: string;
+  notes: string | null;
+  contextLabel: string;
+  pricingOptions: PricingOption[];
+  onCharged: () => void;
+}) {
+  const [preview, setPreview] = useState<ChargeCardPreview | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [loadingPreview, setLoadingPreview] = useState(true);
+  const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
+  const [emailReceipt, setEmailReceipt] = useState(true);
+  // ONE idempotency key per open confirm box — a double-click reuses it.
+  const [clientKey] = useState(newClientKey);
+  const [charging, setCharging] = useState(false);
+  const [result, setResult] = useState<ChargeResult | null>(null);
+  const [linkState, setLinkState] = useState<{ state: "idle" | "sending" | "sent" | "error"; detail?: string }>({
+    state: "idle",
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(
+      `/api/attendance/charge-card?memberId=${encodeURIComponent(memberId)}&classSessionId=${encodeURIComponent(classSessionId)}`
+    )
+      .then(async (res) => {
+        const d = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setPreviewError(typeof d.error === "string" ? d.error : "Could not load the saved card.");
+        } else {
+          setPreview(d);
+          if (Array.isArray(d.allowedPrices) && d.allowedPrices.length > 0) {
+            setSelectedPrice(d.allowedPrices[0].price);
+          }
+        }
+        setLoadingPreview(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewError("Could not load the saved card.");
+          setLoadingPreview(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [memberId, classSessionId]);
+
+  async function charge() {
+    if (charging || selectedPrice == null) return;
+    setCharging(true);
+    setResult(null);
+    let res: Response;
+    try {
+      res = await fetch("/api/attendance/charge-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId,
+          classSessionId,
+          amount: selectedPrice,
+          status,
+          notes: notes || null,
+          emailReceipt,
+          clientKey,
+        }),
+      });
+    } catch {
+      setCharging(false);
+      setResult({ kind: "error", message: "Network error — check Financials before retrying." });
+      return;
+    }
+    const d = await res.json().catch(() => ({}));
+    setCharging(false);
+    if (res.status === 202 || d.outcome === "processing") {
+      setResult({ kind: "processing" });
+      return;
+    }
+    if (res.ok && d.outcome === "succeeded") {
+      setResult({ kind: "success", total: typeof d.total === "number" ? d.total : selectedPrice });
+      onCharged();
+      return;
+    }
+    if (res.status === 402) {
+      const message = typeof d.message === "string" ? d.message : "The card was declined.";
+      setResult({ kind: d.outcome === "requires_action" ? "requires_action" : "declined", message });
+      return;
+    }
+    if (res.status === 409 && d.error === "NO_SAVED_CARD") {
+      setResult({ kind: "no_card" });
+      return;
+    }
+    setResult({
+      kind: "error",
+      message:
+        typeof d.error === "string" ? d.error : typeof d.message === "string" ? d.message : "The charge failed.",
+    });
+  }
+
+  // Fallback: email a Stripe Checkout link to the payer via the existing
+  // drop-in checkout creator. DROP_IN → NON_MEMBER → MEMBER pricing fallback.
+  async function sendPaymentLink() {
+    if (!classId) {
+      setLinkState({ state: "error", detail: "This session has no linked class to price from." });
+      return;
+    }
+    setLinkState({ state: "sending" });
+    const dropin = pricingOptions.find((o) => o.type === "dropin") as { price: number } | undefined;
+    const nonmember = pricingOptions.find((o) => o.type === "nonmember") as { price: number } | undefined;
+    const memberOpt = pricingOptions.find((o) => o.type === "member") as { price: number } | undefined;
+    const candidates: { type: "DROP_IN" | "NON_MEMBER" | "MEMBER"; price?: number }[] = [
+      { type: "DROP_IN", price: dropin?.price },
+      { type: "NON_MEMBER", price: nonmember?.price },
+      { type: "MEMBER", price: memberOpt?.price },
+    ];
+    let url: string | null = null;
+    let usedPrice: number | undefined;
+    let lastErr = "Could not create a payment link.";
+    for (const c of candidates) {
+      let res: Response;
+      try {
+        res = await fetch(`/api/classes/${classId}/charge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ memberId, classSessionId, pricingType: c.type }),
+        });
+      } catch {
+        setLinkState({ state: "error", detail: "Network error — the link was not sent." });
+        return;
+      }
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.coveredByMembership) {
+        setLinkState({ state: "sent", detail: "Covered by an active membership — no payment needed." });
+        onCharged();
+        return;
+      }
+      if (res.ok && typeof d.url === "string") {
+        url = d.url;
+        usedPrice = c.price;
+        break;
+      }
+      if (typeof d.error === "string") lastErr = d.error;
+    }
+    if (!url) {
+      setLinkState({ state: "error", detail: lastErr });
+      return;
+    }
+    const res2 = await fetch("/api/attendance/send-payment-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        memberId,
+        url,
+        amountLabel: usedPrice != null ? `$${usedPrice.toFixed(2)}` : "",
+        contextLabel,
+      }),
+    });
+    const d2 = await res2.json().catch(() => ({}));
+    if (!res2.ok) {
+      setLinkState({
+        state: "error",
+        detail: typeof d2.error === "string" ? d2.error : "The link was created but could not be emailed.",
+      });
+      return;
+    }
+    setLinkState({
+      state: "sent",
+      detail: `Link emailed to ${typeof d2.sentTo === "string" ? d2.sentTo : "the payer"}`,
+    });
+  }
+
+  const paymentLinkBlock = (
+    <div className="space-y-1">
+      <button
+        type="button"
+        disabled={linkState.state === "sending" || !classId}
+        onClick={sendPaymentLink}
+        className="w-full px-2 py-1.5 text-xs rounded border border-brand/40 bg-brand/5 text-brand hover:bg-brand/10 disabled:opacity-50"
+      >
+        {linkState.state === "sending" ? "Sending payment link…" : "Email payment link to payer"}
+      </button>
+      {linkState.state === "sent" && <p className="text-[11px] text-text-primary">{linkState.detail}</p>}
+      {linkState.state === "error" && <p className="text-[11px] text-red-600">{linkState.detail}</p>}
+    </div>
+  );
+
+  if (loadingPreview) return <p className="text-xs text-text-muted">Checking for a saved card…</p>;
+  if (previewError) return <p className="text-xs text-red-600">{previewError}</p>;
+  if (!preview) return null;
+
+  const card = preview.card;
+
+  if (!preview.hasSavedCard || !card || result?.kind === "no_card") {
+    return (
+      <div className="space-y-2">
+        <div className="rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-[11px] text-text-muted">
+          No saved card on file for {preview.member.name}.
+        </div>
+        {paymentLinkBlock}
+      </div>
+    );
+  }
+
+  if (result?.kind === "success") {
+    return (
+      <div
+        className="rounded-lg px-2 py-1.5 text-xs font-medium flex items-center gap-1.5"
+        style={{ background: "var(--color-success)", color: "#1F1F23" }}
+      >
+        <Check className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.5} />
+        Charged ${result.total.toFixed(2)}
+        {emailReceipt ? " — receipt sent" : ""}
+      </div>
+    );
+  }
+
+  const base = selectedPrice;
+  const fee = preview.passProcessingFees && base != null ? processingFeeFor(base) : 0;
+  const total = base != null ? base + fee : null;
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-lg border border-app-border bg-app-bg px-2 py-2 space-y-1">
+        <p className="text-xs font-medium text-text-primary">{preview.member.name}</p>
+        <p className="text-[11px] text-text-muted">
+          {titleCaseBrand(card.brand)} •••• {card.last4} — cardholder {card.cardholder}
+        </p>
+        {preview.guardians.length > 0 && (
+          <p className="text-[11px] text-text-muted">
+            Guardians:{" "}
+            {preview.guardians
+              .map((g) => `${g.name}${g.relationship ? ` (${g.relationship})` : ""}`)
+              .join(", ")}
+          </p>
+        )}
+        {preview.payerManagesOthers.length > 0 && (
+          <p className="text-[11px] text-orange-accent">
+            This card&apos;s payer also manages: {preview.payerManagesOthers.join(", ")}
+          </p>
+        )}
+      </div>
+
+      <div className="flex gap-1.5 flex-wrap">
+        {preview.allowedPrices.map((p) => (
+          <button
+            key={`${p.label}-${p.price}`}
+            type="button"
+            onClick={() => setSelectedPrice(p.price)}
+            className={`px-2 py-1 text-[11px] rounded border ${
+              selectedPrice === p.price ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
+            }`}
+          >
+            {p.label} · ${p.price.toFixed(2)}
+          </button>
+        ))}
+        {preview.allowedPrices.length === 0 && (
+          <p className="text-[11px] text-text-muted">No chargeable prices are configured for this class.</p>
+        )}
+      </div>
+
+      {base != null && preview.passProcessingFees && (
+        <div className="text-[11px] text-text-muted space-y-0.5">
+          <div className="flex justify-between">
+            <span>Base price</span>
+            <span>${base.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Processing fee</span>
+            <span>${fee.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between font-medium text-text-primary">
+            <span>Total charged</span>
+            <span>${(total as number).toFixed(2)}</span>
+          </div>
+        </div>
+      )}
+
+      <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+        <input
+          type="checkbox"
+          checked={emailReceipt}
+          onChange={(e) => setEmailReceipt(e.target.checked)}
+          className="w-3.5 h-3.5 accent-brand"
+        />
+        Email receipt
+      </label>
+
+      {result?.kind === "processing" ? (
+        <p className="text-[11px] text-orange-accent">
+          Payment is processing — do not retry; it will appear in Financials when it settles.
+        </p>
+      ) : (
+        <button
+          type="button"
+          disabled={charging || total == null}
+          onClick={charge}
+          className="w-full px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+        >
+          {charging
+            ? "Charging…"
+            : total != null
+              ? `Charge $${total.toFixed(2)} to ${titleCaseBrand(card.brand)} •••• ${card.last4}`
+              : "Pick a price to charge"}
+        </button>
+      )}
+
+      {(result?.kind === "declined" || result?.kind === "requires_action" || result?.kind === "error") && (
+        <p className="text-xs text-red-600">{result.message}</p>
+      )}
+      {result?.kind === "requires_action" && paymentLinkBlock}
+    </div>
+  );
+}
+
 // ─── Quick Add Member Form ────────────────────────────────────────────────────
 
 function QuickAddForm({
   sessionId,
+  sessionName,
   classId,
   pricingOptions,
   acceptedMemberships,
@@ -132,6 +530,7 @@ function QuickAddForm({
   onAdded,
 }: {
   sessionId: string;
+  sessionName: string;
   classId: string | null;
   pricingOptions: PricingOption[];
   acceptedMemberships: AcceptedMembership[];
@@ -153,7 +552,7 @@ function QuickAddForm({
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
-  const [payMethod, setPayMethod] = useState<"CASH" | "CHECK" | "CREDIT" | "COMP" | "INVOICE">("CASH");
+  const [payMethod, setPayMethod] = useState<PayMethod>("CASH");
   const [payStatus, setPayStatus] = useState<"DROP_IN" | "TRIAL" | "PRESENT">("DROP_IN");
   const [payNotes, setPayNotes] = useState("");
   const [payEmailReceipt, setPayEmailReceipt] = useState(false);
@@ -211,8 +610,9 @@ function QuickAddForm({
 
   // Cash / comp / invoice — no Stripe. Records attendance + an internal
   // transaction so it shows in reports under the right channel.
+  // CARD_ON_FILE never goes through here — it charges via ChargeSavedCardPanel.
   async function recordPay(memberId: string) {
-    if (!sessionId) return;
+    if (!sessionId || payMethod === "CARD_ON_FILE") return;
     setSaving(true);
     setError("");
     const res = await fetch("/api/attendance/charge", {
@@ -553,32 +953,23 @@ function QuickAddForm({
               )}
               {payingId === m.id && classId && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-2">
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {(["CASH", "CHECK", "CREDIT", "COMP", "INVOICE"] as const).map((pm) => (
-                      <button
-                        key={pm}
-                        type="button"
-                        onClick={() => setPayMethod(pm)}
-                        className={`px-2 py-1 text-[11px] rounded border ${
-                          payMethod === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
-                        }`}
-                      >
-                        {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Card (external)" : pm === "COMP" ? "Comp / Free" : "Invoice"}
-                      </button>
-                    ))}
-                  </div>
+                  <PayMethodChips value={payMethod} onChange={setPayMethod} />
                   <div className="grid grid-cols-2 gap-1.5">
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={payAmount}
-                      onChange={(e) => setPayAmount(e.target.value)}
-                      placeholder={payMethod === "COMP" ? "Value (optional)" : "Amount"}
-                      className="border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
-                    />
+                    {payMethod !== "CARD_ON_FILE" && (
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                        placeholder={payMethod === "COMP" ? "Value (optional)" : "Amount"}
+                        className="border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
+                      />
+                    )}
                     <select
                       value={payStatus}
                       onChange={(e) => setPayStatus(e.target.value as "DROP_IN" | "TRIAL" | "PRESENT")}
-                      className="border border-app-border rounded-lg px-2 py-1.5 text-xs bg-white"
+                      className={`border border-app-border rounded-lg px-2 py-1.5 text-xs bg-white ${
+                        payMethod === "CARD_ON_FILE" ? "col-span-2" : ""
+                      }`}
                     >
                       <option value="DROP_IN">Drop-in</option>
                       <option value="TRIAL">Trial</option>
@@ -593,33 +984,48 @@ function QuickAddForm({
                   />
                   {payMethod === "CREDIT" && (
                     <p className="text-[11px] text-orange-accent">
-                      AthletixOS does not charge this card — use only after collecting on your own card reader. This records the payment.
+                      AthletixOS does NOT charge the card — record only, collected on your external card reader.
                     </p>
                   )}
-                  <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
-                    <input
-                      type="checkbox"
-                      checked={payEmailReceipt}
-                      onChange={(e) => setPayEmailReceipt(e.target.checked)}
-                      className="w-3.5 h-3.5 accent-brand"
+                  {payMethod === "CARD_ON_FILE" ? (
+                    <ChargeSavedCardPanel
+                      memberId={m.id}
+                      classSessionId={sessionId}
+                      classId={classId}
+                      status={payStatus}
+                      notes={payNotes}
+                      contextLabel={sessionName}
+                      pricingOptions={pricingOptions}
+                      onCharged={onAdded}
                     />
-                    Email a receipt to the member
-                  </label>
-                  <button
-                    disabled={saving}
-                    onClick={() => recordPay(m.id)}
-                    className="w-full px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
-                  >
-                    {saving
-                      ? "Saving…"
-                      : payMethod === "COMP"
-                        ? "Record comped attendance"
-                        : payMethod === "INVOICE"
-                          ? "Record as unpaid invoice"
-                          : payMethod === "CREDIT"
-                          ? `Record externally-collected card payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`
-                          : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
-                  </button>
+                  ) : (
+                    <>
+                      <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                        <input
+                          type="checkbox"
+                          checked={payEmailReceipt}
+                          onChange={(e) => setPayEmailReceipt(e.target.checked)}
+                          className="w-3.5 h-3.5 accent-brand"
+                        />
+                        Email a receipt to the member
+                      </label>
+                      <button
+                        disabled={saving}
+                        onClick={() => recordPay(m.id)}
+                        className="w-full px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+                      >
+                        {saving
+                          ? "Saving…"
+                          : payMethod === "COMP"
+                            ? "Record comped attendance"
+                            : payMethod === "INVOICE"
+                              ? "Record as unpaid invoice"
+                              : payMethod === "CREDIT"
+                              ? `Record externally-collected card payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`
+                              : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
+                      </button>
+                    </>
+                  )}
                   {error && <p className="text-red-600 text-xs">{error}</p>}
                 </div>
               )}
@@ -666,7 +1072,7 @@ function AttendancePanel({
   // quick-add search rows, so anyone already on the roster couldn't be charged.
   const [chargeRecId, setChargeRecId] = useState<string | null>(null);
   const [chargeAmount, setChargeAmount] = useState("");
-  const [chargeMethod, setChargeMethod] = useState<"CASH" | "CHECK" | "CREDIT" | "COMP" | "INVOICE">("CASH");
+  const [chargeMethod, setChargeMethod] = useState<PayMethod>("CASH");
   const [chargeEmailReceipt, setChargeEmailReceipt] = useState(false);
   const [chargeError, setChargeError] = useState("");
   // Trial on a roster row asks for confirmation first — it starts the club's
@@ -740,7 +1146,9 @@ function AttendancePanel({
     load();
   }
 
+  // CARD_ON_FILE never goes through here — it charges via ChargeSavedCardPanel.
   async function recordDropInCharge(rec: AttendanceRecord) {
+    if (chargeMethod === "CARD_ON_FILE") return;
     setUpdating(rec.member.id);
     setChargeError("");
     const res = await fetch("/api/attendance/charge", {
@@ -921,64 +1329,76 @@ function AttendancePanel({
                             reachable no matter which status was clicked first. */}
                         {chargeRecId === rec.id && (
                           <div className="mt-2 pt-2 border-t border-app-border space-y-2">
-                            <div className="grid grid-cols-3 gap-1.5">
-                              {(["CASH", "CHECK", "CREDIT", "COMP", "INVOICE"] as const).map((pm) => (
+                            <PayMethodChips value={chargeMethod} onChange={setChargeMethod} />
+                            {chargeMethod === "CARD_ON_FILE" ? (
+                              <>
+                                <ChargeSavedCardPanel
+                                  memberId={rec.member.id}
+                                  classSessionId={sessionId}
+                                  classId={data?.session.recurringClass.id ?? null}
+                                  status="DROP_IN"
+                                  notes={null}
+                                  contextLabel={sessionName}
+                                  pricingOptions={data?.pricingOptions ?? []}
+                                  onCharged={() => load()}
+                                />
                                 <button
-                                  key={pm}
-                                  type="button"
-                                  onClick={() => setChargeMethod(pm)}
-                                  className={`px-2 py-1 text-[11px] rounded border ${
-                                    chargeMethod === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
-                                  }`}
+                                  disabled={updating === rec.member.id}
+                                  onClick={() => { setChargeRecId(null); setStatus(rec.member.id, "DROP_IN"); }}
+                                  className="w-full px-2 py-1.5 text-xs rounded border border-app-border text-text-muted hover:bg-app-bg"
+                                  title="Only set the status — no payment recorded."
                                 >
-                                  {pm === "CASH" ? "Cash" : pm === "CHECK" ? "Check" : pm === "CREDIT" ? "Card (external)" : pm === "COMP" ? "Comp / Free" : "Invoice"}
+                                  Mark only
                                 </button>
-                              ))}
-                            </div>
-                            <input
-                              type="number" min="0" step="0.01"
-                              value={chargeAmount}
-                              onChange={(e) => setChargeAmount(e.target.value)}
-                              placeholder={chargeMethod === "COMP" ? "Value (optional)" : "Drop-in amount"}
-                              className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
-                            />
-                            {chargeMethod === "CREDIT" && (
-                              <p className="text-[11px] text-orange-accent">
-                                AthletixOS does not charge this card — use only after collecting on your own card reader. This records the payment.
-                              </p>
+                              </>
+                            ) : (
+                              <>
+                                <input
+                                  type="number" min="0" step="0.01"
+                                  value={chargeAmount}
+                                  onChange={(e) => setChargeAmount(e.target.value)}
+                                  placeholder={chargeMethod === "COMP" ? "Value (optional)" : "Drop-in amount"}
+                                  className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
+                                />
+                                {chargeMethod === "CREDIT" && (
+                                  <p className="text-[11px] text-orange-accent">
+                                    AthletixOS does NOT charge the card — record only, collected on your external card reader.
+                                  </p>
+                                )}
+                                <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                                  <input
+                                    type="checkbox"
+                                    checked={chargeEmailReceipt}
+                                    onChange={(e) => setChargeEmailReceipt(e.target.checked)}
+                                    className="w-3.5 h-3.5 accent-brand"
+                                  />
+                                  Email a receipt to the member
+                                </label>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    disabled={updating === rec.member.id}
+                                    onClick={() => recordDropInCharge(rec)}
+                                    className="flex-1 px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+                                  >
+                                    {updating === rec.member.id
+                                      ? "Saving…"
+                                      : chargeMethod === "COMP"
+                                        ? "Mark Drop-in (comped)"
+                                        : chargeMethod === "CREDIT"
+                                        ? `Record external card${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`
+                                        : `Charge${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`}
+                                  </button>
+                                  <button
+                                    disabled={updating === rec.member.id}
+                                    onClick={() => { setChargeRecId(null); setStatus(rec.member.id, "DROP_IN"); }}
+                                    className="px-2 py-1.5 text-xs rounded border border-app-border text-text-muted hover:bg-app-bg"
+                                    title="Only set the status — no payment recorded."
+                                  >
+                                    Mark only
+                                  </button>
+                                </div>
+                              </>
                             )}
-                            <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
-                              <input
-                                type="checkbox"
-                                checked={chargeEmailReceipt}
-                                onChange={(e) => setChargeEmailReceipt(e.target.checked)}
-                                className="w-3.5 h-3.5 accent-brand"
-                              />
-                              Email a receipt to the member
-                            </label>
-                            <div className="flex gap-1.5">
-                              <button
-                                disabled={updating === rec.member.id}
-                                onClick={() => recordDropInCharge(rec)}
-                                className="flex-1 px-2 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
-                              >
-                                {updating === rec.member.id
-                                  ? "Saving…"
-                                  : chargeMethod === "COMP"
-                                    ? "Mark Drop-in (comped)"
-                                    : chargeMethod === "CREDIT"
-                                    ? `Record external card${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`
-                                    : `Charge${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`}
-                              </button>
-                              <button
-                                disabled={updating === rec.member.id}
-                                onClick={() => { setChargeRecId(null); setStatus(rec.member.id, "DROP_IN"); }}
-                                className="px-2 py-1.5 text-xs rounded border border-app-border text-text-muted hover:bg-app-bg"
-                                title="Only set the status — no payment recorded."
-                              >
-                                Mark only
-                              </button>
-                            </div>
                             {chargeError && <p className="text-red-600 text-xs">{chargeError}</p>}
                           </div>
                         )}
@@ -1038,6 +1458,7 @@ function AttendancePanel({
                     </div>
                     <QuickAddForm
                       sessionId={sessionId}
+                      sessionName={sessionName}
                       classId={data?.session.recurringClass.id ?? null}
                       pricingOptions={data?.pricingOptions ?? []}
                       acceptedMemberships={data?.acceptedMemberships ?? []}

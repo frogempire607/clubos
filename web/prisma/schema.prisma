@@ -790,6 +790,15 @@ model MembershipReactivation {
   consent              Json?
   memberSubscriptionId String?
   createdById          String?
+  // Client change request (2026-07-15): never mutates billing — it LOCKS the
+  // offer's confirmation until the owner approves (new offer version) or
+  // denies. changeRequest JSON: { fields: {…}, note, requestedAt, byUserId?,
+  // byEmail? }. Status: OPEN | APPROVED | DENIED (null = none).
+  changeRequest             Json?
+  changeRequestStatus       String?
+  changeRequestAt           DateTime?
+  changeRequestResolvedAt   DateTime?
+  changeRequestResolvedById String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -1315,6 +1324,19 @@ model Transaction {
   notes                 String?
   // True for manually recorded payments / cash / invoices (not from Stripe).
   manual                Boolean           @default(false)
+  // ── Billing truth (2026-07-15) ────────────────────────────────────────
+  // EXACT Stripe processing fee + net from the charge's balance transaction.
+  // Written only from Stripe data — never computed locally. platformFee keeps
+  // its AthletixOS-application-fee meaning.
+  stripeFeeAmount       Decimal?          @db.Decimal(10, 2)
+  netAmount             Decimal?          @db.Decimal(10, 2)
+  // Normalized money origin: STRIPE | CASH | CHECK | EXTERNAL_READER | COMP |
+  // MANUAL_ADJUSTMENT. See lib/paymentSources.ts.
+  paymentSource         String?
+  // VERIFIED (Stripe-confirmed) | OFFLINE (cash/check/comp) | UNVERIFIED
+  // (card record with no Stripe confirmation — never verified revenue) |
+  // REVIEW (claims Stripe, no Stripe id) | VOID (excluded from revenue).
+  reconciliationStatus  String?
   // Effective accounting date (owner-set for manual entries). Falls back to
   // createdAt for reporting when null.
   txDate                DateTime?
@@ -1333,6 +1355,7 @@ model Transaction {
   @@index([clubId])
   @@index([memberId])
   @@index([legalEntityId])
+  @@index([clubId, reconciliationStatus])
   @@map("transactions")
 }
 

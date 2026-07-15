@@ -11,7 +11,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
-import { chargeTiming } from "@/lib/billingAdmin";
+import { chargeTiming, addBillingPeriod } from "@/lib/billingAdmin";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +74,17 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   }
   if (r.tokenExpires < new Date()) {
     return NextResponse.json({ error: "This link has expired. Ask the club to resend it.", code: "EXPIRED" }, { status: 410 });
+  }
+  // An open client change request LOCKS confirmation: the club is reviewing
+  // the requested changes, so the old terms must not be accepted meanwhile.
+  if (r.changeRequestStatus === "OPEN") {
+    return NextResponse.json(
+      {
+        error: "You asked the club for changes to this offer — it can't be confirmed while they review. They'll send an updated offer or respond shortly. Nothing was charged.",
+        code: "CHANGE_REQUEST_PENDING",
+      },
+      { status: 409 },
+    );
   }
 
   const member = r.member;
@@ -196,12 +207,17 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
   const timing = chargeTiming(firstCharge);
   const chargesNow = isCard && timing.immediate;
+  // Exact card charge — fee-inclusive when the club passes the processing fee.
+  // Every user-facing amount below states THIS (it's what Stripe bills), never
+  // the base price alone. Same lib/fees.ts math as the subscription created.
+  const totalCharged = recurringUnitWithFee(Math.round(offer.price * 100), isCard && club.passProcessingFees) / 100;
   if (chargesNow && !body.acknowledgeImmediateCharge) {
     return NextResponse.json(
       {
-        error: `Confirming will charge $${offer.price.toFixed(2)} immediately.`,
+        error: `Confirming will charge $${totalCharged.toFixed(2)} immediately.`,
         code: "IMMEDIATE_CHARGE_CONFIRM_REQUIRED",
         price: offer.price,
+        totalCharged,
       },
       { status: 409 },
     );
@@ -235,7 +251,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       ip: fwd ? fwd.split(",")[0].trim() : null,
       userAgent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
       buttonLabel: chargesNow
-        ? `Confirm membership — $${offer.price.toFixed(2)} charged today`
+        ? `Confirm membership — $${totalCharged.toFixed(2)} charged today`
         : isFree
           ? "Confirm membership"
           : `Confirm membership — first payment ${firstCharge?.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}`,
@@ -272,7 +288,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         firstCharge && firstCharge.getTime() > Date.now() + 60_000
           ? Math.floor(firstCharge.getTime() / 1000)
           : undefined;
-      const cancelSource = offer.commitmentEndDate ? new Date(offer.commitmentEndDate) : null;
+      let cancelSource = offer.commitmentEndDate ? new Date(offer.commitmentEndDate) : null;
+      // Plan-level Auto Renew OFF with no explicit commitment: the
+      // subscription ends after its FIRST billing period (measured from the
+      // first charge) instead of renewing.
+      if (!cancelSource && offer.autoRenew === false) {
+        cancelSource = addBillingPeriod(firstCharge ?? new Date(), offer.billingPeriod);
+      }
       let cancelAtUnix: number | undefined;
       if (cancelSource && cancelSource.getTime() > Date.now() + 60_000) {
         const ts = Math.floor(cancelSource.getTime() / 1000);
@@ -329,7 +351,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           price: offer.price,
           billingPeriod: offer.billingPeriod,
           billingType: "RECURRING",
-          autoRenew: true,
+          autoRenew: offer.autoRenew !== false,
           status: sub.status === "active" || sub.status === "trialing" ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
           billingAnchorDate: firstCharge ?? new Date(),
@@ -354,7 +376,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           autoRenew: false,
           status: "active",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
-          ...(offer.commitmentEndDate ? { endDate: new Date(offer.commitmentEndDate) } : {}),
+          // Explicit commitment wins; otherwise a non-renewing plan ends after
+          // its first billing period (expireEndedManualSubscriptions sweeps it).
+          ...(offer.commitmentEndDate
+            ? { endDate: new Date(offer.commitmentEndDate) }
+            : offer.autoRenew === false
+              ? { endDate: addBillingPeriod(offer.startDate ? new Date(offer.startDate) : new Date(), offer.billingPeriod) }
+              : {}),
           notes: isFree
             ? "Free / grandfathered membership — no recurring charge (confirmed via reactivation link)"
             : `Manual billing — ${club.name} collects payment offline (confirmed via reactivation link)`,
@@ -441,7 +469,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         firstName: member.firstName,
         clubName: club.name,
         membershipName: offer.planName,
-        amountPaid: chargesNow ? `$${offer.price.toFixed(2)}` : undefined,
+        amountPaid: chargesNow ? `$${totalCharged.toFixed(2)}` : undefined,
         nextBillingDate: chargesNow ? null : firstCharge,
         portalUrl: `${getAppBaseUrl()}/member`,
       }).catch((e) => console.error("Reactivation confirmation email failed:", e));

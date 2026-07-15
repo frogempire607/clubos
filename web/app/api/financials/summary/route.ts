@@ -10,6 +10,7 @@ import {
   isCashMethod,
   isCompMethod,
 } from "@/lib/financials";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
 import type { Prisma } from "@prisma/client";
 import { computePayrollTotalForRange } from "@/lib/payroll";
 
@@ -48,10 +49,12 @@ export async function GET(req: Request) {
   const payrollEnd = to ?? new Date();
   const [transactions, expenses, donations, contractorPayments, staffPayrollTotal, entities] = await Promise.all([
     prisma.transaction.findMany({
-      where: { clubId, status: "SUCCEEDED", ...entityWhere, ...txDateFilter },
+      where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, ...entityWhere, ...txDateFilter },
       select: {
         id: true, amount: true, platformFee: true, type: true, category: true,
         paymentMethod: true, description: true, manual: true, txDate: true, createdAt: true,
+        paymentSource: true, reconciliationStatus: true, stripeFeeAmount: true, netAmount: true,
+        stripePaymentIntentId: true, stripeInvoiceId: true,
       },
     }),
     prisma.expense.findMany({
@@ -86,27 +89,45 @@ export async function GET(req: Request) {
   ]);
 
   let moneyIn = 0;
-  let stripeFees = 0;
+  let stripeFees = 0; // EXACT Stripe processing fees (balance transactions)
+  let platformFees = 0; // AthletixOS application fees
   let cashIn = 0;
-  let cardIn = 0;
+  let cardIn = 0; // verified Stripe card revenue ONLY
+  let checkIn = 0;
+  let externalReaderIn = 0; // UNVERIFIED external card records — never "card"
   let compTotal = 0;
   let uncategorized = 0;
   let unpaidCount = 0;
   let unpaidTotal = 0;
+  let needsReconcileCount = 0; // claims Stripe but carries no Stripe id
   const revenueByCategory: Record<string, number> = {};
   const topSourcesMap: Record<string, number> = {};
 
   for (const t of transactions) {
     const amt = Number(t.amount);
-    stripeFees += Number(t.platformFee || 0);
+    stripeFees += Number(t.stripeFeeAmount || 0);
+    platformFees += Number(t.platformFee || 0);
     // Comped / free is tracked on its own and never counted as revenue.
     if (isCompMethod(t.paymentMethod)) {
       compTotal += amt;
       continue;
     }
     moneyIn += amt;
-    if (isCashMethod(t.paymentMethod)) cashIn += amt;
+    // Source buckets — an UNVERIFIED external-reader record must never blend
+    // into verified card revenue (that's the Drayke/Milo $40 bug).
+    const source =
+      t.paymentSource ??
+      (isCashMethod(t.paymentMethod) ? (t.paymentMethod === "CHECK" ? "CHECK" : "CASH") : "STRIPE");
+    if (source === "CASH") cashIn += amt;
+    else if (source === "CHECK") checkIn += amt;
+    else if (source === "EXTERNAL_READER") externalReaderIn += amt;
     else cardIn += amt;
+    if (
+      source === "STRIPE" &&
+      (t.reconciliationStatus === "REVIEW" || (!t.stripePaymentIntentId && !t.stripeInvoiceId))
+    ) {
+      needsReconcileCount++;
+    }
     const cat = resolveRevenueCategory(t);
     if (!cat) uncategorized++;
     const key = cat ?? "uncategorized";
@@ -166,14 +187,23 @@ export async function GET(req: Request) {
       net: moneyIn - moneyOut,
       cashIn,
       cardIn,
+      checkIn,
+      externalReaderIn,
       compTotal,
       stripeFees,
+      platformFees,
+      netAfterFees: moneyIn - stripeFees - platformFees,
       donationsTotal,
       contractorTotal,
       payrollTotal,
     },
     nonprofit: { donationsTotal, restrictedTotal, unrestrictedTotal: donationsTotal - restrictedTotal, sponsorshipTotal },
-    needsReview: { uncategorized, receiptsMissing, unpaidInvoices: { count: unpaidCount, total: unpaidTotal } },
+    needsReview: {
+      uncategorized,
+      receiptsMissing,
+      unpaidInvoices: { count: unpaidCount, total: unpaidTotal },
+      needsReconcile: needsReconcileCount,
+    },
     revenueByCategory: Object.entries(revenueByCategory)
       .map(([key, amount]) => ({ key, label: revenueCategoryLabel(key === "uncategorized" ? null : key), amount }))
       .sort((a, b) => b.amount - a.amount),

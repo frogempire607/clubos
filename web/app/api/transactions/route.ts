@@ -38,12 +38,23 @@ export async function GET(req: Request) {
     take: 250,
   });
 
-  const succeeded = transactions.filter((t) => t.status === "SUCCEEDED");
+  // Voided rows stay visible in the list (history) but never count in totals.
+  const succeeded = transactions.filter(
+    (t) => t.status === "SUCCEEDED" && t.reconciliationStatus !== "VOID",
+  );
   const totalRevenue = succeeded.reduce((s, t) => s + Number(t.amount), 0);
-  const totalFees = succeeded.reduce((s, t) => s + Number(t.platformFee || 0), 0);
+  // Exact Stripe processing fees (from balance transactions) — platformFee is
+  // the AthletixOS application fee and is reported separately.
+  const totalStripeFees = succeeded.reduce((s, t) => s + Number(t.stripeFeeAmount || 0), 0);
+  const totalPlatformFees = succeeded.reduce((s, t) => s + Number(t.platformFee || 0), 0);
 
   return NextResponse.json({
     transactions,
-    totals: { revenue: totalRevenue, platformFees: totalFees, net: totalRevenue - totalFees },
+    totals: {
+      revenue: totalRevenue,
+      stripeFees: totalStripeFees,
+      platformFees: totalPlatformFees,
+      net: totalRevenue - totalStripeFees - totalPlatformFees,
+    },
   });
 }

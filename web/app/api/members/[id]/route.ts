@@ -55,6 +55,10 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const member = await prisma.member.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
     include: {
+      // Whether the club passes the Stripe processing fee to customers — the
+      // profile page needs it to show the true total charged next to a
+      // recurring price (display only; fee math lives in lib/fees.ts).
+      club: { select: { passProcessingFees: true } },
       membership: true,
       subscriptions: {
         include: { membership: { select: { name: true } } },
@@ -111,9 +115,9 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     ...member.relationshipsFrom.map((r) => ({ id: r.id, type: r.type, note: r.note, other: r.related })),
     ...member.relationshipsTo.map((r) => ({ id: r.id, type: invert[r.type] ?? r.type, note: r.note, other: r.member })),
   ];
-  const { relationshipsFrom: _f, relationshipsTo: _t, ...rest } = member;
+  const { relationshipsFrom: _f, relationshipsTo: _t, club: _c, ...rest } = member;
   void _f; void _t;
-  return NextResponse.json({ ...rest, relationships });
+  return NextResponse.json({ ...rest, relationships, passProcessingFees: _c.passProcessingFees });
 }
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {

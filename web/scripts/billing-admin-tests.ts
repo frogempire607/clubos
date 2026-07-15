@@ -13,6 +13,7 @@ import {
   canRemovePaymentMethod,
   pmRef,
   prettyPeriod,
+  addBillingPeriod,
 } from "../lib/billingAdmin";
 import { diffOffer, type ReactivationOffer } from "../lib/reactivation";
 import { baseUrlFromRequest, getAppBaseUrl } from "../lib/baseUrl";
@@ -102,7 +103,7 @@ console.log("\ndiffOffer:");
 const offerA: ReactivationOffer = {
   membershipId: "m1", planName: "Jr Frogs", optionLabel: "Monthly", price: 110, billingPeriod: "MONTHLY",
   startDate: "2026-03-11T00:00:00.000Z", firstChargeDate: "2026-07-19T00:00:00.000Z",
-  commitmentEndDate: null, paymentMode: "CARD", payerUserId: null,
+  commitmentEndDate: null, paymentMode: "CARD", payerUserId: null, autoRenew: true,
 };
 check("identical offers match", diffOffer(offerA, { ...offerA }).length === 0);
 check("price edit marks it out of date", diffOffer(offerA, { ...offerA, price: 120 }).join() === "price");
@@ -227,6 +228,23 @@ const parsed = parseOffer({
 check("round-trips a valid offer", parsed?.price === 110 && parsed?.firstChargeDate === "2026-07-19T00:00:00.000Z");
 check("unknown paymentMode coerces to CARD (never silently free)",
   parseOffer({ planName: "X", price: 10, paymentMode: "WHATEVER" })?.paymentMode === "CARD");
+
+// ── Auto Renew ──────────────────────────────────────────────────────────────
+console.log("\nautoRenew:");
+check("pre-setting offers default to renewing",
+  parseOffer({ planName: "X", price: 10 })?.autoRenew === true);
+check("autoRenew=false survives the round-trip",
+  parseOffer({ planName: "X", price: 10, autoRenew: false })?.autoRenew === false);
+check("auto-renew flip marks an offer out of date",
+  diffOffer(offerA, { ...offerA, autoRenew: false }).join() === "auto-renew");
+check("addBillingPeriod monthly",
+  addBillingPeriod(new Date("2026-07-15T00:00:00.000Z"), "MONTHLY").toISOString().slice(0, 10) === "2026-08-15");
+check("addBillingPeriod quarterly",
+  addBillingPeriod(new Date("2026-07-15T00:00:00.000Z"), "QUARTERLY").toISOString().slice(0, 10) === "2026-10-15");
+check("addBillingPeriod annual",
+  addBillingPeriod(new Date("2026-07-15T00:00:00.000Z"), "ANNUAL").toISOString().slice(0, 10) === "2027-07-15");
+check("addBillingPeriod unknown period falls back to 1 year",
+  addBillingPeriod(new Date("2026-07-15T00:00:00.000Z"), "MYSTERY").toISOString().slice(0, 10) === "2027-07-15");
 
 // ── prettyPeriod ────────────────────────────────────────────────────────────
 console.log("\nprettyPeriod:");

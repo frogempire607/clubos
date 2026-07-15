@@ -20,7 +20,8 @@ import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 type Entity = { id: string; name: string; entityType: string };
 type Money = {
   moneyIn: number; moneyOut: number; net: number; cashIn: number; cardIn: number;
-  stripeFees: number; donationsTotal: number; contractorTotal: number;
+  checkIn: number; externalReaderIn: number; netAfterFees: number; platformFees: number;
+  stripeFees: number; donationsTotal: number; contractorTotal: number; compTotal?: number;
 };
 type Summary = {
   entities: Entity[];
@@ -33,6 +34,8 @@ type Summary = {
 };
 type Tx = {
   id: string; amount: string | number; platformFee: string | number | null; status: string;
+  stripeFeeAmount: string | number | null; netAmount: string | number | null;
+  paymentSource: string | null; reconciliationStatus: string | null;
   description: string | null; category: string | null; paymentMethod: string | null;
   manual: boolean; type: string; createdAt: string; txDate: string | null;
   member: { firstName: string; lastName: string } | null;
@@ -242,10 +245,16 @@ function OverviewTab({ qs }: { qs: string }) {
         <StatCard label="Net" value={money(m.net)} hint="In minus out" accent={m.net >= 0 ? "green" : "red"} />
         <StatCard label="Donations" value={money(m.donationsTotal)} hint="Recorded gifts" />
       </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+        <StatCard label="Verified card (Stripe)" value={money(m.cardIn)} hint="Confirmed by Stripe" />
+        <StatCard label="Cash" value={money(m.cashIn)} hint="Offline, recorded here" />
+        <StatCard label="Check" value={money(m.checkIn)} hint="Offline, recorded here" />
+        <StatCard label="External reader" value={money(m.externalReaderIn)} hint="Record only — not verified by Stripe" />
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Cash collected" value={money(m.cashIn)} hint="Cash / check" />
-        <StatCard label="Card / online" value={money(m.cardIn)} hint="Stripe & card" />
-        <StatCard label="Stripe fees" value={money(m.stripeFees)} hint="Recorded platform fees" />
+        <StatCard label="Stripe fees" value={money(m.stripeFees)} hint="Exact processing fees" />
+        <StatCard label="Net after fees" value={money(m.netAfterFees)} hint="Money in minus all fees" />
+        <StatCard label="Comped" value={money(m.compTotal ?? 0)} hint="No charge — never revenue" />
         <StatCard label="Contractor payouts" value={money(m.contractorTotal)} hint="Guest coaches / contractors" />
       </div>
 
@@ -885,9 +894,9 @@ function TaxSummaryTab({ qs }: { qs: string }) {
   );
 }
 
-/* ── Stripe (unchanged) ── */
+/* ── Stripe ── */
 function StripeTab() {
-  const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; platformFees: number; net: number } } | null>(null);
+  const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; stripeFees: number; platformFees: number; net: number } } | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     fetch("/api/transactions").then((r) => (r.ok ? r.json() : null)).then((d) => { setData(d); setLoading(false); });
@@ -897,7 +906,7 @@ function StripeTab() {
       {!loading && (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <StatCard label="Total revenue" value={money(data?.totals.revenue || 0)} hint="All time, paid" />
-          <StatCard label="Platform fees" value={money(data?.totals.platformFees || 0)} hint="Paid to AthletixOS" />
+          <StatCard label="Stripe fees" value={money(data?.totals.stripeFees || 0)} hint="Exact processing fees (Stripe)" />
           <StatCard label="Net revenue" value={money(data?.totals.net || 0)} hint="What you keep" />
         </div>
       )}
@@ -920,14 +929,145 @@ function StripeTab() {
                   <Td><span className="text-sm text-text-primary">{t.description || "Payment"}</span></Td>
                   <Td><span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-primary">{t.status.charAt(0) + t.status.slice(1).toLowerCase()}</span></Td>
                   <Td><span className="text-sm font-medium text-text-primary">{money(t.amount)}</span></Td>
-                  <Td><span className="text-xs text-text-muted">{t.platformFee ? money(t.platformFee) : "—"}</span></Td>
+                  <Td><span className="text-xs text-text-muted">{t.stripeFeeAmount ? money(t.stripeFeeAmount) : "—"}</span></Td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+      <ReconciliationCard />
     </>
+  );
+}
+
+/* ── Stripe ↔ AthletixOS reconciliation ── */
+type ChargeReport = {
+  ok: boolean;
+  error?: string;
+  scannedCharges: number;
+  matched: number;
+  missingLocal: { chargeId: string; amount: number; fee: number | null; net: number | null; customerEmail: string | null; description: string | null; created: string }[];
+  unmatchedLocal: { transactionId: string; amount: number; description: string | null; createdAt: string }[];
+  feeGaps: { transactionId: string; chargeId: string; fee: number; net: number }[];
+  duplicates: { key: string; transactionIds: string[] }[];
+  unrecordedRefunds: { chargeId: string; amountRefunded: number }[];
+};
+
+function ReconciliationCard() {
+  const [report, setReport] = useState<ChargeReport | null>(null);
+  const [openSubs, setOpenSubs] = useState<number | null>(null);
+  const [running, setRunning] = useState(false);
+  const [filling, setFilling] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true); setMsg(null);
+    try {
+      const [charges, subs] = await Promise.all([
+        fetch("/api/stripe/reconcile/charges").then((r) => r.json()),
+        fetch("/api/stripe/reconcile").then((r) => (r.ok ? r.json() : null)),
+      ]);
+      setReport(charges);
+      setOpenSubs(subs?.openCount ?? null);
+      if (!charges.ok) setMsg(charges.error || "Comparison failed");
+    } finally { setRunning(false); }
+  }
+  async function fillFees() {
+    setFilling(true); setMsg(null);
+    try {
+      const r = await fetch("/api/stripe/reconcile/charges", { method: "POST" }).then((x) => x.json());
+      setMsg(r.ok ? `Filled exact fee/net on ${r.filled} transaction(s).` : r.error || "Failed");
+      await run();
+    } finally { setFilling(false); }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-app-border mt-6 overflow-hidden">
+      <div className="px-5 py-3 border-b border-app-border flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-sm font-semibold text-text-primary">Reconciliation</h2>
+          <p className="text-xs text-text-muted">Compare every Stripe charge against AthletixOS. Read-only — nothing changes without your action.</p>
+        </div>
+        <button onClick={run} disabled={running}
+          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-charcoal text-white hover:bg-charcoal-hover disabled:opacity-50">
+          {running ? "Comparing…" : "Run Stripe comparison"}
+        </button>
+      </div>
+      {msg && <p className="px-5 pt-3 text-xs text-text-primary">{msg}</p>}
+      {report?.ok && (
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-text-muted">
+            Scanned {report.scannedCharges} Stripe charge(s) · {report.matched} matched
+            {openSubs != null ? ` · ${openSubs} subscription(s) awaiting review` : ""}
+          </p>
+          {report.missingLocal.length > 0 && (
+            <div className="border border-orange-300 bg-orange-50 rounded-lg p-3">
+              <p className="text-xs font-semibold text-orange-800 mb-1">
+                {report.missingLocal.length} Stripe payment(s) missing from Financials
+              </p>
+              {report.missingLocal.map((m) => (
+                <p key={m.chargeId} className="text-xs text-orange-900">
+                  {new Date(m.created).toLocaleDateString()} · {money(m.amount)} ({m.customerEmail || m.description || m.chargeId})
+                  {m.fee != null ? ` · fee ${money(m.fee)}` : ""}
+                </p>
+              ))}
+              <p className="text-[11px] text-orange-700 mt-1">
+                Recovered only via the owner-approved backfill (dedup-safe) — never created automatically.
+              </p>
+            </div>
+          )}
+          {report.unmatchedLocal.length > 0 && (
+            <div className="border border-red-300 bg-red-50 rounded-lg p-3">
+              <p className="text-xs font-semibold text-red-800 mb-1">
+                {report.unmatchedLocal.length} local card record(s) with NO Stripe match
+              </p>
+              {report.unmatchedLocal.map((u) => (
+                <p key={u.transactionId} className="text-xs text-red-900">
+                  {new Date(u.createdAt).toLocaleDateString()} · {money(u.amount)} · {u.description || u.transactionId}
+                </p>
+              ))}
+              <p className="text-[11px] text-red-700 mt-1">These claim Stripe money AthletixOS can&apos;t verify — review before counting them.</p>
+            </div>
+          )}
+          {report.duplicates.length > 0 && (
+            <div className="border border-red-300 bg-red-50 rounded-lg p-3">
+              <p className="text-xs font-semibold text-red-800">
+                {report.duplicates.length} duplicate group(s): multiple transactions share one Stripe payment
+              </p>
+              {report.duplicates.map((d) => (
+                <p key={d.key} className="text-xs text-red-900">{d.key}: {d.transactionIds.join(", ")}</p>
+              ))}
+            </div>
+          )}
+          {report.unrecordedRefunds.length > 0 && (
+            <div className="border border-amber-300 bg-amber-50 rounded-lg p-3">
+              <p className="text-xs font-semibold text-amber-800">
+                {report.unrecordedRefunds.length} Stripe refund(s) not recorded locally
+              </p>
+              {report.unrecordedRefunds.map((r) => (
+                <p key={r.chargeId} className="text-xs text-amber-900">{r.chargeId}: {money(r.amountRefunded)} refunded</p>
+              ))}
+            </div>
+          )}
+          {report.feeGaps.length > 0 && (
+            <div className="flex items-center justify-between border border-app-border rounded-lg p-3">
+              <p className="text-xs text-text-primary">
+                {report.feeGaps.length} matched transaction(s) missing exact Stripe fee/net.
+              </p>
+              <button onClick={fillFees} disabled={filling}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-hover disabled:opacity-50">
+                {filling ? "Filling…" : "Fill from Stripe"}
+              </button>
+            </div>
+          )}
+          {report.missingLocal.length === 0 && report.unmatchedLocal.length === 0 && report.duplicates.length === 0 &&
+            report.unrecordedRefunds.length === 0 && report.feeGaps.length === 0 && (
+            <p className="text-xs text-text-muted">Everything matches — Stripe and AthletixOS agree. ✓</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

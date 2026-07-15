@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getTierFeatures, getTierName, tierBlockedBody, upgradeRequired } from "@/lib/tier";
 import { requirePermission } from "@/lib/apiGuard";
 import { computePayrollTotalForRange } from "@/lib/payroll";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
 
 type Range = "month" | "last_month" | "last_30" | "last_90" | "ytd" | "year" | "all";
 
@@ -73,7 +74,7 @@ export async function GET(req: Request) {
   const rangeParam = (url.searchParams.get("range") || "month") as Range;
   const range = resolveRange(rangeParam);
 
-  const txWhereBase = { clubId, status: "SUCCEEDED" as const };
+  const txWhereBase = { clubId, status: "SUCCEEDED" as const, ...EXCLUDE_VOID };
   const txWhereRange = range.start
     ? { ...txWhereBase, createdAt: { gte: range.start, lt: range.end } }
     : txWhereBase;
@@ -148,6 +149,7 @@ export async function GET(req: Request) {
       FROM "transactions"
       WHERE "clubId" = ${clubId}
         AND "status" = 'SUCCEEDED'
+        AND ("reconciliationStatus" IS NULL OR "reconciliationStatus" <> 'VOID')
         AND "createdAt" >= NOW() - INTERVAL '12 months'
       GROUP BY date_trunc('month', "createdAt")
       ORDER BY month ASC

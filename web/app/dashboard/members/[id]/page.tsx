@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { feeBreakdown } from "@/lib/fees";
 
 type Sub = {
   id: string;
@@ -52,6 +53,7 @@ type MemberDetail = {
   migrationStatus?: string | null;
   legacyMembershipName?: string | null;
   trialEndsAt?: string | null;
+  passProcessingFees?: boolean;
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -191,14 +193,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           }
         >
           {activeSub ? (
-            <SubRow sub={activeSub} onEdit={() => setEditingSub(activeSub)} />
+            <SubRow sub={activeSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(activeSub)} />
           ) : pendingSub ? (
             <div className="space-y-2">
               <p className="text-xs text-text-muted">
                 Purchase in progress — <strong className="text-text-primary">not charged yet</strong>.
                 Activates when payment completes or staff approves.
               </p>
-              <SubRow sub={pendingSub} onEdit={() => setEditingSub(pendingSub)} />
+              <SubRow sub={pendingSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(pendingSub)} />
             </div>
           ) : (
             <p className="text-sm text-text-muted">No active membership.</p>
@@ -247,7 +249,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           ) : (
             <div className="space-y-2">
               {[activeSub, ...pastSubs].filter(Boolean).map((s) => (
-                <SubRow key={s!.id} sub={s!} onEdit={() => setEditingSub(s!)} />
+                <SubRow key={s!.id} sub={s!} passFees={m.passProcessingFees} onEdit={() => setEditingSub(s!)} />
               ))}
             </div>
           )}
@@ -356,7 +358,12 @@ function Card({ title, action, children, className = "" }: { title: string; acti
   );
 }
 
-function SubRow({ sub, onEdit }: { sub: Sub; onEdit: () => void }) {
+function SubRow({ sub, passFees = false, onEdit }: { sub: Sub; passFees?: boolean; onEdit: () => void }) {
+  // When the club passes the Stripe processing fee, a recurring paid sub is
+  // actually charged base + fee — show the full equation so the number always
+  // reconciles with Stripe (display only; math lives in lib/fees.ts).
+  const showFee = passFees && sub.billingType === "RECURRING" && Number(sub.price) > 0;
+  const fb = showFee ? feeBreakdown(Number(sub.price), true) : null;
   return (
     <div className="flex items-center justify-between border border-app-border rounded-lg p-3">
       <div>
@@ -364,7 +371,9 @@ function SubRow({ sub, onEdit }: { sub: Sub; onEdit: () => void }) {
           {sub.membership?.name ?? "Membership"} <span className="text-text-muted font-normal">· {sub.optionLabel}</span>
         </div>
         <div className="text-xs text-text-muted">
-          {fmtMoney(sub.price)} · {sub.billingType.toLowerCase()} · {sub.status}
+          {fb
+            ? `${fmtMoney(fb.base)} + ${fmtMoney(fb.fee)} processing fee = ${fmtMoney(fb.total)}${sub.billingPeriod ? ` / ${sub.billingPeriod.toLowerCase()}` : ""}`
+            : fmtMoney(sub.price)} · {sub.billingType.toLowerCase()} · {sub.status}
         </div>
         <div className="text-xs text-text-muted">
           {fmtDate(sub.startDate)} → {sub.endDate ? fmtDate(sub.endDate) : "open-ended"}

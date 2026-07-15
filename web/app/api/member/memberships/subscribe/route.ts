@@ -280,7 +280,12 @@ export async function POST(req: Request) {
               subscription_data: {
                 application_fee_percent: appFeePercent,
                 metadata: { memberSubscriptionId: memberSub.id, memberId: member.id, clubId: club.id },
-                ...(!membership.autoRenewDefault ? { cancel_at_period_end: true } : {}),
+                // NOTE: cancel_at_period_end is NOT a valid Checkout
+                // subscription_data param (Stripe rejects the session with
+                // "unknown parameter"). Auto Renew OFF is applied by the
+                // checkout.session.completed webhook, which flips
+                // cancel_at_period_end on the created subscription (the local
+                // MemberSubscription row already carries autoRenew=false).
                 ...(trialPeriodDays ? { trial_period_days: trialPeriodDays } : {}),
               },
             }

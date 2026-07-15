@@ -286,7 +286,47 @@ export async function GET() {
     });
   }
 
-  const approvals = [...pendingApprovals, ...migrationApprovals].sort(
+  // ── Client change requests on reactivation offers ────────────────────────
+  // The client asked for different terms instead of confirming; the offer is
+  // locked until the owner approves (new version) or denies. Money-adjacent →
+  // billing gate mirrors the resolve route (billing:full to act; view here).
+  type ChangeRequestApproval = {
+    id: string;
+    kind: "REACTIVATION_CHANGE_REQUEST";
+    memberId: string;
+    memberName: string;
+    requestedAt: Date;
+    reactivationId: string;
+    offerVersion: number;
+    request: unknown;
+  };
+  let changeRequests: ChangeRequestApproval[] = [];
+  if (isOwner || hasPermission(perms, "billing", "view") || hasPermission(perms, "members", "edit")) {
+    const rows = await prisma.membershipReactivation.findMany({
+      where: { clubId, changeRequestStatus: "OPEN" },
+      orderBy: { changeRequestAt: "desc" },
+      select: {
+        id: true,
+        memberId: true,
+        offerVersion: true,
+        changeRequest: true,
+        changeRequestAt: true,
+        member: { select: { firstName: true, lastName: true } },
+      },
+    });
+    changeRequests = rows.map((r) => ({
+      id: `change-request:${r.id}`,
+      kind: "REACTIVATION_CHANGE_REQUEST" as const,
+      memberId: r.memberId,
+      memberName: `${r.member.firstName} ${r.member.lastName}`.trim(),
+      requestedAt: r.changeRequestAt ?? new Date(),
+      reactivationId: r.id,
+      offerVersion: r.offerVersion,
+      request: r.changeRequest,
+    }));
+  }
+
+  const approvals = [...pendingApprovals, ...migrationApprovals, ...changeRequests].sort(
     (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime(),
   );
 
