@@ -75,17 +75,35 @@ export async function resolveCardSnapshot(
 }
 
 /**
- * Resolve the payment-method id that an off-session charge should use:
- * the customer's default PM, else the ONLY saved card. Returns null when the
- * customer has multiple cards and no default — we never guess which card to
- * charge (same rule as the reactivation confirm fallback).
+ * Resolve the payment-method id that an off-session charge/subscription should
+ * use, VERIFYING attachment live (a stored pointer can go stale when a family
+ * replaces their card — Stripe then errors "payment method must be attached to
+ * the customer"). Order:
+ *   1. `preferredPmId` (the stored pointer) — only if it is genuinely attached
+ *      to this customer right now;
+ *   2. the customer's default payment method;
+ *   3. the ONLY attached method (card OR Link wallet — families increasingly
+ *      save Link, not raw cards).
+ * Returns null when nothing is attached or multiple methods exist with no
+ * default — we never guess which one to charge.
  */
 export async function resolveChargeablePaymentMethodId(
   customerId: string | null | undefined,
   stripeAccountId: string | null | undefined,
+  preferredPmId?: string | null,
 ): Promise<string | null> {
   if (!customerId || !stripeAccountId) return null;
   try {
+    if (preferredPmId) {
+      try {
+        const pm = await stripe.paymentMethods.retrieve(preferredPmId, { stripeAccount: stripeAccountId });
+        const attachedTo = typeof pm.customer === "string" ? pm.customer : pm.customer?.id ?? null;
+        if (attachedTo === customerId) return preferredPmId;
+        // Stale pointer — fall through to live resolution.
+      } catch {
+        /* PM gone entirely — fall through */
+      }
+    }
     const customer = await stripe.customers.retrieve(customerId, { stripeAccount: stripeAccountId });
     if (customer && !("deleted" in customer && customer.deleted)) {
       const def = (customer as { invoice_settings?: { default_payment_method?: string | { id: string } | null } })
@@ -93,11 +111,12 @@ export async function resolveChargeablePaymentMethodId(
       const defId = typeof def === "string" ? def : def?.id ?? null;
       if (defId) return defId;
     }
-    const list = await stripe.paymentMethods.list(
-      { customer: customerId, type: "card", limit: 2 },
-      { stripeAccount: stripeAccountId },
-    );
-    return list.data.length === 1 ? list.data[0].id : null;
+    const [cards, links] = await Promise.all([
+      stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 2 }, { stripeAccount: stripeAccountId }),
+      stripe.paymentMethods.list({ customer: customerId, type: "link", limit: 2 }, { stripeAccount: stripeAccountId }),
+    ]);
+    const all = [...cards.data, ...links.data];
+    return all.length === 1 ? all[0].id : null;
   } catch {
     return null;
   }

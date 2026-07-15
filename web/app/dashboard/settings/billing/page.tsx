@@ -197,6 +197,9 @@ export default function BillingSettingsPage() {
       {/* ── Pass processing fees to customer ── */}
       <ProcessingFeeToggle />
 
+      {/* ── Offline (cash/check) activation policy ── */}
+      <OfflineActivationPolicyCard />
+
       {/* ── AthletixOS Subscription Plan ── */}
       <div className="mt-8">
         <h2 className="text-xl font-semibold text-text-primary mb-1">AthletixOS Plan</h2>
@@ -375,6 +378,101 @@ function ProcessingFeeToggle() {
           </div>
         </div>
       )}
+      {saved && <p className="text-xs text-text-muted mt-2">Saved.</p>}
+    </div>
+  );
+}
+
+/* ── Offline (cash/check) payment activation policy ── */
+// When a client accepts a cash/check offer, does the membership start right
+// away (payment still due) or only when staff records the money as received?
+// Persisted via the same club payment-settings API (additive field).
+function OfflineActivationPolicyCard() {
+  const [policy, setPolicy] = useState<"ON_PAYMENT" | "ON_ACCEPTANCE">("ON_PAYMENT");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/club/payment-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.offlineActivationPolicy === "ON_ACCEPTANCE") setPolicy("ON_ACCEPTANCE");
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  async function save(next: "ON_PAYMENT" | "ON_ACCEPTANCE") {
+    const prev = policy;
+    setPolicy(next);
+    setSaving(true);
+    setSaved(false);
+    setError("");
+    const res = await fetch("/api/club/payment-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ offlineActivationPolicy: next }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } else {
+      setPolicy(prev);
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not save the setting.");
+    }
+  }
+
+  const options: { value: "ON_PAYMENT" | "ON_ACCEPTANCE"; title: string; detail: string }[] = [
+    {
+      value: "ON_PAYMENT",
+      title: "Activate only after staff records payment (recommended, default)",
+      detail:
+        "The client accepts the offer, but the membership stays pending until a staff member records the cash/check as physically received. Safest — access never starts before the money is in hand.",
+    },
+    {
+      value: "ON_ACCEPTANCE",
+      title: "Activate when the client accepts, payment still due",
+      detail:
+        "The membership starts the moment the client confirms; the cash/check stays outstanding in the billing center until staff records it as received.",
+    },
+  ];
+
+  return (
+    <div className="mt-6 bg-white rounded-xl border border-app-border p-5">
+      <h3 className="text-sm font-semibold text-text-primary mb-1">Offline payment activation</h3>
+      <p className="text-xs text-text-muted leading-relaxed max-w-xl mb-3">
+        When a member accepts a cash or check offer, accepting is not paying. Choose when their
+        membership actually starts. Either way, staff records the payment in the billing center —
+        that&apos;s the moment it counts as revenue and the receipt is emailed.
+      </p>
+      <div className="space-y-2">
+        {options.map((o) => (
+          <label
+            key={o.value}
+            className={`flex items-start gap-3 border rounded-lg px-3 py-2.5 cursor-pointer ${
+              policy === o.value ? "border-brand bg-brand/5" : "border-app-border"
+            } ${!loaded || saving ? "opacity-60" : ""}`}
+          >
+            <input
+              type="radio"
+              name="offline-activation-policy"
+              checked={policy === o.value}
+              disabled={!loaded || saving}
+              onChange={() => save(o.value)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-sm font-medium text-text-primary">{o.title}</span>
+              <span className="block text-xs text-text-muted mt-0.5 leading-relaxed">{o.detail}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
       {saved && <p className="text-xs text-text-muted mt-2">Saved.</p>}
     </div>
   );

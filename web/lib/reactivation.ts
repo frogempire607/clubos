@@ -2,6 +2,13 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { newActivationToken } from "@/lib/migration";
 import { resolveOfferPricing, type ResolvedPricing } from "@/lib/billingAdmin";
+import {
+  resolveStaffDiscount,
+  quotePayment,
+  offlineActivationPolicy,
+  isOfflineMethod,
+  discountAppliedLabel,
+} from "@/lib/staffPayments";
 import { applyProcessingFee } from "@/lib/fees";
 
 // Membership reactivation offers — server helpers shared by the owner-side
@@ -26,6 +33,19 @@ export type ReactivationOffer = {
   // subscription ends after the commitment date (or the first billing period
   // when no commitment is set) instead of renewing.
   autoRenew: boolean;
+  // Staff-selected payment method (shared vocabulary, lib/staffPayments.ts).
+  // CASH/CHECK ⇒ paymentMode OFFLINE with the receipt-confirmation flow.
+  paymentMethod: "SAVED_CARD" | "NEW_CARD" | "CASH" | "CHECK" | null;
+  // Staff-selected discount, server-resolved and FROZEN with its math. The
+  // client is charged finalPrice; `price` above stays the pre-discount price.
+  discount: {
+    code: string;
+    name: string; // description || code — receipt shows "<name> Discount Applied"
+    type: "PERCENT" | "FIXED";
+    value: number;
+    amountOff: number;
+    finalPrice: number;
+  } | null;
 };
 
 export type OfferMember = {
@@ -41,6 +61,7 @@ export type OfferMember = {
   legacyBillingFrequency: string | null;
   migrationSelectedOption: unknown;
   migrationPriceOverride: Prisma.Decimal | number | null;
+  migrationDiscountCode?: string | null;
   responsiblePayerUserId: string | null;
 };
 
@@ -53,7 +74,7 @@ export async function buildOffer(
   member: OfferMember,
   club: { stripeAccountId: string | null; stripeChargesEnabled: boolean },
   firstChargeDate: Date | null,
-): Promise<{ offer: ReactivationOffer; pricing: ResolvedPricing }> {
+): Promise<{ offer: ReactivationOffer; pricing: ResolvedPricing; discountError: string | null }> {
   const plan = member.migrationMembershipId
     ? await prisma.membership.findFirst({
         where: { id: member.migrationMembershipId, clubId: member.clubId, deletedAt: null },
@@ -72,18 +93,61 @@ export async function buildOffer(
     plan ? { name: plan.name, options: plan.options } : null,
   );
 
+  // Staff-selected payment method (member.requestedPaymentMethod, shared
+  // vocabulary). CASH/CHECK ⇒ OFFLINE mode with the receipt-confirmation flow;
+  // LATER ⇒ the client adds a NEW card on the offer page.
+  const paymentMethod: ReactivationOffer["paymentMethod"] =
+    member.requestedPaymentMethod === "CASH"
+      ? "CASH"
+      : member.requestedPaymentMethod === "CHECK"
+        ? "CHECK"
+        : member.requestedPaymentMethod === "LATER"
+          ? "NEW_CARD"
+          : "SAVED_CARD";
   const offline =
-    !club.stripeAccountId ||
-    !club.stripeChargesEnabled ||
-    member.requestedPaymentMethod === "CASH" ||
-    member.requestedPaymentMethod === "CHECK";
+    !club.stripeAccountId || !club.stripeChargesEnabled || paymentMethod === "CASH" || paymentMethod === "CHECK";
   const paymentMode: ReactivationOffer["paymentMode"] =
     pricing.price <= 0 ? "FREE" : offline ? "OFFLINE" : "CARD";
+
+  // Staff-selected discount — server-resolved against the discount engine and
+  // FROZEN with its math. An invalid stored code never silently disappears:
+  // it's surfaced as discountError and offer creation is blocked upstream.
+  let discount: ReactivationOffer["discount"] = null;
+  let discountError: string | null = null;
+  if (member.migrationDiscountCode && pricing.configured && pricing.price > 0) {
+    const resolved = await resolveStaffDiscount(member.clubId, member.migrationDiscountCode, {
+      type: "MEMBERSHIP",
+      membershipId: plan?.id ?? null,
+    });
+    if (!resolved.ok) {
+      discountError = resolved.error;
+    } else if (resolved.discount) {
+      const q = quotePayment({
+        originalPrice: pricing.price,
+        discount: resolved.discount,
+        method: paymentMethod,
+        passProcessingFees: false, // fee display handled separately; math here is discount-only
+      });
+      if (!q.ok) {
+        discountError = q.error;
+      } else {
+        discount = {
+          code: resolved.discount.code,
+          name: resolved.discount.description || resolved.discount.code,
+          type: resolved.discount.type,
+          value: resolved.discount.value,
+          amountOff: q.quote.discountAmount,
+          finalPrice: q.quote.finalPrice,
+        };
+      }
+    }
+  }
 
   const commitment = member.requestedCancellationDate ?? member.commitmentEndDate ?? null;
 
   return {
     pricing,
+    discountError,
     offer: {
       membershipId: plan?.id ?? null,
       planName: pricing.planName,
@@ -96,8 +160,15 @@ export async function buildOffer(
       paymentMode,
       payerUserId: member.responsiblePayerUserId ?? null,
       autoRenew: plan?.autoRenewDefault ?? true,
+      paymentMethod,
+      discount,
     },
   };
+}
+
+/** The amount the client actually pays: discounted price when a discount applies. */
+export function offerEffectivePrice(offer: Pick<ReactivationOffer, "price" | "discount">): number {
+  return offer.discount ? offer.discount.finalPrice : offer.price;
 }
 
 /**
@@ -162,6 +233,22 @@ export function parseOffer(raw: unknown): ReactivationOffer | null {
     // Offers created before the Auto Renew setting existed renew (the only
     // behavior that existed then).
     autoRenew: typeof o.autoRenew === "boolean" ? o.autoRenew : true,
+    paymentMethod:
+      o.paymentMethod === "SAVED_CARD" || o.paymentMethod === "NEW_CARD" || o.paymentMethod === "CASH" || o.paymentMethod === "CHECK"
+        ? o.paymentMethod
+        : null,
+    discount: (() => {
+      const d = o.discount as Record<string, unknown> | null | undefined;
+      if (!d || typeof d !== "object" || typeof d.code !== "string" || typeof d.finalPrice !== "number") return null;
+      return {
+        code: d.code,
+        name: typeof d.name === "string" ? d.name : d.code,
+        type: d.type === "FIXED" ? ("FIXED" as const) : ("PERCENT" as const),
+        value: typeof d.value === "number" ? d.value : 0,
+        amountOff: typeof d.amountOff === "number" ? d.amountOff : 0,
+        finalPrice: d.finalPrice,
+      };
+    })(),
   };
 }
 
@@ -191,6 +278,11 @@ export function diffOffer(stored: ReactivationOffer, current: ReactivationOffer)
   if (dateOnly(stored.commitmentEndDate) !== dateOnly(current.commitmentEndDate)) changed.push("commitment end date");
   if ((stored.payerUserId ?? null) !== (current.payerUserId ?? null)) changed.push("responsible payer");
   if (stored.autoRenew !== current.autoRenew) changed.push("auto-renew");
+  // Changing payment method (card ↔ cash/check) or the discount supersedes any
+  // open offer: the old token goes stale and a new version must be sent.
+  if ((stored.paymentMethod ?? null) !== (current.paymentMethod ?? null)) changed.push("payment method");
+  if ((stored.discount?.code ?? null) !== (current.discount?.code ?? null)) changed.push("discount");
+  if ((stored.discount?.finalPrice ?? null) !== (current.discount?.finalPrice ?? null)) changed.push("discounted price");
   return changed;
 }
 
@@ -236,6 +328,9 @@ export function buildReactivationEmailParams(args: {
     // Whether the Stripe processing fee is passed to the customer — drives the
     // fee-inclusive "total charged" wording (lib/fees.ts owns the math).
     passProcessingFees?: boolean;
+    // CASH/CHECK activation rule (null/undefined ⇒ ON_PAYMENT default) —
+    // drives the offline offer's "when does the membership start" wording.
+    offlineActivationPolicy?: string | null;
   };
   clubLogoPublicUrl: string | null;
   cardSummary: string | null;
@@ -247,10 +342,29 @@ export function buildReactivationEmailParams(args: {
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
   const immediate = !!firstCharge && firstCharge.getTime() <= Date.now() + 60_000;
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
+  // Every charged-amount label is based on the DISCOUNTED price — what the
+  // client actually pays (offerEffectivePrice; the pre-discount price shows
+  // only in the Price row and the discount line's "(was …)").
+  const effective = offerEffectivePrice(offer);
+  const periodLabel = prettyPeriodLabel(offer.billingPeriod);
   // Exact card charge when the club passes the processing fee — matches what
-  // confirm creates (recurringUnitWithFee on the same cent base).
+  // confirm creates (recurringUnitWithFee on the same DISCOUNTED cent base).
   const passFees = !isFree && offer.paymentMode === "CARD" && !!args.club.passProcessingFees;
-  const fees = applyProcessingFee(Math.round(offer.price * 100), passFees);
+  const fees = applyProcessingFee(Math.round(effective * 100), passFees);
+  // "SIBLING Discount Applied — $480.00 quarterly (was $530.00)"
+  const discountLine = offer.discount
+    ? `${discountAppliedLabel({ code: offer.discount.code, description: offer.discount.name })} — $${effective.toFixed(2)} ${periodLabel} (was $${offer.price.toFixed(2)})`
+    : null;
+  // CASH/CHECK: the club collects offline — the email must say so and state,
+  // per club policy, when the membership starts. Never charge language.
+  const paymentCollection =
+    !isFree && isOfflineMethod(offer.paymentMethod)
+      ? {
+          method: offer.paymentMethod,
+          policy: offlineActivationPolicy(args.club),
+          amountLabel: `$${(fees.totalCents / 100).toFixed(2)}`,
+        }
+      : null;
   return {
     to: args.to,
     athleteName: args.athleteName,
@@ -260,9 +374,11 @@ export function buildReactivationEmailParams(args: {
     membershipName: offer.planName,
     optionLabel: offer.optionLabel,
     priceLabel: isFree ? "Free" : `$${offer.price.toFixed(2)}`,
+    discountLine,
+    paymentCollection,
     totalChargedLabel: isFree ? null : `$${(fees.totalCents / 100).toFixed(2)}`,
     processingFeeLabel: fees.feeCents > 0 ? `$${(fees.feeCents / 100).toFixed(2)}` : null,
-    periodLabel: prettyPeriodLabel(offer.billingPeriod),
+    periodLabel,
     startDateLabel: longDate(offer.startDate),
     firstChargeLabel: isFree ? null : longDate(offer.firstChargeDate),
     immediateCharge: immediate,
@@ -299,6 +415,7 @@ export async function loadReactivationEmailContext(memberId: string, clubId: str
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
           emailFromName: true, emailReplyTo: true, stripeAccountId: true, passProcessingFees: true,
+          offlineActivationPolicy: true,
         },
       },
     },

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -12,6 +13,9 @@ import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
+import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
 
 // Athlete (or guardian for minors) contact email for activation/approval notices.
 function memberContactEmail(m: { isMinor: boolean; email: string | null; guardianEmail: string | null }) {
@@ -194,6 +198,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     price = Number(member.migrationPriceOverride);
   }
 
+  // Staff-selected discount applies on DIRECT activation exactly like it does
+  // on the offer path — same engine, validated here, invalid = hard block.
+  let appliedDiscount: { id: string; code: string; amountOff: number } | null = null;
+  if (member.migrationDiscountCode && price > 0) {
+    const resolved = await resolveStaffDiscount(club.id, member.migrationDiscountCode, {
+      type: "MEMBERSHIP",
+      membershipId: member.migrationMembershipId,
+    });
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: `The selected discount can't be applied: ${resolved.error} Fix or clear it in the billing center. Nothing was changed.`, code: "DISCOUNT_INVALID" },
+        { status: 400 },
+      );
+    }
+    if (resolved.discount) {
+      const q = quotePayment({ originalPrice: price, discount: resolved.discount, method: "CASH", passProcessingFees: false });
+      if (!q.ok) return NextResponse.json({ error: q.error, code: "DISCOUNT_INVALID" }, { status: 400 });
+      appliedDiscount = { id: resolved.discount.id, code: resolved.discount.code, amountOff: q.quote.discountAmount };
+      price = q.quote.finalPrice;
+    }
+  }
+
   if (!membershipId) {
     // Minting a plan here is ONLY for members with a real imported plan name
     // (their WellnessLiving membership carried over). Never fabricate a
@@ -220,13 +246,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   // Manual / no-online-payment path: complete without Stripe.
-  const canCharge =
-    !!club.stripeAccountId &&
-    !!club.stripeChargesEnabled &&
-    price > 0 &&
-    !!member.stripeSetupCustomerId &&
-    !!member.stripeSetupPaymentMethodId;
-
   // Was OFFLINE billing genuinely intended? Only these cases legitimately end up
   // on a MANUAL (offline) subscription: a free/$0 plan, the club has no online
   // payments, or the member explicitly chose cash/check.
@@ -236,6 +255,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     !club.stripeChargesEnabled ||
     member.requestedPaymentMethod === "CASH" ||
     member.requestedPaymentMethod === "CHECK";
+
+  // A CASH/CHECK member NEVER gets a Stripe subscription — even with a saved
+  // card on file. Without the !offlineIntended term, approving a cash member
+  // whose family happened to have a card/Link saved would card-charge them
+  // (Adelynn Bergen near-miss, 2026-07-15).
+  const canCharge =
+    !offlineIntended &&
+    !!club.stripeAccountId &&
+    !!club.stripeChargesEnabled &&
+    price > 0 &&
+    !!member.stripeSetupCustomerId &&
+    !!member.stripeSetupPaymentMethodId;
 
   // Card billing was intended but Stripe setup is incomplete (no captured
   // payment method — almost always the missing Connect webhook). Previously this
@@ -342,6 +373,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         billingType: "MANUAL",
         autoRenew: false,
         status: "active",
+        ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
         startDate: member.membershipStartDate ?? new Date(),
         billingAnchorDate: anchor,
         // Explicit requested end wins; otherwise a non-renewing plan ends
@@ -369,6 +401,35 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         migrationCompletedAt: new Date(),
       },
     });
+    // Paid cash/check activation: record the amount DUE as a PENDING
+    // transaction (never revenue, no receipt) so staff can mark it received
+    // in the billing center / Approvals — same lifecycle as offer acceptance.
+    if (price > 0 && (member.requestedPaymentMethod === "CASH" || member.requestedPaymentMethod === "CHECK")) {
+      const dueMethod = member.requestedPaymentMethod;
+      const existingDue = await prisma.transaction.findFirst({
+        where: { clubId: club.id, memberId: member.id, status: "PENDING", paymentSource: dueMethod },
+        select: { id: true },
+      });
+      if (!existingDue) {
+        await prisma.transaction.create({
+          data: {
+            clubId: club.id,
+            memberId: member.id,
+            amount: price,
+            status: "PENDING",
+            type: "MEMBERSHIP",
+            category: "memberships",
+            paymentMethod: dueMethod,
+            paymentSource: dueMethod,
+            reconciliationStatus: "OFFLINE",
+            manual: true,
+            ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
+            description: `Membership payment due: ${planName} — awaiting ${dueMethod.toLowerCase()}`,
+            notes: "Created at owner activation (cash/check). Record receipt via the billing center — only then does this become paid revenue and send a receipt.",
+          },
+        });
+      }
+    }
     await prisma.memberMigrationEvent.create({
       data: {
         clubId: club.id,
@@ -401,6 +462,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         portalUrl: `${getAppBaseUrl()}/member`,
       }).catch((e) => console.error("Approval email failed:", e));
     }
+    if (appliedDiscount) await recordDiscountUse(appliedDiscount.id);
     return NextResponse.json({ ok: true, noPayment: true });
   }
 
@@ -424,6 +486,33 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const amountCents = recurringUnitWithFee(Math.round(price * 100), club.passProcessingFees);
   const interval = billingPeriodToStripeInterval(period) || { interval: "month" as const, interval_count: 1 };
+
+  // VERIFY the saved payment method is still attached before charging — a
+  // family that replaced their card leaves a stale pointer, and Stripe then
+  // errors "payment method must be attached to the customer" (Mack Munroe,
+  // 2026-07-15). Falls back to the customer's default / only method (card OR
+  // Link wallet) and persists the correction.
+  const chargePmId = await resolveChargeablePaymentMethodId(
+    member.stripeSetupCustomerId,
+    club.stripeAccountId,
+    member.stripeSetupPaymentMethodId,
+  );
+  if (!chargePmId) {
+    return NextResponse.json(
+      {
+        error:
+          "The saved payment method is no longer attached to this member's billing account (it was likely replaced or removed). Send the card-setup link again, or approve with forceManual to bill offline. Nothing was charged.",
+        code: "CARD_SETUP_INCOMPLETE",
+      },
+      { status: 409 },
+    );
+  }
+  if (chargePmId !== member.stripeSetupPaymentMethodId) {
+    await prisma.member.update({
+      where: { id: member.id },
+      data: { stripeSetupPaymentMethodId: chargePmId },
+    });
+  }
 
   let memberSub;
   try {
@@ -451,7 +540,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const sub = await stripe.subscriptions.create(
       {
         customer: member.stripeSetupCustomerId!,
-        default_payment_method: member.stripeSetupPaymentMethodId!,
+        default_payment_method: chargePmId,
         items: [
           {
             price_data: {
@@ -471,7 +560,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         stripeAccount: club.stripeAccountId!,
         // A double-submit (double click, retry after a network blip) must not
         // fork a second subscription — Stripe returns the first one instead.
-        idempotencyKey: `aox-migration-approve-${member.id}`,
+        // Param-sensitive: double-clicks with IDENTICAL params dedupe to one
+        // subscription, but a corrected retry (fixed payment method, new
+        // discount/price/date) gets a fresh key. A static per-member key gets
+        // permanently "burned" by any failed attempt — Stripe then rejects
+        // every retry with "keys can only be used with the same parameters"
+        // (Mack Munroe, 2026-07-15).
+        idempotencyKey: `aox-migration-approve-${member.id}-${crypto
+          .createHash("sha256")
+          .update(JSON.stringify({ amountCents, trialEnd: trialEnd ?? null, cancelAtUnix: cancelAtUnix ?? null, pm: chargePmId, product: productId }))
+          .digest("hex")
+          .slice(0, 12)}`,
       },
     );
 
@@ -490,6 +589,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         ...(cancelAtUnix ? { endDate: new Date(cancelAtUnix * 1000) } : {}),
         stripeSubscriptionId: sub.id,
         stripePriceId: sub.items?.data?.[0]?.price?.id ?? null,
+        ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
         notes: `Migrated from ${member.legacySource || "previous software"} — approved by club`,
       },
     });
@@ -553,5 +653,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }).catch((e) => console.error("Approval email failed:", e));
   }
 
+  if (appliedDiscount) await recordDiscountUse(appliedDiscount.id);
   return NextResponse.json({ ok: true, subscriptionId: memberSub.stripeSubscriptionId });
 }

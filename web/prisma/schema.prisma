@@ -57,6 +57,11 @@ model Club {
   // Centralized math lives in lib/fees.ts — never hardcode the % elsewhere.
   passProcessingFees       Boolean   @default(false)
   processingFeeNote        String?
+  // When a CASH/CHECK offer is accepted: 'ON_ACCEPTANCE' activates the
+  // membership with payment still due; 'ON_PAYMENT' activates only when staff
+  // records the money as received. NULL = code default (ON_PAYMENT — safer —
+  // for migration/reactivation). See lib/offlinePayments.ts.
+  offlineActivationPolicy  String?
   tagline                  String?
   sport                    String?
   primaryColor             String?   @default("#534AB7")
@@ -629,6 +634,10 @@ model Member {
   migrationPriceOverride   Decimal? @db.Decimal(10, 2)
   // Free-text note for why (e.g. "Founding member 20% off"). Display only.
   migrationDiscountNote    String?
+  // Owner-selected discount code (staff dropdown) for the staged offer —
+  // validated server-side against lib/discounts on every use; never trusted
+  // from the client as an amount.
+  migrationDiscountCode    String?
   // Owner flag: this member is in their already-paid final period. The
   // activation link then shows "active through <commitmentEndDate>", collects
   // no card, and completes as a non-renewing membership (no subscription).
@@ -1337,6 +1346,11 @@ model Transaction {
   // (card record with no Stripe confirmation — never verified revenue) |
   // REVIEW (claims Stripe, no Stripe id) | VOID (excluded from revenue).
   reconciliationStatus  String?
+  // Discount identity (2026-07-16): which discount produced this amount —
+  // populated by every purchase path that applies one, so Financials/receipts
+  // can say "SIBLING Discount Applied" without parsing free text.
+  discountCode          String?
+  discountAmount        Decimal?          @db.Decimal(10, 2)
   // Effective accounting date (owner-set for manual entries). Falls back to
   // createdAt for reporting when null.
   txDate                DateTime?

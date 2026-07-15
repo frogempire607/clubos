@@ -8,7 +8,8 @@ import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
-import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
+import { discountedPrice, recordDiscountUse } from "@/lib/discounts";
+import { resolveStaffDiscount, discountAppliedLabel, type ResolvedStaffDiscount } from "@/lib/staffPayments";
 import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
 import { sendEmail } from "@/lib/email";
 
@@ -82,14 +83,21 @@ export async function POST(req: Request) {
     if (!option) return NextResponse.json({ error: "Option not found" }, { status: 404 });
 
     // Discount codes apply to whichever purchase option was selected; a code
-    // scoped to specific memberships only validates against those.
-    let discount = null as import("@/lib/discounts").ValidDiscount | null;
+    // scoped to specific memberships only validates against those. Resolved
+    // via the shared staff-discount engine (invalid = 400 BLOCK, and the
+    // resolved description drives the "<X> Discount Applied" label).
+    let discount: ResolvedStaffDiscount | null = null;
     if (body.discountCode?.trim()) {
-      const check = await findValidDiscount(club.id, body.discountCode, membershipId);
+      const check = await resolveStaffDiscount(club.id, body.discountCode, {
+        type: "MEMBERSHIP",
+        membershipId,
+      });
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
       discount = check.discount;
     }
     const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
+    const discountAmount = discount ? Math.round((option.price - finalPrice) * 100) / 100 : null;
+    const discountLabel = discountAppliedLabel(discount);
 
     // Resolve billing type: explicit override > ONE_TIME if period is ONE_TIME > plan default
     const resolvedBillingType =
@@ -128,6 +136,7 @@ export async function POST(req: Request) {
           startedAt: new Date(),
           notes: body.notes || null,
           discountCode: discount?.code || null,
+          discountAmount,
         },
       });
       if (discount) await recordDiscountUse(discount.id);
@@ -149,6 +158,12 @@ export async function POST(req: Request) {
                 <p style="margin:0 0 16px;color:#444">Hi ${member.firstName}, here's your membership confirmation from ${club.name}.</p>
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
                   <tr><td style="padding:6px 0;color:#666">Plan</td><td style="padding:6px 0;text-align:right">${membership.name} — ${option.label}</td></tr>
+                  ${
+                    discount
+                      ? `<tr><td style="padding:6px 0;color:#666">Original price</td><td style="padding:6px 0;text-align:right">$${option.price.toFixed(2)}</td></tr>
+                         <tr><td style="padding:6px 0;color:#666">${discountLabel}</td><td style="padding:6px 0;text-align:right">−$${(discountAmount ?? 0).toFixed(2)}</td></tr>`
+                      : ""
+                  }
                   <tr><td style="padding:6px 0;color:#666">Price</td><td style="padding:6px 0;text-align:right;font-weight:600">$${finalPrice.toFixed(2)}${discount ? ` (code ${discount.code})` : ""}</td></tr>
                   <tr><td style="padding:6px 0;color:#666">Starts</td><td style="padding:6px 0;text-align:right">${resolvedStartDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</td></tr>
                   ${resolvedEndDate ? `<tr><td style="padding:6px 0;color:#666">Ends</td><td style="padding:6px 0;text-align:right">${resolvedEndDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</td></tr>` : ""}
@@ -190,6 +205,7 @@ export async function POST(req: Request) {
         status: "pending",
         notes: body.notes || null,
         discountCode: discount?.code || null,
+        discountAmount,
       },
     });
 
@@ -266,6 +282,9 @@ export async function POST(req: Request) {
           memberSubscriptionId: memberSub.id,
           memberId,
           clubId: club.id,
+          // Discount identity for the webhook's Transaction (pickup pending —
+          // the webhook is a separate workstream and is not modified here).
+          ...(discount ? { discountCode: discount.code, discountAmount: String(discountAmount ?? 0) } : {}),
         },
         ...(checkoutMode === "subscription"
           ? { subscription_data: subscriptionData }

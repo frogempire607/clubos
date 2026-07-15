@@ -21,6 +21,7 @@ import {
 } from "@/lib/billingAdmin";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { feeBreakdown, describeProcessingFee } from "@/lib/fees";
+import { resolveStaffDiscount } from "@/lib/staffPayments";
 import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 
 export const dynamic = "force-dynamic";
@@ -118,6 +119,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       club: {
         select: {
           id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true,
+          offlineActivationPolicy: true,
         },
       },
       membership: { select: { id: true, name: true } },
@@ -384,6 +386,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     },
     hasPendingCharge,
     anchorMismatch,
+    // Club rule for CASH/CHECK offers: does the membership activate when the
+    // client accepts, or only when staff records the money as received?
+    offlineActivationPolicy: club.offlineActivationPolicy === "ON_ACCEPTANCE" ? "ON_ACCEPTANCE" : "ON_PAYMENT",
     feeBreakdown: {
       passFees: club.passProcessingFees,
       feePercentLabel: describeProcessingFee(),
@@ -404,6 +409,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       periodLabel: pricing.configured ? prettyPeriod(pricing.period) : null,
       priceOverride: member.migrationPriceOverride != null ? Number(member.migrationPriceOverride) : null,
       discountNote: member.migrationDiscountNote,
+      // Staff-selected discount code for the staged offer (dropdown).
+      discountCode: member.migrationDiscountCode,
       startDate: member.membershipStartDate,
       billingAnchorDate: member.billingAnchorDate,
       finalBillingDate: member.migrationFinalBillingDate,
@@ -487,6 +494,13 @@ const patchSchema = z.object({
   selectedOptionLabel: z.string().optional().nullable(),
   priceOverride: z.number().nonnegative().max(100000).optional().nullable(),
   discountNote: z.string().max(200).optional().nullable(),
+  // Staff-selected discount CODE (dropdown) — validated server-side against
+  // the discount engine on save AND re-validated at every offer build/charge.
+  discountCode: z.string().max(40).optional().nullable(),
+  // Staff-selected payment method for the staged offer (shared vocabulary):
+  // CARD = saved card, LATER = client adds a new card, CASH/CHECK = offline
+  // with the receipt-confirmation flow.
+  paymentMethodPreference: z.enum(["CARD", "LATER", "CASH", "CHECK"]).optional().nullable(),
   billingFrequency: z.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMI_ANNUAL", "ANNUAL"]).optional().nullable(),
   membershipStartDate: z.string().optional().nullable(),
   billingAnchorDate: z.string().optional().nullable(),
@@ -625,6 +639,23 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       set("discountNote", member.migrationDiscountNote, data.discountNote?.trim() || null);
       update.migrationDiscountNote = data.discountNote?.trim() || null;
     }
+  }
+  if (data.discountCode !== undefined) {
+    const code = data.discountCode?.trim().toUpperCase() || null;
+    if (code) {
+      // Invalid/ineligible codes BLOCK the save — never stored silently.
+      const resolved = await resolveStaffDiscount(session.user.clubId, code, {
+        type: "MEMBERSHIP",
+        membershipId: data.membershipId !== undefined ? data.membershipId : member.migrationMembershipId,
+      });
+      if (!resolved.ok) return NextResponse.json({ error: resolved.error, code: "DISCOUNT_INVALID" }, { status: 400 });
+    }
+    set("discountCode", member.migrationDiscountCode, code);
+    update.migrationDiscountCode = code;
+  }
+  if (data.paymentMethodPreference !== undefined) {
+    set("paymentMethod", member.requestedPaymentMethod, data.paymentMethodPreference || null);
+    update.requestedPaymentMethod = data.paymentMethodPreference || null;
   }
   if (data.billingFrequency !== undefined) {
     set("billingFrequency", member.legacyBillingFrequency, data.billingFrequency || null);

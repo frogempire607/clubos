@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
+import { parseOffer, compareOfferToCurrent, offerEffectivePrice } from "@/lib/reactivation";
+import { offlineActivationPolicy, isOfflineMethod } from "@/lib/staffPayments";
 import { chargeTiming, prettyPeriod } from "@/lib/billingAdmin";
 import { applyProcessingFee } from "@/lib/fees";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
@@ -40,6 +41,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
           stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true,
+          offlineActivationPolicy: true,
         },
       },
     },
@@ -123,12 +125,21 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   const timing = chargeTiming(firstCharge);
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
 
+  // What the client actually pays: the DISCOUNTED price when a discount is
+  // frozen into the offer (lib/reactivation.ts offerEffectivePrice).
+  const effectivePrice = offerEffectivePrice(offer);
+
   // The exact card charge when the club passes the Stripe processing fee.
-  // MUST equal what confirm creates: recurringUnitWithFee(price, passFees) —
-  // both route through lib/fees.ts on the same cent base.
+  // MUST equal what confirm creates: recurringUnitWithFee on the same
+  // DISCOUNTED cent base — both route through lib/fees.ts.
   const passFees = offer.paymentMode === "CARD" && !isFree && r.club.passProcessingFees;
-  const fees = applyProcessingFee(Math.round(offer.price * 100), passFees);
+  const fees = applyProcessingFee(Math.round(effectivePrice * 100), passFees);
   const totalCharged = fees.totalCents / 100;
+
+  // Offline (cash/check) offers: which club rule governs when the membership
+  // starts — the page must say so before AND after the client confirms.
+  const offlinePolicy = offlineActivationPolicy(r.club);
+  const offlineMethod = isOfflineMethod(offer.paymentMethod) ? offer.paymentMethod : null;
 
   return NextResponse.json({
     club: {
@@ -152,6 +163,10 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
       firstChargeDate: offer.firstChargeDate,
       commitmentEndDate: offer.commitmentEndDate,
       paymentMode: offer.paymentMode,
+      // Staff-selected method (CASH/CHECK ⇒ the club collects offline) and
+      // the frozen discount math — the page renders both explicitly.
+      paymentMethod: offer.paymentMethod,
+      discount: offer.discount,
       // Plan-level renewal behavior frozen into the offer: false ⇒ the
       // membership ends (at the commitment date) instead of renewing.
       autoRenew: offer.autoRenew,
@@ -168,6 +183,10 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     // OPEN locks confirmation (the club is reviewing requested changes);
     // DENIED means the original offer is open again.
     changeRequestStatus: r.changeRequestStatus ?? null,
+    // Club rule for CASH/CHECK offers: ON_PAYMENT (default) = the membership
+    // starts only when staff records the money; ON_ACCEPTANCE = it starts on
+    // acceptance with the payment still due.
+    offlinePolicy,
     chargeTiming: {
       // Recomputed at read time: a future-dated offer that the client only
       // opens after the date passed becomes an immediate charge, and the page
@@ -185,7 +204,9 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     terms: {
       authorization: isFree
         ? `By confirming you accept ${r.club.name}'s membership terms.`
-        : `By confirming you authorize ${r.club.name} to charge the payment method on file $${totalCharged.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${passFees ? ` ($${(fees.subtotalCents / 100).toFixed(2)} membership + $${(fees.feeCents / 100).toFixed(2)} processing fee)` : ""}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
+        : offlineMethod
+          ? `By confirming you accept ${r.club.name}'s membership terms and agree to pay $${effectivePrice.toFixed(2)} ${prettyPeriod(offer.billingPeriod)} by ${offlineMethod.toLowerCase()}, collected by the club. Confirming does not charge anything online.`
+          : `By confirming you authorize ${r.club.name} to charge the payment method on file $${totalCharged.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${passFees ? ` ($${(fees.subtotalCents / 100).toFixed(2)} membership + $${(fees.feeCents / 100).toFixed(2)} processing fee)` : ""}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
     },
   });
 }

@@ -1,5 +1,15 @@
 # AthletixOS Project Context
 
+**2026-07-16 — Staff payment-method control + discount dropdown + cash/check receipt flow (branch `claude/staff-discount-picker`). THREE migrations added AND APPLIED via Supabase MCP (+bookkeeping): `20260716000000_offline_payments_discount_identity` (clubs.offlineActivationPolicy; transactions.discountCode/discountAmount), `20260716010000_member_discount_code` (members.migrationDiscountCode).**
+
+**SHARED PAYMENT/DISCOUNT RULES:**
+1. **`lib/staffPayments.ts` is the ONLY model** for staff payment methods (SAVED_CARD/NEW_CARD/CASH/CHECK/EXTERNAL_READER), payment states (Client accepted / Awaiting cash / Awaiting check / Paid — "Approved" NEVER means paid), discount resolution (`resolveStaffDiscount` — invalid code = HARD block, one discount max, no stacking by construction), and pricing quotes (`quotePayment` — clamps ≥$0, refuses sub-$0.50 card charges; offline records have no minimum). No page implements its own variant.
+2. **Discount dropdown**: `GET /api/discounts/eligible?itemType=&membershipId=` (billing:view) feeds every staff surface; clients keep type-a-code. Amounts always recomputed server-side; codes only cross the wire. Identity persists: `transactions.discountCode/discountAmount`, MemberSubscription discount columns, checkout `metadata.discountCode` → webhook stamps it, receipts say "<name> Discount Applied".
+3. **Offers freeze `paymentMethod` + `discount`** (with server math: amountOff/finalPrice); `offerEffectivePrice(offer)` is what the client pays (card charge, offline amount due, email/page display). Changing method or discount stales open offers (diffOffer) → regenerate new version. A stored-but-now-invalid discount BLOCKS offer creation (400 DISCOUNT_INVALID), never silently drops.
+4. **Cash/check acceptance ≠ payment**: confirm creates the MANUAL sub (status per `clubs.offlineActivationPolicy` — default ON_PAYMENT = pending, member NOT active) + ONE PENDING Transaction (paymentSource CASH/CHECK, OFFLINE) representing the amount due — never revenue, no receipt. Staff records physical receipt via `POST /api/members/[id]/offline-payment` (billing:full): Transaction → SUCCEEDED (+txDate, check #/ref, receiver audited), pending sub → active, member recomputed, receipt email "… Paid by Check". ON_ACCEPTANCE (explicit owner setting, Settings → Billing) activates at confirm with payment still due. NO Stripe object for cash/check ever.
+5. **billing-admin PATCH** gained `discountCode` (validated) + `paymentMethodPreference` (CARD/LATER/CASH/CHECK → member.requestedPaymentMethod) — both money-gated (billing:full), audited, never charge.
+6. Tests: staff-payment quote/label/staleness cases appended to `scripts/billing-admin-tests.ts`.
+
 **2026-07-15 (later) — Status truth, profile labels, guardian accounts, "Continued membership" eliminated (branch `claude/status-truth-fixes`). NO schema change.**
 
 **STATUS & PROFILE RULES (owner-defined; enforce everywhere):**

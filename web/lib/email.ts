@@ -874,6 +874,18 @@ export type ReactivationEmailParams = {
   membershipName: string;
   optionLabel?: string | null;
   priceLabel: string; // "$110.00" or "Free"
+  // Staff-frozen discount, e.g. "SIBLING Discount Applied — $480.00 quarterly
+  // (was $530.00)". Every charged-amount label below is already the
+  // DISCOUNTED total; the Price row keeps the pre-discount price.
+  discountLine?: string | null;
+  // CASH/CHECK offers: the club collects the money offline — the CTA/summary
+  // must never use charge language, and the club policy decides when the
+  // membership starts. null for card/free offers.
+  paymentCollection?: {
+    method: "CASH" | "CHECK";
+    policy: "ON_ACCEPTANCE" | "ON_PAYMENT";
+    amountLabel: string; // "$480.00" — the discounted amount due
+  } | null;
   // Processing-fee pass-through (club setting): the EXACT total the card is
   // charged and the fee portion, e.g. "$545.37" / "$15.37". Both null when the
   // club absorbs the fee (or the offer is free/offline) — the base price is
@@ -904,6 +916,8 @@ export function renderMembershipReactivationEmail({
   membershipName,
   optionLabel,
   priceLabel,
+  discountLine,
+  paymentCollection,
   totalChargedLabel,
   processingFeeLabel,
   periodLabel,
@@ -931,10 +945,15 @@ export function renderMembershipReactivationEmail({
       <td style="padding:6px 0 6px 16px;color:#1c1917;font-size:13px;font-weight:600;text-align:right">${value}</td>
     </tr>`;
 
+  const collectionMethodLabel = paymentCollection
+    ? paymentCollection.method === "CHECK" ? "check" : "cash"
+    : null;
   const detailRows = [
     row("Athlete", safeAthlete),
     row("Membership", escapeHtml(membershipName) + (optionLabel ? ` · ${escapeHtml(optionLabel)}` : "")),
     row("Price", isFree ? "Free" : `${escapeHtml(priceLabel)} ${escapeHtml(periodLabel)}`),
+    // Staff-frozen discount — states the discounted amount actually paid.
+    discountLine ? row("Discount", escapeHtml(discountLine)) : "",
     // When the club passes the processing fee, the card is charged base + fee —
     // state the exact total so the email always reconciles with Stripe.
     !isFree && totalChargedLabel && processingFeeLabel
@@ -946,7 +965,19 @@ export function renderMembershipReactivationEmail({
       : "",
     firstChargeLabel && !immediateCharge ? row("Then recurring", escapeHtml(periodLabel)) : "",
     commitmentLabel ? row("Commitment through", escapeHtml(commitmentLabel)) : "",
-    cardSummary ? row("Payment method", escapeHtml(cardSummary)) : row("Payment method", "You'll add one securely"),
+    // CASH/CHECK: the club collects offline — never imply a card charge, and
+    // say (per the club's policy) exactly when the membership starts.
+    paymentCollection
+      ? row("Payment method", `${collectionMethodLabel === "check" ? "Check" : "Cash"} — collected by the club`)
+      : cardSummary ? row("Payment method", escapeHtml(cardSummary)) : row("Payment method", "You'll add one securely"),
+    paymentCollection
+      ? row(
+          "Membership starts",
+          paymentCollection.policy === "ON_ACCEPTANCE"
+            ? `When you confirm — ${escapeHtml(paymentCollection.amountLabel)} is still due to the club`
+            : `Once the club records your ${collectionMethodLabel} payment`,
+        )
+      : "",
     payerName ? row("Billed to", escapeHtml(payerName)) : "",
   ].join("");
 
@@ -959,13 +990,17 @@ export function renderMembershipReactivationEmail({
     : "";
 
   // Charge-timing wording must state the EXACT total charged (fee-inclusive
-  // when the club passes it) — never a base price the card statement won't show.
+  // when the club passes it, discount already applied) — never a base price
+  // the card statement won't show. CASH/CHECK offers use collection wording:
+  // confirming never pays anything online.
   const chargedAmountLabel = totalChargedLabel || priceLabel;
-  const ctaLabel = isFree || !firstChargeLabel
-    ? "Review & confirm membership"
-    : immediateCharge
-      ? `Review & confirm — ${escapeHtml(chargedAmountLabel)} charged today`
-      : `Review & confirm — first payment ${escapeHtml(firstChargeLabel)}`;
+  const ctaLabel = paymentCollection && !isFree
+    ? `Review & confirm — the club collects ${escapeHtml(paymentCollection.amountLabel)} by ${collectionMethodLabel}`
+    : isFree || !firstChargeLabel
+      ? "Review & confirm membership"
+      : immediateCharge
+        ? `Review & confirm — ${escapeHtml(chargedAmountLabel)} charged today`
+        : `Review & confirm — first payment ${escapeHtml(firstChargeLabel)}`;
 
   const subject = `Action needed: confirm ${athleteName}'s ${clubName} membership`;
   const html = clubBrandedLayout({
@@ -976,8 +1011,11 @@ export function renderMembershipReactivationEmail({
         <h2 style="color:#1c1917;margin:0 0 6px;font-size:20px;font-weight:700">Confirm ${safeAthlete}'s membership</h2>
         <p style="color:#57534e;line-height:1.6;margin:0 0 18px;font-size:14px">
           ${safeClub} has your membership set up and ready — it just needs your review and confirmation.
-          You already have an account, so this takes about a minute and nothing is charged until the
-          date shown below${immediateCharge && !isFree ? ", except that confirming today starts your billing immediately" : ""}.
+          You already have an account, so this takes about a minute and ${
+            paymentCollection && !isFree
+              ? `nothing is paid online — the club collects your ${collectionMethodLabel} payment in person`
+              : `nothing is charged until the date shown below${immediateCharge && !isFree ? ", except that confirming today starts your billing immediately" : ""}`
+          }.
         </p>
         ${noteBlock}
         <div style="border:1px solid #e7e5e4;border-radius:12px;padding:14px 18px;margin:0 0 20px">

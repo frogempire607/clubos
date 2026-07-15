@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { sendEmail } from "@/lib/email";
 import { attendanceMethodClassification } from "@/lib/paymentSources";
+import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
 
 // POST /api/attendance/charge
 // Record attendance + a non-Stripe payment for a (possibly non-member /
@@ -27,6 +29,10 @@ const schema = z.object({
   notes: z.string().optional().nullable(),
   legalEntityId: z.string().optional().nullable(),
   emailReceipt: z.boolean().optional().default(false),
+  // Optional staff-selected discount code. Validated server-side — an invalid
+  // code BLOCKS the charge (400), it is never silently ignored. The staff
+  // `amount` is treated as the ORIGINAL price; the discount applies here.
+  discountCode: z.string().optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -78,6 +84,25 @@ export async function POST(req: Request) {
     category = category || "events";
   }
 
+  // Server-side discount resolution + quote. The staff-entered `amount` is the
+  // original price; the discount is applied HERE (never trusted from the
+  // client). Method CASH → no processing fee on any offline record.
+  const discountCheck = await resolveStaffDiscount(clubId, data.discountCode, {
+    type: data.classSessionId ? "CLASS" : "EVENT",
+  });
+  if (!discountCheck.ok) return NextResponse.json({ error: discountCheck.error }, { status: 400 });
+  const discount = discountCheck.discount;
+  const quoted = quotePayment({
+    originalPrice: data.amount,
+    discount,
+    method: "CASH",
+    passProcessingFees: false,
+  });
+  if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
+  const quote = quoted.quote;
+  const finalAmount = quote.finalPrice;
+  const discountLabel = discountAppliedLabel(discount);
+
   const memberName = `${member.firstName} ${member.lastName}`.trim();
   const now = new Date();
 
@@ -94,7 +119,7 @@ export async function POST(req: Request) {
     status: data.status,
     notes: data.notes ?? null,
     paymentMethod: data.paymentMethod,
-    amountCharged: data.amount,
+    amountCharged: finalAmount,
     checkedInAt: existing?.checkedInAt ?? now,
     addedById: session.user.id,
   };
@@ -128,21 +153,24 @@ export async function POST(req: Request) {
     data: {
       clubId,
       memberId: member.id,
-      amount: data.amount,
+      amount: finalAmount,
       status: txStatus,
       type: data.classSessionId ? "CLASS" : "EVENT",
       category,
       paymentMethod: data.paymentMethod,
       paymentSource: classification.paymentSource,
       reconciliationStatus: classification.reconciliationStatus,
+      discountCode: discount?.code ?? null,
+      discountAmount: discount ? quote.discountAmount : null,
       legalEntityId: data.legalEntityId || null,
       source: memberName,
-      description: `${label} — ${memberName}${contextName ? ` — ${contextName}` : ""}`,
+      description: `${label} — ${memberName}${contextName ? ` — ${contextName}` : ""}${discountLabel ? ` — ${discountLabel}` : ""}`,
       notes: data.notes || null,
       manual: true,
       txDate: now,
     },
   });
+  if (discount) await recordDiscountUse(discount.id);
 
   // Optional emailed receipt to the attendee (or their guardian for a minor).
   let receiptSent = false;
@@ -153,13 +181,17 @@ export async function POST(req: Request) {
         where: { id: clubId },
         select: { name: true, emailFromName: true, emailReplyTo: true },
       });
-      const amountStr = `$${data.amount.toFixed(2)}`;
+      const amountStr = `$${finalAmount.toFixed(2)}`;
       const paidLine =
         data.paymentMethod === "INVOICE"
           ? `${amountStr} — Invoice (unpaid)`
           : data.paymentMethod === "COMP"
             ? "No charge (comped)"
             : `${amountStr} — ${label}`;
+      const discountRows = discount
+        ? `<tr><td style="padding:6px 0;color:#666">Original price</td><td style="padding:6px 0;text-align:right">$${quote.originalPrice.toFixed(2)}</td></tr>
+           <tr><td style="padding:6px 0;color:#666">${discountLabel}</td><td style="padding:6px 0;text-align:right">−$${quote.discountAmount.toFixed(2)}</td></tr>`
+        : "";
       await sendEmail({
         to,
         subject: `Receipt — ${contextName || "Attendance"}`,
@@ -171,6 +203,7 @@ export async function POST(req: Request) {
             <table style="width:100%;border-collapse:collapse;font-size:14px">
               <tr><td style="padding:6px 0;color:#666">For</td><td style="padding:6px 0;text-align:right">${contextName || "Attendance"}</td></tr>
               <tr><td style="padding:6px 0;color:#666">Date</td><td style="padding:6px 0;text-align:right">${now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</td></tr>
+              ${discountRows}
               <tr><td style="padding:6px 0;color:#666">Amount</td><td style="padding:6px 0;text-align:right;font-weight:600">${paidLine}</td></tr>
             </table>
             ${data.notes ? `<p style="margin:16px 0 0;color:#666;font-size:13px">Note: ${data.notes}</p>` : ""}

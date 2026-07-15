@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { ArrowLeft, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
+import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import { todayLocalISO } from "@/lib/datetime";
 
@@ -156,6 +157,189 @@ function PayMethodChips({ value, onChange }: { value: PayMethod; onChange: (m: P
   );
 }
 
+// ─── Staff discount select (inline — components/StaffDiscountPicker.tsx is
+//     being built by another workstream and didn't exist yet; swap to it when
+//     it lands) ──────────────────────────────────────────────────────────────
+// Fed by /api/discounts/eligible?itemType=CLASS — eligible rows selectable,
+// ineligible rows disabled with their reason. All amounts shown here are a
+// display-only mirror; every route re-validates the code and recomputes the
+// price server-side.
+
+type EligibleDiscount = {
+  id: string;
+  code: string;
+  name: string;
+  type: "PERCENT" | "FIXED";
+  value: number;
+  amountLabel: string;
+  eligible: boolean;
+  reason: string | null;
+};
+
+async function fetchEligibleClassDiscounts(): Promise<EligibleDiscount[]> {
+  try {
+    const res = await fetch("/api/discounts/eligible?itemType=CLASS");
+    const d = await res.json().catch(() => ({}));
+    return res.ok && Array.isArray(d.discounts) ? (d.discounts as EligibleDiscount[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Display-only mirror of the server's PERCENT/FIXED math (clamped at $0).
+function discountMathFor(orig: number, d: EligibleDiscount | null | undefined) {
+  if (!d || !(orig > 0)) return null;
+  const cut = d.type === "PERCENT" ? (orig * d.value) / 100 : d.value;
+  const final = Math.max(0, Math.round((orig - cut) * 100) / 100);
+  return { original: orig, discountAmount: Math.round((orig - final) * 100) / 100, final };
+}
+
+function DiscountSelect({
+  discounts,
+  value,
+  onChange,
+}: {
+  discounts: EligibleDiscount[] | null; // null = still loading
+  value: string;
+  onChange: (code: string) => void;
+}) {
+  if (discounts === null) return <p className="text-[11px] text-text-muted">Loading discounts…</p>;
+  if (discounts.length === 0) return null;
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs bg-white"
+      aria-label="Discount"
+    >
+      <option value="">No discount</option>
+      {discounts.map((d) => (
+        <option key={d.id} value={d.code} disabled={!d.eligible}>
+          {d.code} — {d.amountLabel}
+          {d.eligible ? "" : ` (${d.reason ?? "not eligible"})`}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function DiscountMathRows({ orig, discount }: { orig: number; discount: EligibleDiscount | null }) {
+  const math = discountMathFor(orig, discount);
+  if (!math || !discount) return null;
+  return (
+    <div className="text-[11px] text-text-muted space-y-0.5">
+      <div className="flex justify-between">
+        <span>Original</span>
+        <span>${math.original.toFixed(2)}</span>
+      </div>
+      <div className="flex justify-between">
+        <span>{discount.name} discount</span>
+        <span>−${math.discountAmount.toFixed(2)}</span>
+      </div>
+      <div className="flex justify-between font-medium text-text-primary">
+        <span>Final</span>
+        <span>${math.final.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Outstanding cash/check ("Owes") chips ────────────────────────────────────
+// READ-ONLY roll-up from GET /api/offline-payments (billing:view OR
+// attendance:edit — a 403 simply hides the chips). The ONLY action that
+// changes data is "Record payment received", which reuses the one existing
+// engine (OfflinePaymentsCard → POST /api/members/[id]/offline-payment,
+// billing:full enforced server-side). Allow/Deny just close the panel with a
+// note — check-in continues through the normal buttons, nothing is written.
+
+type OwedRow = {
+  transactionId: string;
+  memberId: string;
+  memberName: string;
+  amount: number;
+  method: "CASH" | "CHECK";
+  description: string | null;
+  discountCode: string | null;
+  acceptedAt: string;
+  stateLabel: string;
+};
+
+type OwedMap = Record<string, OwedRow[]>;
+
+const OWES_ALLOW_NOTE = "Attendance allowed — payment still due; the chip stays until it's recorded.";
+const OWES_DENY_NOTE = "Don't check them in — ask for the payment first. Nothing was changed.";
+
+function OwesChip({ rows, onClick }: { rows: OwedRow[]; onClick: () => void }) {
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  const methods = Array.from(new Set(rows.map((r) => r.method.toLowerCase()))).join("/");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Outstanding cash/check payment — click for options"
+      className="ml-1.5 align-middle text-[10px] rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 font-medium hover:bg-orange-200"
+    >
+      Owes ${total.toFixed(2)} ({methods})
+    </button>
+  );
+}
+
+function OwesPanel({
+  memberId,
+  rows,
+  recording,
+  onRecord,
+  onAllow,
+  onDeny,
+  onRecorded,
+}: {
+  memberId: string;
+  rows: OwedRow[];
+  recording: boolean;
+  onRecord: () => void;
+  onAllow: () => void;
+  onDeny: () => void;
+  onRecorded: () => void;
+}) {
+  return (
+    <div className="mt-2 rounded-lg border border-orange-accent/40 bg-orange-accent/5 p-2 space-y-2">
+      {rows.map((r) => (
+        <p key={r.transactionId} className="text-[11px] text-text-muted">
+          <span className="font-medium text-text-primary">${r.amount.toFixed(2)}</span> · {r.stateLabel}
+          {r.description ? ` — ${r.description}` : ""}
+        </p>
+      ))}
+      {recording ? (
+        <OfflinePaymentsCard memberId={memberId} variant="inline" onChanged={onRecorded} />
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={onRecord}
+            className="px-2 py-1 text-[11px] rounded bg-brand text-white hover:bg-brand-hover"
+          >
+            Record payment received
+          </button>
+          <button
+            type="button"
+            onClick={onAllow}
+            className="px-2 py-1 text-[11px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
+          >
+            Allow attendance anyway
+          </button>
+          <button
+            type="button"
+            onClick={onDeny}
+            className="px-2 py-1 text-[11px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
+          >
+            Deny until paid
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Charge saved card (card-on-file) panel ───────────────────────────────────
 
 type ChargeCardPreview = {
@@ -199,6 +383,7 @@ function ChargeSavedCardPanel({
   notes,
   contextLabel,
   pricingOptions,
+  discount,
   onCharged,
 }: {
   memberId: string;
@@ -208,6 +393,10 @@ function ChargeSavedCardPanel({
   notes: string | null;
   contextLabel: string;
   pricingOptions: PricingOption[];
+  // Staff-selected discount — the BASE amount is still what's POSTed; the
+  // server re-validates the code and discounts authoritatively. This prop only
+  // drives the display math + the code sent.
+  discount?: EligibleDiscount | null;
   onCharged: () => void;
 }) {
   const [preview, setPreview] = useState<ChargeCardPreview | null>(null);
@@ -264,7 +453,8 @@ function ChargeSavedCardPanel({
         body: JSON.stringify({
           memberId,
           classSessionId,
-          amount: selectedPrice,
+          amount: selectedPrice, // BASE price — the server applies the discount
+          discountCode: discount?.code ?? null,
           status,
           notes: notes || null,
           emailReceipt,
@@ -420,9 +610,16 @@ function ChargeSavedCardPanel({
     );
   }
 
+  // Display-side math only — the server recomputes everything from the BASE
+  // price + code. Discount applies before the fee, mirroring quotePayment.
   const base = selectedPrice;
-  const fee = preview.passProcessingFees && base != null ? processingFeeFor(base) : 0;
-  const total = base != null ? base + fee : null;
+  const math = base != null && discount ? discountMathFor(base, discount) : null;
+  const discountedBase = base != null ? (math ? math.final : base) : null;
+  const fee =
+    preview.passProcessingFees && discountedBase != null && discountedBase > 0
+      ? processingFeeFor(discountedBase)
+      : 0;
+  const total = discountedBase != null ? discountedBase + fee : null;
 
   return (
     <div className="space-y-2">
@@ -464,16 +661,24 @@ function ChargeSavedCardPanel({
         )}
       </div>
 
-      {base != null && preview.passProcessingFees && (
+      {base != null && (preview.passProcessingFees || math) && (
         <div className="text-[11px] text-text-muted space-y-0.5">
           <div className="flex justify-between">
             <span>Base price</span>
             <span>${base.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between">
-            <span>Processing fee</span>
-            <span>${fee.toFixed(2)}</span>
-          </div>
+          {math && discount && (
+            <div className="flex justify-between">
+              <span>{discount.name} discount</span>
+              <span>−${math.discountAmount.toFixed(2)}</span>
+            </div>
+          )}
+          {preview.passProcessingFees && (
+            <div className="flex justify-between">
+              <span>Processing fee</span>
+              <span>${fee.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-medium text-text-primary">
             <span>Total charged</span>
             <span>${(total as number).toFixed(2)}</span>
@@ -528,6 +733,8 @@ function QuickAddForm({
   acceptedMemberships,
   freeTrial,
   onAdded,
+  owedMap,
+  onOwedChanged,
 }: {
   sessionId: string;
   sessionName: string;
@@ -536,6 +743,8 @@ function QuickAddForm({
   acceptedMemberships: AcceptedMembership[];
   freeTrial: FreeTrialSummary | null;
   onAdded: () => void;
+  owedMap: OwedMap;
+  onOwedChanged: () => void;
 }) {
   const [step, setStep] = useState<"search" | "add-new">("search");
   const [query, setQuery] = useState("");
@@ -558,6 +767,18 @@ function QuickAddForm({
   const [payStatus, setPayStatus] = useState<"DROP_IN" | "TRIAL" | "PRESENT">("DROP_IN");
   const [payNotes, setPayNotes] = useState("");
   const [payEmailReceipt, setPayEmailReceipt] = useState(false);
+  // Staff discount for the drop-in panel — fetched once when a panel first
+  // opens; codes only are sent, the server recomputes every price.
+  const [payDiscounts, setPayDiscounts] = useState<EligibleDiscount[] | null>(null);
+  const [payDiscountsRequested, setPayDiscountsRequested] = useState(false);
+  const [payDiscountCode, setPayDiscountCode] = useState("");
+  const payDiscount = payDiscounts?.find((d) => d.code === payDiscountCode && d.eligible) ?? null;
+
+  // What the record buttons display — the server recomputes authoritatively.
+  const payAmountNum = Number(payAmount || 0);
+  const payFinalAmount = payDiscount
+    ? (discountMathFor(payAmountNum, payDiscount)?.final ?? payAmountNum)
+    : payAmountNum;
 
   const memberPrice    = pricingOptions.find((o) => o.type === "member")    as { type: "member"; price: number } | undefined;
   const nonMemberPrice = pricingOptions.find((o) => o.type === "nonmember") as { type: "nonmember"; price: number } | undefined;
@@ -572,7 +793,14 @@ function QuickAddForm({
     const res = await fetch(`/api/classes/${classId}/charge`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId, classSessionId: sessionId, pricingType }),
+      body: JSON.stringify({
+        memberId,
+        classSessionId: sessionId,
+        pricingType,
+        // The panel's selected discount also applies to the Stripe-checkout
+        // tier — validated + applied server-side.
+        discountCode: payDiscountCode || null,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     setSaving(false);
@@ -604,6 +832,11 @@ function QuickAddForm({
     setPayStatus("DROP_IN");
     setPayNotes("");
     setPayEmailReceipt(false);
+    setPayDiscountCode("");
+    if (!payDiscountsRequested) {
+      setPayDiscountsRequested(true);
+      fetchEligibleClassDiscounts().then(setPayDiscounts);
+    }
     setError("");
     setTrialingId(null);
     setDropInId(memberId);
@@ -624,7 +857,8 @@ function QuickAddForm({
         memberId,
         status: payStatus,
         paymentMethod: payMethod,
-        amount: Number(payAmount || 0),
+        amount: Number(payAmount || 0), // ORIGINAL price — the server discounts
+        discountCode: payDiscountCode || null,
         notes: payNotes || null,
         emailReceipt: payEmailReceipt,
       }),
@@ -685,6 +919,18 @@ function QuickAddForm({
   // membership window) — small inline panel per search row.
   const [trialingId, setTrialingId] = useState<string | null>(null);
   const [trialEmailReceipt, setTrialEmailReceipt] = useState(false);
+
+  // "Owes $X" chip panel — per search row. Nothing here writes data except
+  // the embedded record flow (OwesPanel / OfflinePaymentsCard).
+  const [owesOpenId, setOwesOpenId] = useState<string | null>(null);
+  const [owesRecordId, setOwesRecordId] = useState<string | null>(null);
+  const [owesNotes, setOwesNotes] = useState<Record<string, string>>({});
+
+  function toggleOwes(memberId: string) {
+    setOwesNotes((n) => ({ ...n, [memberId]: "" }));
+    setOwesRecordId(null);
+    setOwesOpenId((cur) => (cur === memberId ? null : memberId));
+  }
 
   async function createAndCheckIn(e: React.FormEvent) {
     e.preventDefault();
@@ -835,6 +1081,9 @@ function QuickAddForm({
                   <div className="text-sm font-medium text-text-primary">
                     {m.firstName} {m.lastName}
                     {m.isMinor && <span className="ml-1.5 text-xs text-brand">(minor)</span>}
+                    {(owedMap[m.id]?.length ?? 0) > 0 && (
+                      <OwesChip rows={owedMap[m.id]} onClick={() => toggleOwes(m.id)} />
+                    )}
                   </div>
                   {m.isMinor && m.guardianName && (
                     <div className="text-xs text-text-muted">Guardian: {m.guardianName}</div>
@@ -871,6 +1120,31 @@ function QuickAddForm({
                   )}
                 </div>
               </div>
+              {owesNotes[m.id] ? (
+                <p className="mt-2 text-[11px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
+                  {owesNotes[m.id]}
+                </p>
+              ) : null}
+              {owesOpenId === m.id && (owedMap[m.id]?.length ?? 0) > 0 && (
+                <OwesPanel
+                  memberId={m.id}
+                  rows={owedMap[m.id]}
+                  recording={owesRecordId === m.id}
+                  onRecord={() => setOwesRecordId(m.id)}
+                  onAllow={() => {
+                    setOwesOpenId(null);
+                    setOwesNotes((n) => ({ ...n, [m.id]: OWES_ALLOW_NOTE }));
+                  }}
+                  onDeny={() => {
+                    setOwesOpenId(null);
+                    setOwesNotes((n) => ({ ...n, [m.id]: OWES_DENY_NOTE }));
+                  }}
+                  onRecorded={() => {
+                    setOwesNotes((n) => ({ ...n, [m.id]: "Payment recorded." }));
+                    onOwedChanged();
+                  }}
+                />
+              )}
               {trialingId === m.id && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                   <p className="text-sm font-medium text-text-primary">Start free trial for this client?</p>
@@ -901,6 +1175,7 @@ function QuickAddForm({
               {dropInId === m.id && classId && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                   <PayMethodChips value={payMethod} onChange={setPayMethod} />
+                  <DiscountSelect discounts={payDiscounts} value={payDiscountCode} onChange={setPayDiscountCode} />
                   <div className="grid grid-cols-2 gap-1.5">
                     {payMethod !== "CARD_ON_FILE" && (
                       <input
@@ -943,10 +1218,12 @@ function QuickAddForm({
                       notes={payNotes}
                       contextLabel={sessionName}
                       pricingOptions={pricingOptions}
+                      discount={payDiscount}
                       onCharged={onAdded}
                     />
                   ) : (
                     <>
+                      <DiscountMathRows orig={Number(payAmount || 0)} discount={payDiscount} />
                       <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
                         <input
                           type="checkbox"
@@ -968,8 +1245,8 @@ function QuickAddForm({
                             : payMethod === "INVOICE"
                               ? "Record as unpaid invoice"
                               : payMethod === "CREDIT"
-                              ? `Record externally-collected card payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`
-                              : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
+                              ? `Record externally-collected card payment${payAmount ? ` · $${payFinalAmount.toFixed(2)}` : ""}`
+                              : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${payFinalAmount.toFixed(2)}` : ""}`}
                       </button>
                     </>
                   )}
@@ -1042,10 +1319,14 @@ function AttendancePanel({
   sessionId,
   sessionName,
   onClose,
+  owedMap,
+  onOwedChanged,
 }: {
   sessionId: string;
   sessionName: string;
   onClose: () => void;
+  owedMap: OwedMap;
+  onOwedChanged: () => void;
 }) {
   const [data, setData] = useState<{
     session: ClassSession & {
@@ -1068,11 +1349,32 @@ function AttendancePanel({
   const [chargeMethod, setChargeMethod] = useState<PayMethod>("CASH");
   const [chargeEmailReceipt, setChargeEmailReceipt] = useState(false);
   const [chargeError, setChargeError] = useState("");
+  // Staff discount for the roster charge form — fetched once when a form
+  // first opens; only the code is sent, the server recomputes every price.
+  const [chargeDiscounts, setChargeDiscounts] = useState<EligibleDiscount[] | null>(null);
+  const [chargeDiscountsRequested, setChargeDiscountsRequested] = useState(false);
+  const [chargeDiscountCode, setChargeDiscountCode] = useState("");
+  const chargeDiscount = chargeDiscounts?.find((d) => d.code === chargeDiscountCode && d.eligible) ?? null;
+  const chargeAmountNum = Number(chargeAmount || 0);
+  const chargeFinalAmount = chargeDiscount
+    ? (discountMathFor(chargeAmountNum, chargeDiscount)?.final ?? chargeAmountNum)
+    : chargeAmountNum;
   // Trial on a roster row asks for confirmation first — it starts the club's
   // free-trial membership window, not just an attendance mark.
   const [trialRecId, setTrialRecId] = useState<string | null>(null);
   const [trialEmailReceipt, setTrialEmailReceipt] = useState(false);
   const [trialError, setTrialError] = useState("");
+  // "Owes $X" chip panel — per roster member. Nothing here writes data except
+  // the embedded record flow (OwesPanel / OfflinePaymentsCard).
+  const [owesOpenId, setOwesOpenId] = useState<string | null>(null);
+  const [owesRecordId, setOwesRecordId] = useState<string | null>(null);
+  const [owesNotes, setOwesNotes] = useState<Record<string, string>>({});
+
+  function toggleOwes(memberId: string) {
+    setOwesNotes((n) => ({ ...n, [memberId]: "" }));
+    setOwesRecordId(null);
+    setOwesOpenId((cur) => (cur === memberId ? null : memberId));
+  }
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/attendance/${sessionId}`);
@@ -1104,6 +1406,11 @@ function AttendancePanel({
     setChargeMethod("CASH");
     setChargeEmailReceipt(false);
     setChargeError("");
+    setChargeDiscountCode("");
+    if (!chargeDiscountsRequested) {
+      setChargeDiscountsRequested(true);
+      fetchEligibleClassDiscounts().then(setChargeDiscounts);
+    }
     setTrialRecId(null);
     setChargeRecId(rec.id);
   }
@@ -1152,7 +1459,8 @@ function AttendancePanel({
         memberId: rec.member.id,
         status: "DROP_IN",
         paymentMethod: chargeMethod,
-        amount: Number(chargeAmount || 0),
+        amount: Number(chargeAmount || 0), // ORIGINAL price — the server discounts
+        discountCode: chargeDiscountCode || null,
         emailReceipt: chargeEmailReceipt,
       }),
     });
@@ -1263,6 +1571,12 @@ function AttendancePanel({
                               {rec.member.isMinor && (
                                 <span className="ml-1.5 text-xs text-brand">(minor)</span>
                               )}
+                              {(owedMap[rec.member.id]?.length ?? 0) > 0 && (
+                                <OwesChip
+                                  rows={owedMap[rec.member.id]}
+                                  onClick={() => toggleOwes(rec.member.id)}
+                                />
+                              )}
                             </div>
                             {rec.member.isMinor && rec.member.guardianName && (
                               <div className="text-xs text-text-muted">
@@ -1318,11 +1632,43 @@ function AttendancePanel({
                             Remove
                           </button>
                         </div>
+                        {/* "Owes" note + panel — informational; only the embedded
+                            record flow changes data. */}
+                        {owesNotes[rec.member.id] ? (
+                          <p className="mt-2 text-[11px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
+                            {owesNotes[rec.member.id]}
+                          </p>
+                        ) : null}
+                        {owesOpenId === rec.member.id && (owedMap[rec.member.id]?.length ?? 0) > 0 && (
+                          <OwesPanel
+                            memberId={rec.member.id}
+                            rows={owedMap[rec.member.id]}
+                            recording={owesRecordId === rec.member.id}
+                            onRecord={() => setOwesRecordId(rec.member.id)}
+                            onAllow={() => {
+                              setOwesOpenId(null);
+                              setOwesNotes((n) => ({ ...n, [rec.member.id]: OWES_ALLOW_NOTE }));
+                            }}
+                            onDeny={() => {
+                              setOwesOpenId(null);
+                              setOwesNotes((n) => ({ ...n, [rec.member.id]: OWES_DENY_NOTE }));
+                            }}
+                            onRecorded={() => {
+                              setOwesNotes((n) => ({ ...n, [rec.member.id]: "Payment recorded." }));
+                              onOwedChanged();
+                            }}
+                          />
+                        )}
                         {/* Drop-in charge form — price + payment method, always
                             reachable no matter which status was clicked first. */}
                         {chargeRecId === rec.id && (
                           <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                             <PayMethodChips value={chargeMethod} onChange={setChargeMethod} />
+                            <DiscountSelect
+                              discounts={chargeDiscounts}
+                              value={chargeDiscountCode}
+                              onChange={setChargeDiscountCode}
+                            />
                             {chargeMethod === "CARD_ON_FILE" ? (
                               <>
                                 <ChargeSavedCardPanel
@@ -1333,6 +1679,7 @@ function AttendancePanel({
                                   notes={null}
                                   contextLabel={sessionName}
                                   pricingOptions={data?.pricingOptions ?? []}
+                                  discount={chargeDiscount}
                                   onCharged={() => load()}
                                 />
                                 <button
@@ -1353,6 +1700,7 @@ function AttendancePanel({
                                   placeholder={chargeMethod === "COMP" ? "Value (optional)" : "Drop-in amount"}
                                   className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
                                 />
+                                <DiscountMathRows orig={chargeAmountNum} discount={chargeDiscount} />
                                 {chargeMethod === "CREDIT" && (
                                   <p className="text-[11px] text-orange-accent">
                                     AthletixOS does NOT charge the card — record only, collected on your external card reader.
@@ -1378,8 +1726,8 @@ function AttendancePanel({
                                       : chargeMethod === "COMP"
                                         ? "Mark Drop-in (comped)"
                                         : chargeMethod === "CREDIT"
-                                        ? `Record external card${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`
-                                        : `Charge${chargeAmount ? ` $${Number(chargeAmount).toFixed(2)}` : ""} & mark Drop-in`}
+                                        ? `Record external card${chargeAmount ? ` $${chargeFinalAmount.toFixed(2)}` : ""} & mark Drop-in`
+                                        : `Charge${chargeAmount ? ` $${chargeFinalAmount.toFixed(2)}` : ""} & mark Drop-in`}
                                   </button>
                                   <button
                                     disabled={updating === rec.member.id}
@@ -1457,6 +1805,8 @@ function AttendancePanel({
                       acceptedMemberships={data?.acceptedMemberships ?? []}
                       freeTrial={data?.freeTrial ?? null}
                       onAdded={() => { load(); }}
+                      owedMap={owedMap}
+                      onOwedChanged={onOwedChanged}
                     />
                   </div>
                 ) : (
@@ -1564,6 +1914,26 @@ function AttendancePageInner() {
   const [selectedSession, setSelectedSession] = useState<{ id: string; name: string } | null>(
     null
   );
+
+  // Outstanding cash/check payments, memberId → rows. Fetched once per page
+  // load and refetched after a record success (chip disappears). Staff without
+  // billing:view / attendance:edit get a 403 → the map stays empty.
+  const [owedMap, setOwedMap] = useState<OwedMap>({});
+  const refetchOwed = useCallback(() => {
+    fetch("/api/offline-payments")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const map: OwedMap = {};
+        if (Array.isArray(d?.outstanding)) {
+          for (const row of d.outstanding as OwedRow[]) {
+            (map[row.memberId] ??= []).push(row);
+          }
+        }
+        setOwedMap(map);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { refetchOwed(); }, [refetchOwed]);
 
   const load = useCallback(async (d: string) => {
     setLoading(true);
@@ -1726,6 +2096,8 @@ function AttendancePageInner() {
           sessionId={selectedSession.id}
           sessionName={selectedSession.name}
           onClose={() => setSelectedSession(null)}
+          owedMap={owedMap}
+          onOwedChanged={refetchOwed}
         />
       )}
     </div>

@@ -104,6 +104,7 @@ const offerA: ReactivationOffer = {
   membershipId: "m1", planName: "Jr Frogs", optionLabel: "Monthly", price: 110, billingPeriod: "MONTHLY",
   startDate: "2026-03-11T00:00:00.000Z", firstChargeDate: "2026-07-19T00:00:00.000Z",
   commitmentEndDate: null, paymentMode: "CARD", payerUserId: null, autoRenew: true,
+  paymentMethod: "SAVED_CARD", discount: null,
 };
 check("identical offers match", diffOffer(offerA, { ...offerA }).length === 0);
 check("price edit marks it out of date", diffOffer(offerA, { ...offerA, price: 120 }).join() === "price");
@@ -253,4 +254,41 @@ check("quarterly", prettyPeriod("QUARTERLY") === "quarterly");
 check("annual", prettyPeriod("ANNUAL") === "yearly");
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
+if (fail > 0) process.exit(1);
+
+// ── Staff payments: quotes, labels, offer method/discount staleness ────────
+import { quotePayment, discountAppliedLabel } from "../lib/staffPayments";
+console.log("\nstaffPayments:");
+{
+  const d = { id: "d1", code: "SIBLING", description: "Sibling", type: "PERCENT" as const, value: 10 };
+  const q = quotePayment({ originalPrice: 530, discount: d, method: "CHECK", passProcessingFees: true });
+  check("percent quote math (offline: no fee)", q.ok && q.quote.finalPrice === 477 && q.quote.discountAmount === 53 && q.quote.processingFee === 0 && q.quote.totalCharged === 477);
+  const qc = quotePayment({ originalPrice: 530, discount: d, method: "SAVED_CARD", passProcessingFees: true });
+  check("card quote adds fee on the DISCOUNTED price", qc.ok && qc.quote.finalPrice === 477 && qc.quote.totalCharged === 477 + Math.round(47700 * 0.029) / 100);
+  const fixed = { id: "d2", code: "50OFF", description: null, type: "FIXED" as const, value: 50 };
+  const qf = quotePayment({ originalPrice: 40, discount: fixed, method: "CASH", passProcessingFees: false });
+  check("fixed discount clamps at $0 (never negative)", qf.ok && qf.quote.finalPrice === 0);
+  const qmin = quotePayment({ originalPrice: 0.6, discount: { ...fixed, value: 0.2 }, method: "SAVED_CARD", passProcessingFees: false });
+  check("sub-$0.50 card charge is refused", !qmin.ok);
+  const qminCash = quotePayment({ originalPrice: 0.6, discount: { ...fixed, value: 0.2 }, method: "CASH", passProcessingFees: false });
+  check("sub-$0.50 CASH record is allowed (no Stripe minimum offline)", qminCash.ok);
+  check("receipt label prefers description", discountAppliedLabel({ code: "SIB1", description: "Sibling" }) === "Sibling Discount Applied");
+  check("receipt label falls back to code", discountAppliedLabel({ code: "SIB1", description: null }) === "SIB1 Discount Applied");
+}
+{
+  const withDiscount = {
+    ...offerA,
+    paymentMethod: "CHECK" as const,
+    discount: { code: "SIBLING", name: "Sibling", type: "PERCENT" as const, value: 10, amountOff: 11, finalPrice: 99 },
+  };
+  const parsed = parseOffer(withDiscount as unknown);
+  check("offer discount round-trips", parsed?.discount?.finalPrice === 99 && parsed?.paymentMethod === "CHECK");
+  check("legacy offers parse with null method/discount", parseOffer({ planName: "X", price: 10 })?.paymentMethod === null);
+  check("payment-method change stales an offer", diffOffer(offerA, { ...offerA, paymentMethod: "CASH" }).includes("payment method"));
+  check("discount change stales an offer", diffOffer(withDiscount, { ...withDiscount, discount: null }).includes("discount"));
+}
+
+// Final tally including the staff-payment block above (the earlier summary
+// line prints before these run — this one is authoritative for the exit code).
+console.log(`\n=== FINAL: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

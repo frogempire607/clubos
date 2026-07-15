@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link";
 import { UserCheck, Ban, CreditCard, ChevronDown, ChevronUp, AlertTriangle, FilePen } from "lucide-react";
 import MembersTabs from "@/components/MembersTabs";
+import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 
 type Requester = { name: string | null; email: string | null } | null;
 
@@ -136,6 +137,9 @@ type BillingAdminData = {
     commitmentEndDate?: string | null;
     stripeStatus?: string | null;
     chargeTiming?: { immediate?: boolean; label?: string } | null;
+    // Staff-selected discount + payment method for the staged offer.
+    discountCode?: string | null;
+    requestedPaymentMethod?: string | null;
   } | null;
   payer?: { name?: string | null; email?: string | null } | null;
   guardians?: { name?: string | null; email?: string | null; isPayer?: boolean }[] | null;
@@ -167,6 +171,22 @@ type BillingAdminData = {
 };
 
 const LIVE_STRIPE_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
+
+// ── Outstanding cash/check payments (GET /api/offline-payments) ─────────────
+// READ-ONLY roll-up of PENDING cash/check Transactions. Recording still goes
+// through the one existing engine (OfflinePaymentsCard →
+// POST /api/members/[id]/offline-payment, billing:full server-side).
+type OutstandingOffline = {
+  transactionId: string;
+  memberId: string;
+  memberName: string;
+  amount: number;
+  method: "CASH" | "CHECK";
+  description: string | null;
+  discountCode: string | null;
+  acceptedAt: string;
+  stateLabel: string;
+};
 
 function requesterLabel(r: Requester): string {
   if (!r) return "Someone";
@@ -206,6 +226,16 @@ function periodLabel(p: string): string {
   return map[p?.toUpperCase()] || p?.toLowerCase() || "mo";
 }
 
+// Staff payment-method preference (billing.requestedPaymentMethod) — shared
+// vocabulary with billing-admin's paymentMethodPreference. null = saved card.
+const PM_PREF_LABELS: Record<string, string> = {
+  CARD: "Saved card",
+  LATER: "New card (client adds)",
+  CASH: "Cash — club collects",
+  CHECK: "Check — club collects",
+};
+const pmPrefLabel = (v: string | null | undefined) => (v && PM_PREF_LABELS[v]) || "Saved card (default)";
+
 export default function MembersApprovalsPage() {
   const [approvals, setApprovals] = useState<Approval[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -218,6 +248,20 @@ export default function MembersApprovalsPage() {
   // profile-only approval and never implies a charge. undefined = not known yet.
   const [configuredMap, setConfiguredMap] = useState<Record<string, boolean>>({});
   const configuredFetched = useRef(new Set<string>());
+  // Outstanding cash/check payments (may be empty for staff without
+  // billing:view / attendance:edit — a 403 just hides the section).
+  const [offlineOutstanding, setOfflineOutstanding] = useState<OutstandingOffline[]>([]);
+
+  const loadOffline = useCallback(() => {
+    fetch("/api/offline-payments")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setOfflineOutstanding(Array.isArray(d?.outstanding) ? (d.outstanding as OutstandingOffline[]) : []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadOffline();
+  }, [loadOffline]);
 
   const setConfigured = useCallback((memberId: string, v: boolean) => {
     setConfiguredMap((m) => (m[memberId] === v ? m : { ...m, [memberId]: v }));
@@ -328,7 +372,7 @@ export default function MembersApprovalsPage() {
     load();
   }
 
-  async function approveMigration(a: MigrationApproval) {
+  async function approveMigration(a: MigrationApproval, confirmImmediate = false) {
     setBusyId(a.id);
     setError("");
     setNotice(null);
@@ -338,12 +382,36 @@ export default function MembersApprovalsPage() {
     const res = await fetch(`/api/members/migration/${a.memberId}/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ acceptRequestedDate: !!a.requestedBillingDate }),
+      body: JSON.stringify({
+        acceptRequestedDate: !!a.requestedBillingDate,
+        ...(confirmImmediate ? { confirmImmediateCharge: true } : {}),
+      }),
     });
     setBusyId(null);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       const msg = typeof d.error === "string" ? d.error : "Could not approve this membership.";
+      if (d.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") {
+        // The billing date is today/past, so approving charges the saved card
+        // RIGHT NOW. Never silent — but never a dead end either: an explicit
+        // second confirmation proceeds with the charge.
+        const amt = typeof d.price === "number" ? `$${d.price.toFixed(2)}` : "the full membership price";
+        if (
+          confirm(
+            `${a.memberName}'s billing date is today or already passed.\n\nApproving now charges ${amt} to the saved card IMMEDIATELY.\n\nCharge ${amt} today?\n\n(To bill on a future date instead, cancel and set a new billing date first.)`,
+          )
+        ) {
+          await approveMigration(a, true);
+        } else {
+          setNotice({
+            tone: "error",
+            text: "Nothing was charged. Set a new future billing date, then approve — or approve again and confirm the immediate charge.",
+            href: `/dashboard/members/${a.memberId}/billing`,
+            hrefLabel: "Set billing date",
+          });
+        }
+        return;
+      }
       if (d.code === "PLAN_REQUIRED") {
         // No plan and no imported plan name — the server refuses to start
         // billing. Point at the billing center and flip the card's action.
@@ -482,6 +550,59 @@ export default function MembersApprovalsPage() {
           )}
         </div>
       )}
+
+      {/* Outstanding cash/check — one card per member; recording reuses the
+          existing OfflinePaymentsCard engine (only Record changes data). */}
+      {offlineOutstanding.length > 0 && (() => {
+        const groups: { memberId: string; memberName: string; rows: OutstandingOffline[] }[] = [];
+        const byId = new Map<string, OutstandingOffline[]>();
+        for (const row of offlineOutstanding) {
+          const existing = byId.get(row.memberId);
+          if (existing) {
+            existing.push(row);
+          } else {
+            const rows: OutstandingOffline[] = [row];
+            byId.set(row.memberId, rows);
+            groups.push({ memberId: row.memberId, memberName: row.memberName, rows });
+          }
+        }
+        return (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-text-primary mb-2">Awaiting cash/check payment</h2>
+            <div className="space-y-3">
+              {groups.map((g) => (
+                <div key={g.memberId} className="rounded-xl border border-app-border bg-surface p-4">
+                  <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-orange-700 bg-orange-100 rounded px-2 py-0.5 mb-2">
+                    Awaiting cash/check payment
+                  </span>
+                  <p className="text-sm text-text-primary">
+                    <Link href={`/dashboard/members/${g.memberId}/billing`} className="font-semibold underline underline-offset-2 hover:text-brand">
+                      {g.memberName}
+                    </Link>
+                  </p>
+                  {g.rows.map((r) => (
+                    <p key={r.transactionId} className="text-xs text-text-muted mt-1">
+                      ${r.amount.toFixed(2)} · awaiting {r.method === "CHECK" ? "check" : "cash"}
+                      {r.discountCode ? ` · ${r.discountCode} Discount Applied` : ""}
+                      {` · accepted ${fmtDate(r.acceptedAt)}`}
+                    </p>
+                  ))}
+                  <div className="mt-3">
+                    <OfflinePaymentsCard
+                      memberId={g.memberId}
+                      variant="inline"
+                      onChanged={() => {
+                        loadOffline();
+                        load();
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {approvals === null ? (
         <div className="space-y-3">
@@ -887,6 +1008,12 @@ function BillingReviewPanel({
         refresh();
         return;
       }
+      if (d.code === "DISCOUNT_INVALID") {
+        // The staged discount code no longer resolves — fix or clear it in the
+        // billing center, then create the offer again.
+        setActionErr(`${msg} Fix or clear the discount in the billing center, then create the offer again.`);
+        return;
+      }
       setActionErr(msg);
       return;
     }
@@ -954,14 +1081,19 @@ function BillingReviewPanel({
   );
   const offerOutOfDate = !!reactivation?.open && !!reactivation.sync && reactivation.sync.matches === false;
 
+  // CASH/CHECK members are never card-charged — card-timing warnings and the
+  // "charges immediately" line don't apply to them.
+  const offlineMethod =
+    billing?.requestedPaymentMethod === "CASH" || billing?.requestedPaymentMethod === "CHECK";
+
   const warnings: string[] = [];
-  if (!unconfigured && (price ?? 0) > 0 && paymentMethods.length === 0 && !data.stripeReadError) {
+  if (!unconfigured && !offlineMethod && (price ?? 0) > 0 && paymentMethods.length === 0 && !data.stripeReadError) {
     warnings.push("No saved payment method — a paid card membership can't start charging.");
   }
   if (data.stripeReadError) {
     warnings.push("Stripe payment methods couldn't be read right now — card details may be incomplete below.");
   }
-  if (!unconfigured && (price ?? 0) > 0 && (!billing?.finalBillingDate || timing?.immediate)) {
+  if (!unconfigured && !offlineMethod && (price ?? 0) > 0 && (!billing?.finalBillingDate || timing?.immediate)) {
     warnings.push("No future first-billing date — activating (or a client confirmation) would charge immediately.");
   }
   if (offerOutOfDate) {
@@ -1047,9 +1179,15 @@ function BillingReviewPanel({
               ? "Free"
               : `${money(price)}${billing?.periodLabel ? ` ${billing.periodLabel}` : ""}`,
         )}
+        {!unconfigured && billing?.discountCode &&
+          row("Discount", <><strong className="font-mono">{billing.discountCode}</strong> — validated server-side and frozen into the offer at create time</>)}
+        {!unconfigured && row("Pay by", pmPrefLabel(billing?.requestedPaymentMethod))}
         {!unconfigured && fees?.passFees && (price ?? 0) > 0 && fees.totalCharged != null && fees.fee != null &&
+          billing?.requestedPaymentMethod !== "CASH" && billing?.requestedPaymentMethod !== "CHECK" &&
           row("Total charged", `${money(fees.totalCharged)} incl. ${money(fees.fee)} processing fee`)}
-        {!unconfigured && timing?.label &&
+        {!unconfigured && offlineMethod &&
+          row("Charge timing", `No card charge — the club collects ${billing?.requestedPaymentMethod === "CHECK" ? "a check" : "cash"} (recorded when received)`)}
+        {!unconfigured && !offlineMethod && timing?.label &&
           row("Charge timing", timing.immediate ? <strong>{timing.label}</strong> : timing.label)}
         {row("First billing", fmtDateUTC(billing?.finalBillingDate))}
         {billing?.billingAnchorDate && row("Imported anchor", fmtDateUTC(billing.billingAnchorDate))}
@@ -1078,6 +1216,9 @@ function BillingReviewPanel({
                 .join(", "),
         )}
       </dl>
+
+      {/* Outstanding cash/check — record-received flow (renders only when pending) */}
+      <OfflinePaymentsCard memberId={memberId} variant="inline" onChanged={refresh} />
 
       {/* Subscriptions */}
       {subscriptions.length > 0 && (

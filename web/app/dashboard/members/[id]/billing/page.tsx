@@ -13,6 +13,8 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, CreditCard, RefreshCw } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
+import StaffDiscountPicker, { previewDiscountMath, useEligibleDiscounts } from "@/components/StaffDiscountPicker";
+import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 
 type PaymentMethod = {
   ref: string;
@@ -41,6 +43,9 @@ type Data = {
   billingState: { key: string; label: string; explanation: string };
   hasPendingCharge: boolean;
   anchorMismatch: boolean;
+  // Club rule for CASH/CHECK offers: ON_PAYMENT (default) = activates only
+  // when staff records the money; ON_ACCEPTANCE = activates on acceptance.
+  offlineActivationPolicy?: "ON_PAYMENT" | "ON_ACCEPTANCE";
   // What the customer is actually charged when the club passes the Stripe
   // processing fee (computed server-side from the effective price).
   feeBreakdown?: { passFees: boolean; feePercentLabel: string; base: number; fee: number; totalCharged: number };
@@ -52,6 +57,8 @@ type Data = {
     planId: string | null; planName: string | null; optionLabel: string | null;
     price: number | null; period: string | null; periodLabel: string | null;
     priceOverride: number | null; discountNote: string | null;
+    // Staff-selected discount code for the staged offer (dropdown-picked).
+    discountCode: string | null;
     startDate: string | null; billingAnchorDate: string | null; finalBillingDate: string | null;
     nextBillingDate: string | null; commitmentEndDate: string | null;
     requestedPaymentMethod: string | null; finalPeriodPaid: boolean;
@@ -84,6 +91,9 @@ type Data = {
       planName?: string; optionLabel?: string | null; price?: number; billingPeriod?: string;
       startDate?: string | null; firstChargeDate?: string | null; commitmentEndDate?: string | null;
       paymentMode?: string; payerUserId?: string | null;
+      // Frozen staff selections (snapshot fields — see lib/reactivation.ts).
+      paymentMethod?: "SAVED_CARD" | "NEW_CARD" | "CASH" | "CHECK" | null;
+      discount?: { code: string; name: string; type: string; value: number; amountOff: number; finalPrice: number } | null;
     };
     personalNote: string | null; emailSentAt: string | null; emailSendCount: number;
     sentToEmail: string | null; viewedAt: string | null; confirmedAt: string | null;
@@ -107,6 +117,26 @@ const fmtDateUTC = (s: string | null | undefined) =>
   s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—";
 const fmtMoney = (n: number) => `$${n.toFixed(2)}`;
 const dateInput = (s: string | null | undefined) => (s ? new Date(s).toISOString().slice(0, 10) : "");
+
+// Staff payment-method preference (member.requestedPaymentMethod) — shared
+// vocabulary with the PATCH's paymentMethodPreference. null = saved card.
+const PM_PREF_LABELS: Record<string, string> = {
+  CARD: "Saved card",
+  LATER: "New card (client adds)",
+  CASH: "Cash — club collects",
+  CHECK: "Check — club collects",
+};
+const pmPrefLabel = (v: string | null | undefined) => (v && PM_PREF_LABELS[v]) || "Saved card (default)";
+const OFFER_METHOD_LABELS: Record<string, string> = {
+  SAVED_CARD: "Saved card at confirmation",
+  NEW_CARD: "New card (client adds on the offer page)",
+  CASH: "Cash — club collects",
+  CHECK: "Check — club collects",
+};
+const offlineRuleLabel = (policy: string | undefined) =>
+  policy === "ON_ACCEPTANCE"
+    ? "Cash/check rule: the membership activates on acceptance (payment still due to the club)."
+    : "Cash/check rule: the membership activates only after staff records the payment as received.";
 
 const READINESS_STYLE: Record<string, { bg: string; fg: string }> = {
   READY: { bg: "rgba(163,230,53,0.25)", fg: "#3F6212" },
@@ -134,6 +164,22 @@ function Row({ label, children, strong = false }: { label: string; children: Rea
       <span className="text-xs text-text-muted whitespace-nowrap pt-0.5">{label}</span>
       <span className={`text-sm text-right ${strong ? "font-semibold text-text-primary" : "text-text-primary"}`}>{children}</span>
     </div>
+  );
+}
+
+// "SIBLING — $50.00 off → final $480.00 quarterly" for the pricing card.
+// Resolves the stored code against the eligible-discount list; the math shown
+// is a display preview — the server recomputes at offer build / charge time.
+function DiscountSummaryRow({ code, planId, price, periodLabel }: { code: string; planId: string | null; price: number | null; periodLabel: string | null }) {
+  const { discounts } = useEligibleDiscounts("MEMBERSHIP", planId);
+  const d = discounts?.find((x) => x.code === code) ?? null;
+  if (!d || price == null) return <Row label="Discount"><span className="font-mono">{code}</span></Row>;
+  const math = previewDiscountMath(d, price);
+  return (
+    <Row label="Discount" strong>
+      {d.code} — {d.type === "PERCENT" ? `${d.value}% off` : `${fmtMoney(math.amountOff)} off`} → final {fmtMoney(math.finalPrice)}{periodLabel ? ` ${periodLabel}` : ""}
+      {!d.eligible && <span className="block text-xs font-normal text-orange-accent">{d.reason || "No longer eligible"} — offers can&apos;t be created until this is fixed or cleared.</span>}
+    </Row>
   );
 }
 
@@ -256,6 +302,10 @@ export default function MemberBillingPage() {
           {b.priceOverride != null && (
             <Row label="Owner price override">{fmtMoney(b.priceOverride)}{b.discountNote ? ` — ${b.discountNote}` : ""}</Row>
           )}
+          {b.discountCode && (
+            <DiscountSummaryRow code={b.discountCode} planId={b.planId} price={b.price} periodLabel={b.periodLabel} />
+          )}
+          <Row label="Payment method">{pmPrefLabel(b.requestedPaymentMethod)}</Row>
           <Row label="Membership start">{fmtDateUTC(b.startDate)}</Row>
           <Row label="Imported billing anchor">{fmtDateUTC(b.billingAnchorDate)}</Row>
           <Row label="Owner-approved final billing date">
@@ -346,6 +396,9 @@ export default function MemberBillingPage() {
           )}
         </Card>
 
+        {/* ── Outstanding cash/check (renders only when something is pending) ── */}
+        <OfflinePaymentsCard memberId={id} className="lg:col-span-2" onChanged={() => load()} />
+
         {/* ── Reactivation ── */}
         <Card
           title="Reactivation offer"
@@ -401,8 +454,17 @@ export default function MemberBillingPage() {
                   <Row label="Price">
                     {(data.reactivation.offer.price ?? 0) <= 0 ? "Free" : `${fmtMoney(data.reactivation.offer.price!)} ${(data.reactivation.offer.billingPeriod || "").toLowerCase()}`}
                   </Row>
+                  {data.reactivation.offer.discount && (
+                    <Row label="Discount" strong>
+                      {data.reactivation.offer.discount.name} Discount Applied — final {fmtMoney(data.reactivation.offer.discount.finalPrice)}
+                    </Row>
+                  )}
                   {data.feeBreakdown?.passFees && (data.reactivation.offer.price ?? 0) > 0 && data.reactivation.offer.paymentMode === "CARD" && (() => {
-                    const fb = feeBreakdown(data.reactivation.offer.price!, true);
+                    // The fee applies to what the client actually pays — the
+                    // DISCOUNTED price when a discount is frozen in the offer.
+                    const effective = data.reactivation!.offer.discount?.finalPrice ?? data.reactivation!.offer.price!;
+                    if (effective <= 0) return null;
+                    const fb = feeBreakdown(effective, true);
                     return (
                       <Row label="Total charged">
                         {fmtMoney(fb.total)} (includes {fmtMoney(fb.fee)} processing fee)
@@ -412,8 +474,18 @@ export default function MemberBillingPage() {
                   <Row label="Start">{fmtDateUTC(data.reactivation.offer.startDate)}</Row>
                   <Row label="First payment">{data.reactivation.offer.firstChargeDate ? fmtDateUTC(data.reactivation.offer.firstChargeDate) : "No charge"}</Row>
                   <Row label="Commitment through">{fmtDateUTC(data.reactivation.offer.commitmentEndDate)}</Row>
-                  <Row label="Payment">{data.reactivation.offer.paymentMode === "CARD" ? "Saved card at confirmation" : data.reactivation.offer.paymentMode === "OFFLINE" ? "Offline / club collects" : "Free — none"}</Row>
+                  <Row label="Payment">
+                    {(data.reactivation.offer.paymentMethod && OFFER_METHOD_LABELS[data.reactivation.offer.paymentMethod]) ||
+                      (data.reactivation.offer.paymentMode === "CARD"
+                        ? "Saved card at confirmation"
+                        : data.reactivation.offer.paymentMode === "OFFLINE"
+                          ? "Offline / club collects"
+                          : "Free — none")}
+                  </Row>
                 </div>
+                {(data.reactivation.offer.paymentMethod === "CASH" || data.reactivation.offer.paymentMethod === "CHECK") && (
+                  <p className="text-xs text-text-muted mt-1">{offlineRuleLabel(data.offlineActivationPolicy)}</p>
+                )}
               </div>
 
               {data.reactivation.open && data.reactivation.sync && (
@@ -733,11 +805,33 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
   const [payerUserId, setPayerUserId] = useState(data.payer?.userId ?? "");
   const [markFree, setMarkFree] = useState(false);
   const [finalPeriodPaid, setFinalPeriodPaid] = useState(b.finalPeriodPaid);
+  // Staff-selected discount (dropdown; server-validated — DISCOUNT_INVALID
+  // blocks the save) and payment method for the staged offer.
+  const [discountCode, setDiscountCode] = useState<string | null>(b.discountCode ?? null);
+  const initialPayPref =
+    b.requestedPaymentMethod && ["CARD", "LATER", "CASH", "CHECK"].includes(b.requestedPaymentMethod)
+      ? b.requestedPaymentMethod
+      : "CARD";
+  const [payPref, setPayPref] = useState(initialPayPref);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ before: Record<string, unknown>; after: Record<string, unknown>; changed: string[] } | null>(null);
 
   const plan = useMemo(() => data.plans.find((p) => p.id === planId) ?? null, [data.plans, planId]);
+
+  // The price the discount previews against — mirrors the server's precedence
+  // (override > selected option > current resolved price). Display only.
+  const selOpt = useMemo(
+    () => (plan && optionLabel ? (plan.options || []).find((o) => String(o.label ?? "") === optionLabel) ?? null : null),
+    [plan, optionLabel],
+  );
+  const discountBasePrice = markFree
+    ? 0
+    : priceOverride !== ""
+      ? Number(priceOverride) || 0
+      : typeof selOpt?.price === "number"
+        ? selOpt.price
+        : b.price ?? 0;
 
   const buildBody = () => ({
     membershipId: planId || null,
@@ -751,6 +845,9 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
     responsiblePayerUserId: payerUserId || null,
     markFree: markFree || undefined,
     finalPeriodPaid,
+    // Only send when actually changed — keeps the preview diff clean.
+    ...(discountCode !== (b.discountCode ?? null) ? { discountCode } : {}),
+    ...(payPref !== initialPayPref ? { paymentMethodPreference: payPref } : {}),
   });
 
   const preview = async () => {
@@ -817,6 +914,25 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
             </div>
             <label className="block text-xs text-text-muted">Override reason / discount note
               <input value={discountNote} onChange={(e) => setDiscountNote(e.target.value)} placeholder="e.g. Founding member rate" className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
+            </label>
+            <StaffDiscountPicker
+              itemType="MEMBERSHIP"
+              membershipId={planId || b.planId}
+              value={discountCode}
+              onChange={(code) => setDiscountCode(code)}
+              originalPrice={discountBasePrice}
+              passProcessingFees={!!data.feeBreakdown?.passFees}
+            />
+            <label className="block text-xs text-text-muted">Payment method
+              <select value={payPref} onChange={(e) => setPayPref(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary">
+                <option value="CARD">Saved card</option>
+                <option value="LATER">New card (client adds)</option>
+                <option value="CASH">Cash</option>
+                <option value="CHECK">Check</option>
+              </select>
+              {(payPref === "CASH" || payPref === "CHECK") && (
+                <span className="block mt-1 text-[11px] text-text-muted">{offlineRuleLabel(data.offlineActivationPolicy)}</span>
+              )}
             </label>
             <div className="grid grid-cols-3 gap-3">
               <label className="block text-xs text-text-muted">Start date
@@ -906,6 +1022,10 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
     setBusy(false);
     if (r.ok) { onChanged(); setSentMsg("Offer created. Preview the email, then send."); }
     else if (d.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") setNeedsAck(true);
+    else if (d.code === "DISCOUNT_INVALID") {
+      // The stored discount code is no longer valid — fix or clear it in Edit.
+      setErr(d.error || "The selected discount is no longer valid. Fix or clear it in the billing Edit modal, then create the offer again.");
+    }
     else if (d.code === "PLAN_REQUIRED") {
       // No membership configured — the server refuses to draft a $0 offer.
       setErr(d.error || "No membership is configured for this member. Assign a plan (or an explicit $0 price) in the billing setup before creating an offer.");
@@ -942,12 +1062,22 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
           {data.billing.configured
             ? <> — {(data.billing.price ?? 0) <= 0 ? "Free" : `$${(data.billing.price ?? 0).toFixed(2)} ${data.billing.periodLabel ?? ""}`}</>
             : null}
-          {data.billing.configured && data.feeBreakdown?.passFees && (data.billing.price ?? 0) > 0
+          {data.billing.configured && data.feeBreakdown?.passFees && (data.billing.price ?? 0) > 0 &&
+          data.billing.requestedPaymentMethod !== "CASH" && data.billing.requestedPaymentMethod !== "CHECK"
             ? ` ($${data.feeBreakdown.totalCharged.toFixed(2)} charged incl. $${data.feeBreakdown.fee.toFixed(2)} processing fee)`
             : ""}.
           The client reviews these owner-approved terms on a secure page; nothing is charged until they confirm, and
           the first-payment date is spelled out on the button itself.
         </p>
+        <div className="text-xs text-text-muted mb-3 border border-app-border rounded-lg px-2.5 py-2 space-y-0.5">
+          <p>Payment method: <strong className="text-text-primary">{pmPrefLabel(data.billing.requestedPaymentMethod)}</strong></p>
+          {data.billing.discountCode && (
+            <p>Discount: <strong className="text-text-primary font-mono">{data.billing.discountCode}</strong> — validated and frozen into the offer when it&apos;s created.</p>
+          )}
+          {(data.billing.requestedPaymentMethod === "CASH" || data.billing.requestedPaymentMethod === "CHECK") && (
+            <p className="text-orange-accent">{offlineRuleLabel(data.offlineActivationPolicy)}</p>
+          )}
+        </div>
 
         {preview ? (
           <div>

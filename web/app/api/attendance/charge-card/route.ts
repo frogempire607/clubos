@@ -5,8 +5,9 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
-import { applyProcessingFee } from "@/lib/fees";
 import { resolveCardSnapshot, resolveChargeablePaymentMethodId } from "@/lib/memberCard";
+import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
 import { sendPaymentReceiptEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -145,7 +146,11 @@ const postSchema = z.object({
   memberId: z.string().min(1),
   classSessionId: z.string().optional().nullable(),
   eventId: z.string().optional().nullable(),
-  amount: z.number().positive(), // BASE price (fee added server-side)
+  amount: z.number().positive(), // BASE price (discount + fee applied server-side)
+  // Optional staff-selected discount code — validated server-side against the
+  // item; invalid codes BLOCK the charge (400). The client always sends the
+  // BASE amount; the server discounts.
+  discountCode: z.string().optional().nullable(),
   status: z.enum(["DROP_IN", "TRIAL", "PRESENT"]).optional().default("DROP_IN"),
   notes: z.string().max(500).optional().nullable(),
   emailReceipt: z.boolean().optional().default(true),
@@ -200,6 +205,32 @@ export async function POST(req: Request) {
     );
   }
 
+  // Staff discount: resolved + applied SERVER-SIDE on the validated base
+  // amount. quotePayment owns the fee math and guards negative / sub-$0.50
+  // card totals.
+  const discountCheck = await resolveStaffDiscount(clubId, data.discountCode, {
+    type: data.classSessionId ? "CLASS" : "EVENT",
+  });
+  if (!discountCheck.ok) return NextResponse.json({ error: discountCheck.error }, { status: 400 });
+  const discount = discountCheck.discount;
+  const quoted = quotePayment({
+    originalPrice: data.amount,
+    discount,
+    method: "SAVED_CARD",
+    passProcessingFees: !!club.passProcessingFees,
+  });
+  if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
+  const quote = quoted.quote;
+  if (quote.totalCharged <= 0) {
+    return NextResponse.json(
+      { error: "The discount brings the total to $0 — record it as comp/cash instead of a card charge." },
+      { status: 400 },
+    );
+  }
+  const totalCents = Math.round(quote.totalCharged * 100);
+  const feeCents = Math.round(quote.processingFee * 100);
+  const discountLabel = discountAppliedLabel(discount);
+
   const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
   if (!customerId) {
     return NextResponse.json(
@@ -207,12 +238,14 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
-  // Resolve the PM: captured setup PM first, else the customer default / only
-  // card — never a guess among multiple cards.
-  let paymentMethodId = member.stripeSetupPaymentMethodId ?? null;
-  if (!paymentMethodId) {
-    paymentMethodId = await resolveChargeablePaymentMethodId(customerId, club.stripeAccountId);
-  }
+  // Resolve the PM with LIVE attachment verification — a stored pointer can
+  // be stale (family replaced their card/Link). Prefers the stored pointer
+  // only when genuinely attached; else customer default / only method.
+  const paymentMethodId = await resolveChargeablePaymentMethodId(
+    customerId,
+    club.stripeAccountId,
+    member.stripeSetupPaymentMethodId,
+  );
   if (!paymentMethodId) {
     return NextResponse.json(
       { error: "NO_SAVED_CARD", message: "No saved payment method — send a payment link instead." },
@@ -220,16 +253,15 @@ export async function POST(req: Request) {
     );
   }
 
-  const fee = applyProcessingFee(Math.round(data.amount * 100), !!club.passProcessingFees);
   const memberName = `${member.firstName} ${member.lastName ?? ""}`.trim();
   const contextName = data.classSessionId ? "class" : "event";
-  const description = `Attendance charge — ${memberName} (${contextName})`;
+  const description = `Attendance charge — ${memberName} (${contextName})${discountLabel ? ` — ${discountLabel}` : ""}`;
 
   let pi: Stripe.PaymentIntent;
   try {
     pi = await stripe.paymentIntents.create(
       {
-        amount: fee.totalCents,
+        amount: totalCents,
         currency: "usd",
         customer: customerId,
         payment_method: paymentMethodId,
@@ -298,11 +330,13 @@ export async function POST(req: Request) {
       data: {
         clubId,
         memberId: member.id,
-        amount: fee.totalCents / 100,
+        amount: quote.totalCharged,
         status: "SUCCEEDED",
         stripePaymentIntentId: pi.id,
         stripeChargeId: charge?.id ?? null,
-        description: `Card charge (saved card) — ${memberName}`,
+        description: `Card charge (saved card) — ${memberName}${discountLabel ? ` — ${discountLabel}` : ""}`,
+        discountCode: discount?.code ?? null,
+        discountAmount: discount ? quote.discountAmount : null,
         type: data.classSessionId ? "CLASS" : "EVENT",
         category: data.classSessionId ? "classes" : "events",
         paymentMethod: "STRIPE",
@@ -313,6 +347,9 @@ export async function POST(req: Request) {
         txDate: new Date(),
       },
     }));
+  // Count the redemption once per charge — an idempotent re-run that found an
+  // existing Transaction must not double-count.
+  if (discount && !existing) await recordDiscountUse(discount.id);
 
   // Attendance record: mark present/paid (mirrors /api/attendance/charge).
   if (data.classSessionId) {
@@ -346,9 +383,12 @@ export async function POST(req: Request) {
     after: {
       transactionId: tx.id,
       paymentIntentId: pi.id,
-      base: fee.subtotalCents / 100,
-      processingFee: fee.feeCents / 100,
-      total: fee.totalCents / 100,
+      base: quote.originalPrice,
+      discountCode: discount?.code ?? null,
+      discountAmount: discount ? quote.discountAmount : null,
+      discountedBase: quote.finalPrice,
+      processingFee: quote.processingFee,
+      total: quote.totalCharged,
       stripeFee: bt ? bt.fee / 100 : null,
     },
     note: `Saved-card attendance charge confirmed by Stripe (${contextName}).`,
@@ -377,8 +417,8 @@ export async function POST(req: Request) {
             to,
             firstName: m?.firstName || "there",
             clubName: club.name,
-            description: `${description}${fee.feeCents > 0 ? " (includes processing fee)" : ""}`,
-            amountPaid: `$${(fee.totalCents / 100).toFixed(2)}`,
+            description: `${description}${feeCents > 0 ? " (includes processing fee)" : ""}`,
+            amountPaid: `$${quote.totalCharged.toFixed(2)}`,
             paidAt: new Date(),
             portalUrl: `${getAppBaseUrl()}/member/profile`,
           });
@@ -393,7 +433,8 @@ export async function POST(req: Request) {
     ok: true,
     outcome: "succeeded",
     transactionId: tx.id,
-    total: fee.totalCents / 100,
-    processingFee: fee.feeCents / 100,
+    total: quote.totalCharged,
+    processingFee: quote.processingFee,
+    discountAmount: discount ? quote.discountAmount : 0,
   });
 }

@@ -1132,6 +1132,29 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
 }
 
 // ── Purchase Membership Modal ────────────────────────────────────────────────
+
+// Staff discount dropdown data (from /api/discounts/eligible). Amounts are a
+// display-only mirror — /api/members/subscribe re-validates the code and
+// recomputes the price server-side.
+type EligibleDiscount = {
+  id: string;
+  code: string;
+  name: string;
+  type: "PERCENT" | "FIXED";
+  value: number;
+  amountLabel: string;
+  eligible: boolean;
+  reason: string | null;
+};
+
+// Display-only mirror of the server's PERCENT/FIXED math (clamped at $0).
+function discountMathFor(orig: number, d: EligibleDiscount | null | undefined) {
+  if (!d || !(orig > 0)) return null;
+  const cut = d.type === "PERCENT" ? (orig * d.value) / 100 : d.value;
+  const final = Math.max(0, Math.round((orig - cut) * 100) / 100);
+  return { original: orig, discountAmount: Math.round((orig - final) * 100) / 100, final };
+}
+
 function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose: () => void }) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [selectedMembership, setSelectedMembership] = useState("");
@@ -1144,6 +1167,8 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
   const [billingDay, setBillingDay] = useState("");
   const [notes, setNotes] = useState("");
   const [discountCode, setDiscountCode] = useState("");
+  // Eligible-discount dropdown, refetched per selected plan (null = loading).
+  const [eligibleDiscounts, setEligibleDiscounts] = useState<EligibleDiscount[] | null>(null);
   const [emailReceipt, setEmailReceipt] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1158,10 +1183,40 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
     });
   }, []);
 
+  // Refetch the eligible-discount list whenever the plan changes; a code that
+  // stops being eligible for the new plan is cleared instead of silently kept.
+  useEffect(() => {
+    if (!selectedMembership) {
+      setEligibleDiscounts(null);
+      setDiscountCode("");
+      return;
+    }
+    let cancelled = false;
+    setEligibleDiscounts(null);
+    fetch(`/api/discounts/eligible?itemType=MEMBERSHIP&membershipId=${encodeURIComponent(selectedMembership)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const list: EligibleDiscount[] = Array.isArray(d.discounts) ? d.discounts : [];
+        setEligibleDiscounts(list);
+        setDiscountCode((code) => (code && !list.some((x) => x.code === code && x.eligible) ? "" : code));
+      })
+      .catch(() => {
+        if (!cancelled) setEligibleDiscounts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMembership]);
+
   const currentMembership = memberships.find((m) => m.id === selectedMembership);
   const options: Option[] = (() => { try { return JSON.parse(currentMembership?.options || "[]"); } catch { return []; } })();
   const selectedOptionObj = options.find((o) => o.label === selectedOption);
   const isOneTime = selectedOptionObj?.billingPeriod === "ONE_TIME";
+  const selectedDiscount =
+    eligibleDiscounts?.find((d) => d.code === discountCode && d.eligible) ?? null;
+  const discountMath =
+    selectedOptionObj && selectedDiscount ? discountMathFor(selectedOptionObj.price, selectedDiscount) : null;
 
   const periodLabels: Record<string, string> = {
     WEEKLY: "per week", MONTHLY: "per month", QUADRIMESTRAL: "per 4 months",
@@ -1333,9 +1388,34 @@ function PurchaseMembershipModal({ member, onClose }: { member: Member; onClose:
                         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Migration note, pre-paid months, etc." className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-text-primary mb-1">Discount code</label>
-                        <input type="text" value={discountCode} onChange={(e) => setDiscountCode(e.target.value.toUpperCase())} placeholder="SUMMER20" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-brand" />
-                        <p className="text-xs text-text-muted mt-0.5">Applied to the selected option&apos;s price. Codes are managed on the Memberships page.</p>
+                        <label className="block text-xs font-medium text-text-primary mb-1">Discount</label>
+                        {eligibleDiscounts === null ? (
+                          <p className="text-xs text-text-muted">Loading discounts…</p>
+                        ) : eligibleDiscounts.length === 0 ? (
+                          <p className="text-xs text-text-muted">No discount codes exist yet — create them on the Memberships page.</p>
+                        ) : (
+                          <select
+                            value={discountCode}
+                            onChange={(e) => setDiscountCode(e.target.value)}
+                            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-brand"
+                          >
+                            <option value="">No discount</option>
+                            {eligibleDiscounts.map((d) => (
+                              <option key={d.id} value={d.code} disabled={!d.eligible}>
+                                {d.code} — {d.amountLabel}
+                                {d.eligible ? "" : ` (${d.reason ?? "not eligible"})`}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {discountMath && selectedDiscount && selectedOptionObj && (
+                          <div className="mt-2 text-xs text-text-muted space-y-0.5">
+                            <div className="flex justify-between"><span>Original</span><span>${discountMath.original.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>{selectedDiscount.name} discount</span><span>−${discountMath.discountAmount.toFixed(2)}</span></div>
+                            <div className="flex justify-between font-medium text-text-primary"><span>Final</span><span>${discountMath.final.toFixed(2)}</span></div>
+                          </div>
+                        )}
+                        <p className="text-xs text-text-muted mt-0.5">Applied to the selected option&apos;s price — the server re-validates and recomputes. Codes are managed on the Memberships page.</p>
                       </div>
                     </div>
                   )}
