@@ -10,8 +10,10 @@ import { recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
+import { parseOffer, compareOfferToCurrent, offerEffectivePrice } from "@/lib/reactivation";
 import { chargeTiming, addBillingPeriod } from "@/lib/billingAdmin";
+import { offlineActivationPolicy, isOfflineMethod, discountAppliedLabel } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
 export const dynamic = "force-dynamic";
@@ -300,7 +302,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         const ts = Math.floor(cancelSource.getTime() / 1000);
         if (!trialEnd || ts > trialEnd) cancelAtUnix = ts;
       }
-      const amountCents = recurringUnitWithFee(Math.round(offer.price * 100), club.passProcessingFees);
+      // The discounted price is what the card is charged (server-frozen math).
+      const amountCents = recurringUnitWithFee(Math.round(offerEffectivePrice(offer) * 100), club.passProcessingFees);
       const interval = billingPeriodToStripeInterval(offer.billingPeriod) || { interval: "month" as const, interval_count: 1 };
 
       const catalogMembership = await prisma.membership.findFirst({
@@ -348,10 +351,11 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           memberId: member.id,
           membershipId,
           optionLabel: offer.optionLabel || offer.planName,
-          price: offer.price,
+          price: offerEffectivePrice(offer),
           billingPeriod: offer.billingPeriod,
           billingType: "RECURRING",
           autoRenew: offer.autoRenew !== false,
+          ...(offer.discount ? { discountCode: offer.discount.code, discountAmount: offer.discount.amountOff } : {}),
           status: sub.status === "active" || sub.status === "trialing" ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
           billingAnchorDate: firstCharge ?? new Date(),
@@ -365,17 +369,27 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       });
       memberSubId = memberSub.id;
     } else {
+      // CASH/CHECK acceptance is NOT payment. Club policy decides whether the
+      // membership activates now (payment still due) or only when staff
+      // records the money as received (default — safer). Either way a PENDING
+      // Transaction represents the amount due; it never counts as revenue and
+      // never sends a receipt until staff confirms receipt.
+      const offlineMethod = isOfflineMethod(offer.paymentMethod) ? offer.paymentMethod : "CASH";
+      const policy = offlineActivationPolicy(club);
+      const activateNow = isFree || policy === "ON_ACCEPTANCE";
+      const effective = offerEffectivePrice(offer);
       const memberSub = await prisma.memberSubscription.create({
         data: {
           memberId: member.id,
           membershipId,
           optionLabel: offer.optionLabel || offer.planName,
-          price: offer.price,
+          price: effective,
           billingPeriod: offer.billingPeriod,
           billingType: "MANUAL",
           autoRenew: false,
-          status: "active",
+          status: activateNow ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
+          ...(offer.discount ? { discountCode: offer.discount.code, discountAmount: offer.discount.amountOff } : {}),
           // Explicit commitment wins; otherwise a non-renewing plan ends after
           // its first billing period (expireEndedManualSubscriptions sweeps it).
           ...(offer.commitmentEndDate
@@ -385,10 +399,30 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
               : {}),
           notes: isFree
             ? "Free / grandfathered membership — no recurring charge (confirmed via reactivation link)"
-            : `Manual billing — ${club.name} collects payment offline (confirmed via reactivation link)`,
+            : `Client accepted — awaiting ${offlineMethod.toLowerCase()} payment${activateNow ? " (active per club policy; payment still due)" : " (activates when staff records the payment)"}`,
         },
       });
       memberSubId = memberSub.id;
+
+      if (!isFree && effective > 0) {
+        await prisma.transaction.create({
+          data: {
+            clubId: club.id,
+            memberId: member.id,
+            amount: effective,
+            status: "PENDING",
+            type: "MEMBERSHIP",
+            category: "memberships",
+            paymentMethod: offlineMethod,
+            paymentSource: offlineMethod,
+            reconciliationStatus: "OFFLINE",
+            manual: true,
+            ...(offer.discount ? { discountCode: offer.discount.code, discountAmount: offer.discount.amountOff } : {}),
+            description: `Membership payment due: ${offer.planName}${offer.optionLabel ? ` · ${offer.optionLabel}` : ""} — awaiting ${offlineMethod.toLowerCase()}${discountAppliedLabel(offer.discount) ? ` (${discountAppliedLabel(offer.discount)})` : ""}`,
+            notes: `Created at client acceptance of reactivation offer v${r.offerVersion}. Staff records receipt via the billing center — only then does this become paid revenue and send a receipt.`,
+          },
+        });
+      }
     }
 
     // Supersede any standing non-Stripe subscription (e.g. the placeholder
@@ -409,10 +443,14 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       },
     });
 
+    // Acceptance ≠ payment: under the ON_PAYMENT policy a cash/check member
+    // does NOT become ACTIVE here — that happens when staff records the money
+    // as received. Card/free/ON_ACCEPTANCE activate as before.
+    const memberBecomesActive = isCard || isFree || offlineActivationPolicy(club) === "ON_ACCEPTANCE";
     await prisma.member.update({
       where: { id: member.id },
       data: {
-        status: "ACTIVE",
+        ...(memberBecomesActive ? { status: "ACTIVE" } : {}),
         membershipId,
         migrationStatus: MIGRATION_STATUS.COMPLETED,
         approvalStatus: "APPROVED",
@@ -421,6 +459,14 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         ...(offer.commitmentEndDate ? { commitmentEndDate: new Date(offer.commitmentEndDate) } : {}),
       },
     });
+    // Count the discount redemption exactly once, at acceptance.
+    if (offer.discount) {
+      const d = await prisma.discount.findFirst({
+        where: { clubId: club.id, code: offer.discount.code },
+        select: { id: true },
+      });
+      if (d) await recordDiscountUse(d.id);
+    }
 
     await prisma.membershipReactivation.update({
       where: { id: r.id },

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { newActivationToken } from "@/lib/migration";
 import { resolveOfferPricing, type ResolvedPricing } from "@/lib/billingAdmin";
+import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { applyProcessingFee } from "@/lib/fees";
 
 // Membership reactivation offers — server helpers shared by the owner-side
@@ -26,6 +27,19 @@ export type ReactivationOffer = {
   // subscription ends after the commitment date (or the first billing period
   // when no commitment is set) instead of renewing.
   autoRenew: boolean;
+  // Staff-selected payment method (shared vocabulary, lib/staffPayments.ts).
+  // CASH/CHECK ⇒ paymentMode OFFLINE with the receipt-confirmation flow.
+  paymentMethod: "SAVED_CARD" | "NEW_CARD" | "CASH" | "CHECK" | null;
+  // Staff-selected discount, server-resolved and FROZEN with its math. The
+  // client is charged finalPrice; `price` above stays the pre-discount price.
+  discount: {
+    code: string;
+    name: string; // description || code — receipt shows "<name> Discount Applied"
+    type: "PERCENT" | "FIXED";
+    value: number;
+    amountOff: number;
+    finalPrice: number;
+  } | null;
 };
 
 export type OfferMember = {
@@ -41,6 +55,7 @@ export type OfferMember = {
   legacyBillingFrequency: string | null;
   migrationSelectedOption: unknown;
   migrationPriceOverride: Prisma.Decimal | number | null;
+  migrationDiscountCode?: string | null;
   responsiblePayerUserId: string | null;
 };
 
@@ -53,7 +68,7 @@ export async function buildOffer(
   member: OfferMember,
   club: { stripeAccountId: string | null; stripeChargesEnabled: boolean },
   firstChargeDate: Date | null,
-): Promise<{ offer: ReactivationOffer; pricing: ResolvedPricing }> {
+): Promise<{ offer: ReactivationOffer; pricing: ResolvedPricing; discountError: string | null }> {
   const plan = member.migrationMembershipId
     ? await prisma.membership.findFirst({
         where: { id: member.migrationMembershipId, clubId: member.clubId, deletedAt: null },
@@ -72,18 +87,61 @@ export async function buildOffer(
     plan ? { name: plan.name, options: plan.options } : null,
   );
 
+  // Staff-selected payment method (member.requestedPaymentMethod, shared
+  // vocabulary). CASH/CHECK ⇒ OFFLINE mode with the receipt-confirmation flow;
+  // LATER ⇒ the client adds a NEW card on the offer page.
+  const paymentMethod: ReactivationOffer["paymentMethod"] =
+    member.requestedPaymentMethod === "CASH"
+      ? "CASH"
+      : member.requestedPaymentMethod === "CHECK"
+        ? "CHECK"
+        : member.requestedPaymentMethod === "LATER"
+          ? "NEW_CARD"
+          : "SAVED_CARD";
   const offline =
-    !club.stripeAccountId ||
-    !club.stripeChargesEnabled ||
-    member.requestedPaymentMethod === "CASH" ||
-    member.requestedPaymentMethod === "CHECK";
+    !club.stripeAccountId || !club.stripeChargesEnabled || paymentMethod === "CASH" || paymentMethod === "CHECK";
   const paymentMode: ReactivationOffer["paymentMode"] =
     pricing.price <= 0 ? "FREE" : offline ? "OFFLINE" : "CARD";
+
+  // Staff-selected discount — server-resolved against the discount engine and
+  // FROZEN with its math. An invalid stored code never silently disappears:
+  // it's surfaced as discountError and offer creation is blocked upstream.
+  let discount: ReactivationOffer["discount"] = null;
+  let discountError: string | null = null;
+  if (member.migrationDiscountCode && pricing.configured && pricing.price > 0) {
+    const resolved = await resolveStaffDiscount(member.clubId, member.migrationDiscountCode, {
+      type: "MEMBERSHIP",
+      membershipId: plan?.id ?? null,
+    });
+    if (!resolved.ok) {
+      discountError = resolved.error;
+    } else if (resolved.discount) {
+      const q = quotePayment({
+        originalPrice: pricing.price,
+        discount: resolved.discount,
+        method: paymentMethod,
+        passProcessingFees: false, // fee display handled separately; math here is discount-only
+      });
+      if (!q.ok) {
+        discountError = q.error;
+      } else {
+        discount = {
+          code: resolved.discount.code,
+          name: resolved.discount.description || resolved.discount.code,
+          type: resolved.discount.type,
+          value: resolved.discount.value,
+          amountOff: q.quote.discountAmount,
+          finalPrice: q.quote.finalPrice,
+        };
+      }
+    }
+  }
 
   const commitment = member.requestedCancellationDate ?? member.commitmentEndDate ?? null;
 
   return {
     pricing,
+    discountError,
     offer: {
       membershipId: plan?.id ?? null,
       planName: pricing.planName,
@@ -96,8 +154,15 @@ export async function buildOffer(
       paymentMode,
       payerUserId: member.responsiblePayerUserId ?? null,
       autoRenew: plan?.autoRenewDefault ?? true,
+      paymentMethod,
+      discount,
     },
   };
+}
+
+/** The amount the client actually pays: discounted price when a discount applies. */
+export function offerEffectivePrice(offer: Pick<ReactivationOffer, "price" | "discount">): number {
+  return offer.discount ? offer.discount.finalPrice : offer.price;
 }
 
 /**
@@ -162,6 +227,22 @@ export function parseOffer(raw: unknown): ReactivationOffer | null {
     // Offers created before the Auto Renew setting existed renew (the only
     // behavior that existed then).
     autoRenew: typeof o.autoRenew === "boolean" ? o.autoRenew : true,
+    paymentMethod:
+      o.paymentMethod === "SAVED_CARD" || o.paymentMethod === "NEW_CARD" || o.paymentMethod === "CASH" || o.paymentMethod === "CHECK"
+        ? o.paymentMethod
+        : null,
+    discount: (() => {
+      const d = o.discount as Record<string, unknown> | null | undefined;
+      if (!d || typeof d !== "object" || typeof d.code !== "string" || typeof d.finalPrice !== "number") return null;
+      return {
+        code: d.code,
+        name: typeof d.name === "string" ? d.name : d.code,
+        type: d.type === "FIXED" ? ("FIXED" as const) : ("PERCENT" as const),
+        value: typeof d.value === "number" ? d.value : 0,
+        amountOff: typeof d.amountOff === "number" ? d.amountOff : 0,
+        finalPrice: d.finalPrice,
+      };
+    })(),
   };
 }
 
@@ -191,6 +272,11 @@ export function diffOffer(stored: ReactivationOffer, current: ReactivationOffer)
   if (dateOnly(stored.commitmentEndDate) !== dateOnly(current.commitmentEndDate)) changed.push("commitment end date");
   if ((stored.payerUserId ?? null) !== (current.payerUserId ?? null)) changed.push("responsible payer");
   if (stored.autoRenew !== current.autoRenew) changed.push("auto-renew");
+  // Changing payment method (card ↔ cash/check) or the discount supersedes any
+  // open offer: the old token goes stale and a new version must be sent.
+  if ((stored.paymentMethod ?? null) !== (current.paymentMethod ?? null)) changed.push("payment method");
+  if ((stored.discount?.code ?? null) !== (current.discount?.code ?? null)) changed.push("discount");
+  if ((stored.discount?.finalPrice ?? null) !== (current.discount?.finalPrice ?? null)) changed.push("discounted price");
   return changed;
 }
 

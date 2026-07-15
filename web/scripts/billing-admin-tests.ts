@@ -104,6 +104,7 @@ const offerA: ReactivationOffer = {
   membershipId: "m1", planName: "Jr Frogs", optionLabel: "Monthly", price: 110, billingPeriod: "MONTHLY",
   startDate: "2026-03-11T00:00:00.000Z", firstChargeDate: "2026-07-19T00:00:00.000Z",
   commitmentEndDate: null, paymentMode: "CARD", payerUserId: null, autoRenew: true,
+  paymentMethod: "SAVED_CARD", discount: null,
 };
 check("identical offers match", diffOffer(offerA, { ...offerA }).length === 0);
 check("price edit marks it out of date", diffOffer(offerA, { ...offerA, price: 120 }).join() === "price");

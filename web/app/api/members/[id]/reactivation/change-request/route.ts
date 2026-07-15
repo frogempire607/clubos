@@ -85,7 +85,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
   const firstCharge = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
-  const { offer } = await buildOffer(member as unknown as OfferMember, member.club, firstCharge);
+  const { offer, discountError } = await buildOffer(member as unknown as OfferMember, member.club, firstCharge);
+  if (discountError) {
+    return NextResponse.json(
+      { error: `The selected discount can't be applied: ${discountError} Fix or clear the discount in the billing center first.`, code: "DISCOUNT_INVALID" },
+      { status: 400 },
+    );
+  }
 
   if (offer.paymentMode === "CARD") {
     if (!firstCharge) {

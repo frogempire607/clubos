@@ -118,7 +118,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     firstCharge = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
   }
 
-  const { offer, pricing } = await buildOffer(member, member.club, firstCharge);
+  const { offer, pricing, discountError } = await buildOffer(member, member.club, firstCharge);
+
+  // A stored discount that is now removed/expired/ineligible BLOCKS the offer
+  // (never silently dropped — the client would see a different price than the
+  // owner intended).
+  if (discountError) {
+    return NextResponse.json(
+      { error: `The selected discount can't be applied: ${discountError} Fix or clear the discount in the billing center.`, code: "DISCOUNT_INVALID" },
+      { status: 400 },
+    );
+  }
 
   // NO membership configured ⇒ no offer, period. A member with nothing set up
   // must never receive a $0 "FREE" offer (that is how phantom "Continued
