@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { buildCampaignOverview, resolveCampaignRange } from "@/lib/campaignAnalytics";
 import { prisma } from "@/lib/prisma";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
       where: {
         clubId,
         status: "SUCCEEDED",
+        ...EXCLUDE_VOID,
         createdAt: { gte: range.start, lt: range.end },
       },
       select: { id: true, memberId: true, amount: true, type: true, category: true, createdAt: true },
@@ -47,6 +49,7 @@ export async function GET(req: Request) {
       where: {
         clubId,
         status: "SUCCEEDED",
+        ...EXCLUDE_VOID,
         createdAt: { gte: range.prevStart, lt: range.prevEnd },
       },
       select: { id: true, memberId: true, amount: true, type: true, category: true, createdAt: true },
@@ -55,6 +58,7 @@ export async function GET(req: Request) {
       where: {
         clubId,
         status: "SUCCEEDED",
+        ...EXCLUDE_VOID,
         createdAt: { lt: range.start },
       },
       select: { id: true, memberId: true, amount: true, type: true, category: true, createdAt: true },

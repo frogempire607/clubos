@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
 
 // GET /api/dashboard/summary
 // Club-scoped owner/staff metrics for the customizable dashboard widgets.
@@ -45,7 +46,8 @@ export async function GET() {
     prisma.member.count({ where: { clubId, deletedAt: null, status: "ACTIVE" } }),
     prisma.member.count({ where: { clubId, deletedAt: null, joinedAt: { gte: monthStart } } }),
     prisma.transaction.aggregate({
-      where: { clubId, status: "SUCCEEDED", createdAt: { gte: monthStart } },
+      // Voided rows (e.g. reclassified external-reader records) never count.
+      where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID, createdAt: { gte: monthStart } },
       _sum: { amount: true },
     }),
     prisma.expense.aggregate({

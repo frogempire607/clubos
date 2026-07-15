@@ -45,9 +45,13 @@ export async function GET(req: Request) {
     orderBy: { createdAt: "desc" },
   });
 
+  // VOID rows stay in the export (history) but must be identifiable: the
+  // Verification column marks them so a spreadsheet sum can exclude them the
+  // same way every in-app total does.
   const headers = [
     "Date", "Member First Name", "Member Last Name",
-    "Amount ($)", "Platform Fee ($)", "Type", "Status", "Description",
+    "Amount ($)", "Stripe Fee ($)", "Net ($)", "Platform Fee ($)",
+    "Type", "Status", "Payment Source", "Verification", "Description",
     "Stripe Payment Intent",
   ];
 
@@ -56,9 +60,13 @@ export async function GET(req: Request) {
     t.member?.firstName ?? "",
     t.member?.lastName ?? "",
     t.amount.toString(),
+    t.stripeFeeAmount?.toString() ?? "",
+    t.netAmount?.toString() ?? "",
     t.platformFee?.toString() ?? "",
     t.type,
     t.status,
+    t.paymentSource ?? "",
+    t.reconciliationStatus ?? "",
     t.description ?? "",
     t.stripePaymentIntentId ?? "",
   ]);
