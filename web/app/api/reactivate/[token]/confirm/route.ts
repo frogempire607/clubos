@@ -13,6 +13,7 @@ import { writeBillingAudit } from "@/lib/billingAudit";
 import { parseOffer, compareOfferToCurrent, offerEffectivePrice } from "@/lib/reactivation";
 import { chargeTiming, addBillingPeriod } from "@/lib/billingAdmin";
 import { offlineActivationPolicy, isOfflineMethod, discountAppliedLabel } from "@/lib/staffPayments";
+import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { recordDiscountUse } from "@/lib/discounts";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
@@ -169,33 +170,23 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // Stripe customer without the pointer. Fall back to reading the customer's
   // default/only card live from Stripe and persist it, so a genuinely saved
   // card never dead-ends the confirmation.
-  let paymentMethodId = member.stripeSetupPaymentMethodId;
-  if (isCard && member.stripeSetupCustomerId && !paymentMethodId && club.stripeAccountId) {
-    try {
-      const customer = await stripe.customers.retrieve(member.stripeSetupCustomerId, {
-        stripeAccount: club.stripeAccountId,
+  // ALWAYS verified live (not only when the pointer is missing): a stored
+  // pointer can be STALE — the family replaced their card/Link and the old PM
+  // is detached, which Stripe rejects at subscription-create. The shared
+  // resolver prefers the stored pointer only when genuinely attached, else the
+  // customer default / only method (card OR Link).
+  let paymentMethodId: string | null = null;
+  if (isCard && member.stripeSetupCustomerId && club.stripeAccountId) {
+    paymentMethodId = await resolveChargeablePaymentMethodId(
+      member.stripeSetupCustomerId,
+      club.stripeAccountId,
+      member.stripeSetupPaymentMethodId,
+    );
+    if (paymentMethodId && paymentMethodId !== member.stripeSetupPaymentMethodId) {
+      await prisma.member.update({
+        where: { id: member.id },
+        data: { stripeSetupPaymentMethodId: paymentMethodId, paymentSetupStatus: "COMPLETE" },
       });
-      if (customer && !("deleted" in customer && customer.deleted)) {
-        const def = (customer as { invoice_settings?: { default_payment_method?: string | { id: string } | null } })
-          .invoice_settings?.default_payment_method;
-        paymentMethodId = typeof def === "string" ? def : def?.id ?? null;
-      }
-      if (!paymentMethodId) {
-        const cards = await stripe.paymentMethods.list(
-          { customer: member.stripeSetupCustomerId, type: "card", limit: 2 },
-          { stripeAccount: club.stripeAccountId },
-        );
-        // Only when unambiguous — never guess between multiple cards.
-        if (cards.data.length === 1) paymentMethodId = cards.data[0].id;
-      }
-      if (paymentMethodId) {
-        await prisma.member.update({
-          where: { id: member.id },
-          data: { stripeSetupPaymentMethodId: paymentMethodId, paymentSetupStatus: "COMPLETE" },
-        });
-      }
-    } catch (e) {
-      console.error("reactivate confirm: PM fallback resolve failed", e);
     }
   }
   if (isCard && (!member.stripeSetupCustomerId || !paymentMethodId)) {
@@ -212,7 +203,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // Exact card charge — fee-inclusive when the club passes the processing fee.
   // Every user-facing amount below states THIS (it's what Stripe bills), never
   // the base price alone. Same lib/fees.ts math as the subscription created.
-  const totalCharged = recurringUnitWithFee(Math.round(offer.price * 100), isCard && club.passProcessingFees) / 100;
+  const totalCharged =
+    recurringUnitWithFee(Math.round(offerEffectivePrice(offer) * 100), isCard && club.passProcessingFees) / 100;
   if (chargesNow && !body.acknowledgeImmediateCharge) {
     return NextResponse.json(
       {

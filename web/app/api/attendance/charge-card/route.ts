@@ -238,12 +238,14 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
-  // Resolve the PM: captured setup PM first, else the customer default / only
-  // card — never a guess among multiple cards.
-  let paymentMethodId = member.stripeSetupPaymentMethodId ?? null;
-  if (!paymentMethodId) {
-    paymentMethodId = await resolveChargeablePaymentMethodId(customerId, club.stripeAccountId);
-  }
+  // Resolve the PM with LIVE attachment verification — a stored pointer can
+  // be stale (family replaced their card/Link). Prefers the stored pointer
+  // only when genuinely attached; else customer default / only method.
+  const paymentMethodId = await resolveChargeablePaymentMethodId(
+    customerId,
+    club.stripeAccountId,
+    member.stripeSetupPaymentMethodId,
+  );
   if (!paymentMethodId) {
     return NextResponse.json(
       { error: "NO_SAVED_CARD", message: "No saved payment method — send a payment link instead." },

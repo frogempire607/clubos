@@ -12,6 +12,7 @@ import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 
 // Athlete (or guardian for minors) contact email for activation/approval notices.
 function memberContactEmail(m: { isMinor: boolean; email: string | null; guardianEmail: string | null }) {
@@ -425,6 +426,33 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const amountCents = recurringUnitWithFee(Math.round(price * 100), club.passProcessingFees);
   const interval = billingPeriodToStripeInterval(period) || { interval: "month" as const, interval_count: 1 };
 
+  // VERIFY the saved payment method is still attached before charging — a
+  // family that replaced their card leaves a stale pointer, and Stripe then
+  // errors "payment method must be attached to the customer" (Mack Munroe,
+  // 2026-07-15). Falls back to the customer's default / only method (card OR
+  // Link wallet) and persists the correction.
+  const chargePmId = await resolveChargeablePaymentMethodId(
+    member.stripeSetupCustomerId,
+    club.stripeAccountId,
+    member.stripeSetupPaymentMethodId,
+  );
+  if (!chargePmId) {
+    return NextResponse.json(
+      {
+        error:
+          "The saved payment method is no longer attached to this member's billing account (it was likely replaced or removed). Send the card-setup link again, or approve with forceManual to bill offline. Nothing was charged.",
+        code: "CARD_SETUP_INCOMPLETE",
+      },
+      { status: 409 },
+    );
+  }
+  if (chargePmId !== member.stripeSetupPaymentMethodId) {
+    await prisma.member.update({
+      where: { id: member.id },
+      data: { stripeSetupPaymentMethodId: chargePmId },
+    });
+  }
+
   let memberSub;
   try {
     // Subscription price_data needs an existing Product (no inline product_data
@@ -451,7 +479,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const sub = await stripe.subscriptions.create(
       {
         customer: member.stripeSetupCustomerId!,
-        default_payment_method: member.stripeSetupPaymentMethodId!,
+        default_payment_method: chargePmId,
         items: [
           {
             price_data: {

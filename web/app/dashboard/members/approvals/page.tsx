@@ -998,14 +998,19 @@ function BillingReviewPanel({
   );
   const offerOutOfDate = !!reactivation?.open && !!reactivation.sync && reactivation.sync.matches === false;
 
+  // CASH/CHECK members are never card-charged — card-timing warnings and the
+  // "charges immediately" line don't apply to them.
+  const offlineMethod =
+    billing?.requestedPaymentMethod === "CASH" || billing?.requestedPaymentMethod === "CHECK";
+
   const warnings: string[] = [];
-  if (!unconfigured && (price ?? 0) > 0 && paymentMethods.length === 0 && !data.stripeReadError) {
+  if (!unconfigured && !offlineMethod && (price ?? 0) > 0 && paymentMethods.length === 0 && !data.stripeReadError) {
     warnings.push("No saved payment method — a paid card membership can't start charging.");
   }
   if (data.stripeReadError) {
     warnings.push("Stripe payment methods couldn't be read right now — card details may be incomplete below.");
   }
-  if (!unconfigured && (price ?? 0) > 0 && (!billing?.finalBillingDate || timing?.immediate)) {
+  if (!unconfigured && !offlineMethod && (price ?? 0) > 0 && (!billing?.finalBillingDate || timing?.immediate)) {
     warnings.push("No future first-billing date — activating (or a client confirmation) would charge immediately.");
   }
   if (offerOutOfDate) {
@@ -1097,7 +1102,9 @@ function BillingReviewPanel({
         {!unconfigured && fees?.passFees && (price ?? 0) > 0 && fees.totalCharged != null && fees.fee != null &&
           billing?.requestedPaymentMethod !== "CASH" && billing?.requestedPaymentMethod !== "CHECK" &&
           row("Total charged", `${money(fees.totalCharged)} incl. ${money(fees.fee)} processing fee`)}
-        {!unconfigured && timing?.label &&
+        {!unconfigured && offlineMethod &&
+          row("Charge timing", `No card charge — the club collects ${billing?.requestedPaymentMethod === "CHECK" ? "a check" : "cash"} (recorded when received)`)}
+        {!unconfigured && !offlineMethod && timing?.label &&
           row("Charge timing", timing.immediate ? <strong>{timing.label}</strong> : timing.label)}
         {row("First billing", fmtDateUTC(billing?.finalBillingDate))}
         {billing?.billingAnchorDate && row("Imported anchor", fmtDateUTC(billing.billingAnchorDate))}
