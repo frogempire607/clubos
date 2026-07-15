@@ -75,6 +75,17 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   if (r.tokenExpires < new Date()) {
     return NextResponse.json({ error: "This link has expired. Ask the club to resend it.", code: "EXPIRED" }, { status: 410 });
   }
+  // An open client change request LOCKS confirmation: the club is reviewing
+  // the requested changes, so the old terms must not be accepted meanwhile.
+  if (r.changeRequestStatus === "OPEN") {
+    return NextResponse.json(
+      {
+        error: "You asked the club for changes to this offer — it can't be confirmed while they review. They'll send an updated offer or respond shortly. Nothing was charged.",
+        code: "CHANGE_REQUEST_PENDING",
+      },
+      { status: 409 },
+    );
+  }
 
   const member = r.member;
   const club = r.club;
@@ -196,12 +207,17 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
   const timing = chargeTiming(firstCharge);
   const chargesNow = isCard && timing.immediate;
+  // Exact card charge — fee-inclusive when the club passes the processing fee.
+  // Every user-facing amount below states THIS (it's what Stripe bills), never
+  // the base price alone. Same lib/fees.ts math as the subscription created.
+  const totalCharged = recurringUnitWithFee(Math.round(offer.price * 100), isCard && club.passProcessingFees) / 100;
   if (chargesNow && !body.acknowledgeImmediateCharge) {
     return NextResponse.json(
       {
-        error: `Confirming will charge $${offer.price.toFixed(2)} immediately.`,
+        error: `Confirming will charge $${totalCharged.toFixed(2)} immediately.`,
         code: "IMMEDIATE_CHARGE_CONFIRM_REQUIRED",
         price: offer.price,
+        totalCharged,
       },
       { status: 409 },
     );
@@ -235,7 +251,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       ip: fwd ? fwd.split(",")[0].trim() : null,
       userAgent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
       buttonLabel: chargesNow
-        ? `Confirm membership — $${offer.price.toFixed(2)} charged today`
+        ? `Confirm membership — $${totalCharged.toFixed(2)} charged today`
         : isFree
           ? "Confirm membership"
           : `Confirm membership — first payment ${firstCharge?.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}`,
@@ -453,7 +469,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         firstName: member.firstName,
         clubName: club.name,
         membershipName: offer.planName,
-        amountPaid: chargesNow ? `$${offer.price.toFixed(2)}` : undefined,
+        amountPaid: chargesNow ? `$${totalCharged.toFixed(2)}` : undefined,
         nextBillingDate: chargesNow ? null : firstCharge,
         portalUrl: `${getAppBaseUrl()}/member`,
       }).catch((e) => console.error("Reactivation confirmation email failed:", e));

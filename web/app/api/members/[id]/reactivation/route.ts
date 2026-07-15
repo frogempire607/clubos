@@ -51,6 +51,10 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       consent: r.consent,
       tokenExpires: r.tokenExpires,
       createdAt: r.createdAt,
+      // Client change request (locks confirmation while OPEN).
+      changeRequest: r.changeRequest,
+      changeRequestStatus: r.changeRequestStatus,
+      changeRequestAt: r.changeRequestAt,
       url: r.status === "DRAFT" || r.status === "SENT" ? reactivationUrl(baseUrl, r.token) : null,
     })),
   });
