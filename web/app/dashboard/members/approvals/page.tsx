@@ -172,6 +172,22 @@ type BillingAdminData = {
 
 const LIVE_STRIPE_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
 
+// ── Outstanding cash/check payments (GET /api/offline-payments) ─────────────
+// READ-ONLY roll-up of PENDING cash/check Transactions. Recording still goes
+// through the one existing engine (OfflinePaymentsCard →
+// POST /api/members/[id]/offline-payment, billing:full server-side).
+type OutstandingOffline = {
+  transactionId: string;
+  memberId: string;
+  memberName: string;
+  amount: number;
+  method: "CASH" | "CHECK";
+  description: string | null;
+  discountCode: string | null;
+  acceptedAt: string;
+  stateLabel: string;
+};
+
 function requesterLabel(r: Requester): string {
   if (!r) return "Someone";
   if (r.name && r.email) return `${r.name} (${r.email})`;
@@ -232,6 +248,20 @@ export default function MembersApprovalsPage() {
   // profile-only approval and never implies a charge. undefined = not known yet.
   const [configuredMap, setConfiguredMap] = useState<Record<string, boolean>>({});
   const configuredFetched = useRef(new Set<string>());
+  // Outstanding cash/check payments (may be empty for staff without
+  // billing:view / attendance:edit — a 403 just hides the section).
+  const [offlineOutstanding, setOfflineOutstanding] = useState<OutstandingOffline[]>([]);
+
+  const loadOffline = useCallback(() => {
+    fetch("/api/offline-payments")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setOfflineOutstanding(Array.isArray(d?.outstanding) ? (d.outstanding as OutstandingOffline[]) : []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadOffline();
+  }, [loadOffline]);
 
   const setConfigured = useCallback((memberId: string, v: boolean) => {
     setConfiguredMap((m) => (m[memberId] === v ? m : { ...m, [memberId]: v }));
@@ -520,6 +550,59 @@ export default function MembersApprovalsPage() {
           )}
         </div>
       )}
+
+      {/* Outstanding cash/check — one card per member; recording reuses the
+          existing OfflinePaymentsCard engine (only Record changes data). */}
+      {offlineOutstanding.length > 0 && (() => {
+        const groups: { memberId: string; memberName: string; rows: OutstandingOffline[] }[] = [];
+        const byId = new Map<string, OutstandingOffline[]>();
+        for (const row of offlineOutstanding) {
+          const existing = byId.get(row.memberId);
+          if (existing) {
+            existing.push(row);
+          } else {
+            const rows: OutstandingOffline[] = [row];
+            byId.set(row.memberId, rows);
+            groups.push({ memberId: row.memberId, memberName: row.memberName, rows });
+          }
+        }
+        return (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-text-primary mb-2">Awaiting cash/check payment</h2>
+            <div className="space-y-3">
+              {groups.map((g) => (
+                <div key={g.memberId} className="rounded-xl border border-app-border bg-surface p-4">
+                  <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-orange-700 bg-orange-100 rounded px-2 py-0.5 mb-2">
+                    Awaiting cash/check payment
+                  </span>
+                  <p className="text-sm text-text-primary">
+                    <Link href={`/dashboard/members/${g.memberId}/billing`} className="font-semibold underline underline-offset-2 hover:text-brand">
+                      {g.memberName}
+                    </Link>
+                  </p>
+                  {g.rows.map((r) => (
+                    <p key={r.transactionId} className="text-xs text-text-muted mt-1">
+                      ${r.amount.toFixed(2)} · awaiting {r.method === "CHECK" ? "check" : "cash"}
+                      {r.discountCode ? ` · ${r.discountCode} Discount Applied` : ""}
+                      {` · accepted ${fmtDate(r.acceptedAt)}`}
+                    </p>
+                  ))}
+                  <div className="mt-3">
+                    <OfflinePaymentsCard
+                      memberId={g.memberId}
+                      variant="inline"
+                      onChanged={() => {
+                        loadOffline();
+                        load();
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {approvals === null ? (
         <div className="space-y-3">

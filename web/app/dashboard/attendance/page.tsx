@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { ArrowLeft, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
+import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import { todayLocalISO } from "@/lib/datetime";
 
@@ -239,6 +240,102 @@ function DiscountMathRows({ orig, discount }: { orig: number; discount: Eligible
         <span>Final</span>
         <span>${math.final.toFixed(2)}</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Outstanding cash/check ("Owes") chips ────────────────────────────────────
+// READ-ONLY roll-up from GET /api/offline-payments (billing:view OR
+// attendance:edit — a 403 simply hides the chips). The ONLY action that
+// changes data is "Record payment received", which reuses the one existing
+// engine (OfflinePaymentsCard → POST /api/members/[id]/offline-payment,
+// billing:full enforced server-side). Allow/Deny just close the panel with a
+// note — check-in continues through the normal buttons, nothing is written.
+
+type OwedRow = {
+  transactionId: string;
+  memberId: string;
+  memberName: string;
+  amount: number;
+  method: "CASH" | "CHECK";
+  description: string | null;
+  discountCode: string | null;
+  acceptedAt: string;
+  stateLabel: string;
+};
+
+type OwedMap = Record<string, OwedRow[]>;
+
+const OWES_ALLOW_NOTE = "Attendance allowed — payment still due; the chip stays until it's recorded.";
+const OWES_DENY_NOTE = "Don't check them in — ask for the payment first. Nothing was changed.";
+
+function OwesChip({ rows, onClick }: { rows: OwedRow[]; onClick: () => void }) {
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  const methods = Array.from(new Set(rows.map((r) => r.method.toLowerCase()))).join("/");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Outstanding cash/check payment — click for options"
+      className="ml-1.5 align-middle text-[10px] rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 font-medium hover:bg-orange-200"
+    >
+      Owes ${total.toFixed(2)} ({methods})
+    </button>
+  );
+}
+
+function OwesPanel({
+  memberId,
+  rows,
+  recording,
+  onRecord,
+  onAllow,
+  onDeny,
+  onRecorded,
+}: {
+  memberId: string;
+  rows: OwedRow[];
+  recording: boolean;
+  onRecord: () => void;
+  onAllow: () => void;
+  onDeny: () => void;
+  onRecorded: () => void;
+}) {
+  return (
+    <div className="mt-2 rounded-lg border border-orange-accent/40 bg-orange-accent/5 p-2 space-y-2">
+      {rows.map((r) => (
+        <p key={r.transactionId} className="text-[11px] text-text-muted">
+          <span className="font-medium text-text-primary">${r.amount.toFixed(2)}</span> · {r.stateLabel}
+          {r.description ? ` — ${r.description}` : ""}
+        </p>
+      ))}
+      {recording ? (
+        <OfflinePaymentsCard memberId={memberId} variant="inline" onChanged={onRecorded} />
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={onRecord}
+            className="px-2 py-1 text-[11px] rounded bg-brand text-white hover:bg-brand-hover"
+          >
+            Record payment received
+          </button>
+          <button
+            type="button"
+            onClick={onAllow}
+            className="px-2 py-1 text-[11px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
+          >
+            Allow attendance anyway
+          </button>
+          <button
+            type="button"
+            onClick={onDeny}
+            className="px-2 py-1 text-[11px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
+          >
+            Deny until paid
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -636,6 +733,8 @@ function QuickAddForm({
   acceptedMemberships,
   freeTrial,
   onAdded,
+  owedMap,
+  onOwedChanged,
 }: {
   sessionId: string;
   sessionName: string;
@@ -644,6 +743,8 @@ function QuickAddForm({
   acceptedMemberships: AcceptedMembership[];
   freeTrial: FreeTrialSummary | null;
   onAdded: () => void;
+  owedMap: OwedMap;
+  onOwedChanged: () => void;
 }) {
   const [step, setStep] = useState<"search" | "add-new">("search");
   const [query, setQuery] = useState("");
@@ -819,6 +920,18 @@ function QuickAddForm({
   const [trialingId, setTrialingId] = useState<string | null>(null);
   const [trialEmailReceipt, setTrialEmailReceipt] = useState(false);
 
+  // "Owes $X" chip panel — per search row. Nothing here writes data except
+  // the embedded record flow (OwesPanel / OfflinePaymentsCard).
+  const [owesOpenId, setOwesOpenId] = useState<string | null>(null);
+  const [owesRecordId, setOwesRecordId] = useState<string | null>(null);
+  const [owesNotes, setOwesNotes] = useState<Record<string, string>>({});
+
+  function toggleOwes(memberId: string) {
+    setOwesNotes((n) => ({ ...n, [memberId]: "" }));
+    setOwesRecordId(null);
+    setOwesOpenId((cur) => (cur === memberId ? null : memberId));
+  }
+
   async function createAndCheckIn(e: React.FormEvent) {
     e.preventDefault();
     if (!newFirst || !newLast) { setError("Name is required."); return; }
@@ -968,6 +1081,9 @@ function QuickAddForm({
                   <div className="text-sm font-medium text-text-primary">
                     {m.firstName} {m.lastName}
                     {m.isMinor && <span className="ml-1.5 text-xs text-brand">(minor)</span>}
+                    {(owedMap[m.id]?.length ?? 0) > 0 && (
+                      <OwesChip rows={owedMap[m.id]} onClick={() => toggleOwes(m.id)} />
+                    )}
                   </div>
                   {m.isMinor && m.guardianName && (
                     <div className="text-xs text-text-muted">Guardian: {m.guardianName}</div>
@@ -1004,6 +1120,31 @@ function QuickAddForm({
                   )}
                 </div>
               </div>
+              {owesNotes[m.id] ? (
+                <p className="mt-2 text-[11px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
+                  {owesNotes[m.id]}
+                </p>
+              ) : null}
+              {owesOpenId === m.id && (owedMap[m.id]?.length ?? 0) > 0 && (
+                <OwesPanel
+                  memberId={m.id}
+                  rows={owedMap[m.id]}
+                  recording={owesRecordId === m.id}
+                  onRecord={() => setOwesRecordId(m.id)}
+                  onAllow={() => {
+                    setOwesOpenId(null);
+                    setOwesNotes((n) => ({ ...n, [m.id]: OWES_ALLOW_NOTE }));
+                  }}
+                  onDeny={() => {
+                    setOwesOpenId(null);
+                    setOwesNotes((n) => ({ ...n, [m.id]: OWES_DENY_NOTE }));
+                  }}
+                  onRecorded={() => {
+                    setOwesNotes((n) => ({ ...n, [m.id]: "Payment recorded." }));
+                    onOwedChanged();
+                  }}
+                />
+              )}
               {trialingId === m.id && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                   <p className="text-sm font-medium text-text-primary">Start free trial for this client?</p>
@@ -1178,10 +1319,14 @@ function AttendancePanel({
   sessionId,
   sessionName,
   onClose,
+  owedMap,
+  onOwedChanged,
 }: {
   sessionId: string;
   sessionName: string;
   onClose: () => void;
+  owedMap: OwedMap;
+  onOwedChanged: () => void;
 }) {
   const [data, setData] = useState<{
     session: ClassSession & {
@@ -1219,6 +1364,17 @@ function AttendancePanel({
   const [trialRecId, setTrialRecId] = useState<string | null>(null);
   const [trialEmailReceipt, setTrialEmailReceipt] = useState(false);
   const [trialError, setTrialError] = useState("");
+  // "Owes $X" chip panel — per roster member. Nothing here writes data except
+  // the embedded record flow (OwesPanel / OfflinePaymentsCard).
+  const [owesOpenId, setOwesOpenId] = useState<string | null>(null);
+  const [owesRecordId, setOwesRecordId] = useState<string | null>(null);
+  const [owesNotes, setOwesNotes] = useState<Record<string, string>>({});
+
+  function toggleOwes(memberId: string) {
+    setOwesNotes((n) => ({ ...n, [memberId]: "" }));
+    setOwesRecordId(null);
+    setOwesOpenId((cur) => (cur === memberId ? null : memberId));
+  }
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/attendance/${sessionId}`);
@@ -1415,6 +1571,12 @@ function AttendancePanel({
                               {rec.member.isMinor && (
                                 <span className="ml-1.5 text-xs text-brand">(minor)</span>
                               )}
+                              {(owedMap[rec.member.id]?.length ?? 0) > 0 && (
+                                <OwesChip
+                                  rows={owedMap[rec.member.id]}
+                                  onClick={() => toggleOwes(rec.member.id)}
+                                />
+                              )}
                             </div>
                             {rec.member.isMinor && rec.member.guardianName && (
                               <div className="text-xs text-text-muted">
@@ -1470,6 +1632,33 @@ function AttendancePanel({
                             Remove
                           </button>
                         </div>
+                        {/* "Owes" note + panel — informational; only the embedded
+                            record flow changes data. */}
+                        {owesNotes[rec.member.id] ? (
+                          <p className="mt-2 text-[11px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
+                            {owesNotes[rec.member.id]}
+                          </p>
+                        ) : null}
+                        {owesOpenId === rec.member.id && (owedMap[rec.member.id]?.length ?? 0) > 0 && (
+                          <OwesPanel
+                            memberId={rec.member.id}
+                            rows={owedMap[rec.member.id]}
+                            recording={owesRecordId === rec.member.id}
+                            onRecord={() => setOwesRecordId(rec.member.id)}
+                            onAllow={() => {
+                              setOwesOpenId(null);
+                              setOwesNotes((n) => ({ ...n, [rec.member.id]: OWES_ALLOW_NOTE }));
+                            }}
+                            onDeny={() => {
+                              setOwesOpenId(null);
+                              setOwesNotes((n) => ({ ...n, [rec.member.id]: OWES_DENY_NOTE }));
+                            }}
+                            onRecorded={() => {
+                              setOwesNotes((n) => ({ ...n, [rec.member.id]: "Payment recorded." }));
+                              onOwedChanged();
+                            }}
+                          />
+                        )}
                         {/* Drop-in charge form — price + payment method, always
                             reachable no matter which status was clicked first. */}
                         {chargeRecId === rec.id && (
@@ -1616,6 +1805,8 @@ function AttendancePanel({
                       acceptedMemberships={data?.acceptedMemberships ?? []}
                       freeTrial={data?.freeTrial ?? null}
                       onAdded={() => { load(); }}
+                      owedMap={owedMap}
+                      onOwedChanged={onOwedChanged}
                     />
                   </div>
                 ) : (
@@ -1723,6 +1914,26 @@ function AttendancePageInner() {
   const [selectedSession, setSelectedSession] = useState<{ id: string; name: string } | null>(
     null
   );
+
+  // Outstanding cash/check payments, memberId → rows. Fetched once per page
+  // load and refetched after a record success (chip disappears). Staff without
+  // billing:view / attendance:edit get a 403 → the map stays empty.
+  const [owedMap, setOwedMap] = useState<OwedMap>({});
+  const refetchOwed = useCallback(() => {
+    fetch("/api/offline-payments")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const map: OwedMap = {};
+        if (Array.isArray(d?.outstanding)) {
+          for (const row of d.outstanding as OwedRow[]) {
+            (map[row.memberId] ??= []).push(row);
+          }
+        }
+        setOwedMap(map);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { refetchOwed(); }, [refetchOwed]);
 
   const load = useCallback(async (d: string) => {
     setLoading(true);
@@ -1885,6 +2096,8 @@ function AttendancePageInner() {
           sessionId={selectedSession.id}
           sessionName={selectedSession.name}
           onClose={() => setSelectedSession(null)}
+          owedMap={owedMap}
+          onOwedChanged={refetchOwed}
         />
       )}
     </div>
