@@ -13,6 +13,8 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { addBillingPeriod } from "@/lib/billingAdmin";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
+import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
 
 // Athlete (or guardian for minors) contact email for activation/approval notices.
 function memberContactEmail(m: { isMinor: boolean; email: string | null; guardianEmail: string | null }) {
@@ -195,6 +197,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     price = Number(member.migrationPriceOverride);
   }
 
+  // Staff-selected discount applies on DIRECT activation exactly like it does
+  // on the offer path — same engine, validated here, invalid = hard block.
+  let appliedDiscount: { id: string; code: string; amountOff: number } | null = null;
+  if (member.migrationDiscountCode && price > 0) {
+    const resolved = await resolveStaffDiscount(club.id, member.migrationDiscountCode, {
+      type: "MEMBERSHIP",
+      membershipId: member.migrationMembershipId,
+    });
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: `The selected discount can't be applied: ${resolved.error} Fix or clear it in the billing center. Nothing was changed.`, code: "DISCOUNT_INVALID" },
+        { status: 400 },
+      );
+    }
+    if (resolved.discount) {
+      const q = quotePayment({ originalPrice: price, discount: resolved.discount, method: "CASH", passProcessingFees: false });
+      if (!q.ok) return NextResponse.json({ error: q.error, code: "DISCOUNT_INVALID" }, { status: 400 });
+      appliedDiscount = { id: resolved.discount.id, code: resolved.discount.code, amountOff: q.quote.discountAmount };
+      price = q.quote.finalPrice;
+    }
+  }
+
   if (!membershipId) {
     // Minting a plan here is ONLY for members with a real imported plan name
     // (their WellnessLiving membership carried over). Never fabricate a
@@ -343,6 +367,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         billingType: "MANUAL",
         autoRenew: false,
         status: "active",
+        ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
         startDate: member.membershipStartDate ?? new Date(),
         billingAnchorDate: anchor,
         // Explicit requested end wins; otherwise a non-renewing plan ends
@@ -402,6 +427,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         portalUrl: `${getAppBaseUrl()}/member`,
       }).catch((e) => console.error("Approval email failed:", e));
     }
+    if (appliedDiscount) await recordDiscountUse(appliedDiscount.id);
     return NextResponse.json({ ok: true, noPayment: true });
   }
 
@@ -518,6 +544,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         ...(cancelAtUnix ? { endDate: new Date(cancelAtUnix * 1000) } : {}),
         stripeSubscriptionId: sub.id,
         stripePriceId: sub.items?.data?.[0]?.price?.id ?? null,
+        ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
         notes: `Migrated from ${member.legacySource || "previous software"} — approved by club`,
       },
     });
@@ -581,5 +608,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }).catch((e) => console.error("Approval email failed:", e));
   }
 
+  if (appliedDiscount) await recordDiscountUse(appliedDiscount.id);
   return NextResponse.json({ ok: true, subscriptionId: memberSub.stripeSubscriptionId });
 }
