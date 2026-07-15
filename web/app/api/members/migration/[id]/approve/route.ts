@@ -38,6 +38,11 @@ const schema = z.object({
   // That must never happen silently — the caller has to acknowledge it
   // explicitly (the UI shows a second, unmissable confirmation).
   confirmImmediateCharge: z.boolean().optional().default(false),
+  // Approve the PROFILE only: staff reviewed/accepted the account setup.
+  // Creates NO membership, NO subscription, NO charge; the member stays
+  // PROSPECT until a real membership is purchased or assigned. This is the
+  // correct action for a completed profile with no membership configured.
+  profileOnly: z.boolean().optional().default(false),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -67,6 +72,31 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "This migration is already complete." }, { status: 409 });
   }
   const club = member.club;
+
+  // ── Profile-only approval ────────────────────────────────────────────────
+  // "Approved" must not mean "Active member": this branch closes the review
+  // without touching membership, billing, or status. Status stays whatever
+  // the subscription truth says (PROSPECT when they've never had one).
+  if (body.profileOnly) {
+    await prisma.member.update({
+      where: { id: member.id },
+      data: {
+        approvalStatus: "APPROVED",
+        migrationStatus: MIGRATION_STATUS.COMPLETED,
+        migrationCompletedAt: new Date(),
+      },
+    });
+    await writeBillingAudit({
+      clubId: club.id,
+      memberId: member.id,
+      actorUserId: session.user.id ?? null,
+      action: "PROFILE_APPROVED_NO_MEMBERSHIP",
+      before: { approvalStatus: member.approvalStatus, migrationStatus: member.migrationStatus },
+      after: { approvalStatus: "APPROVED", migrationStatus: MIGRATION_STATUS.COMPLETED },
+      note: "Profile setup approved — no membership, subscription, or charge was created; member remains a prospect until a real membership is purchased or assigned.",
+    });
+    return NextResponse.json({ ok: true, profileOnly: true, noMembership: true });
+  }
 
   // ── Nothing-configured guard ─────────────────────────────────────────────
   // Approving a member with NO plan, NO purchase option, NO price override,
@@ -119,7 +149,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (billsImmediately) anchor = new Date();
 
   // Resolve the plan: owner-assigned Membership first, else legacy snapshot.
-  let planName = member.legacyMembershipName || "Continued membership";
+  // NO "Continued membership" fallback — the NOTHING_CONFIGURED guard above
+  // already refused unconfigured members, and the mint-a-plan branch below
+  // additionally requires a real (legacy) plan NAME.
+  let planName = member.legacyMembershipName || "No membership";
   let price = member.legacyMembershipPrice ? Number(member.legacyMembershipPrice) : 0;
   let period = member.legacyBillingFrequency || "MONTHLY";
   let membershipId = member.migrationMembershipId;
@@ -162,11 +195,25 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   if (!membershipId) {
+    // Minting a plan here is ONLY for members with a real imported plan name
+    // (their WellnessLiving membership carried over). Never fabricate a
+    // placeholder plan for a member who has nothing — assign a real
+    // Membership in the billing center instead.
+    if (!member.legacyMembershipName) {
+      return NextResponse.json(
+        {
+          error:
+            "This member has no membership plan assigned and no imported plan name. Assign a real membership in the billing center before approving billing — or approve the profile only (profileOnly).",
+          code: "PLAN_REQUIRED",
+        },
+        { status: 409 },
+      );
+    }
     const created = await prisma.membership.create({
       data: {
         clubId: club.id,
         name: planName,
-        options: JSON.stringify([{ label: "Continued", price, billingPeriod: period }]),
+        options: JSON.stringify([{ label: "Imported", price, billingPeriod: period }]),
       },
     });
     membershipId = created.id;

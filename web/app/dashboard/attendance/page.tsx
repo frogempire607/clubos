@@ -549,8 +549,10 @@ function QuickAddForm({
   const [guardianName, setGuardianName] = useState("");
   const [guardianEmail, setGuardianEmail] = useState("");
   const [error, setError] = useState("");
-  const [registeringId, setRegisteringId] = useState<string | null>(null);
-  const [payingId, setPayingId] = useState<string | null>(null);
+  // One combined "Drop-in" sub-panel per search row: record a payment
+  // (cash/check/saved card/external reader/comp/free/invoice) OR open a
+  // Stripe checkout page. Replaces the old separate registeringId/payingId.
+  const [dropInId, setDropInId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState<PayMethod>("CASH");
   const [payStatus, setPayStatus] = useState<"DROP_IN" | "TRIAL" | "PRESENT">("DROP_IN");
@@ -579,7 +581,7 @@ function QuickAddForm({
       return;
     }
     if (data.coveredByMembership) {
-      setRegisteringId(null);
+      setDropInId(null);
       setQuery("");
       setResults([]);
       onAdded();
@@ -587,14 +589,14 @@ function QuickAddForm({
     }
     if (data.url) {
       window.open(data.url, "_blank");
-      setRegisteringId(null);
+      setDropInId(null);
       return;
     }
     setError("Unexpected response");
   }
 
-  function openPay(memberId: string) {
-    if (payingId === memberId) { setPayingId(null); return; }
+  function openDropIn(memberId: string) {
+    if (dropInId === memberId) { setDropInId(null); return; }
     // Default matches the panel's default status (Drop-in).
     const def = dropInPrice?.price ?? nonMemberPrice?.price ?? memberPrice?.price ?? 0;
     setPayAmount(def ? String(def) : "");
@@ -603,9 +605,8 @@ function QuickAddForm({
     setPayNotes("");
     setPayEmailReceipt(false);
     setError("");
-    setRegisteringId(null);
     setTrialingId(null);
-    setPayingId(memberId);
+    setDropInId(memberId);
   }
 
   // Cash / comp / invoice — no Stripe. Records attendance + an internal
@@ -631,7 +632,7 @@ function QuickAddForm({
     const data = await res.json().catch(() => ({}));
     setSaving(false);
     if (!res.ok) { setError(typeof data.error === "string" ? data.error : "Could not record payment"); return; }
-    setPayingId(null);
+    setDropInId(null);
     setQuery("");
     setResults([]);
     onAdded();
@@ -853,29 +854,19 @@ function QuickAddForm({
                       setTrialingId(trialingId === m.id ? null : m.id);
                       setTrialEmailReceipt(false);
                       setError("");
-                      setRegisteringId(null);
-                      setPayingId(null);
+                      setDropInId(null);
                     }}
                     className="px-2 py-1 text-xs rounded bg-brand/10 text-brand hover:bg-brand"
                   >
                     {trialingId === m.id ? "Cancel" : "Trial"}
                   </button>
-                  {hasAnyPricing && classId && (
-                    <button
-                      disabled={saving}
-                      onClick={() => { setRegisteringId(registeringId === m.id ? null : m.id); setTrialingId(null); }}
-                      className="px-2 py-1 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
-                    >
-                      {registeringId === m.id ? "Cancel" : "Register (card)"}
-                    </button>
-                  )}
                   {classId && (
                     <button
                       disabled={saving}
-                      onClick={() => openPay(m.id)}
+                      onClick={() => openDropIn(m.id)}
                       className="px-2 py-1 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
                     >
-                      {payingId === m.id ? "Cancel" : "Cash / Comp"}
+                      {dropInId === m.id ? "Cancel" : "Drop-in"}
                     </button>
                   )}
                 </div>
@@ -907,51 +898,7 @@ function QuickAddForm({
                   {error && <p className="text-red-600 text-xs">{error}</p>}
                 </div>
               )}
-              {registeringId === m.id && hasAnyPricing && classId && (
-                <div className="mt-2 pt-2 border-t border-app-border space-y-1.5">
-                  {acceptsMembership && (
-                    <button
-                      disabled={saving}
-                      onClick={() => register(m.id, "MEMBERSHIP")}
-                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-brand/40 bg-brand/5 text-text-primary hover:bg-brand/10"
-                    >
-                      <span className="font-medium">Use accepted membership</span>
-                      <span className="block text-[10px] text-text-muted">
-                        Free if active on: {acceptedMemberships.map((a) => a.name).join(", ")}
-                      </span>
-                    </button>
-                  )}
-                  {memberPrice && (
-                    <button
-                      disabled={saving}
-                      onClick={() => register(m.id, "MEMBER")}
-                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
-                    >
-                      Member · ${memberPrice.price.toFixed(2)}
-                    </button>
-                  )}
-                  {nonMemberPrice && (
-                    <button
-                      disabled={saving}
-                      onClick={() => register(m.id, "NON_MEMBER")}
-                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
-                    >
-                      Non-member · ${nonMemberPrice.price.toFixed(2)}
-                    </button>
-                  )}
-                  {dropInPrice && (
-                    <button
-                      disabled={saving}
-                      onClick={() => register(m.id, "DROP_IN")}
-                      className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
-                    >
-                      Drop-in · ${dropInPrice.price.toFixed(2)}
-                    </button>
-                  )}
-                  {error && <p className="text-red-600 text-xs">{error}</p>}
-                </div>
-              )}
-              {payingId === m.id && classId && (
+              {dropInId === m.id && classId && (
                 <div className="mt-2 pt-2 border-t border-app-border space-y-2">
                   <PayMethodChips value={payMethod} onChange={setPayMethod} />
                   <div className="grid grid-cols-2 gap-1.5">
@@ -1025,6 +972,52 @@ function QuickAddForm({
                               : `Record ${payMethod === "CHECK" ? "check" : "cash"} payment${payAmount ? ` · $${Number(payAmount).toFixed(2)}` : ""}`}
                       </button>
                     </>
+                  )}
+                  {hasAnyPricing && (
+                    <div className="pt-2 border-t border-app-border space-y-1.5">
+                      <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">
+                        Or open a Stripe checkout page:
+                      </p>
+                      {acceptsMembership && (
+                        <button
+                          disabled={saving}
+                          onClick={() => register(m.id, "MEMBERSHIP")}
+                          className="w-full text-left px-2 py-1.5 text-xs rounded border border-brand/40 bg-brand/5 text-text-primary hover:bg-brand/10"
+                        >
+                          <span className="font-medium">Use accepted membership</span>
+                          <span className="block text-[10px] text-text-muted">
+                            Free if active on: {acceptedMemberships.map((a) => a.name).join(", ")}
+                          </span>
+                        </button>
+                      )}
+                      {memberPrice && (
+                        <button
+                          disabled={saving}
+                          onClick={() => register(m.id, "MEMBER")}
+                          className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                        >
+                          Member · ${memberPrice.price.toFixed(2)}
+                        </button>
+                      )}
+                      {nonMemberPrice && (
+                        <button
+                          disabled={saving}
+                          onClick={() => register(m.id, "NON_MEMBER")}
+                          className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                        >
+                          Non-member · ${nonMemberPrice.price.toFixed(2)}
+                        </button>
+                      )}
+                      {dropInPrice && (
+                        <button
+                          disabled={saving}
+                          onClick={() => register(m.id, "DROP_IN")}
+                          className="w-full text-left px-2 py-1.5 text-xs rounded border border-app-border text-text-primary hover:bg-app-bg"
+                        >
+                          Drop-in · ${dropInPrice.price.toFixed(2)}
+                        </button>
+                      )}
+                    </div>
                   )}
                   {error && <p className="text-red-600 text-xs">{error}</p>}
                 </div>

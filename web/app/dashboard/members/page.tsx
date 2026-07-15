@@ -69,6 +69,10 @@ type Member = {
   legacyMembershipName?: string | null;
   userId?: string | null;
   trialEndsAt?: string | null;
+  // True when the member has ≥1 guardian-link row to a registered portal user
+  // (returned additively by /api/members). A minor whose guardian holds the
+  // portal account counts as profile-completed even without their own login.
+  hasGuardianAccount?: boolean;
 };
 
 type CustomField = { id: string; label: string; fieldType: string; required: boolean; options: string };
@@ -113,27 +117,47 @@ function displayStatusOf(m: Member): string {
   return m.status;
 }
 
-// ── Onboarding status (derived from migration/activation fields) ────────────
-type OnboardingStatus = "NONE" | "INVITED" | "ACTIVATED" | "COMPLETED";
+// ── Profile / onboarding status (owner-defined unified model) ───────────────
+// One PROFILE state per member, separate from membership status:
+//  • PROFILE_COMPLETED — the member or guardian finished setup (activated,
+//    migration ACTIVATED/COMPLETED, own portal login, OR a minor whose
+//    guardian holds a registered portal account). The old separate
+//    "Completed" label is retired — it merges into this state.
+//  • INVITED — ONLY migration-outreach members (non-null migrationStatus or
+//    an activation email on record): invitation sent, profile not completed.
+//  • UNINVITED — ONLY migrated members (non-null migrationStatus) never sent
+//    the invitation and not completed.
+//  • PROFILE_INCOMPLETE — manually-added members (no migrationStatus, no
+//    activation email) who haven't completed their profile. These previously
+//    showed the misleading "Un-invited" (e.g. a walk-in minor added at
+//    practice).
+type OnboardingStatus = "PROFILE_COMPLETED" | "INVITED" | "UNINVITED" | "PROFILE_INCOMPLETE";
 function onboardingStatusOf(m: Member): OnboardingStatus {
-  if (m.migrationCompletedAt || m.migrationStatus === "COMPLETED") return "COMPLETED";
-  // A linked portal login means the profile exists even outside the migration
-  // wizard (e.g. self-signup members).
-  if (m.activatedAt || m.migrationStatus === "ACTIVATED" || m.userId) return "ACTIVATED";
+  if (
+    m.activatedAt ||
+    m.migrationStatus === "ACTIVATED" ||
+    m.migrationStatus === "COMPLETED" ||
+    m.migrationCompletedAt ||
+    m.userId ||
+    (m.isMinor && m.hasGuardianAccount)
+  ) {
+    return "PROFILE_COMPLETED";
+  }
   if (m.migrationStatus === "INVITED" || m.activationEmailSentAt) return "INVITED";
-  return "NONE";
+  if (m.migrationStatus != null) return "UNINVITED";
+  return "PROFILE_INCOMPLETE";
 }
 const onboardingLabels: Record<OnboardingStatus, string> = {
-  NONE: "Un-invited",
+  PROFILE_COMPLETED: "Profile completed",
   INVITED: "Invited",
-  ACTIVATED: "Profile completed",
-  COMPLETED: "Completed",
+  UNINVITED: "Un-invited",
+  PROFILE_INCOMPLETE: "Profile incomplete",
 };
 const onboardingColors: Record<OnboardingStatus, { bg: string; fg: string }> = {
-  NONE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
+  PROFILE_COMPLETED: { bg: "var(--color-success)", fg: "#1F1F23" },
   INVITED: { bg: "var(--color-warning)", fg: "#fff" },
-  ACTIVATED: { bg: "var(--color-primary)", fg: "#fff" },
-  COMPLETED: { bg: "var(--color-success)", fg: "#1F1F23" },
+  UNINVITED: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
+  PROFILE_INCOMPLETE: { bg: "var(--color-bg)", fg: "var(--color-muted)" },
 };
 
 // ── API error formatter ────────────────────────────────────────────────────
@@ -450,10 +474,10 @@ export default function MembersPage() {
         </select>
         <select value={onboardingFilter} onChange={(e) => setOnboardingFilter(e.target.value)} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
           <option value="">All onboarding</option>
-          <option value="NONE">Un-invited</option>
+          <option value="PROFILE_COMPLETED">Profile completed</option>
           <option value="INVITED">Invited</option>
-          <option value="ACTIVATED">Profile completed</option>
-          <option value="COMPLETED">Completed</option>
+          <option value="UNINVITED">Un-invited</option>
+          <option value="PROFILE_INCOMPLETE">Profile incomplete</option>
         </select>
         <select value={customFieldFilter} onChange={(e) => { setCustomFieldFilter(e.target.value); setCustomFieldValue(""); }} className="px-3 py-2 border border-app-border rounded-lg text-sm bg-surface">
           <option value="">Custom field</option>

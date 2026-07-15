@@ -120,6 +120,21 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const { offer, pricing } = await buildOffer(member, member.club, firstCharge);
 
+  // NO membership configured ⇒ no offer, period. A member with nothing set up
+  // must never receive a $0 "FREE" offer (that is how phantom "Continued
+  // membership" placeholders were born). Assign a real plan — or an explicit
+  // $0 override for a deliberately-free member — first.
+  if (!pricing.configured) {
+    return NextResponse.json(
+      {
+        error:
+          "No membership is configured for this member. Assign a membership plan (or an explicit $0 price for a deliberately free membership) in the billing center before creating an offer. Nothing was created.",
+        code: "PLAN_REQUIRED",
+      },
+      { status: 400 },
+    );
+  }
+
   if (offer.paymentMode === "CARD") {
     if (!firstCharge) {
       return NextResponse.json(

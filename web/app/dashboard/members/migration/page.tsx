@@ -141,14 +141,19 @@ type Row = {
   reactivationStatus: string | null;
 };
 
+// Owner-defined vocabulary: "Activated" and "Completed" both mean the member's
+// PROFILE is done, so both chips now say "Profile completed". Filtering is
+// SERVER-SIDE by these keys (`/api/members/migration?filter=…`), so the two
+// chips can't be merged without an API change — "Completed" keeps a
+// "(reviewed)" suffix to stay distinguishable. Keys/status values unchanged.
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "legacy", label: "From old system" },
   { key: "not_invited", label: "Not invited" },
   { key: "invited", label: "Invited" },
-  { key: "activated", label: "Activated" },
+  { key: "activated", label: "Profile completed" },
   { key: "payment_required", label: "Payment Required" },
-  { key: "completed", label: "Completed" },
+  { key: "completed", label: "Profile completed (reviewed)" },
   { key: "needs_review", label: "Failed / Needs Review" },
 ];
 
@@ -160,6 +165,19 @@ const STATUS_STYLE: Record<string, string> = {
   NEEDS_REVIEW: "bg-red-50 text-red-700",
   FAILED: "bg-red-50 text-red-700",
 };
+// Display labels for the raw migrationStatus values (label-only — the stored
+// enum values and every filter/API key are untouched). ACTIVATED/COMPLETED
+// both read "Profile completed" per the owner's unified onboarding model.
+const STATUS_LABEL: Record<string, string> = {
+  IMPORTED: "Imported",
+  INVITED: "Invited",
+  ACTIVATED: "Profile completed",
+  COMPLETED: "Profile completed (reviewed)",
+  NEEDS_REVIEW: "Needs review",
+  FAILED: "Failed",
+};
+const statusLabel = (s: string | null | undefined) =>
+  s ? STATUS_LABEL[s] ?? s.replace(/_/g, " ") : "—";
 
 // Operational triage states (planning only — never charge/mutate Stripe).
 // The one-time Group A/B/C planning shorthand is deprecated and hidden; rows
@@ -462,7 +480,7 @@ export default function MigrationPage() {
               : "—",
           groupDisplay(r.migrationGroup) || "—",
           r.readinessLabel || "—",
-          (r.migrationStatus?.replace("_", " ") ?? "—") +
+          statusLabel(r.migrationStatus) +
             (r.approvalStatus === "PENDING_APPROVAL" ? " · needs approval" : ""),
           r.migrationGroupNote || "",
         ]),
@@ -575,8 +593,8 @@ export default function MigrationPage() {
           { label: "Imported", value: stats?.total },
           { label: "Emails sent", value: stats?.activationEmailsSent },
           { label: "Invited", value: stats?.invited },
-          { label: "Activated", value: stats?.activated },
-          { label: "Completed", value: stats?.completed },
+          { label: "Profile completed", value: stats?.activated },
+          { label: "Profile completed (reviewed)", value: stats?.completed },
           { label: "Payment req.", value: stats?.paymentRequired },
           { label: "Needs review", value: stats?.needsReview },
           { label: "Missing email", value: stats?.missingContact },
@@ -821,7 +839,7 @@ export default function MigrationPage() {
                     </td>
                     <td className="px-3 py-3">
                       <span className={`inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[r.migrationStatus] || "bg-app-bg text-text-muted"}`}>
-                        {r.migrationStatus?.replace("_", " ")}
+                        {statusLabel(r.migrationStatus)}
                       </span>
                       {r.approvalStatus === "PENDING_APPROVAL" && (
                         <span className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/20 text-text-primary">
