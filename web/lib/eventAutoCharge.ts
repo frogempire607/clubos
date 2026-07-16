@@ -266,25 +266,84 @@ export async function chargeEventRegistration(registrationId: string): Promise<A
   const totalCents = fee.totalCents;
   const totalCharged = totalCents / 100;
 
-  // Settle a prior attempt's PaymentIntent before ever creating a new one.
+  // Settle any prior attempt BEFORE creating anything.
+  //
+  // Two ways a previous run can have left a live PaymentIntent behind:
+  //  (a) we stored its id (happy path), or
+  //  (b) the create call succeeded at Stripe but the response never reached us
+  //      (timeout / dropped connection) — so we have NO id. That case is why we
+  //      also search by metadata: without it, a retry would create a SECOND
+  //      charge for the same registration.
+  let prior: Stripe.PaymentIntent | null = null;
   if (reg.stripePaymentIntentId) {
     try {
-      const prior = await stripe.paymentIntents.retrieve(
+      prior = await stripe.paymentIntents.retrieve(
         reg.stripePaymentIntentId,
         { expand: ["latest_charge.balance_transaction"] },
         { stripeAccount: reg.club.stripeAccountId },
       );
-      if (prior.status === "succeeded") {
-        await recordSuccess(reg, prior, prior.amount / 100);
-        return { registrationId, outcome: "succeeded" };
-      }
-      if (prior.status === "processing") {
-        return { registrationId, outcome: "processing" };
-      }
-      // canceled / requires_* — fall through and create a fresh attempt.
     } catch (e) {
       console.error("event auto-charge prior PI retrieve failed", e);
     }
+  }
+  // `lastChargeError` with no stored PI id is the fingerprint of an ambiguous
+  // attempt (b). chargeAttempts covers a rotated-but-unrecorded attempt.
+  // Idempotency keys only protect a replay for 24h, so this search — not the
+  // key — is what stops a double charge on a stale retry.
+  if (!prior && (reg.chargeAttempts > 0 || !!reg.lastChargeError)) {
+    // An earlier attempt ended ambiguously. Find whatever it left behind.
+    try {
+      const found = await stripe.paymentIntents.search(
+        {
+          query: `metadata['eventRegistrationId']:'${reg.id}'`,
+          limit: 10,
+          expand: ["data.latest_charge.balance_transaction"],
+        },
+        { stripeAccount: reg.club.stripeAccountId },
+      );
+      prior =
+        found.data.find((p) => p.status === "succeeded") ??
+        found.data.find((p) => p.status === "processing") ??
+        null;
+      if (prior) {
+        console.error(
+          `event auto-charge: recovered orphaned PaymentIntent ${prior.id} for registration ${reg.id}`,
+        );
+      }
+    } catch (e) {
+      // Search is best-effort (it's eventually consistent and not enabled on
+      // every account). Fail CLOSED: without it we cannot prove a prior charge
+      // doesn't exist, and charging again risks billing the client twice.
+      console.error("event auto-charge PI search failed", e);
+      return {
+        registrationId,
+        outcome: "failed",
+        error: "Could not verify whether a previous charge exists — not charging again.",
+      };
+    }
+  }
+  if (prior) {
+    if (prior.status === "succeeded") {
+      await recordSuccess(reg, prior, prior.amount / 100);
+      return { registrationId, outcome: "succeeded" };
+    }
+    if (prior.status === "processing") {
+      if (prior.id !== reg.stripePaymentIntentId) {
+        await prisma.eventRegistration.update({
+          where: { id: reg.id },
+          data: { stripePaymentIntentId: prior.id },
+        });
+      }
+      return { registrationId, outcome: "processing" };
+    }
+    // Definitively dead (canceled / requires_payment_method). Only NOW is it
+    // safe to rotate the idempotency key — replaying the old key would replay
+    // Stripe's cached failure instead of making a real new attempt.
+    await prisma.eventRegistration.update({
+      where: { id: reg.id },
+      data: { chargeAttempts: { increment: 1 }, stripePaymentIntentId: null },
+    });
+    reg.chargeAttempts += 1;
   }
 
   if (!reg.member) {
@@ -341,11 +400,15 @@ export async function chargeEventRegistration(registrationId: string): Promise<A
       return { registrationId, outcome, error: e.message };
     }
     console.error("event auto-charge failed", err);
-    // Transient/infra error: leave SCHEDULED so the next sweep retries; bump
-    // attempts so the idempotency key rotates past the dead request.
+    // Transient/ambiguous error (timeout, connection drop, 5xx): Stripe may
+    // have created AND captured this charge before the response was lost.
+    // Leave SCHEDULED so the next sweep retries — but do NOT touch
+    // chargeAttempts: the idempotency key must stay identical so the retry
+    // REPLAYS this request instead of billing the client a second time.
+    // Rotation happens only after a definitively dead PaymentIntent (above).
     await prisma.eventRegistration.update({
       where: { id: reg.id },
-      data: { lastChargeError: String(e.message || err).slice(0, 500), chargeAttempts: { increment: 1 } },
+      data: { lastChargeError: String(e.message || err).slice(0, 500) },
     });
     return { registrationId, outcome: "failed", error: String(e.message || err) };
   }
@@ -390,7 +453,14 @@ export async function runDueEventCharges(scope?: {
     });
     const results: AutoChargeResult[] = [];
     for (const r of due) {
-      results.push(await chargeEventRegistration(r.id));
+      // One registration blowing up (e.g. a unique-constraint race with the
+      // webhook) must not abandon everyone behind it in the queue.
+      try {
+        results.push(await chargeEventRegistration(r.id));
+      } catch (e) {
+        console.error("event auto-charge threw for registration", r.id, e);
+        results.push({ registrationId: r.id, outcome: "failed", error: String(e) });
+      }
     }
     return { due: due.length, results };
   } catch (e) {

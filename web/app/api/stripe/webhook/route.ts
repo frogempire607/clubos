@@ -729,6 +729,43 @@ export async function POST(req: Request) {
             where: { id: eventRegistrationId },
             include: { event: { select: { name: true } } },
           });
+          // Already settled, yet Stripe just took money — e.g. they paid cash
+          // at the door and later clicked a still-live payment link from their
+          // inbox. Silently dropping this would leave a real charge with NO
+          // record in AthletixOS and the client out of pocket. Record it and
+          // flag it for a human to refund/reconcile.
+          if (reg && reg.status === "PAID" && (session.amount_total || 0) > 0) {
+            const dupAmount = (session.amount_total || 0) / 100;
+            const alreadyLogged = await prisma.transaction.findFirst({
+              where: { stripePaymentIntentId: session.payment_intent as string },
+              select: { id: true },
+            });
+            if (!alreadyLogged) {
+              await prisma.transaction.create({
+                data: {
+                  clubId: reg.clubId,
+                  memberId: reg.memberId,
+                  amount: dupAmount,
+                  status: "SUCCEEDED",
+                  stripePaymentIntentId: session.payment_intent as string | undefined,
+                  description: `DUPLICATE PAYMENT — ${reg.event.name} — ${reg.name} (already paid via ${reg.paidVia ?? "another method"}) — likely refund due`,
+                  type: "EVENT",
+                  category: "events",
+                  paymentMethod: "STRIPE",
+                  txDate: new Date(),
+                  ...verifiedStripeTxFields(checkoutMoney),
+                  // Real money, but it shouldn't count as event revenue until a
+                  // human decides — REVIEW keeps it visible and out of the
+                  // clean totals.
+                  reconciliationStatus: "REVIEW",
+                  notes: `Registration ${reg.id} was already PAID when this Checkout completed. Refund or reconcile.`,
+                },
+              });
+              console.error(
+                `Duplicate event payment: registration ${reg.id} already PAID, Stripe took $${dupAmount.toFixed(2)} (PI ${session.payment_intent}).`,
+              );
+            }
+          }
           if (reg && reg.status !== "PAID") {
             const amount = (session.amount_total || 0) / 100;
             const tx = await prisma.transaction.create({

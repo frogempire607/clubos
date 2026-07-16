@@ -7,6 +7,7 @@ import {
   eventAllowedPaymentMethods,
   UNPAID_REGISTRATION_STATUSES,
   ACTIVE_REGISTRATION_STATUSES,
+  AWAITING_OFFLINE_STATUSES,
 } from "@/lib/eventPayments";
 import { publicFixedPrice } from "@/lib/eventPricing";
 
@@ -66,8 +67,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   ).length;
   const invoicedCount = registrations.filter((r) => r.invoiceCount > 0).length;
   // Offline money physically owed at the event — the "collect at the door" list.
-  const awaitingOfflineCount = registrations.filter(
-    (r) => r.status === "AWAITING_CASH" || r.status === "AWAITING_CHECK",
+  const awaitingOfflineCount = registrations.filter((r) =>
+    (AWAITING_OFFLINE_STATUSES as string[]).includes(r.status),
   ).length;
   const scheduledCount = registrations.filter((r) => r.status === "SCHEDULED").length;
   const failedCount = registrations.filter((r) => r.status === "PAYMENT_FAILED").length;

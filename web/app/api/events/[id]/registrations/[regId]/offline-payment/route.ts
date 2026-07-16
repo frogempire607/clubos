@@ -7,7 +7,7 @@ import { requirePermission } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { sendPaymentReceiptEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
-import { createEventOfflinePendingTx } from "@/lib/eventPayments";
+import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 
 // POST /api/events/[id]/registrations/[regId]/offline-payment
 // Staff records the physical cash/check an event registrant handed over — at
@@ -71,17 +71,41 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     method ?? (reg.paymentMethod === "CHECK" || reg.status === "AWAITING_CHECK" ? "CHECK" : "CASH");
   const receivedAt = new Date();
 
+  // CLAIM the registration atomically before touching money. A double-click at
+  // the front desk sends two identical POSTs; without this both would pass the
+  // status check above (each read the row before the other wrote it) and each
+  // would settle a Transaction — booking the same physical cash as revenue
+  // twice. The conditional update lets exactly one request through.
+  const claim = await prisma.eventRegistration.updateMany({
+    where: { id: reg.id, clubId, status: { notIn: ["PAID", "CANCELED"] } },
+    data: { status: "PAID", paidAt: receivedAt, paidVia: finalMethod },
+  });
+  if (claim.count === 0) {
+    return NextResponse.json(
+      { error: "This registration was just settled by someone else." },
+      { status: 409 },
+    );
+  }
+
   // The PENDING offline row normally already exists (created at registration).
   // If the registrant switched to cash at the door — or is settling a failed
   // auto-charge in cash — mint the row now so the money is always represented
   // by exactly one Transaction.
-  let txId = reg.transactionId;
-  if (txId) {
+  let txId: string | null = null;
+  if (reg.transactionId) {
     const existing = await prisma.transaction.findFirst({
-      where: { id: txId, clubId, status: "PENDING" },
-      select: { id: true },
+      where: { id: reg.transactionId, clubId },
+      select: { id: true, status: true },
     });
-    if (!existing) txId = null;
+    // Only a PENDING row is ours to settle. An already-SUCCEEDED row means the
+    // money is recorded — don't mint a second one on top of it.
+    if (existing?.status === "SUCCEEDED") {
+      return NextResponse.json(
+        { error: "This registration's payment is already recorded." },
+        { status: 409 },
+      );
+    }
+    if (existing?.status === "PENDING") txId = existing.id;
   }
   if (!txId) {
     const created = await createEventOfflinePendingTx({
@@ -114,13 +138,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     },
   });
 
+  // status/paidAt/paidVia were set by the claim above; fill in the rest.
   await prisma.eventRegistration.update({
     where: { id: reg.id },
     data: {
-      status: "PAID",
       amountPaid: due,
-      paidAt: receivedAt,
-      paidVia: finalMethod,
       receivedById: session.user.id ?? null,
       checkReference: reference || null,
       transactionId: tx.id,

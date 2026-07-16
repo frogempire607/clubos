@@ -15,8 +15,11 @@
 //   CHECK     — same, AWAITING_CHECK.
 //
 // null/empty Event.paymentMethods = ["CARD"] (pre-feature behavior).
-
-import { prisma } from "@/lib/prisma";
+//
+// This module is PURE — constants and pure functions only, no prisma, no IO.
+// Keep it that way: pure modules (lib/compensation.ts) import this vocabulary,
+// and a DB import here would drag a client into them. DB writes for offline
+// event money live in lib/eventOfflinePayments.ts.
 
 export const EVENT_PAYMENT_METHODS = ["CARD", "AUTO_CARD", "CASH", "CHECK"] as const;
 export type EventPaymentMethod = (typeof EVENT_PAYMENT_METHODS)[number];
@@ -73,8 +76,9 @@ export function offlineStatusForMethod(method: "CASH" | "CHECK"): RegistrationSt
 
 /**
  * Statuses that count as a real (spot-holding) registration. PENDING_PAYMENT
- * is an abandoned-or-in-flight card checkout — it must not hold capacity or
- * count as money owed.
+ * is an in-flight-or-abandoned card checkout: it is not yet a registration, so
+ * it grants no chat access and earns no staff bonus. For CAPACITY it gets a
+ * short hold instead — see `capacityWhere`.
  */
 export const ACTIVE_REGISTRATION_STATUSES: RegistrationStatus[] = [
   "REGISTERED",
@@ -85,12 +89,48 @@ export const ACTIVE_REGISTRATION_STATUSES: RegistrationStatus[] = [
   "PAID",
 ];
 
-/** Statuses with money still owed (drives outstanding lists / owner action). */
+/**
+ * How long an in-flight card checkout holds a spot. Long enough to finish
+ * typing a card, short enough that abandoning doesn't burn the spot forever
+ * (which is what happened before payment decisions existed).
+ */
+export const CHECKOUT_HOLD_MS = 30 * 60_000;
+
+/**
+ * Prisma `where` for "registrations that occupy a spot right now".
+ *
+ * Capacity is the one place PENDING_PAYMENT must still count: before this
+ * feature every registration row held a spot from the moment it was created,
+ * so two people could never both pass a capacity:1 check. Dropping the
+ * in-flight rows entirely would let N people check out simultaneously and all
+ * pay for one spot — the club then owes N-1 refunds. The hold restores the old
+ * safety without the old bug.
+ */
+export function capacityWhere(now: Date = new Date()) {
+  return {
+    OR: [
+      { status: { in: ACTIVE_REGISTRATION_STATUSES } },
+      { status: "PENDING_PAYMENT", createdAt: { gte: new Date(now.getTime() - CHECKOUT_HOLD_MS) } },
+    ],
+  };
+}
+
+/**
+ * Statuses with money still owed. Note REGISTERED is included: legacy rows
+ * (and variable-cost signups awaiting an invoice) carry an amountDue with no
+ * payment decision, and they're exactly the rows an owner must chase — pair
+ * this with `amountDue: { not: null }`. PENDING_PAYMENT owes nothing until the
+ * client completes checkout; SCHEDULED is already authorized.
+ */
 export const UNPAID_REGISTRATION_STATUSES: RegistrationStatus[] = [
+  "REGISTERED",
   "AWAITING_CASH",
   "AWAITING_CHECK",
   "PAYMENT_FAILED",
 ];
+
+/** Offline money physically owed at the door (cash/check specifically). */
+export const AWAITING_OFFLINE_STATUSES: RegistrationStatus[] = ["AWAITING_CASH", "AWAITING_CHECK"];
 
 /**
  * With Event.requirePaymentBeforeCheckin on, these statuses block check-in.
@@ -135,37 +175,3 @@ export function checkinPaymentBlock(
   return `Payment of ${amount} is due before check-in.`;
 }
 
-// ── Offline (cash/check) pending Transaction ────────────────────────────────
-// Mirrors the membership cash/check rule: acceptance ≠ payment. The PENDING
-// row represents the amount due — never revenue, no receipt — and flips to
-// SUCCEEDED only when staff records the physical payment.
-
-export async function createEventOfflinePendingTx(args: {
-  clubId: string;
-  memberId: string | null;
-  amount: number;
-  method: "CASH" | "CHECK";
-  eventName: string;
-  registrantName: string;
-  discountCode?: string | null;
-  discountAmount?: number | null;
-}): Promise<{ id: string }> {
-  return prisma.transaction.create({
-    data: {
-      clubId: args.clubId,
-      memberId: args.memberId,
-      amount: args.amount,
-      status: "PENDING",
-      type: "EVENT",
-      category: "events",
-      description: `Event registration — ${args.eventName} — ${args.registrantName} (pay by ${args.method.toLowerCase()} at event)`,
-      paymentMethod: args.method,
-      paymentSource: args.method,
-      reconciliationStatus: "OFFLINE",
-      manual: true,
-      discountCode: args.discountCode ?? null,
-      discountAmount: args.discountAmount ?? null,
-    },
-    select: { id: true },
-  });
-}

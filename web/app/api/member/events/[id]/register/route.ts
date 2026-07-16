@@ -17,11 +17,11 @@ import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import {
   eventAllowedPaymentMethods,
   offlineStatusForMethod,
-  createEventOfflinePendingTx,
   eventScheduledChargeAt,
   EVENT_PAYMENT_METHOD_LABELS,
   type EventPaymentMethod,
 } from "@/lib/eventPayments";
+import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -441,8 +441,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }) => {
       const existing = await prisma.eventRegistration.findFirst({
         where: { eventId: regEventId, memberId: regMemberId, status: { not: "CANCELED" } },
-        select: { id: true },
+        select: { id: true, status: true, transactionId: true },
       });
+      // Never re-open a settled registration: replacing a PAID row's payment
+      // decision would ask for money that's already been collected.
+      if (existing?.status === "PAID") return existing;
       const fields = {
         status: data.status,
         paymentMethod: data.method,
@@ -451,7 +454,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
       };
       if (existing) {
-        return prisma.eventRegistration.update({ where: { id: existing.id }, data: fields });
+        // This row's payment decision is being replaced (e.g. they registered
+        // for cash earlier and are now choosing the saved card). Void the
+        // PENDING offline row first — otherwise it's orphaned: unreachable
+        // from any registration, permanently PENDING, and permanently
+        // inflating "money owed". Same rule the webhook applies when a cash
+        // registrant pays online instead.
+        if (existing.transactionId) {
+          await prisma.transaction
+            .updateMany({
+              where: { id: existing.transactionId, clubId: regClubId, status: "PENDING" },
+              data: {
+                status: "FAILED",
+                reconciliationStatus: "VOID",
+                notes: "Superseded — the registrant changed how they're paying.",
+              },
+            })
+            .catch((e) => console.error("event reg supersede void failed", e));
+        }
+        return prisma.eventRegistration.update({
+          where: { id: existing.id },
+          data: { ...fields, transactionId: null },
+        });
       }
       return prisma.eventRegistration.create({
         data: {
@@ -482,6 +506,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       await prisma.booking.create({
         data: { eventId: event.id, memberId: member.id, status: bookingStatus },
       });
+
+      // Waitlisted = no spot, so no money. Scheduling a card charge or telling
+      // someone to bring cash for an event they haven't got into would be an
+      // unattended charge against a non-attendee. They're on the list; the
+      // payment decision is made when (if) they're promoted.
+      if (bookingStatus === "WAITLISTED") {
+        return NextResponse.json({
+          ok: true,
+          waitlisted: true,
+          status: bookingStatus,
+          message:
+            "You're on the waitlist — nothing is owed yet. The club will be in touch if a spot opens up.",
+        });
+      }
 
       if (chosen === "AUTO_CARD") {
         const chargeAt = eventScheduledChargeAt(event);

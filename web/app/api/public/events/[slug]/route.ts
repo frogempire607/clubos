@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
-import { eventAllowedPaymentMethods } from "@/lib/eventPayments";
+import { eventAllowedPaymentMethods, capacityWhere } from "@/lib/eventPayments";
 
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
@@ -43,11 +43,11 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       registrationDeadline: true,
       location: { select: { name: true, address: true, latitude: true, longitude: true } },
       club: { select: { id: true, name: true, logoUrl: true, primaryColor: true } },
-      // Abandoned card checkouts (PENDING_PAYMENT) and cancellations don't
-      // hold a spot.
+      // Spot-holding registrations only — see capacityWhere: an in-flight
+      // card checkout still holds its spot, an abandoned one has released it.
       _count: {
         select: {
-          registrations: { where: { status: { notIn: ["CANCELED", "PENDING_PAYMENT"] } } },
+          registrations: { where: capacityWhere() },
           bookings: { where: { status: { notIn: ["CANCELED"] } } },
         },
       },

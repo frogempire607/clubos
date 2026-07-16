@@ -223,11 +223,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // Checked before the record is written so a blocked attendee isn't marked
   // present. Someone already checked in is never retro-blocked (below).
   if (target.kind === "event" && target.requirePaymentBeforeCheckin) {
-    const reg = await prisma.eventRegistration.findFirst({
+    const regs = await prisma.eventRegistration.findMany({
       where: { eventId: target.eventId, memberId: member.id, status: { not: "CANCELED" } },
       orderBy: { createdAt: "desc" },
       select: { status: true, amountDue: true, paymentMethod: true },
     });
+    // One person can end up with several rows (e.g. registered publicly, then
+    // opened the page again later). If ANY of them is settled, they've paid —
+    // judging them by the newest row alone would turn an abandoned second
+    // checkout into a locked door for someone who already paid.
+    const reg = regs.find((r) => r.status === "PAID") ?? regs.find((r) => r.status === "SCHEDULED") ?? regs[0] ?? null;
     const block = checkinPaymentBlock(target, reg);
     if (block) {
       return NextResponse.json(

@@ -1,11 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_REGISTRATION_STATUSES } from "@/lib/eventPayments";
 
 // Event group chats
 // -----------------
 // One MessageGroup per Event (MessageGroup.eventId @unique). Access is NOT a
 // fixed member list: a user may read/post while they (or a child they manage)
 // hold a live registration for the event — a Booking that isn't CANCELED or an
-// EventRegistration that isn't CANCELED. Owner/staff always have access from
+// EventRegistration in an ACTIVE status (see lib/eventPayments). Owner/staff always have access from
 // the dashboard side. MessageGroupMember rows are still created (lazily) so
 // the chat shows up in the member's group list and read receipts work, but
 // the junction row alone is never trusted for an event-linked group: the
@@ -22,8 +23,11 @@ export async function eligibleEventChatUserIds(eventId: string, clubId: string):
       where: { eventId, status: { not: "CANCELED" }, event: { clubId } },
       select: { memberId: true },
     }),
+    // A registration only grants chat access once it's real. PENDING_PAYMENT is
+    // an abandoned card checkout — it holds no spot, so it must not open the
+    // event's private chat either.
     prisma.eventRegistration.findMany({
-      where: { eventId, clubId, status: { not: "CANCELED" }, memberId: { not: null } },
+      where: { eventId, clubId, status: { in: ACTIVE_REGISTRATION_STATUSES }, memberId: { not: null } },
       select: { memberId: true },
     }),
   ]);

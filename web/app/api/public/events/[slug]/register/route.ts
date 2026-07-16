@@ -9,9 +9,10 @@ import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import {
   eventAllowedPaymentMethods,
   offlineStatusForMethod,
-  createEventOfflinePendingTx,
+  capacityWhere,
   EVENT_PAYMENT_METHOD_LABELS,
 } from "@/lib/eventPayments";
+import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -27,8 +28,9 @@ const schema = z.object({
 // NO AUTH. Creates an EventRegistration. When money is owed the registrant
 // must choose a payment method the owner allows for this event:
 //   CARD        → PENDING_PAYMENT + Stripe Checkout URL; the webhook completes
-//                 it (PAID + Transaction + receipt). An abandoned checkout
-//                 stays PENDING_PAYMENT and never holds a spot.
+//                 it (PAID + Transaction + receipt). It holds its spot only
+//                 while the checkout is live (CHECKOUT_HOLD_MS) — abandoned,
+//                 it owes nothing and releases the spot.
 //   CASH/CHECK  → confirmed as AWAITING_CASH/AWAITING_CHECK with a PENDING
 //                 offline Transaction (the amount due — never revenue). Staff
 //                 records receipt at/ before the event.
@@ -53,10 +55,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     where: { publicSlug: params.slug },
     include: {
       club: true,
-      // Abandoned card checkouts + cancellations don't consume capacity.
+      // Spot-holding registrations only: real ones, plus card checkouts still
+      // inside their hold window (capacityWhere). A checkout abandoned an hour
+      // ago releases its spot; one started a minute ago keeps it.
       _count: {
         select: {
-          registrations: { where: { status: { notIn: ["CANCELED", "PENDING_PAYMENT"] } } },
+          registrations: { where: capacityWhere() },
           bookings: { where: { status: { notIn: ["CANCELED"] } } },
         },
       },

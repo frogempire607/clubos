@@ -1,5 +1,15 @@
+import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { runDueEventCharges } from "@/lib/eventAutoCharge";
+
+/** Constant-time compare so the secret can't be probed a byte at a time. */
+function secretMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 // POST|GET /api/cron/event-charges
 // Runs every due AUTO_CARD event charge. There is no scheduler in the app, so
@@ -30,7 +40,7 @@ async function handle(req: Request) {
   const auth = req.headers.get("authorization") ?? "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : null;
   const provided = bearer ?? url.searchParams.get("key");
-  if (provided !== secret) {
+  if (!secretMatches(provided, secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

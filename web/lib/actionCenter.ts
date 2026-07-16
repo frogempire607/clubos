@@ -19,6 +19,7 @@ import { hasPermission, type PermissionKey, type PermissionLevel } from "@/lib/p
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
+import { UNPAID_REGISTRATION_STATUSES } from "@/lib/eventPayments";
 
 export type ActionSeverity = "high" | "medium" | "low";
 
@@ -157,22 +158,23 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
   );
 
   // ── Money owed (existing dashboard signal, surfaced as an action) ─────
-  // PENDING_PAYMENT (abandoned card checkout) and SCHEDULED (auto-charge
-  // committed) are deliberately excluded — neither is money the owner needs
-  // to chase today.
+  // UNPAID_REGISTRATION_STATUSES keeps legacy REGISTERED rows carrying an
+  // amountDue (the "registered but never paid" case this signal exists for)
+  // while excluding PENDING_PAYMENT (owes nothing until checkout completes)
+  // and SCHEDULED (charge already authorized for the event date).
   probe(
     can("finances", "view"),
     () =>
       prisma.eventRegistration.count({
         where: {
           clubId,
-          status: { in: ["AWAITING_CASH", "AWAITING_CHECK"] },
+          status: { in: UNPAID_REGISTRATION_STATUSES },
           amountDue: { not: null },
         },
       }),
     {
       kind: "PENDING_EVENT_PAYMENTS",
-      label: "Event payments to collect at the door",
+      label: "Event payments owed",
       severity: "medium",
       href: "/dashboard/events",
     },

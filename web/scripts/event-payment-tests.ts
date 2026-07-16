@@ -9,8 +9,11 @@ import {
   offlineStatusForMethod,
   eventScheduledChargeAt,
   checkinPaymentBlock,
+  capacityWhere,
+  CHECKOUT_HOLD_MS,
   ACTIVE_REGISTRATION_STATUSES,
   UNPAID_REGISTRATION_STATUSES,
+  AWAITING_OFFLINE_STATUSES,
   CHECKIN_BLOCKING_STATUSES,
   EVENT_PAYMENT_METHOD_LABELS,
   REGISTRATION_STATUS_LABELS,
@@ -68,6 +71,36 @@ console.log("\n— status model —");
   check("PAYMENT_FAILED is owed", UNPAID_REGISTRATION_STATUSES.includes("PAYMENT_FAILED"));
   check("PAID owes nothing", !UNPAID_REGISTRATION_STATUSES.includes("PAID"));
   check("PAID still holds the spot", ACTIVE_REGISTRATION_STATUSES.includes("PAID"));
+
+  // Regression: the legacy "registered but never paid" row (the College
+  // Combine case) MUST stay in the owner's money-owed signal. Filtering it out
+  // would hide the exact row this whole feature exists to collect.
+  check("legacy REGISTERED is still chased for money", UNPAID_REGISTRATION_STATUSES.includes("REGISTERED"));
+  check("awaiting-offline is cash+check only", JSON.stringify(AWAITING_OFFLINE_STATUSES) === '["AWAITING_CASH","AWAITING_CHECK"]');
+}
+
+console.log("\n— capacity (a spot is a spot) —");
+{
+  const now = new Date("2026-07-16T12:00:00Z");
+  const w = capacityWhere(now) as {
+    OR: [{ status: { in: string[] } }, { status: string; createdAt: { gte: Date } }];
+  };
+  // Before payment decisions every row held a spot from creation, so two
+  // people could never both pass a capacity:1 check. An in-flight checkout must
+  // keep doing that — otherwise N people check out at once, all pay, and the
+  // club owes N-1 refunds.
+  check("in-flight checkouts still hold a spot", w.OR[1].status === "PENDING_PAYMENT");
+  check(
+    "the hold is bounded to the checkout window",
+    w.OR[1].createdAt.gte.getTime() === now.getTime() - CHECKOUT_HOLD_MS,
+  );
+  check("hold window is 30 minutes", CHECKOUT_HOLD_MS === 30 * 60_000);
+  check("real registrations always hold a spot", w.OR[0].status.in.includes("PAID") && w.OR[0].status.in.includes("AWAITING_CASH"));
+  check("canceled rows never hold a spot", !w.OR[0].status.in.includes("CANCELED"));
+  // The abandoned-checkout half: it must eventually release, or an event fills
+  // up with people who never paid (the old behavior).
+  const stale = new Date(now.getTime() - CHECKOUT_HOLD_MS - 1000);
+  check("an abandoned checkout releases its spot", stale < w.OR[1].createdAt.gte);
 }
 
 console.log("\n— auto-charge timing —");
