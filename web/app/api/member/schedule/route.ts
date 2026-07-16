@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { readPreviewCookie, canStartPreview } from "@/lib/preview";
 import { trialCoversClass } from "@/lib/freeTrial";
+import { wallClockNowUTC } from "@/lib/datetime";
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
@@ -93,6 +94,13 @@ export async function GET(req: Request) {
   const to = new Date(now.getTime() + days * 86400000);
   const clubId = session.user.clubId;
 
+  // Class sessions are wall-clock-UTC stamps: filter them against the club's
+  // wall clock, not raw UTC now, so today's classes don't vanish from the
+  // schedule hours before they start (see lib/datetime.ts wallClockNowUTC).
+  const clubRow = await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } });
+  const wallNow = wallClockNowUTC(clubRow?.timezone);
+  const toWall = new Date(wallNow.getTime() + days * 86400000);
+
   const resolved = await resolveMemberContext(session.user.id, clubId, requestedMemberId);
   if (!resolved) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (resolved === "FORBIDDEN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -150,7 +158,10 @@ export async function GET(req: Request) {
       where: {
         clubId,
         canceled: false,
-        startsAt: { gte: now, lte: to },
+        // endsAt (not startsAt) so an in-progress class stays visible — its
+        // check-in window is still open.
+        endsAt: { gte: wallNow },
+        startsAt: { lte: toWall },
         recurringClass: {
           active: true,
           deletedAt: null,

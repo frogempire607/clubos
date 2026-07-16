@@ -99,6 +99,25 @@ export function wallClockUTCToInstant(d: Stamp, timeZone: string | null | undefi
   }
 }
 
+/**
+ * "Now" expressed in the wall-clock-UTC frame that class stamps use — for
+ * filtering upcoming ClassSessions. With a valid IANA `timeZone` this is exact
+ * (the club's current wall clock re-pinned to UTC). Without one the offset is
+ * unknowable, so err on showing too much: `now - 12h`, which keeps a class
+ * visible up to 12h late instead of dropping it hours EARLY (clubs west of UTC
+ * saw today's evening classes vanish from schedules by early afternoon).
+ */
+export function wallClockNowUTC(timeZone: string | null | undefined, at: Date = new Date()): Date {
+  if (timeZone) {
+    try {
+      return new Date(at.getTime() + tzOffsetMs(timeZone, at));
+    } catch {
+      // invalid timezone — fall through to the graced fallback
+    }
+  }
+  return new Date(at.getTime() - 12 * 3_600_000);
+}
+
 // ── "Today" / date-input helpers ─────────────────────────────────────────────
 //
 // CRITICAL: never derive a calendar day from `new Date().toISOString()` — that

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { resolveFeedScope, feedItems, type FeedItem } from "@/lib/calendarFeed";
-import { kindIsWallClockUTC } from "@/lib/datetime";
+import { kindIsWallClockUTC, wallClockNowUTC } from "@/lib/datetime";
 
 // Embeddable, auto-updating HTML calendar. Public but token-gated (same
 // tokens as the ICS feed) — safe to iframe on a club's website. Server
@@ -55,8 +55,15 @@ export default async function EmbeddedCalendarPage(context: {
     }
   }
 
+  // Classes are wall-clock-UTC stamps, so they must be compared against the
+  // club's wall clock (or a graced fallback), never raw UTC now — otherwise
+  // today's classes drop off the embed hours before they start for any club
+  // west of UTC. Events/privates are true instants and compare against now.
   const now = Date.now();
-  const upcoming = data.items.filter((i) => i.endsAt.getTime() >= now).slice(0, 200);
+  const wallNow = wallClockNowUTC(clubTz).getTime();
+  const upcoming = data.items
+    .filter((i) => i.endsAt.getTime() >= (kindIsWallClockUTC(i.kind) ? wallNow : now))
+    .slice(0, 200);
   const byDay = new Map<string, FeedItem[]>();
   for (const item of upcoming) {
     const key = dayKey(item.startsAt, kindIsWallClockUTC(item.kind), clubTz);

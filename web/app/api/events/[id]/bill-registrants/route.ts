@@ -7,6 +7,7 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { publicFixedPrice } from "@/lib/eventPricing";
 
 const bodySchema = z.object({
   // Re-invoice registrants who were already invoiced (still skips PAID).
@@ -17,11 +18,19 @@ const bodySchema = z.object({
 });
 
 // POST /api/events/[id]/bill-registrants
-// Mass-invoice event registrants for a variable-cost event. Works for BOTH:
+// Mass-invoice event registrants.
+//
+// Variable-cost events (both modes):
 //   OFFICIAL  — split variableCostTotal across actual active registrants
 //               (the "bill after the event" flow).
 //   ESTIMATED — split the estimated shared total by expected signups
 //               (the "bill before the event when you choose" flow).
+//
+// Fixed-price events: a public registrant is recorded BEFORE Stripe Checkout,
+// so an abandoned checkout leaves a REGISTERED row owing the price with no
+// way to pay. This route emails each unpaid registrant a fresh payment link
+// for their recorded amountDue (falling back to the event's public price).
+//
 // Owner/staff trigger this whenever they're ready; payment never has to
 // happen at registration time.
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -45,12 +54,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (!event.variableCostEnabled) {
-    return NextResponse.json(
-      { error: "This event isn't set up for variable-cost billing." },
-      { status: 400 },
-    );
-  }
+  const isVariable = !!event.variableCostEnabled;
   if (!event.club.stripeAccountId || !event.club.stripeChargesEnabled) {
     return NextResponse.json(
       { error: "Connect Stripe before sending invoices." },
@@ -68,9 +72,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "No active registrations to invoice." }, { status: 400 });
   }
 
+  // Fixed-price events: each registrant owes their recorded amountDue (set at
+  // registration), falling back to the event's current public price.
+  const fixedPrice = isVariable ? 0 : publicFixedPrice(event);
+
   // Divisor: actual attendees (OFFICIAL) or expected signups (ESTIMATED).
   const divisor =
-    mode === "OFFICIAL"
+    !isVariable || mode === "OFFICIAL"
       ? activeCount
       : event.variableCostEstimatedSignups && event.variableCostEstimatedSignups > 0
         ? event.variableCostEstimatedSignups
@@ -79,10 +87,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // Itemized expense breakdown (P1) takes precedence when present: per-athlete
   // items are charged in full to each registrant; shared items are split across
   // the divisor. With no items, behavior is unchanged (single variableCostTotal).
-  const expenseItems = await prisma.eventExpenseItem.findMany({
-    where: { eventId: event.id, clubId: event.clubId },
-    orderBy: { createdAt: "asc" },
-  });
+  const expenseItems = isVariable
+    ? await prisma.eventExpenseItem.findMany({
+        where: { eventId: event.id, clubId: event.clubId },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
   const perAthleteSum = expenseItems
     .filter((i) => i.perAthlete)
     .reduce((s, i) => s + Number(i.amount), 0);
@@ -91,9 +101,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     .reduce((s, i) => s + Number(i.amount), 0);
   const itemsSum = perAthleteSum + sharedSum;
 
-  let total: number;
-  let perHead: number;
-  if (itemsSum > 0) {
+  let total: number | null = null;
+  let perHead: number | null = null;
+  if (!isVariable) {
+    // Per-registrant amounts resolve inside the send loop (amountDue first).
+    perHead = fixedPrice > 0 ? fixedPrice : null;
+  } else if (itemsSum > 0) {
     perHead = +(perAthleteSum + sharedSum / divisor).toFixed(2);
     total = +(perAthleteSum * divisor + sharedSum).toFixed(2);
   } else if (mode === "OFFICIAL") {
@@ -123,8 +136,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     perHead = +(total / divisor).toFixed(2);
   }
 
-  const amountCents = Math.round(perHead * 100);
-  if (amountCents <= 0) {
+  if (isVariable && (perHead == null || Math.round(perHead * 100) <= 0)) {
     return NextResponse.json({ error: "Computed share is $0 — check the total and split." }, { status: 400 });
   }
 
@@ -146,12 +158,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const baseUrl = getAppBaseUrl();
-  const splitNote =
-    itemsSum > 0
+  const splitNote = !isVariable
+    ? "Event registration"
+    : itemsSum > 0
       ? `Your share across ${divisor} attendee${divisor === 1 ? "" : "s"}`
       : mode === "OFFICIAL"
-        ? `Official split: $${total.toFixed(2)} ÷ ${activeCount} attendees`
-        : `Estimated split: $${total.toFixed(2)} ÷ ${divisor} attendees`;
+        ? `Official split: $${(total ?? 0).toFixed(2)} ÷ ${activeCount} attendees`
+        : `Estimated split: $${(total ?? 0).toFixed(2)} ÷ ${divisor} attendees`;
 
   // Parent-facing breakdown (same per-head for every registrant): per-athlete
   // items at full price, shared items shown as their per-head split.
@@ -168,7 +181,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         })
         .join(
           "",
-        )}</tbody><tfoot><tr><td style="padding-top:8px;border-top:1px solid #e7e5e4;color:#1c1917;font-weight:600">Your total</td><td style="padding-top:8px;border-top:1px solid #e7e5e4;text-align:right;color:#1c1917;font-weight:600">$${perHead.toFixed(
+        )}</tbody><tfoot><tr><td style="padding-top:8px;border-top:1px solid #e7e5e4;color:#1c1917;font-weight:600">Your total</td><td style="padding-top:8px;border-top:1px solid #e7e5e4;text-align:right;color:#1c1917;font-weight:600">$${(perHead ?? 0).toFixed(
         2,
       )}</td></tr></tfoot></table>`
     : "";
@@ -186,6 +199,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       errors.push(`${reg.name}: no email on file`);
       continue;
     }
+    // Fixed-price: what they owed at registration wins; fall back to the
+    // event's current public price for rows recorded before a price was set.
+    const amount = isVariable
+      ? (perHead as number)
+      : reg.amountDue && Number(reg.amountDue) > 0
+        ? Number(reg.amountDue)
+        : fixedPrice;
+    const amountCents = Math.round(amount * 100);
+    if (amountCents <= 0) {
+      errors.push(`${reg.name}: no price to collect — set a price on the event first`);
+      continue;
+    }
     try {
       const checkout = await stripe.checkout.sessions.create(
         {
@@ -198,8 +223,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                 currency: "usd",
                 unit_amount: amountCents,
                 product_data: {
-                  name: `${event.name} — cost share`,
-                  description: splitNote,
+                  name: isVariable ? `${event.name} — cost share` : event.name,
+                  description: isVariable
+                    ? splitNote
+                    : event.isTournament
+                      ? "Tournament registration"
+                      : "Event registration",
                 },
               },
             },
@@ -222,7 +251,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       await prisma.eventRegistration.update({
         where: { id: reg.id },
         data: {
-          amountDue: perHead,
+          amountDue: amount,
           paymentUrl: checkout.url,
           stripeCheckoutSessionId: checkout.id,
           invoicedAt: new Date(),
@@ -236,10 +265,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           subject: `Payment due for ${event.name}`,
           html: `
             <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto">
-              <h2 style="color:#1c1917">${event.name} — cost share</h2>
+              <h2 style="color:#1c1917">${esc(event.name)}${isVariable ? " — cost share" : ""}</h2>
               <p style="color:#57534e;line-height:1.6">
-                Hi ${reg.name}, your share for <strong>${event.name}</strong> is
-                <strong>$${perHead.toFixed(2)}</strong> (${splitNote}).
+                Hi ${esc(reg.name)}, your ${isVariable ? "share" : "registration fee"} for <strong>${esc(event.name)}</strong> is
+                <strong>$${amount.toFixed(2)}</strong>${isVariable ? ` (${splitNote})` : ""}.
               </p>
               ${breakdownHtml}
               <p><a href="${checkout.url}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Pay now</a></p>
@@ -255,10 +284,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
   }
 
-  await prisma.event.update({
-    where: { id: event.id },
-    data: { variableCostBilledAt: new Date() },
-  });
+  if (isVariable) {
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { variableCostBilledAt: new Date() },
+    });
+  }
 
   return NextResponse.json({
     ok: true,
