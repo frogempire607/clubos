@@ -191,6 +191,22 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
       href: "/dashboard/events",
     },
   );
+  // Someone paid twice (e.g. cash at the door, then clicked an old payment
+  // link). Real money the club is likely holding by mistake — a log line isn't
+  // enough, a person has to refund it.
+  probe(
+    can("finances", "view"),
+    () =>
+      prisma.transaction.count({
+        where: { clubId, status: "SUCCEEDED", reconciliationStatus: "REVIEW", type: "EVENT" },
+      }),
+    {
+      kind: "EVENT_DUPLICATE_PAYMENT",
+      label: "Duplicate event payments to refund",
+      severity: "high",
+      href: "/dashboard/financials",
+    },
+  );
 
   // ── Tournament invoicing (P1) ─────────────────────────────────────────
   // A scheduled invoice date has arrived and invoices haven't gone out yet.

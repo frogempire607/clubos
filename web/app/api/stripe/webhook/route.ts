@@ -754,9 +754,12 @@ export async function POST(req: Request) {
                   paymentMethod: "STRIPE",
                   txDate: new Date(),
                   ...verifiedStripeTxFields(checkoutMoney),
-                  // Real money, but it shouldn't count as event revenue until a
-                  // human decides — REVIEW keeps it visible and out of the
-                  // clean totals.
+                  // The club really did receive this money, so it counts as
+                  // revenue until someone refunds it — pretending otherwise
+                  // would understate their actual balance. REVIEW (a
+                  // deliberate downgrade from VERIFIED) plus the description
+                  // is what tells a human to act. Only a refund should remove
+                  // it from the totals.
                   reconciliationStatus: "REVIEW",
                   notes: `Registration ${reg.id} was already PAID when this Checkout completed. Refund or reconcile.`,
                 },
