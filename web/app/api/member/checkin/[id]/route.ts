@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { wallClockUTCToInstant } from "@/lib/datetime";
+import { checkinPaymentBlock } from "@/lib/eventPayments";
 
 // /api/member/checkin/[id] — completes the attendance-QR intent AFTER the
 // scanner is signed in. `id` is a ClassSession id or an Event id (same ids the
@@ -35,7 +36,16 @@ type Target =
       windowEndsAt: Date;
       acceptedMembershipIds: string[];
     }
-  | { kind: "event"; eventId: string; title: string; startsAt: Date; endsAt: Date; windowStartsAt: Date; windowEndsAt: Date };
+  | {
+      kind: "event";
+      eventId: string;
+      title: string;
+      startsAt: Date;
+      endsAt: Date;
+      windowStartsAt: Date;
+      windowEndsAt: Date;
+      requirePaymentBeforeCheckin: boolean;
+    };
 
 async function resolveTarget(id: string, clubId: string): Promise<Target | null> {
   const ses = await prisma.classSession.findFirst({
@@ -67,7 +77,13 @@ async function resolveTarget(id: string, clubId: string): Promise<Target | null>
   }
   const ev = await prisma.event.findFirst({
     where: { id, clubId, deletedAt: null },
-    select: { id: true, name: true, startsAt: true, endsAt: true },
+    select: {
+      id: true,
+      name: true,
+      startsAt: true,
+      endsAt: true,
+      requirePaymentBeforeCheckin: true,
+    },
   });
   if (ev) {
     return {
@@ -78,6 +94,7 @@ async function resolveTarget(id: string, clubId: string): Promise<Target | null>
       endsAt: ev.endsAt,
       windowStartsAt: ev.startsAt,
       windowEndsAt: ev.endsAt,
+      requirePaymentBeforeCheckin: ev.requirePaymentBeforeCheckin,
     };
   }
   return null;
@@ -200,6 +217,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       { error: "Your account isn't linked to a member profile yet. Contact your club." },
       { status: 400 },
     );
+  }
+
+  // Payment gate — only when the owner requires payment before participation.
+  // Checked before the record is written so a blocked attendee isn't marked
+  // present. Someone already checked in is never retro-blocked (below).
+  if (target.kind === "event" && target.requirePaymentBeforeCheckin) {
+    const reg = await prisma.eventRegistration.findFirst({
+      where: { eventId: target.eventId, memberId: member.id, status: { not: "CANCELED" } },
+      orderBy: { createdAt: "desc" },
+      select: { status: true, amountDue: true, paymentMethod: true },
+    });
+    const block = checkinPaymentBlock(target, reg);
+    if (block) {
+      return NextResponse.json(
+        {
+          error: "PAYMENT_REQUIRED",
+          message: `${block} Please see the front desk.`,
+          amountDue: Number(reg?.amountDue ?? 0),
+        },
+        { status: 402 },
+      );
+    }
   }
 
   // Idempotent: a retried scan / double tap never duplicates the record.

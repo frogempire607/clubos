@@ -24,6 +24,7 @@ type EventCard = {
   customEventType: { name: string; color: string; textColor: string } | null;
   sessions: { id: string; name: string | null; startsAt: string; endsAt: string }[];
   _count: { bookings: number };
+  autoChargeDate?: string | null;
 };
 
 type BookingRef = { eventId: string; status: string };
@@ -76,6 +77,11 @@ export default function MemberEventsPage() {
   const [info, setInfo] = useState("");
   const [bundles, setBundles] = useState<BundleCard[]>([]);
   const [discountCode, setDiscountCode] = useState("");
+  const [payPrompt, setPayPrompt] = useState<null | {
+    eventId: string;
+    pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN";
+    options: string[];
+  }>(null);
 
   function load() {
     setLoading(true);
@@ -113,7 +119,11 @@ export default function MemberEventsPage() {
     router.push(`/member/messages/group/${d.groupId}`);
   }
 
-  async function register(eventId: string, pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" = "MEMBER") {
+  async function register(
+    eventId: string,
+    pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" = "MEMBER",
+    payment?: { method: string; consentLabel?: string },
+  ) {
     setBusy(eventId);
     setError("");
     setInfo("");
@@ -124,11 +134,22 @@ export default function MemberEventsPage() {
         pricingType,
         memberId: selectedMemberId,
         discountCode: discountCode.trim() || null,
+        ...(payment ? { paymentMethod: payment.method } : {}),
+        ...(payment?.method === "AUTO_CARD"
+          ? { autoChargeConsent: { agreed: true, buttonLabel: payment.consentLabel } }
+          : {}),
       }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
-    if (!res.ok) { setError(d.error || "Could not register"); return; }
+    // The event offers more than one way to pay — ask, then re-submit. The
+    // server decides what's offerable (incl. whether a saved card exists), so
+    // the choice can't drift from what it will accept.
+    if (res.status === 400 && d.error === "PAYMENT_METHOD_REQUIRED") {
+      setPayPrompt({ eventId, pricingType, options: d.options ?? [] });
+      return;
+    }
+    if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }
     if (d.coveredByMembership) {
       setInfo(d.status === "WAITLISTED" ? "You're on the waitlist (covered by your membership)." : "Registered — covered by your membership.");
       load();
@@ -140,6 +161,18 @@ export default function MemberEventsPage() {
         (d.status === "WAITLISTED" ? "You're on the waitlist. " : "Registered. ") +
           `The club will send you an invoice for this event's shared cost.${each}`,
       );
+      load();
+      return;
+    }
+    if (d.scheduled) {
+      setInfo(
+        `${d.status === "WAITLISTED" ? "You're on the waitlist. " : "You're registered. "}Your card will be charged $${Number(d.amountDue).toFixed(2)} on ${new Date(d.chargeOn).toLocaleDateString(undefined, { timeZone: "UTC" })}.`,
+      );
+      load();
+      return;
+    }
+    if (d.offline) {
+      setInfo(d.message || "You're registered.");
       load();
       return;
     }
@@ -401,6 +434,129 @@ export default function MemberEventsPage() {
           })}
         </div>
       )}
+
+      {payPrompt && (
+        <PaymentChoiceModal
+          prompt={payPrompt}
+          event={events.find((e) => e.id === payPrompt.eventId) ?? null}
+          onClose={() => setPayPrompt(null)}
+          onChoose={(method, consentLabel) => {
+            const p = payPrompt;
+            setPayPrompt(null);
+            register(p.eventId, p.pricingType, { method, consentLabel });
+          }}
+        />
+      )}
     </>
+  );
+}
+
+// Asks how the member wants to pay for an event. `options` comes from the
+// server, which already decided what this member can actually complete (e.g.
+// AUTO_CARD only appears when they have a chargeable saved card).
+function PaymentChoiceModal({
+  prompt,
+  event,
+  onClose,
+  onChoose,
+}: {
+  prompt: { eventId: string; options: string[] };
+  event: EventCard | null;
+  onClose: () => void;
+  onChoose: (method: string, consentLabel?: string) => void;
+}) {
+  const [method, setMethod] = useState<string>(prompt.options[0] ?? "");
+  const [consented, setConsented] = useState(false);
+
+  const chargeDay = event?.autoChargeDate ?? event?.startsAt ?? null;
+  const chargeDayLabel = chargeDay
+    ? new Date(chargeDay).toLocaleDateString(undefined, {
+        month: "long",
+        day: "numeric",
+        ...(event?.autoChargeDate ? { timeZone: "UTC" as const } : {}),
+      })
+    : "the event date";
+
+  const CHOICES: Record<string, { label: string; hint: string }> = {
+    CARD: { label: "Pay now by card", hint: "You'll be taken to a secure checkout page." },
+    AUTO_CARD: {
+      label: "Charge my saved card on the event date",
+      hint: `Nothing is charged today. Your card on file is charged on ${chargeDayLabel}.`,
+    },
+    CASH: { label: "Pay cash at the event", hint: "Bring it with you — the club records it at check-in." },
+    CHECK: { label: "Pay by check at the event", hint: "Bring it with you — the club records it at check-in." },
+  };
+
+  const consentLabel =
+    method === "AUTO_CARD" ? `I authorize the charge on ${chargeDayLabel}` : undefined;
+  const blocked = method === "AUTO_CARD" && !consented;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md border border-stone-200 max-h-[90vh] overflow-y-auto">
+        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-stone-900">How would you like to pay?</h2>
+            {event && <p className="text-xs text-stone-500 truncate">{event.name}</p>}
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="p-5 space-y-2">
+          {prompt.options.map((m) => {
+            const c = CHOICES[m];
+            if (!c) return null;
+            return (
+              <label
+                key={m}
+                className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer ${
+                  method === m ? "border-stone-900 bg-stone-50" : "border-stone-200"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="eventPayMethod"
+                  checked={method === m}
+                  onChange={() => {
+                    setMethod(m);
+                    setConsented(false);
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-stone-900">{c.label}</span>
+                  <span className="block text-xs text-stone-500">{c.hint}</span>
+                </span>
+              </label>
+            );
+          })}
+
+          {method === "AUTO_CARD" && (
+            <label className="flex items-start gap-2.5 p-3 rounded-lg bg-stone-50 border border-stone-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={consented}
+                onChange={(e) => setConsented(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-xs text-stone-700">{consentLabel}.</span>
+            </label>
+          )}
+
+          <button
+            disabled={!method || blocked}
+            onClick={() => onChoose(method, consentLabel)}
+            className="w-full mt-2 py-2.5 rounded-lg bg-stone-900 text-white text-sm font-semibold disabled:opacity-40"
+          >
+            {method === "CARD"
+              ? "Continue to payment"
+              : method === "AUTO_CARD"
+                ? `Confirm — charged ${chargeDayLabel}`
+                : "Confirm registration"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

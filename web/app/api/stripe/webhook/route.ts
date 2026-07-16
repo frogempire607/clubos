@@ -731,15 +731,7 @@ export async function POST(req: Request) {
           });
           if (reg && reg.status !== "PAID") {
             const amount = (session.amount_total || 0) / 100;
-            await prisma.eventRegistration.update({
-              where: { id: reg.id },
-              data: {
-                status: "PAID",
-                amountPaid: amount,
-                stripePaymentIntentId: session.payment_intent as string | undefined,
-              },
-            });
-            await prisma.transaction.create({
+            const tx = await prisma.transaction.create({
               data: {
                 clubId: reg.clubId,
                 memberId: reg.memberId,
@@ -750,10 +742,40 @@ export async function POST(req: Request) {
                 type: "EVENT",
                 category: "events",
                 paymentMethod: "STRIPE",
+                txDate: new Date(),
                 ...verifiedStripeTxFields(checkoutMoney),
               ...discountFields,
               },
             });
+            // Card payment confirmed by Stripe → the registration is complete
+            // and the spot is reserved. This also settles a registrant who
+            // chose cash/check and then paid online instead; their PENDING
+            // offline Transaction is voided below so the money isn't counted
+            // twice or left showing as still-owed.
+            await prisma.eventRegistration.update({
+              where: { id: reg.id },
+              data: {
+                status: "PAID",
+                amountPaid: amount,
+                paidAt: new Date(),
+                paidVia: "STRIPE",
+                transactionId: tx.id,
+                lastChargeError: null,
+                stripePaymentIntentId: session.payment_intent as string | undefined,
+              },
+            });
+            if (reg.transactionId && reg.transactionId !== tx.id) {
+              await prisma.transaction
+                .updateMany({
+                  where: { id: reg.transactionId, status: "PENDING" },
+                  data: {
+                    status: "FAILED",
+                    reconciliationStatus: "VOID",
+                    notes: "Superseded — registrant paid online instead.",
+                  },
+                })
+                .catch((e) => console.error("event reg offline tx void failed", e));
+            }
             // If they matched an existing member, also create a Booking so it
             // shows on their portal alongside member bookings.
             if (reg.memberId) {
@@ -764,6 +786,26 @@ export async function POST(req: Request) {
                 await prisma.booking.create({
                   data: { eventId: reg.eventId, memberId: reg.memberId, status: "CONFIRMED" },
                 });
+              }
+            }
+            // Receipt — every completed payment gets one, member or not.
+            if (reg.email) {
+              try {
+                const club = await prisma.club.findUnique({
+                  where: { id: reg.clubId },
+                  select: { name: true },
+                });
+                await sendPaymentReceiptEmail({
+                  to: reg.email,
+                  firstName: reg.name?.split(" ")[0] || "there",
+                  clubName: club?.name || "your club",
+                  description: `${reg.event.name} — event registration`,
+                  amountPaid: `$${amount.toFixed(2)}`,
+                  paidAt: new Date(),
+                  portalUrl: `${getAppBaseUrl()}/member`,
+                });
+              } catch (e) {
+                console.error("event registration receipt failed", e);
               }
             }
           }

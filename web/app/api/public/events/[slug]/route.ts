@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
+import { eventAllowedPaymentMethods } from "@/lib/eventPayments";
 
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
@@ -35,13 +36,21 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       variableCostTotal: true,
       variableCostEstimatedSignups: true,
       variableCostEstimatedTotal: true,
+      paymentMethods: true,
       publishAt: true,
       unpublishAt: true,
       deletedAt: true,
       registrationDeadline: true,
       location: { select: { name: true, address: true, latitude: true, longitude: true } },
       club: { select: { id: true, name: true, logoUrl: true, primaryColor: true } },
-      _count: { select: { registrations: true, bookings: true } },
+      // Abandoned card checkouts (PENDING_PAYMENT) and cancellations don't
+      // hold a spot.
+      _count: {
+        select: {
+          registrations: { where: { status: { notIn: ["CANCELED", "PENDING_PAYMENT"] } } },
+          bookings: { where: { status: { notIn: ["CANCELED"] } } },
+        },
+      },
     },
   });
 
@@ -124,6 +133,9 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     price,
     priceLabel,
     capacityReached,
+    // AUTO_CARD needs an authenticated member with a saved card — the public
+    // page is anonymous, so it only ever offers CARD / CASH / CHECK.
+    paymentMethods: eventAllowedPaymentMethods(event).filter((m) => m !== "AUTO_CARD"),
     registrationOpen:
       (event.publicRegistration || event.tournamentMode === "HOST") && !capacityReached,
   });

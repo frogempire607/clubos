@@ -140,8 +140,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "Computed share is $0 — check the total and split." }, { status: 400 });
   }
 
-  // Decide which registrants to invoice.
-  let targets = allActive.filter((r) => r.status !== "PAID");
+  // Decide which registrants to invoice. SCHEDULED registrants consented to an
+  // automatic event-day charge — invoicing them would collect the same money
+  // twice, so they're never a target (explicitly or via "all unpaid"). Cancel
+  // the scheduled charge first if you mean to bill them another way.
+  let targets = allActive.filter((r) => r.status !== "PAID" && r.status !== "SCHEDULED");
   if (body.registrationIds && body.registrationIds.length > 0) {
     const idSet = new Set(body.registrationIds);
     targets = targets.filter((r) => idSet.has(r.id));

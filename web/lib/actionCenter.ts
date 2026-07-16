@@ -157,16 +157,35 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
   );
 
   // ── Money owed (existing dashboard signal, surfaced as an action) ─────
+  // PENDING_PAYMENT (abandoned card checkout) and SCHEDULED (auto-charge
+  // committed) are deliberately excluded — neither is money the owner needs
+  // to chase today.
   probe(
     can("finances", "view"),
     () =>
       prisma.eventRegistration.count({
-        where: { clubId, status: { notIn: ["PAID", "CANCELED"] }, amountDue: { not: null } },
+        where: {
+          clubId,
+          status: { in: ["AWAITING_CASH", "AWAITING_CHECK"] },
+          amountDue: { not: null },
+        },
       }),
     {
       kind: "PENDING_EVENT_PAYMENTS",
-      label: "Event payments owed",
+      label: "Event payments to collect at the door",
       severity: "medium",
+      href: "/dashboard/events",
+    },
+  );
+  // A consented event-day charge that Stripe declined — the client thinks
+  // they've paid, so this needs a human today.
+  probe(
+    can("finances", "view"),
+    () => prisma.eventRegistration.count({ where: { clubId, status: "PAYMENT_FAILED" } }),
+    {
+      kind: "EVENT_PAYMENT_FAILED",
+      label: "Event card charges that failed",
+      severity: "high",
       href: "/dashboard/events",
     },
   );

@@ -83,6 +83,10 @@ const eventFields = {
   variableCostEstimatedSignups: z.number().int().positive().optional().nullable(),
   variableCostEstimatedTotal: z.number().min(0).optional().nullable(),
   invoiceScheduledAt: z.string().optional().nullable(),
+  // Registration payment decision (lib/eventPayments.ts model)
+  paymentMethods: z.array(z.enum(["CARD", "AUTO_CARD", "CASH", "CHECK"])).optional().nullable(),
+  autoChargeDate: z.string().optional().nullable(),
+  requirePaymentBeforeCheckin: z.boolean().optional(),
 };
 
 const createSchema = z.object({
@@ -185,6 +189,9 @@ export async function POST(req: Request) {
           data.variableCostEnabled && data.invoiceScheduledAt
             ? new Date(data.invoiceScheduledAt)
             : null,
+        paymentMethods: data.paymentMethods ?? undefined,
+        autoChargeDate: data.autoChargeDate ? new Date(data.autoChargeDate) : null,
+        requirePaymentBeforeCheckin: data.requirePaymentBeforeCheckin ?? false,
         sessions: data.sessions?.length
           ? {
               create: data.sessions.map((s, i) => ({

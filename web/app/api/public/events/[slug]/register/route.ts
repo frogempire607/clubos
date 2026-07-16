@@ -6,18 +6,33 @@ import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicFixedPrice } from "@/lib/eventPricing";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
+import {
+  eventAllowedPaymentMethods,
+  offlineStatusForMethod,
+  createEventOfflinePendingTx,
+  EVENT_PAYMENT_METHOD_LABELS,
+} from "@/lib/eventPayments";
 
 const schema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   phone: z.string().optional().nullable(),
   formResponses: z.record(z.string(), z.union([z.string(), z.boolean()])).default({}),
+  // The registrant's payment decision. AUTO_CARD is never offered publicly
+  // (it needs an authenticated member with a saved card).
+  paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional(),
 });
 
 // POST /api/public/events/[slug]/register
-// NO AUTH. Creates an EventRegistration. If a price applies (non-member price
-// or ESTIMATED variable cost), returns a Stripe Checkout URL on the club's
-// connected account. Otherwise the registration is immediately confirmed.
+// NO AUTH. Creates an EventRegistration. When money is owed the registrant
+// must choose a payment method the owner allows for this event:
+//   CARD        → PENDING_PAYMENT + Stripe Checkout URL; the webhook completes
+//                 it (PAID + Transaction + receipt). An abandoned checkout
+//                 stays PENDING_PAYMENT and never holds a spot.
+//   CASH/CHECK  → confirmed as AWAITING_CASH/AWAITING_CHECK with a PENDING
+//                 offline Transaction (the amount due — never revenue). Staff
+//                 records receipt at/ before the event.
+// Free + variable-cost (billed later) registrations need no decision.
 export async function POST(req: Request, context: { params: Promise<{ slug: string }> }) {
   // 10 public registrations per 10 minutes per IP. Public event pages
   // are unauthenticated — without a per-IP limit, a script can fill
@@ -36,7 +51,16 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
 
   const event = await prisma.event.findUnique({
     where: { publicSlug: params.slug },
-    include: { club: true, _count: { select: { registrations: true, bookings: true } } },
+    include: {
+      club: true,
+      // Abandoned card checkouts + cancellations don't consume capacity.
+      _count: {
+        select: {
+          registrations: { where: { status: { notIn: ["CANCELED", "PENDING_PAYMENT"] } } },
+          bookings: { where: { status: { notIn: ["CANCELED"] } } },
+        },
+      },
+    },
   });
   if (!event || event.deletedAt) {
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -104,6 +128,44 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // Immediate (charge-now) amount only applies to non-variable fixed pricing.
   const amountDue = isVariableCost ? 0 : publicFixedPrice(event);
 
+  // Payment decision. Money owed ⇒ the registrant must pick a method the owner
+  // allows (AUTO_CARD is member-only, so it's never selectable here). Cash and
+  // check can't be collected without Stripe, but card can't be collected
+  // WITHOUT it — so a club with no Connect account only gets offline methods.
+  const stripeReady = !!event.club.stripeAccountId && !!event.club.stripeChargesEnabled;
+  const allowed = eventAllowedPaymentMethods(event).filter((m) => m !== "AUTO_CARD");
+  const selectable = allowed.filter((m) => m !== "CARD" || stripeReady);
+  const needsDecision = !isVariableCost && amountDue > 0;
+
+  let method: "CARD" | "CASH" | "CHECK" | null = null;
+  if (needsDecision) {
+    if (selectable.length === 0) {
+      // Owner allows only card but hasn't connected Stripe — don't strand the
+      // registrant in a half-state; tell them to contact the club.
+      return NextResponse.json(
+        { error: "Online payment isn't set up for this event yet. Please contact the club." },
+        { status: 503 },
+      );
+    }
+    const chosen = body.paymentMethod ?? (selectable.length === 1 ? selectable[0] : null);
+    if (!chosen) {
+      return NextResponse.json(
+        { error: "PAYMENT_METHOD_REQUIRED", message: "Choose how you'd like to pay." },
+        { status: 400 },
+      );
+    }
+    if (!selectable.includes(chosen)) {
+      return NextResponse.json(
+        {
+          error: "PAYMENT_METHOD_NOT_ALLOWED",
+          message: `${EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`,
+        },
+        { status: 400 },
+      );
+    }
+    method = chosen;
+  }
+
   const registration = await prisma.eventRegistration.create({
     data: {
       eventId: event.id,
@@ -113,7 +175,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       email: body.email.toLowerCase(),
       phone: body.phone || null,
       formResponses: body.formResponses,
-      status: "REGISTERED",
+      // A card registration isn't complete until Stripe confirms it.
+      status: method === "CARD" ? "PENDING_PAYMENT" : method ? offlineStatusForMethod(method) : "REGISTERED",
+      paymentMethod: method,
       amountDue: isVariableCost ? estimatedShare : amountDue > 0 ? amountDue : null,
     },
   });
@@ -138,15 +202,38 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({ ok: true, free: true, registrationId: registration.id });
   }
 
-  // Paid — needs Stripe Connect on the club.
-  if (!event.club.stripeAccountId || !event.club.stripeChargesEnabled) {
-    // Keep the registration but flag that payment can't be collected online.
+  // Cash / check — the spot is confirmed now; the money is recorded as due.
+  // Acceptance is NOT payment: one PENDING offline Transaction, no receipt.
+  if (method === "CASH" || method === "CHECK") {
+    const tx = await createEventOfflinePendingTx({
+      clubId: event.clubId,
+      memberId: member?.id ?? null,
+      amount: amountDue,
+      method,
+      eventName: event.name,
+      registrantName: body.name,
+    });
+    await prisma.eventRegistration.update({
+      where: { id: registration.id },
+      data: { transactionId: tx.id },
+    });
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
-      paymentPending: true,
-      message: "You're registered. The club will contact you about payment.",
+      offline: true,
+      paymentMethod: method,
+      amountDue,
+      message: `You're registered. Please bring $${amountDue.toFixed(2)} in ${method.toLowerCase()} to the event.`,
     });
+  }
+
+  // CARD — only reachable when Stripe is connected (guarded by `selectable`);
+  // this re-check also narrows the account id for the SDK call.
+  if (!event.club.stripeAccountId) {
+    return NextResponse.json(
+      { error: "Online payment isn't set up for this event yet. Please contact the club." },
+      { status: 503 },
+    );
   }
 
   const amountCents = Math.round(amountDue * 100);

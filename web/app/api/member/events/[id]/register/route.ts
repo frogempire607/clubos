@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
@@ -12,6 +13,15 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
+import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
+import {
+  eventAllowedPaymentMethods,
+  offlineStatusForMethod,
+  createEventOfflinePendingTx,
+  eventScheduledChargeAt,
+  EVENT_PAYMENT_METHOD_LABELS,
+  type EventPaymentMethod,
+} from "@/lib/eventPayments";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -57,6 +67,13 @@ const schema = z.object({
   pricingType: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN"]).default("MEMBER"),
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
+  // The registrant's payment decision, when the event offers a choice.
+  paymentMethod: z.enum(["CARD", "AUTO_CARD", "CASH", "CHECK"]).optional(),
+  // AUTO_CARD only: the exact consent the client agreed to. Required so the
+  // stored audit reflects what they actually saw on the button.
+  autoChargeConsent: z
+    .object({ agreed: z.literal(true), buttonLabel: z.string().max(200).optional() })
+    .optional(),
 });
 
 async function resolveBookingMember(args: {
@@ -100,7 +117,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many registration attempts. Try again in a moment.");
 
   try {
-    const { pricingType, memberId, discountCode } = schema.parse(await req.json().catch(() => ({})));
+    const { pricingType, memberId, discountCode, paymentMethod, autoChargeConsent } = schema.parse(
+      await req.json().catch(() => ({})),
+    );
 
     // COPPA: block a guardian from registering a minor until consent is on file.
     if (memberId && (await guardianActionBlocked(session.user.id, memberId))) {
@@ -370,6 +389,178 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json(gate.response, { status: 202 });
     }
 
+    // ── Payment decision ────────────────────────────────────────────────────
+    // The registrant picks a method the owner allows for this event. AUTO_CARD
+    // additionally needs a saved card + explicit consent. Everything except
+    // CARD confirms the spot now and settles the money later.
+    const allowed = eventAllowedPaymentMethods(event);
+    const price = priceCents / 100;
+    const registrantName = `${member.firstName} ${member.lastName ?? ""}`.trim();
+
+    let savedCardAvailable = false;
+    if (allowed.includes("AUTO_CARD")) {
+      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
+      savedCardAvailable = !!(await resolveChargeablePaymentMethodId(
+        customerId,
+        club.stripeAccountId,
+        member.stripeSetupPaymentMethodId,
+      ));
+    }
+    // A method the client can actually complete right now.
+    const selectable = allowed.filter((m) => (m === "AUTO_CARD" ? savedCardAvailable : true));
+
+    const chosen: EventPaymentMethod | null =
+      paymentMethod ?? (selectable.length === 1 ? selectable[0] : selectable.includes("CARD") ? "CARD" : null);
+    if (!chosen) {
+      return NextResponse.json(
+        { error: "PAYMENT_METHOD_REQUIRED", message: "Choose how you'd like to pay.", options: selectable },
+        { status: 400 },
+      );
+    }
+    if (!selectable.includes(chosen)) {
+      const reason =
+        chosen === "AUTO_CARD" && allowed.includes("AUTO_CARD")
+          ? "You don't have a saved card yet — add one in your profile, or choose another way to pay."
+          : `${EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`;
+      return NextResponse.json({ error: "PAYMENT_METHOD_NOT_ALLOWED", message: reason }, { status: 400 });
+    }
+
+    // Mirror the booking as an EventRegistration so the money is trackable in
+    // the same place as public signups (outstanding lists, invoicing, receipts).
+    // Locals keep the null-narrowing a hoisted function body would lose.
+    const regEventId = event.id;
+    const regClubId = session.user.clubId;
+    const regMemberId = member.id;
+    const regEmail = member.email ?? "";
+    const regPhone = member.phone ?? null;
+    const upsertRegistration = async (data: {
+      status: string;
+      method: EventPaymentMethod;
+      scheduledChargeAt?: Date | null;
+      consent?: Prisma.InputJsonValue;
+    }) => {
+      const existing = await prisma.eventRegistration.findFirst({
+        where: { eventId: regEventId, memberId: regMemberId, status: { not: "CANCELED" } },
+        select: { id: true },
+      });
+      const fields = {
+        status: data.status,
+        paymentMethod: data.method,
+        amountDue: price,
+        scheduledChargeAt: data.scheduledChargeAt ?? null,
+        ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
+      };
+      if (existing) {
+        return prisma.eventRegistration.update({ where: { id: existing.id }, data: fields });
+      }
+      return prisma.eventRegistration.create({
+        data: {
+          eventId: regEventId,
+          clubId: regClubId,
+          memberId: regMemberId,
+          name: registrantName,
+          email: regEmail,
+          phone: regPhone,
+          ...fields,
+        },
+      });
+    };
+
+    if (chosen === "AUTO_CARD" || chosen === "CASH" || chosen === "CHECK") {
+      if (chosen === "AUTO_CARD" && !autoChargeConsent?.agreed) {
+        return NextResponse.json(
+          {
+            error: "CONSENT_REQUIRED",
+            message: "Please confirm you authorize the charge on the event date.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const bookingStatus =
+        event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      await prisma.booking.create({
+        data: { eventId: event.id, memberId: member.id, status: bookingStatus },
+      });
+
+      if (chosen === "AUTO_CARD") {
+        const chargeAt = eventScheduledChargeAt(event);
+        await upsertRegistration({
+          status: "SCHEDULED",
+          method: chosen,
+          scheduledChargeAt: chargeAt,
+          consent: {
+            at: new Date().toISOString(),
+            userId: session.user.id ?? null,
+            memberId: regMemberId,
+            email: regEmail || null,
+            ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+            userAgent: req.headers.get("user-agent") ?? null,
+            buttonLabel: autoChargeConsent?.buttonLabel ?? null,
+            amount: price,
+            chargeOn: chargeAt.toISOString(),
+            ...(discount ? { discountCode: discount.code } : {}),
+          } as Prisma.InputJsonValue,
+        });
+        if (discount) await recordDiscountUse(discount.id);
+        if (bookingStatus === "CONFIRMED") {
+          emailBookingConfirmation({
+            memberId: member.id,
+            clubName: club.name,
+            eventName: event.name,
+            startsAt: event.startsAt,
+            endsAt: event.endsAt,
+            coveredByMembership: false,
+          });
+        }
+        return NextResponse.json({
+          ok: true,
+          scheduled: true,
+          paymentMethod: chosen,
+          status: bookingStatus,
+          amountDue: price,
+          chargeOn: chargeAt,
+        });
+      }
+
+      // Cash / check — acceptance is not payment. One PENDING offline
+      // Transaction records the amount due; staff records receipt later.
+      const reg = await upsertRegistration({ status: offlineStatusForMethod(chosen), method: chosen });
+      const tx = await createEventOfflinePendingTx({
+        clubId: session.user.clubId,
+        memberId: member.id,
+        amount: price,
+        method: chosen,
+        eventName: event.name,
+        registrantName,
+        discountCode: discount?.code ?? null,
+      });
+      await prisma.eventRegistration.update({
+        where: { id: reg.id },
+        data: { transactionId: tx.id },
+      });
+      if (discount) await recordDiscountUse(discount.id);
+      if (bookingStatus === "CONFIRMED") {
+        emailBookingConfirmation({
+          memberId: member.id,
+          clubName: club.name,
+          eventName: event.name,
+          startsAt: event.startsAt,
+          endsAt: event.endsAt,
+          coveredByMembership: false,
+        });
+      }
+      return NextResponse.json({
+        ok: true,
+        offline: true,
+        paymentMethod: chosen,
+        status: bookingStatus,
+        amountDue: price,
+        message: `You're registered. Please bring $${price.toFixed(2)} in ${chosen.toLowerCase()} to the event.`,
+      });
+    }
+
+    // CARD — pay now. The webhook creates the Booking on confirmed payment.
     const platformFee = calculatePlatformFee(priceCents, club.tier);
     const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
