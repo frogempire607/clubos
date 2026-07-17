@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -56,6 +57,9 @@ const updateSchema = z.object({
   variableCostEstimatedSignups: z.number().int().positive().optional().nullable(),
   variableCostEstimatedTotal: z.number().min(0).optional().nullable(),
   invoiceScheduledAt: z.string().optional().nullable(),
+  paymentMethods: z.array(z.enum(["CARD", "AUTO_CARD", "CASH", "CHECK"])).optional().nullable(),
+  autoChargeDate: z.string().optional().nullable(),
+  requirePaymentBeforeCheckin: z.boolean().optional(),
 });
 
 function slugify(name: string): string {
@@ -139,7 +143,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       publicSlug = candidate;
     }
 
-    const { registrationForm, variableCostEnabled, variableCostMode, variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, ...flatRest } = rest;
+    const { registrationForm, variableCostEnabled, variableCostMode, variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, paymentMethods, autoChargeDate, ...flatRest } = rest;
 
     const updated = await prisma.event.update({
       where: { id: params.id },
@@ -163,6 +167,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         invoiceScheduledAt: rest.invoiceScheduledAt
           ? new Date(rest.invoiceScheduledAt)
           : rest.invoiceScheduledAt === null
+            ? null
+            : undefined,
+        // An explicit null means "revert to the default (card only)" — it must
+        // clear the column, not be dropped as a no-op.
+        ...(paymentMethods !== undefined
+          ? { paymentMethods: paymentMethods === null ? Prisma.DbNull : paymentMethods }
+          : {}),
+        autoChargeDate: autoChargeDate
+          ? new Date(autoChargeDate)
+          : autoChargeDate === null
             ? null
             : undefined,
       },

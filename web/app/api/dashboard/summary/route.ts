@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { EXCLUDE_VOID } from "@/lib/paymentSources";
+import { UNPAID_REGISTRATION_STATUSES } from "@/lib/eventPayments";
 
 // GET /api/dashboard/summary
 // Club-scoped owner/staff metrics for the customizable dashboard widgets.
@@ -63,8 +64,16 @@ export async function GET() {
     prisma.message.count({
       where: { clubId, recipientId: session.user.id, readAt: null },
     }),
+    // Money genuinely owed on events. Keeps legacy REGISTERED rows with an
+    // amountDue; excludes PENDING_PAYMENT (owes nothing until checkout
+    // completes) and SCHEDULED (charge already authorized for the event date),
+    // either of which would overstate what the owner is waiting on.
     prisma.eventRegistration.findMany({
-      where: { clubId, status: { notIn: ["PAID", "CANCELED"] }, amountDue: { not: null } },
+      where: {
+        clubId,
+        status: { in: UNPAID_REGISTRATION_STATUSES },
+        amountDue: { not: null },
+      },
       select: { amountDue: true },
     }),
     prisma.document.findMany({

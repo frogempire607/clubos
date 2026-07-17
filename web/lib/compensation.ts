@@ -6,6 +6,8 @@
 // and passes a `CompContext`; we return a structured payout breakdown that the
 // payroll API and preview UI render directly.
 
+import { ACTIVE_REGISTRATION_STATUSES } from "@/lib/eventPayments";
+
 export type BaseType = "SALARY" | "PER_CLASS" | "HOURLY";
 export type BonusType = "ATTENDANCE" | "SIGNUP" | "REVENUE_SHARE";
 export type ScopeType = "CLASS" | "EVENT" | "MEMBERSHIP" | "PRIVATE_LESSON_TYPE";
@@ -209,7 +211,10 @@ export function computeStaffPayout(plan: CompPlan, ctx: CompContext): PayoutBrea
     }
     if (noScope || eventScope.length) {
       for (const r of ctx.eventRegistrations) {
-        if (r.status === "CANCELED") continue;
+        // Only real registrations earn a bonus. An abandoned card checkout
+        // (PENDING_PAYMENT) holds no spot and may never be paid — counting it
+        // would pay a coach for a signup that doesn't exist.
+        if (!(ACTIVE_REGISTRATION_STATUSES as string[]).includes(r.status)) continue;
         const allowed = eventScope.length
           ? eventScope.includes(r.eventId)
           : ctx.assignedEventIds.includes(r.eventId);

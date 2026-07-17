@@ -19,6 +19,7 @@ import { hasPermission, type PermissionKey, type PermissionLevel } from "@/lib/p
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
+import { UNPAID_REGISTRATION_STATUSES } from "@/lib/eventPayments";
 
 export type ActionSeverity = "high" | "medium" | "low";
 
@@ -157,17 +158,74 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
   );
 
   // ── Money owed (existing dashboard signal, surfaced as an action) ─────
+  // UNPAID_REGISTRATION_STATUSES keeps legacy REGISTERED rows carrying an
+  // amountDue (the "registered but never paid" case this signal exists for)
+  // while excluding PENDING_PAYMENT (owes nothing until checkout completes)
+  // and SCHEDULED (charge already authorized for the event date).
   probe(
     can("finances", "view"),
     () =>
       prisma.eventRegistration.count({
-        where: { clubId, status: { notIn: ["PAID", "CANCELED"] }, amountDue: { not: null } },
+        where: {
+          clubId,
+          status: { in: UNPAID_REGISTRATION_STATUSES },
+          amountDue: { not: null },
+        },
       }),
     {
       kind: "PENDING_EVENT_PAYMENTS",
       label: "Event payments owed",
       severity: "medium",
       href: "/dashboard/events",
+    },
+  );
+  // A consented event-day charge that Stripe declined — the client thinks
+  // they've paid, so this needs a human today.
+  probe(
+    can("finances", "view"),
+    () => prisma.eventRegistration.count({ where: { clubId, status: "PAYMENT_FAILED" } }),
+    {
+      kind: "EVENT_PAYMENT_FAILED",
+      label: "Event card charges that failed",
+      severity: "high",
+      href: "/dashboard/events",
+    },
+  );
+  // A consented charge whose date has well passed and still hasn't settled.
+  // Catches every "stuck" case at once — no scheduler configured, Stripe
+  // unverifiable, repeated transient failures — so money can never quietly go
+  // uncollected while the client believes they've paid.
+  probe(
+    can("finances", "view"),
+    () =>
+      prisma.eventRegistration.count({
+        where: {
+          clubId,
+          status: "SCHEDULED",
+          scheduledChargeAt: { lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+        },
+      }),
+    {
+      kind: "EVENT_CHARGE_OVERDUE",
+      label: "Scheduled event charges that haven't gone through",
+      severity: "high",
+      href: "/dashboard/events",
+    },
+  );
+  // Someone paid twice (e.g. cash at the door, then clicked an old payment
+  // link). Real money the club is likely holding by mistake — a log line isn't
+  // enough, a person has to refund it.
+  probe(
+    can("finances", "view"),
+    () =>
+      prisma.transaction.count({
+        where: { clubId, status: "SUCCEEDED", reconciliationStatus: "REVIEW", type: "EVENT" },
+      }),
+    {
+      kind: "EVENT_DUPLICATE_PAYMENT",
+      label: "Duplicate event payments to refund",
+      severity: "high",
+      href: "/dashboard/financials",
     },
   );
 

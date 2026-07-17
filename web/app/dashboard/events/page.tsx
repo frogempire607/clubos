@@ -77,6 +77,9 @@ type Event = {
   variableCostTotal?: number | string | null;
   variableCostEstimatedSignups?: number | null;
   variableCostEstimatedTotal?: number | string | null;
+  paymentMethods?: string[] | null;
+  autoChargeDate?: string | null;
+  requirePaymentBeforeCheckin?: boolean;
 };
 
 type Member = { id: string; firstName: string; lastName: string };
@@ -720,6 +723,23 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   const [invoiceScheduledAt, setInvoiceScheduledAt] = useState<string>(
     ev?.invoiceScheduledAt ? new Date(ev.invoiceScheduledAt).toISOString().slice(0, 10) : ""
   );
+  // How registrants may pay. Existing events with nothing stored keep the old
+  // behavior (card at registration).
+  const [payMethods, setPayMethods] = useState<string[]>(
+    Array.isArray(ev?.paymentMethods) && ev.paymentMethods.length > 0 ? ev.paymentMethods : ["CARD"]
+  );
+  const [autoChargeDate, setAutoChargeDate] = useState<string>(
+    ev?.autoChargeDate ? new Date(ev.autoChargeDate).toISOString().slice(0, 10) : ""
+  );
+  const [requirePaymentBeforeCheckin, setRequirePaymentBeforeCheckin] = useState<boolean>(
+    !!ev?.requirePaymentBeforeCheckin
+  );
+  const togglePayMethod = (m: string) =>
+    setPayMethods((prev) => {
+      const next = prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m];
+      // At least one method must stay on — otherwise nobody could register.
+      return next.length > 0 ? next : prev;
+    });
 
   const isTournament = typeKey === "TOURNAMENT";
   const publicSlug: string | null = ev?.publicSlug || null;
@@ -835,6 +855,14 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
           (type !== "TOURNAMENT" || tournamentMode === "ATTEND") && varCostEnabled && invoiceScheduledAt
             ? new Date(invoiceScheduledAt).toISOString()
             : null,
+        paymentMethods: payMethods,
+        // Date-only input → noon UTC keeps the intended calendar day in every
+        // US timezone (the same trap the billing-date rendering hit).
+        autoChargeDate:
+          payMethods.includes("AUTO_CARD") && autoChargeDate
+            ? new Date(`${autoChargeDate}T12:00:00Z`).toISOString()
+            : null,
+        requirePaymentBeforeCheckin,
         sessions: sessions.length > 0
           ? sessions.map((s, i) => ({ name: s.name || null, startsAt: new Date(s.startsAt).toISOString(), endsAt: new Date(s.endsAt).toISOString(), sortOrder: i }))
           : [],
@@ -1295,6 +1323,86 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                 <input type="number" min="0" step="0.01" value={dropInFee} onChange={(e) => setDropInFee(e.target.value)} placeholder="0" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
               </div>
             </div>
+          </div>
+
+          {/* How registrants may pay */}
+          <div className="border-t border-app-border pt-4">
+            <p className="text-xs uppercase tracking-wider text-text-muted mb-1 font-medium">
+              How registrants may pay
+            </p>
+            <p className="text-[11px] text-text-muted mb-3">
+              Registrants pick one of these when they sign up. Free and
+              membership-covered registrations skip this entirely.
+            </p>
+            <div className="space-y-2">
+              {[
+                {
+                  key: "CARD",
+                  label: "Pay now by card",
+                  hint: "Charged at registration. The spot is reserved once payment goes through.",
+                },
+                {
+                  key: "AUTO_CARD",
+                  label: "Charge saved card on the event date",
+                  hint: "Members only, and only with a card already on file. They authorize the charge when they register.",
+                },
+                { key: "CASH", label: "Pay cash at the event", hint: "Registered now; staff records the cash at check-in." },
+                { key: "CHECK", label: "Pay by check at the event", hint: "Registered now; staff records the check at check-in." },
+              ].map((m) => (
+                <label
+                  key={m.key}
+                  className="flex items-start gap-2.5 p-2.5 rounded-lg border border-app-border cursor-pointer hover:bg-app-bg"
+                >
+                  <input
+                    type="checkbox"
+                    checked={payMethods.includes(m.key)}
+                    onChange={() => togglePayMethod(m.key)}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-text-primary font-medium">{m.label}</span>
+                    <span className="block text-[11px] text-text-muted">{m.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            {payMethods.includes("AUTO_CARD") && (
+              <div className="mt-3">
+                <label className="block text-xs font-medium text-text-primary mb-1">
+                  Charge saved cards on
+                </label>
+                <input
+                  type="date"
+                  value={autoChargeDate}
+                  onChange={(e) => setAutoChargeDate(e.target.value)}
+                  className="w-full sm:w-56 px-3 py-2 border border-app-border rounded-lg text-sm"
+                />
+                <p className="text-[11px] text-text-muted mt-1">
+                  Leave blank to charge on the event date.
+                </p>
+              </div>
+            )}
+
+            {(payMethods.includes("CASH") || payMethods.includes("CHECK") || payMethods.includes("AUTO_CARD")) && (
+              <label className="flex items-start gap-2.5 mt-3 p-2.5 rounded-lg border border-app-border cursor-pointer hover:bg-app-bg">
+                <input
+                  type="checkbox"
+                  checked={requirePaymentBeforeCheckin}
+                  onChange={(e) => setRequirePaymentBeforeCheckin(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm text-text-primary font-medium">
+                    Require payment before check-in
+                  </span>
+                  <span className="block text-[11px] text-text-muted">
+                    Anyone who still owes money can&apos;t check in until staff records their
+                    payment. Scheduled card charges count as paid.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
 
           {/* Accepted memberships */}
@@ -1870,8 +1978,26 @@ type RegistrationRow = {
   formResponses: Record<string, string | boolean>;
   createdAt: string;
   member: { id: string; firstName: string; lastName: string } | null;
+  paymentMethod: string | null;
+  scheduledChargeAt: string | null;
+  lastChargeError: string | null;
+  paidAt: string | null;
+  paidVia: string | null;
+  checkReference: string | null;
 };
 type RegFormField = { id: string; label: string };
+
+// Status → how staff should read it. Mirrors lib/eventPayments.ts.
+const REG_STATUS_UI: Record<string, { label: string; tone: "paid" | "owed" | "warn" | "muted" }> = {
+  PAID: { label: "Paid", tone: "paid" },
+  SCHEDULED: { label: "Card charge scheduled", tone: "muted" },
+  AWAITING_CASH: { label: "Awaiting cash", tone: "owed" },
+  AWAITING_CHECK: { label: "Awaiting check", tone: "owed" },
+  PAYMENT_FAILED: { label: "Payment failed", tone: "warn" },
+  PENDING_PAYMENT: { label: "Didn't finish checkout", tone: "warn" },
+  CANCELED: { label: "Canceled", tone: "muted" },
+  REGISTERED: { label: "Registered", tone: "muted" },
+};
 
 type RegistrationsData = {
   event: {
@@ -1884,11 +2010,16 @@ type RegistrationsData = {
     variableCostEstimatedTotal: number | null;
     variableCostEstimatedSignups: number | null;
     variableCostBilledAt: string | null;
+    paymentMethods?: string[];
+    requirePaymentBeforeCheckin?: boolean;
   };
   registrations: RegistrationRow[];
   activeCount: number;
   unpaidCount: number;
   invoicedCount: number;
+  awaitingOfflineCount?: number;
+  scheduledCount?: number;
+  failedCount?: number;
   mode: "ESTIMATED" | "OFFICIAL";
   perHead: number | null;
   publicPrice: number | null;
@@ -1901,6 +2032,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [recording, setRecording] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -1909,6 +2041,34 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
       .then((d) => { setData(d); setLoading(false); setSelected(new Set()); });
   }
   useEffect(() => { load(); }, [eventId]);
+
+  // Record the cash/check a registrant physically handed over. This is the
+  // moment it becomes revenue and the receipt goes out — confirm the amount
+  // out loud before flipping it.
+  async function recordOffline(r: RegistrationRow) {
+    const due = Number(r.amountDue ?? 0);
+    const method = r.status === "AWAITING_CHECK" || r.paymentMethod === "CHECK" ? "CHECK" : "CASH";
+    const reference =
+      method === "CHECK"
+        ? window.prompt(`Check number or reference for ${r.name} (optional):`, "") ?? ""
+        : "";
+    if (!window.confirm(`Record $${due.toFixed(2)} received in ${method.toLowerCase()} from ${r.name}? This sends them a receipt.`)) {
+      return;
+    }
+    setRecording(r.id);
+    setMsg("");
+    setErr("");
+    const res = await fetch(`/api/events/${eventId}/registrations/${r.id}/offline-payment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method, reference: reference || null, amountReceived: due }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setRecording(null);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not record the payment."); return; }
+    setMsg(`Recorded $${due.toFixed(2)} from ${r.name} — receipt sent.`);
+    load();
+  }
 
   async function invoice(opts: { force?: boolean; registrationIds?: string[] }) {
     setBilling(true);
@@ -1940,10 +2100,16 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
 
   // Fixed-price events: a registrant is collectable when they owe something
   // (recorded at registration, or the event's current public price).
+  // SCHEDULED registrants are excluded — their card is already committed for
+  // the event date, so emailing a payment link would collect the same money
+  // twice (the server refuses them too).
   const owes = (r: RegistrationRow) =>
     Number(r.amountDue ?? 0) > 0 ? Number(r.amountDue) : (data?.publicPrice ?? 0);
   const collectable = (r: RegistrationRow) =>
-    r.status !== "PAID" && r.status !== "CANCELED" && (isVariable || owes(r) > 0);
+    r.status !== "PAID" &&
+    r.status !== "CANCELED" &&
+    r.status !== "SCHEDULED" &&
+    (isVariable || owes(r) > 0);
   const showInvoicing = isVariable || (data?.registrations ?? []).some(collectable);
 
   const selectableIds = (data?.registrations ?? []).filter(collectable).map((r) => r.id);
@@ -1976,6 +2142,34 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
             <div className="py-2"><SkeletonList rows={3} /></div>
           ) : (
             <>
+              {/* At-a-glance money state. Only shows what actually applies. */}
+              {((data.awaitingOfflineCount ?? 0) > 0 ||
+                (data.scheduledCount ?? 0) > 0 ||
+                (data.failedCount ?? 0) > 0) && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {(data.awaitingOfflineCount ?? 0) > 0 && (
+                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-orange-accent/15 text-text-primary font-medium">
+                      {data.awaitingOfflineCount} to collect at the door
+                    </span>
+                  )}
+                  {(data.scheduledCount ?? 0) > 0 && (
+                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-app-bg text-text-muted">
+                      {data.scheduledCount} card charge{data.scheduledCount === 1 ? "" : "s"} scheduled
+                    </span>
+                  )}
+                  {(data.failedCount ?? 0) > 0 && (
+                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-red-50 text-red-700 font-medium">
+                      {data.failedCount} payment{data.failedCount === 1 ? "" : "s"} failed
+                    </span>
+                  )}
+                  {ev?.requirePaymentBeforeCheckin && (
+                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-app-bg text-text-muted">
+                      Payment required before check-in
+                    </span>
+                  )}
+                </div>
+              )}
+
               {isVariable && (
                 <div className="bg-app-bg border border-app-border rounded-lg p-4 mb-4">
                   <div className="flex items-center justify-between mb-1">
@@ -2131,20 +2325,67 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                               )}
                             </td>
                             <td className="py-2.5">
-                              {r.status === "PAID" ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-lime-accent/20 text-text-primary font-medium">Paid{r.amountPaid ? ` $${Number(r.amountPaid).toFixed(2)}` : ""}</span>
-                              ) : r.status === "CANCELED" ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Canceled</span>
-                              ) : (
-                                <span>
-                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-accent/15 text-text-primary font-medium">
-                                    {r.amountDue ? `Owes $${Number(r.amountDue).toFixed(2)}` : "Registered"}
+                              {(() => {
+                                const ui = REG_STATUS_UI[r.status] ?? REG_STATUS_UI.REGISTERED;
+                                const due = Number(r.amountDue ?? 0);
+                                const chip =
+                                  ui.tone === "paid"
+                                    ? "bg-lime-accent/20 text-text-primary"
+                                    : ui.tone === "owed"
+                                      ? "bg-orange-accent/15 text-text-primary"
+                                      : ui.tone === "warn"
+                                        ? "bg-red-50 text-red-700"
+                                        : "bg-app-bg text-text-muted";
+                                const label =
+                                  r.status === "PAID"
+                                    ? `Paid${r.amountPaid ? ` $${Number(r.amountPaid).toFixed(2)}` : ""}`
+                                    : ui.tone === "owed" && due > 0
+                                      ? `${ui.label} · $${due.toFixed(2)}`
+                                      : r.status === "REGISTERED" && due > 0
+                                        ? `Owes $${due.toFixed(2)}`
+                                        : ui.label;
+                                return (
+                                  <span>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${chip}`}>
+                                      {label}
+                                    </span>
+                                    {r.status === "PAID" && r.paidVia && r.paidVia !== "STRIPE" && (
+                                      <span className="block text-[10px] text-text-muted mt-1">
+                                        {r.paidVia === "CHECK" ? "By check" : "In cash"}
+                                        {r.checkReference ? ` · ${r.checkReference}` : ""}
+                                      </span>
+                                    )}
+                                    {r.status === "SCHEDULED" && r.scheduledChargeAt && (
+                                      <span className="block text-[10px] text-text-muted mt-1">
+                                        ${due.toFixed(2)} on{" "}
+                                        {new Date(r.scheduledChargeAt).toLocaleDateString(undefined, {
+                                          timeZone: "UTC",
+                                        })}
+                                      </span>
+                                    )}
+                                    {r.status === "PAYMENT_FAILED" && r.lastChargeError && (
+                                      <span className="block text-[10px] text-text-muted mt-1 max-w-[16rem]">
+                                        {r.lastChargeError}
+                                      </span>
+                                    )}
+                                    {(r.status === "AWAITING_CASH" || r.status === "AWAITING_CHECK" || r.status === "PAYMENT_FAILED") &&
+                                      due > 0 && (
+                                        <button
+                                          onClick={() => recordOffline(r)}
+                                          disabled={recording === r.id}
+                                          className="block text-[10px] text-brand hover:underline mt-1 disabled:opacity-50"
+                                        >
+                                          {recording === r.id ? "Recording…" : "Record payment received"}
+                                        </button>
+                                      )}
+                                    {r.status === "PENDING_PAYMENT" && (
+                                      <span className="block text-[10px] text-text-muted mt-1">
+                                        Not registered until they pay
+                                      </span>
+                                    )}
                                   </span>
-                                  {r.stripeCheckoutSessionId && r.invoiceCount === 0 && Number(r.amountDue ?? 0) > 0 && (
-                                    <span className="block text-[10px] text-text-muted mt-1">Started checkout — didn&apos;t finish</span>
-                                  )}
-                                </span>
-                              )}
+                                );
+                              })()}
                             </td>
                           </tr>
                         );

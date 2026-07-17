@@ -2,7 +2,19 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { runDueEventCharges } from "@/lib/eventAutoCharge";
+import {
+  eventAllowedPaymentMethods,
+  UNPAID_REGISTRATION_STATUSES,
+  ACTIVE_REGISTRATION_STATUSES,
+  AWAITING_OFFLINE_STATUSES,
+} from "@/lib/eventPayments";
 import { publicFixedPrice } from "@/lib/eventPricing";
+
+// The lazy charge sweep below talks to Stripe, so this GET can outlive the
+// default serverless limit. It stays deliberately small (see the sweep call) —
+// /api/cron/event-charges is the path built for volume.
+export const maxDuration = 60;
 
 // GET /api/events/[id]/registrations
 // Owner/staff: list everyone who signed up (public link or matched member),
@@ -31,9 +43,21 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       variableCostEstimatedSignups: true,
       variableCostEstimatedTotal: true,
       variableCostBilledAt: true,
+      paymentMethods: true,
+      autoChargeDate: true,
+      requirePaymentBeforeCheckin: true,
+      startsAt: true,
     },
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Lazy sweep: with no cron in the app, opening the roster is one of the
+  // moments a due event-day charge actually runs. Never blocks the response on
+  // failure (runDueEventCharges swallows its own errors). Capped low on
+  // purpose — each charge is a round trip to Stripe, and staff opening a roster
+  // shouldn't wait on a long queue. Whatever's left is picked up by the next
+  // open or by /api/cron/event-charges.
+  await runDueEventCharges({ clubId: session.user.clubId, eventId: event.id, limit: 3 });
 
   const registrations = await prisma.eventRegistration.findMany({
     where: { eventId: event.id },
@@ -41,11 +65,21 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     include: { member: { select: { id: true, firstName: true, lastName: true } } },
   });
 
-  const activeCount = registrations.filter((r) => r.status !== "CANCELED").length;
-  const unpaidCount = registrations.filter(
-    (r) => r.status !== "CANCELED" && r.status !== "PAID",
+  // An abandoned card checkout (PENDING_PAYMENT) is not a registration —
+  // it holds no spot and owes nothing until the client completes it.
+  const activeCount = registrations.filter((r) =>
+    (ACTIVE_REGISTRATION_STATUSES as string[]).includes(r.status),
+  ).length;
+  const unpaidCount = registrations.filter((r) =>
+    (UNPAID_REGISTRATION_STATUSES as string[]).includes(r.status),
   ).length;
   const invoicedCount = registrations.filter((r) => r.invoiceCount > 0).length;
+  // Offline money physically owed at the event — the "collect at the door" list.
+  const awaitingOfflineCount = registrations.filter((r) =>
+    (AWAITING_OFFLINE_STATUSES as string[]).includes(r.status),
+  ).length;
+  const scheduledCount = registrations.filter((r) => r.status === "SCHEDULED").length;
+  const failedCount = registrations.filter((r) => r.status === "PAYMENT_FAILED").length;
 
   // Compute the per-head share for the current mode so the UI can preview it.
   const mode = event.variableCostMode === "OFFICIAL" ? "OFFICIAL" : "ESTIMATED";
@@ -69,11 +103,14 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   }
 
   return NextResponse.json({
-    event,
+    event: { ...event, paymentMethods: eventAllowedPaymentMethods(event) },
     registrations,
     activeCount,
     unpaidCount,
     invoicedCount,
+    awaitingOfflineCount,
+    scheduledCount,
+    failedCount,
     mode,
     perHead,
     // Fixed-price events: what a public registrant owes today (0 = free).

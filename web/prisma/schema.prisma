@@ -1091,6 +1091,16 @@ model Event {
   // There is no cron in the app, so this is a prompt to send — never an auto-charge.
   invoiceScheduledAt          DateTime?
 
+  // Registration payment decision (lib/eventPayments.ts is the model):
+  //   paymentMethods — JSON array of methods the owner allows for this event's
+  //   registration: CARD | AUTO_CARD | CASH | CHECK. null/empty = ["CARD"]
+  //   (the pre-feature behavior: pay by card at registration).
+  paymentMethods              Json?
+  // When AUTO_CARD charges run. null = the event start.
+  autoChargeDate              DateTime?
+  // Check-in gate: block event check-in until the registration is paid.
+  requirePaymentBeforeCheckin Boolean   @default(false)
+
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
@@ -1164,9 +1174,28 @@ model EventRegistration {
   email                   String
   phone                   String?
   formResponses           Json     @default("{}")
-  status                  String   @default("REGISTERED") // REGISTERED | PAID | CANCELED
+  // REGISTERED | PENDING_PAYMENT | SCHEDULED | AWAITING_CASH | AWAITING_CHECK
+  // | PAYMENT_FAILED | PAID | CANCELED  (lib/eventPayments.ts)
+  status                  String   @default("REGISTERED")
   amountDue               Decimal? @db.Decimal(10, 2)
   amountPaid              Decimal? @db.Decimal(10, 2)
+  // The registrant's payment decision: CARD | AUTO_CARD | CASH | CHECK.
+  // null = legacy row from before payment decisions existed.
+  paymentMethod           String?
+  // AUTO_CARD: explicit client consent snapshot {at,userId,memberId,email,ip,
+  // userAgent,buttonLabel,amount} + when the charge should run.
+  autoChargeConsent       Json?
+  scheduledChargeAt       DateTime?
+  chargeAttempts          Int      @default(0)
+  lastChargeError         String?
+  // Settlement facts (any method): when/how it was paid, who took the money.
+  paidAt                  DateTime?
+  paidVia                 String? // STRIPE | CASH | CHECK
+  receivedById            String?
+  checkReference          String?
+  // The Transaction representing this registration's money (PENDING offline
+  // row for cash/check, SUCCEEDED row once paid).
+  transactionId           String?
   // For OFFICIAL variable-cost billing: a Checkout link generated at bill time.
   paymentUrl              String?
   stripeCheckoutSessionId String?
@@ -1185,6 +1214,8 @@ model EventRegistration {
   @@index([eventId])
   @@index([clubId])
   @@index([memberId])
+  @@index([clubId, status])
+  @@index([status, scheduledChargeAt])
   @@map("event_registrations")
 }
 

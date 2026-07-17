@@ -34,6 +34,15 @@ type PublicEvent = {
   priceLabel: string;
   capacityReached: boolean;
   registrationOpen: boolean;
+  paymentMethods?: string[];
+};
+
+// What each public payment choice means to the registrant. AUTO_CARD is
+// member-only and never offered here.
+const PAY_CHOICES: Record<string, { label: string; hint: string }> = {
+  CARD: { label: "Pay now by card", hint: "You'll be sent to a secure checkout page." },
+  CASH: { label: "Pay cash at the event", hint: "Bring the exact amount to the event." },
+  CHECK: { label: "Pay by check at the event", hint: "Bring your check to the event." },
 };
 
 export default function PublicEventPage() {
@@ -50,6 +59,7 @@ export default function PublicEventPage() {
   const [responses, setResponses] = useState<Record<string, string | boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<null | { message: string }>(null);
+  const [payMethod, setPayMethod] = useState<string>("");
 
   const justRegistered = searchParams.get("registered") === "true";
   const justPaid = searchParams.get("paid") === "true";
@@ -67,19 +77,38 @@ export default function PublicEventPage() {
         return r.json();
       })
       .then((d: PublicEvent | null) => {
-        if (d) setEvent(d);
+        if (d) {
+          setEvent(d);
+          // Preselect when there's only one way to pay — no decision to make.
+          const opts = (d.paymentMethods ?? []).filter((m) => PAY_CHOICES[m]);
+          if (opts.length === 1) setPayMethod(opts[0]);
+        }
         setLoading(false);
       });
   }, [slug]);
 
+  // Only ask how they'll pay when money is actually owed at registration.
+  const payOptions = (event?.paymentMethods ?? []).filter((m) => PAY_CHOICES[m]);
+  const needsPayChoice = !!event && (event.price ?? 0) > 0 && payOptions.length > 0;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (needsPayChoice && !payMethod) {
+      setError("Please choose how you'd like to pay.");
+      return;
+    }
     setSubmitting(true);
     setError("");
     const res = await fetch(`/api/public/events/${slug}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, phone: phone || null, formResponses: responses }),
+      body: JSON.stringify({
+        name,
+        email,
+        phone: phone || null,
+        formResponses: responses,
+        ...(needsPayChoice ? { paymentMethod: payMethod } : {}),
+      }),
     });
     const d = await res.json().catch(() => ({}));
     setSubmitting(false);
@@ -338,6 +367,42 @@ export default function PublicEventPage() {
               </div>
             ))}
 
+            {needsPayChoice && (
+              <div className="pt-1">
+                <p className="text-sm font-medium text-stone-900 mb-1">How would you like to pay?</p>
+                <p className="text-xs text-stone-500 mb-2">
+                  Your spot isn&apos;t held until this is settled.
+                </p>
+                <div className="space-y-2">
+                  {payOptions.map((m) => (
+                    <label
+                      key={m}
+                      className="flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer"
+                      style={{
+                        borderColor: payMethod === m ? accent : "#d6d3d1",
+                        background: payMethod === m ? `${accent}0f` : "#fff",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value={m}
+                        checked={payMethod === m}
+                        onChange={() => setPayMethod(m)}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm text-stone-900 font-medium">
+                          {PAY_CHOICES[m].label}
+                        </span>
+                        <span className="block text-xs text-stone-500">{PAY_CHOICES[m].hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
             )}
@@ -350,9 +415,11 @@ export default function PublicEventPage() {
             >
               {submitting
                 ? "Submitting…"
-                : event.price && event.price > 0
-                  ? `Register & pay $${event.price.toFixed(2)}`
-                  : "Register"}
+                : !(event.price && event.price > 0)
+                  ? "Register"
+                  : payMethod === "CASH" || payMethod === "CHECK"
+                    ? `Register — pay $${event.price.toFixed(2)} at the event`
+                    : `Register & pay $${event.price.toFixed(2)}`}
             </button>
             <p className="text-[11px] text-stone-400 text-center">
               Powered by AthletixOS
