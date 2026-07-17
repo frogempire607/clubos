@@ -634,7 +634,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       } catch {
         // Unique (eventId, memberId) — a concurrent request already booked it.
       }
-      if (discount) await recordDiscountUse(discount.id).catch(() => {});
+      // Redemption is counted inside the charge engine, gated on Transaction
+      // creation — route-level counting here double-counted when two
+      // concurrent confirms both saw the replayed PaymentIntent succeed.
       return NextResponse.json({
         ok: true,
         paid: true,

@@ -17,6 +17,7 @@ import { applyProcessingFee, processingFeeLineItem } from "@/lib/fees";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { sendEmail, sendPaymentReceiptEmail } from "@/lib/email";
+import { recordDiscountUse } from "@/lib/discounts";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 
 export type AutoChargeOutcome =
@@ -121,6 +122,23 @@ async function recordSuccess(reg: RegForCharge, pi: Stripe.PaymentIntent, totalC
       },
       select: { id: true },
     }));
+
+  // Pay-now (SAVED_CARD) redemptions are counted HERE, gated on the
+  // Transaction actually being created — the unique PI id makes this
+  // exactly-once no matter how many concurrent confirms replay the same
+  // PaymentIntent. (AUTO_CARD counts at consent time instead; counting it
+  // here too would double it.)
+  if (!existing && consentField(reg, "kind") === "SAVED_CARD_NOW" && discountCode) {
+    try {
+      const d = await prisma.discount.findUnique({
+        where: { clubId_code: { clubId: reg.clubId, code: discountCode } },
+        select: { id: true },
+      });
+      if (d) await recordDiscountUse(d.id);
+    } catch (e) {
+      console.error("saved-card discount redemption count failed", e);
+    }
+  }
 
   await prisma.eventRegistration.update({
     where: { id: reg.id },
