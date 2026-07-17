@@ -244,6 +244,22 @@ async function recordFailure(reg: RegForCharge, error: string) {
 }
 
 /**
+ * Record why a charge didn't happen WITHOUT touching chargeAttempts — the
+ * idempotency key must not rotate on an unresolved attempt. Best-effort: a
+ * failure to write the note must never mask the caller's real outcome.
+ */
+async function noteChargeError(registrationId: string, message: string): Promise<void> {
+  try {
+    await prisma.eventRegistration.update({
+      where: { id: registrationId },
+      data: { lastChargeError: message.slice(0, 500) },
+    });
+  } catch (e) {
+    console.error("event auto-charge: could not record charge error", registrationId, e);
+  }
+}
+
+/**
  * Charge one SCHEDULED registration now. Re-entrant: a PaymentIntent created
  * by a previous run is retrieved and settled, never duplicated.
  */
@@ -283,7 +299,15 @@ export async function chargeEventRegistration(registrationId: string): Promise<A
         { stripeAccount: reg.club.stripeAccountId },
       );
     } catch (e) {
+      // We KNOW a PaymentIntent exists and couldn't read it. Never fall through
+      // to create another — that's how you bill someone twice. Retry later.
       console.error("event auto-charge prior PI retrieve failed", e);
+      await noteChargeError(reg.id, `Could not read the existing payment ${reg.stripePaymentIntentId} — not charging again until it can be verified.`);
+      return {
+        registrationId,
+        outcome: "failed",
+        error: "Could not verify the existing payment — not charging again.",
+      };
     }
   }
   // `lastChargeError` with no stored PI id is the fingerprint of an ambiguous
@@ -315,6 +339,10 @@ export async function chargeEventRegistration(registrationId: string): Promise<A
       // every account). Fail CLOSED: without it we cannot prove a prior charge
       // doesn't exist, and charging again risks billing the client twice.
       console.error("event auto-charge PI search failed", e);
+      await noteChargeError(
+        reg.id,
+        "Could not verify whether an earlier charge went through — not charging again. Check Stripe for this registration.",
+      );
       return {
         registrationId,
         outcome: "failed",

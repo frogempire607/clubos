@@ -191,6 +191,27 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
       href: "/dashboard/events",
     },
   );
+  // A consented charge whose date has well passed and still hasn't settled.
+  // Catches every "stuck" case at once — no scheduler configured, Stripe
+  // unverifiable, repeated transient failures — so money can never quietly go
+  // uncollected while the client believes they've paid.
+  probe(
+    can("finances", "view"),
+    () =>
+      prisma.eventRegistration.count({
+        where: {
+          clubId,
+          status: "SCHEDULED",
+          scheduledChargeAt: { lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+        },
+      }),
+    {
+      kind: "EVENT_CHARGE_OVERDUE",
+      label: "Scheduled event charges that haven't gone through",
+      severity: "high",
+      href: "/dashboard/events",
+    },
+  );
   // Someone paid twice (e.g. cash at the door, then clicked an old payment
   // link). Real money the club is likely holding by mistake — a log line isn't
   // enough, a person has to refund it.
