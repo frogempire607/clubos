@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
+import { settleBundlePurchase } from "@/lib/bundlePurchases";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { sendPaymentReceiptEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -35,7 +36,11 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       clubId: session.user.clubId,
       memberId,
       status: "PENDING",
-      paymentSource: { in: ["CASH", "CHECK"] },
+      OR: [
+        { paymentSource: { in: ["CASH", "CHECK"] } },
+        // Bundle "pay later" claims: invoiced money the club collects manually.
+        { paymentSource: "MANUAL_ADJUSTMENT", paymentMethod: "INVOICE" },
+      ],
     },
     orderBy: { createdAt: "desc" },
     select: {
@@ -48,7 +53,12 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       ...t,
       amount: Number(t.amount),
       discountAmount: t.discountAmount != null ? Number(t.discountAmount) : null,
-      stateLabel: t.paymentSource === "CHECK" ? "Client accepted — awaiting check payment" : "Client accepted — awaiting cash payment",
+      stateLabel:
+        t.paymentMethod === "INVOICE"
+          ? "Pay later — club invoices"
+          : t.paymentSource === "CHECK"
+            ? "Client accepted — awaiting check payment"
+            : "Client accepted — awaiting cash payment",
     })),
   });
 }
@@ -78,7 +88,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const { transactionId, method, reference, amountReceived } = parsed.data;
 
   const tx = await prisma.transaction.findFirst({
-    where: { id: transactionId, clubId, memberId, status: "PENDING", paymentSource: { in: ["CASH", "CHECK"] } },
+    where: {
+      id: transactionId,
+      clubId,
+      memberId,
+      status: "PENDING",
+      OR: [
+        { paymentSource: { in: ["CASH", "CHECK"] } },
+        { paymentSource: "MANUAL_ADJUSTMENT", paymentMethod: "INVOICE" },
+      ],
+    },
   });
   if (!tx) return NextResponse.json({ error: "No matching outstanding cash/check payment." }, { status: 404 });
 
@@ -120,6 +139,44 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
   }
   await recomputeMemberStatus(memberId, clubId);
+
+  // This money may represent an EVENT registration or a BUNDLE claim settled
+  // at the member card instead of the event roster — flip those too, or the
+  // registration/purchase stays "awaiting" forever while its Transaction says
+  // paid (and check-in stays blocked).
+  const linkedReg = await prisma.eventRegistration.findFirst({
+    where: { transactionId: tx.id, clubId },
+    select: { id: true, status: true },
+  });
+  if (linkedReg && linkedReg.status !== "PAID" && linkedReg.status !== "CANCELED") {
+    await prisma.eventRegistration.update({
+      where: { id: linkedReg.id },
+      data: {
+        status: "PAID",
+        amountPaid: due,
+        paidAt: receivedAt,
+        paidVia: finalMethod,
+        receivedById: receiver,
+        checkReference: reference || null,
+      },
+    });
+  }
+  const linkedPurchase = await prisma.eventBundlePurchase.findFirst({
+    where: { transactionId: tx.id, clubId },
+  });
+  if (linkedPurchase && linkedPurchase.status !== "PAID" && linkedPurchase.status !== "CANCELED") {
+    // Books the bundle's events + audits; receipt suppressed — this route
+    // sends its own below.
+    await settleBundlePurchase({
+      purchase: linkedPurchase,
+      amountPaid: due,
+      paidVia: finalMethod,
+      transactionId: tx.id,
+      receivedById: receiver,
+      checkReference: reference || null,
+      sendReceipt: false,
+    });
+  }
 
   await writeBillingAudit({
     clubId,

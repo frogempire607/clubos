@@ -78,9 +78,22 @@ export default function MemberEventsPage() {
   const [bundles, setBundles] = useState<BundleCard[]>([]);
   const [discountCode, setDiscountCode] = useState("");
   const [payPrompt, setPayPrompt] = useState<null | {
-    eventId: string;
-    pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN";
+    kind: "event" | "bundle";
+    eventId?: string;
+    bundleId?: string;
+    pricingType?: "MEMBER" | "NON_MEMBER" | "DROP_IN";
     options: string[];
+    quote?: { base: number; cardFee: number; cardTotal: number; offlineTotal: number } | null;
+    savedCard?: { label: string } | null;
+    documents?: {
+      id: string;
+      title: string;
+      requirement: string;
+      requirementLabel?: string;
+      eventName?: string;
+      needsSignature?: boolean;
+      needsAcknowledgement?: boolean;
+    }[];
   }>(null);
 
   function load() {
@@ -148,7 +161,15 @@ export default function MemberEventsPage() {
     // server decides what's offerable (incl. whether a saved card exists), so
     // the choice can't drift from what it will accept.
     if (res.status === 400 && d.error === "PAYMENT_METHOD_REQUIRED") {
-      setPayPrompt({ eventId, pricingType, options: d.options ?? [] });
+      setPayPrompt({
+        kind: "event",
+        eventId,
+        pricingType,
+        options: d.options ?? [],
+        quote: d.quote ?? null,
+        savedCard: d.savedCard ?? null,
+        documents: d.documents ?? [],
+      });
       return;
     }
     // Event documents: ACKNOWLEDGE-level docs get a one-tap confirm and retry;
@@ -196,20 +217,36 @@ export default function MemberEventsPage() {
     setError("Unexpected response");
   }
 
-  async function registerBundle(bundleId: string) {
+  async function registerBundle(bundleId: string, paymentMethod?: string) {
     setBusy(`bundle:${bundleId}`);
     setError("");
     setInfo("");
     const res = await fetch(`/api/member/event-bundles/${bundleId}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId: selectedMemberId }),
+      body: JSON.stringify({
+        memberId: selectedMemberId,
+        ...(paymentMethod ? { paymentMethod } : {}),
+      }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
-    if (!res.ok) { setError(d.error || "Could not register"); return; }
+    if (res.status === 400 && d.error === "PAYMENT_METHOD_REQUIRED") {
+      setPayPrompt({
+        kind: "bundle",
+        bundleId,
+        options: d.options ?? [],
+        quote: d.quote ?? null,
+        savedCard: d.savedCard ?? null,
+        documents: d.documents ?? [],
+      });
+      return;
+    }
+    if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }
     if (d.free) { setInfo(`Registered for all ${d.booked} events in the bundle.`); load(); return; }
     if (d.url) { window.location.href = d.url; return; }
+    if (d.paid) { setInfo(d.message || "Paid — you're booked into every event."); load(); return; }
+    if (d.offline) { setInfo(d.message || "You're in — payment due at the club."); load(); return; }
     setError("Unexpected response");
   }
 
@@ -449,12 +486,16 @@ export default function MemberEventsPage() {
       {payPrompt && (
         <PaymentChoiceModal
           prompt={payPrompt}
-          event={events.find((e) => e.id === payPrompt.eventId) ?? null}
+          event={payPrompt.eventId ? (events.find((e) => e.id === payPrompt.eventId) ?? null) : null}
           onClose={() => setPayPrompt(null)}
-          onChoose={(method, consentLabel) => {
+          onChoose={(method, consentLabel, acknowledged) => {
             const p = payPrompt;
             setPayPrompt(null);
-            register(p.eventId, p.pricingType, { method, consentLabel });
+            if (p.kind === "bundle" && p.bundleId) {
+              registerBundle(p.bundleId, method);
+            } else if (p.eventId) {
+              register(p.eventId, p.pricingType ?? "MEMBER", { method, consentLabel }, acknowledged);
+            }
           }}
         />
       )}
@@ -462,22 +503,43 @@ export default function MemberEventsPage() {
   );
 }
 
-// Asks how the member wants to pay for an event. `options` comes from the
-// server, which already decided what this member can actually complete (e.g.
-// AUTO_CARD only appears when they have a chargeable saved card).
+// Asks how the member wants to pay for an event or bundle. `options` comes
+// from the server, which already decided what this member can actually
+// complete (saved-card options only appear with a verified card on file).
+// Exact totals come from the server quote; documents attached to the event(s)
+// are shown for review — unsigned SIGN_REQUIRED docs block confirming.
+type PayPromptData = {
+  kind: "event" | "bundle";
+  eventId?: string;
+  bundleId?: string;
+  options: string[];
+  quote?: { base: number; cardFee: number; cardTotal: number; offlineTotal: number } | null;
+  savedCard?: { label: string } | null;
+  documents?: {
+    id: string;
+    title: string;
+    requirement: string;
+    requirementLabel?: string;
+    eventName?: string;
+    needsSignature?: boolean;
+    needsAcknowledgement?: boolean;
+  }[];
+};
+
 function PaymentChoiceModal({
   prompt,
   event,
   onClose,
   onChoose,
 }: {
-  prompt: { eventId: string; options: string[] };
+  prompt: PayPromptData;
   event: EventCard | null;
   onClose: () => void;
-  onChoose: (method: string, consentLabel?: string) => void;
+  onChoose: (method: string, consentLabel?: string, acknowledged?: boolean) => void;
 }) {
   const [method, setMethod] = useState<string>(prompt.options[0] ?? "");
   const [consented, setConsented] = useState(false);
+  const [ackChecked, setAckChecked] = useState(false);
 
   const chargeDay = event?.autoChargeDate ?? event?.startsAt ?? null;
   const chargeDayLabel = chargeDay
@@ -488,19 +550,40 @@ function PaymentChoiceModal({
       })
     : "the event date";
 
+  const q = prompt.quote ?? null;
+  const money = (n: number) => `$${n.toFixed(2)}`;
+  const cardTotal = q ? money(q.cardTotal) : "";
+  const offlineTotal = q ? money(q.offlineTotal) : "";
+  const feeNote = q && q.cardFee > 0 ? ` (includes ${money(q.cardFee)} processing fee)` : "";
+
   const CHOICES: Record<string, { label: string; hint: string }> = {
-    CARD: { label: "Pay now by card", hint: "You'll be taken to a secure checkout page." },
+    SAVED_CARD: {
+      label: `Pay now with saved card${prompt.savedCard ? ` — ${prompt.savedCard.label}` : ""}`,
+      hint: `${cardTotal ? `${cardTotal} is` : "You're"} charged immediately${feeNote}.`,
+    },
+    CARD: { label: "Pay now by card", hint: `You'll be taken to a secure checkout page${cardTotal ? ` — total ${cardTotal}${feeNote}` : ""}.` },
     AUTO_CARD: {
       label: "Charge my saved card on the event date",
-      hint: `Nothing is charged today. Your card on file is charged on ${chargeDayLabel}.`,
+      hint: `Nothing is charged today. ${cardTotal ? `${cardTotal} is` : "Your card on file is"} charged on ${chargeDayLabel}.`,
     },
-    CASH: { label: "Pay cash at the event", hint: "Bring it with you — the club records it at check-in." },
-    CHECK: { label: "Pay by check at the event", hint: "Bring it with you — the club records it at check-in." },
+    CASH: { label: prompt.kind === "bundle" ? "Pay cash at the club" : "Pay cash at the event", hint: `Bring ${offlineTotal || "it"} with you — the club records it when received.` },
+    CHECK: { label: prompt.kind === "bundle" ? "Pay by check at the club" : "Pay by check at the event", hint: `Bring a check for ${offlineTotal || "the amount"} — the club records it when received.` },
+    PAY_LATER: {
+      label: "Pay later — the club will invoice me",
+      hint: `Nothing is collected now. The club sends you an invoice or payment link for ${offlineTotal || "the amount"}. This is not an automatic card charge.`,
+    },
   };
 
+  const docs = prompt.documents ?? [];
+  const signBlocked = docs.filter((d) => d.needsSignature);
+  const ackDocs = docs.filter((d) => d.needsAcknowledgement);
+
   const consentLabel =
-    method === "AUTO_CARD" ? `I authorize the charge on ${chargeDayLabel}` : undefined;
-  const blocked = method === "AUTO_CARD" && !consented;
+    method === "AUTO_CARD" ? `I authorize the charge of ${cardTotal || "the total"} on ${chargeDayLabel}` : undefined;
+  const blocked =
+    (method === "AUTO_CARD" && !consented) ||
+    (prompt.kind === "event" && signBlocked.length > 0) ||
+    (prompt.kind === "event" && ackDocs.length > 0 && !ackChecked);
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
@@ -515,6 +598,54 @@ function PaymentChoiceModal({
           </button>
         </div>
         <div className="p-5 space-y-2">
+          {docs.length > 0 && (
+            <div className="mb-3">
+              <p className="text-sm font-medium text-stone-900 mb-1">
+                {prompt.kind === "bundle" ? "Documents for the included events" : "Event documents"}
+              </p>
+              <div className="space-y-1.5">
+                {docs.map((d, i) => (
+                  <div key={`${d.id}-${i}`} className="flex items-start justify-between gap-2 border border-stone-200 rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm text-stone-900 truncate">{d.title}</p>
+                      <p className="text-[11px] text-stone-500">
+                        {prompt.kind === "bundle"
+                          ? d.requirement === "SIGN_REQUIRED"
+                            ? `Must be completed before ${d.eventName ?? "the event"} check-in`
+                            : d.requirement === "ACKNOWLEDGE"
+                              ? `Acknowledgement required at ${d.eventName ?? "the event"}`
+                              : `For your information · ${d.eventName ?? ""}`
+                          : d.requirementLabel ?? d.requirement}
+                      </p>
+                    </div>
+                    {d.needsSignature && (
+                      <Link href="/member/documents" className="text-[11px] text-red-600 hover:underline whitespace-nowrap mt-0.5">
+                        Sign first →
+                      </Link>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {prompt.kind === "event" && signBlocked.length > 0 && (
+                <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 mt-2">
+                  {signBlocked.map((d) => d.title).join(", ")} must be signed before you can register — open Documents to sign, then come back.
+                </p>
+              )}
+              {prompt.kind === "event" && ackDocs.length > 0 && (
+                <label className="flex items-start gap-2.5 mt-2 p-3 rounded-lg bg-stone-50 border border-stone-200 cursor-pointer">
+                  <input type="checkbox" checked={ackChecked} onChange={(e) => setAckChecked(e.target.checked)} className="mt-0.5" />
+                  <span className="text-xs text-stone-700">
+                    I have read and acknowledge: {ackDocs.map((d) => d.title).join(", ")}.
+                  </span>
+                </label>
+              )}
+              {prompt.kind === "bundle" && (
+                <p className="text-[11px] text-stone-500 mt-1.5">
+                  You won't sign anything now — documents marked &quot;must be completed&quot; are required before that event&apos;s check-in.
+                </p>
+              )}
+            </div>
+          )}
           {prompt.options.map((m) => {
             const c = CHOICES[m];
             if (!c) return null;
@@ -557,14 +688,18 @@ function PaymentChoiceModal({
 
           <button
             disabled={!method || blocked}
-            onClick={() => onChoose(method, consentLabel)}
+            onClick={() => onChoose(method, consentLabel, ackChecked)}
             className="w-full mt-2 py-2.5 rounded-lg bg-stone-900 text-white text-sm font-semibold disabled:opacity-40"
           >
-            {method === "CARD"
-              ? "Continue to payment"
-              : method === "AUTO_CARD"
-                ? `Confirm — charged ${chargeDayLabel}`
-                : "Confirm registration"}
+            {method === "SAVED_CARD"
+              ? `Pay ${cardTotal || "now"} now`
+              : method === "CARD"
+                ? `Continue to payment${cardTotal ? ` — ${cardTotal}` : ""}`
+                : method === "AUTO_CARD"
+                  ? `Confirm — ${cardTotal || "charged"} on ${chargeDayLabel}`
+                  : method === "PAY_LATER"
+                    ? `Confirm — club invoices ${offlineTotal || "me"}`
+                    : `Confirm — ${offlineTotal || "due"} at ${prompt.kind === "bundle" ? "the club" : "the event"}`}
           </button>
         </div>
       </div>

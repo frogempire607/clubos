@@ -11,6 +11,7 @@ const patchSchema = z.object({
   published: z.boolean().optional(),
   // When provided, replaces the bundle's full set of events.
   eventIds: z.array(z.string()).optional(),
+  paymentMethods: z.array(z.enum(["CARD", "CASH", "CHECK", "PAY_LATER"])).optional().nullable(),
 });
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -50,6 +51,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
         ...(data.price !== undefined ? { price: data.price } : {}),
         ...(data.published !== undefined ? { published: data.published } : {}),
+        ...(data.paymentMethods !== undefined ? { paymentMethods: data.paymentMethods ?? undefined } : {}),
         ...itemsUpdate,
       },
       include: { items: true },

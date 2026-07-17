@@ -22,7 +22,10 @@ import {
   type EventPaymentMethod,
 } from "@/lib/eventPayments";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
-import { missingSignedEventDocs, acknowledgementDocs } from "@/lib/eventDocuments";
+import { missingSignedEventDocs, acknowledgementDocs, documentsForEvent, EVENT_DOC_REQUIREMENT_LABELS } from "@/lib/eventDocuments";
+import { chargeEventRegistration } from "@/lib/eventAutoCharge";
+import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
+import { applyProcessingFee } from "@/lib/fees";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -69,7 +72,7 @@ const schema = z.object({
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
   // The registrant's payment decision, when the event offers a choice.
-  paymentMethod: z.enum(["CARD", "AUTO_CARD", "CASH", "CHECK"]).optional(),
+  paymentMethod: z.enum(["CARD", "SAVED_CARD", "AUTO_CARD", "CASH", "CHECK"]).optional(),
   // AUTO_CARD only: the exact consent the client agreed to. Required so the
   // stored audit reflects what they actually saw on the button.
   autoChargeConsent: z
@@ -452,7 +455,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const registrantName = `${member.firstName} ${member.lastName ?? ""}`.trim();
 
     let savedCardAvailable = false;
-    if (allowed.includes("AUTO_CARD")) {
+    if (allowed.includes("AUTO_CARD") || allowed.includes("CARD")) {
       const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
       savedCardAvailable = !!(await resolveChargeablePaymentMethodId(
         customerId,
@@ -460,14 +463,53 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         member.stripeSetupPaymentMethodId,
       ));
     }
-    // A method the client can actually complete right now.
-    const selectable = allowed.filter((m) => (m === "AUTO_CARD" ? savedCardAvailable : true));
+    // Methods the client can actually complete right now. SAVED_CARD (pay now
+    // with the card on file) rides on CARD permission + a verified saved card.
+    const selectable: string[] = [
+      ...(allowed.includes("CARD") && savedCardAvailable ? ["SAVED_CARD"] : []),
+      ...allowed.filter((m) => (m === "AUTO_CARD" ? savedCardAvailable : true)),
+    ];
 
-    const chosen: EventPaymentMethod | null =
-      paymentMethod ?? (selectable.length === 1 ? selectable[0] : selectable.includes("CARD") ? "CARD" : null);
+    // A payment decision is required whenever there's more than one way to
+    // pay. The old code defaulted to CARD here, which sent members straight to
+    // Stripe without ever seeing the choice.
+    const chosen: EventPaymentMethod | "SAVED_CARD" | null =
+      paymentMethod ?? (selectable.length === 1 ? (selectable[0] as EventPaymentMethod) : null);
     if (!chosen) {
+      // Exact totals per method so the client confirms the real number: card
+      // methods include the processing fee when the club passes it; cash and
+      // check owe the sticker price.
+      const fee = applyProcessingFee(priceCents, club.passProcessingFees);
+      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
+      const card = savedCardAvailable ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
+      const [allDocs, missingSign, ackDocs2] = await Promise.all([
+        documentsForEvent(session.user.clubId, event.id),
+        missingSignedEventDocs(session.user.clubId, event.id, member.id),
+        acknowledgementDocs(session.user.clubId, event.id),
+      ]);
+      const missingIds = new Set(missingSign.map((d) => d.id));
+      const ackIds = new Set(ackDocs2.map((d) => d.id));
       return NextResponse.json(
-        { error: "PAYMENT_METHOD_REQUIRED", message: "Choose how you'd like to pay.", options: selectable },
+        {
+          error: "PAYMENT_METHOD_REQUIRED",
+          message: "Choose how you'd like to pay.",
+          options: selectable,
+          quote: {
+            base: price,
+            cardFee: fee.feeCents / 100,
+            cardTotal: fee.totalCents / 100,
+            offlineTotal: price,
+          },
+          savedCard: card ? { label: `${prettyBrand(card.brand)} ····${card.last4}` } : null,
+          documents: allDocs.map((d) => ({
+            id: d.id,
+            title: d.title,
+            requirement: d.requirement,
+            requirementLabel: EVENT_DOC_REQUIREMENT_LABELS[d.requirement],
+            needsSignature: missingIds.has(d.id),
+            needsAcknowledgement: ackIds.has(d.id),
+          })),
+        },
         { status: 400 },
       );
     }
@@ -475,7 +517,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const reason =
         chosen === "AUTO_CARD" && allowed.includes("AUTO_CARD")
           ? "You don't have a saved card yet — add one in your profile, or choose another way to pay."
-          : `${EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`;
+          : `${chosen === "SAVED_CARD" ? "Paying now with a saved card" : EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`;
       return NextResponse.json({ error: "PAYMENT_METHOD_NOT_ALLOWED", message: reason }, { status: 400 });
     }
 
@@ -489,7 +531,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const regPhone = member.phone ?? null;
     const upsertRegistration = async (data: {
       status: string;
-      method: EventPaymentMethod;
+      method: EventPaymentMethod | "SAVED_CARD";
       scheduledChargeAt?: Date | null;
       consent?: Prisma.InputJsonValue;
     }) => {
@@ -543,6 +585,53 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         },
       });
     };
+
+    // ── Pay now with the saved card ─────────────────────────────────────────
+    // The client explicitly confirmed the exact total on the button. Reuses
+    // the scheduled-charge engine with "now" as the date — same idempotency
+    // key discipline, same VERIFIED Transaction, same receipt + audit. The
+    // Booking is created ONLY after Stripe confirms: a failed charge books
+    // nothing and marks nothing paid.
+    if (chosen === "SAVED_CARD") {
+      const reg = await upsertRegistration({
+        status: "SCHEDULED",
+        method: "SAVED_CARD",
+        scheduledChargeAt: new Date(),
+      });
+      if (reg.status === "PAID") {
+        return NextResponse.json({ error: "This registration is already paid." }, { status: 409 });
+      }
+      const result = await chargeEventRegistration(reg.id);
+      if (result.outcome !== "succeeded") {
+        return NextResponse.json(
+          {
+            error: "CHARGE_FAILED",
+            outcome: result.outcome,
+            message:
+              result.outcome === "processing"
+                ? "Your payment is processing — check back shortly."
+                : result.error || "The card charge didn't go through. Choose another way to pay.",
+          },
+          { status: result.outcome === "processing" ? 202 : 402 },
+        );
+      }
+      const bookingStatus =
+        event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      try {
+        await prisma.booking.create({
+          data: { eventId: event.id, memberId: member.id, status: bookingStatus },
+        });
+      } catch {
+        // Unique (eventId, memberId) — a concurrent request already booked it.
+      }
+      if (discount) await recordDiscountUse(discount.id).catch(() => {});
+      return NextResponse.json({
+        ok: true,
+        paid: true,
+        status: bookingStatus,
+        message: `Paid — you're ${bookingStatus === "WAITLISTED" ? "on the waitlist" : "registered"}. A receipt is on its way.`,
+      });
+    }
 
     if (chosen === "AUTO_CARD" || chosen === "CASH" || chosen === "CHECK") {
       if (chosen === "AUTO_CARD" && !autoChargeConsent?.agreed) {

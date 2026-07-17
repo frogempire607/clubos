@@ -200,6 +200,7 @@ model Club {
   membershipReactivations     MembershipReactivation[]
   EventCompAssignment         EventCompAssignment[]
   EventDocumentLink           EventDocumentLink[]
+  EventBundlePurchase         EventBundlePurchase[]
 
   @@index([slug])
   @@map("clubs")
@@ -715,6 +716,7 @@ model Member {
   guardianConsentRequests GuardianConsentRequest[]
   billingAuditLogs        BillingAuditLog[]
   reactivations           MembershipReactivation[]
+  EventBundlePurchase     EventBundlePurchase[]
 
   @@index([clubId])
   @@index([status])
@@ -1232,23 +1234,68 @@ model EventRegistration {
 // #3: a discounted package of several events sold for one price. Registering
 // for the bundle books the member into every included event in one payment.
 model EventBundle {
-  id          String    @id @default(cuid())
-  clubId      String
-  name        String
-  description String?
+  id             String    @id @default(cuid())
+  clubId         String
+  name           String
+  description    String?
   // Single package price for the whole bundle (the deal vs. buying each event
   // separately). Applies to members and non-members alike.
-  price       Decimal   @db.Decimal(10, 2)
-  published   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  price          Decimal   @db.Decimal(10, 2)
+  published      Boolean   @default(false)
+  // Payment methods the owner allows at purchase (lib/bundlePurchases.ts):
+  // CARD | CASH | CHECK | PAY_LATER. null/empty = ["CARD"] (legacy behavior).
+  // A saved-card pay-now option is offered automatically whenever CARD is
+  // allowed and the buyer has a verified saved card.
+  paymentMethods Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
-  club  Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  items EventBundleItem[]
+  club      Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  items     EventBundleItem[]
+  purchases EventBundlePurchase[]
 
   @@index([clubId])
   @@map("event_bundles")
+}
+
+// A member's claim on a bundle + the money owed for it. Bookings (the usable
+// "credits") are granted ONLY when the purchase is PAID — or at acceptance
+// when the club's existing offlineActivationPolicy is ON_ACCEPTANCE. One
+// distinct status per payment method, never a vague "pending":
+//   PENDING_PAYMENT — card checkout in flight/abandoned (books nothing)
+//   AWAITING_CASH / AWAITING_CHECK — confirmed claim, physical payment due
+//   PAY_LATER       — confirmed claim, the club will invoice/collect
+//   PAYMENT_FAILED  — a saved-card charge declined (books nothing)
+// A partial unique index (migration SQL) makes duplicate live purchases per
+// (bundleId, memberId) structurally impossible.
+model EventBundlePurchase {
+  id                      String    @id @default(cuid())
+  clubId                  String
+  bundleId                String
+  memberId                String
+  status                  String    @default("PENDING_PAYMENT")
+  paymentMethod           String? // CARD | SAVED_CARD | CASH | CHECK | PAY_LATER
+  amountDue               Decimal?  @db.Decimal(10, 2)
+  amountPaid              Decimal?  @db.Decimal(10, 2)
+  transactionId           String?
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  lastChargeError         String?
+  paidAt                  DateTime?
+  paidVia                 String?
+  receivedById            String?
+  checkReference          String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  club   Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  bundle EventBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  member Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status])
+  @@index([bundleId, memberId])
+  @@map("event_bundle_purchases")
 }
 
 // Explicit join: which events belong to a bundle.

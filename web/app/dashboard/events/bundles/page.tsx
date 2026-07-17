@@ -15,6 +15,7 @@ type Bundle = {
   description: string | null;
   price: number | string;
   published: boolean;
+  paymentMethods?: string[] | null;
   items: BundleItem[];
 };
 
@@ -127,6 +128,12 @@ function BundleModal({ bundle, events, onClose, onSaved }: {
   const [price, setPrice] = useState(bundle ? String(Number(bundle.price)) : "");
   const [published, setPublished] = useState(bundle?.published || false);
   const [eventIds, setEventIds] = useState<string[]>(bundle?.items.map((it) => it.eventId) || []);
+  const [payMethods, setPayMethods] = useState<string[]>(
+    Array.isArray(bundle?.paymentMethods) && bundle!.paymentMethods!.length > 0 ? bundle!.paymentMethods! : ["CARD"],
+  );
+  function togglePayMethod(m: string) {
+    setPayMethods((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -140,13 +147,14 @@ function BundleModal({ bundle, events, onClose, onSaved }: {
     if (eventIds.length === 0) { setError("Add at least one event."); return; }
     const priceNum = Number(price);
     if (isNaN(priceNum) || priceNum < 0) { setError("Enter a valid price."); return; }
+    if (priceNum > 0 && payMethods.length === 0) { setError("Enable at least one payment method."); return; }
     setSaving(true);
     const url = isEdit ? `/api/event-bundles/${bundle!.id}` : "/api/event-bundles";
     try {
       const res = await fetch(url, {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), description: description.trim() || null, price: priceNum, published, eventIds }),
+        body: JSON.stringify({ name: name.trim(), description: description.trim() || null, price: priceNum, published, eventIds, paymentMethods: payMethods }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -207,6 +215,26 @@ function BundleModal({ bundle, events, onClose, onSaved }: {
                 ))}
               </div>
             )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">How buyers may pay</label>
+            <div className="space-y-1.5 border border-app-border rounded-lg p-3">
+              {[
+                { key: "CARD", label: "Card (checkout — saved-card pay-now is offered automatically)" },
+                { key: "CASH", label: "Cash at the club (books events when payment is recorded)" },
+                { key: "CHECK", label: "Check at the club (books events when payment is recorded)" },
+                { key: "PAY_LATER", label: "Pay later — you invoice them (never an automatic card charge)" },
+              ].map((m) => (
+                <label key={m.key} className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" checked={payMethods.includes(m.key)} onChange={() => togglePayMethod(m.key)} className="mt-0.5" />
+                  <span className="text-sm text-text-primary leading-tight">{m.label}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-text-muted mt-1">
+              Cash, check, and pay-later claims don&apos;t book the events until payment is received
+              (unless Settings → Billing&apos;s offline policy activates on acceptance).
+            </p>
           </div>
           <label className="flex items-center gap-2 text-sm text-text-primary">
             <input type="checkbox" checked={published} onChange={(e) => setPublished(e.target.checked)} />
