@@ -4,6 +4,7 @@
  *   npx tsx scripts/event-payment-tests.ts
  * Exits non-zero on any failure.
  */
+import { bundleAllowedPaymentMethods, bundleOfflineStatus, BUNDLE_STATUS_LABELS } from "../lib/bundlePurchases";
 import {
   eventAllowedPaymentMethods,
   offlineStatusForMethod,
@@ -147,6 +148,30 @@ console.log("\n— check-in payment gate —");
   check("$0 due → allowed even if status says awaiting", checkinPaymentBlock(gated, { status: "AWAITING_CASH", amountDue: 0 }) === null);
   check("null amountDue → allowed", checkinPaymentBlock(gated, { status: "AWAITING_CASH", amountDue: null }) === null);
   check("every blocking status is a real status", CHECKIN_BLOCKING_STATUSES.every((s) => (REGISTRATION_STATUSES as readonly string[]).includes(s)));
+}
+
+console.log("\n— bundle payment decision —");
+{
+  check("bundle null config = card-only (legacy)", JSON.stringify(bundleAllowedPaymentMethods({ paymentMethods: null })) === '["CARD"]');
+  check("bundle empty config = card-only", JSON.stringify(bundleAllowedPaymentMethods({ paymentMethods: [] })) === '["CARD"]');
+  check(
+    "bundle config round-trips valid methods",
+    JSON.stringify(bundleAllowedPaymentMethods({ paymentMethods: ["CASH", "PAY_LATER"] })) === '["CASH","PAY_LATER"]',
+  );
+  check(
+    "bundle config drops junk values",
+    JSON.stringify(bundleAllowedPaymentMethods({ paymentMethods: ["CARD", "BITCOIN", 42] })) === '["CARD"]',
+  );
+  // One distinct status per method — never a vague shared "pending".
+  check("cash claim → AWAITING_CASH", bundleOfflineStatus("CASH") === "AWAITING_CASH");
+  check("check claim → AWAITING_CHECK", bundleOfflineStatus("CHECK") === "AWAITING_CHECK");
+  check("pay-later claim → PAY_LATER", bundleOfflineStatus("PAY_LATER") === "PAY_LATER");
+  check(
+    "pay-later label says the club invoices (not a card charge)",
+    BUNDLE_STATUS_LABELS.PAY_LATER.includes("invoice"),
+  );
+  const distinct = new Set([bundleOfflineStatus("CASH"), bundleOfflineStatus("CHECK"), bundleOfflineStatus("PAY_LATER")]);
+  check("offline statuses are all distinct", distinct.size === 3);
 }
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);

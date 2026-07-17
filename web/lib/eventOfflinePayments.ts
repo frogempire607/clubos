@@ -17,6 +17,7 @@ import { prisma } from "@/lib/prisma";
  */
 export async function createEventOfflinePendingTx(args: {
   clubId: string;
+  eventId: string;
   memberId: string | null;
   amount: number;
   method: "CASH" | "CHECK";
@@ -32,6 +33,7 @@ export async function createEventOfflinePendingTx(args: {
       amount: args.amount,
       status: "PENDING",
       type: "EVENT",
+      eventId: args.eventId,
       category: "events",
       description: `Event registration — ${args.eventName} — ${args.registrantName} (pay by ${args.method.toLowerCase()} at event)`,
       paymentMethod: args.method,

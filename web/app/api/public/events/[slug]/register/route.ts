@@ -13,6 +13,7 @@ import {
   EVENT_PAYMENT_METHOD_LABELS,
 } from "@/lib/eventPayments";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
+import { documentsForEvent } from "@/lib/eventDocuments";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -22,6 +23,10 @@ const schema = z.object({
   // The registrant's payment decision. AUTO_CARD is never offered publicly
   // (it needs an authenticated member with a saved card).
   paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional(),
+  // Ticked when the event has ACKNOWLEDGE/SIGN-level documents. Anonymous
+  // visitors can't produce an audited signature, so acknowledgement (stored on
+  // the registration) is the strongest gate available here.
+  acknowledgeDocuments: z.boolean().optional(),
 });
 
 // POST /api/public/events/[slug]/register
@@ -101,6 +106,21 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     }
   }
 
+  // Event documents: anything above INFO requires an explicit acknowledgement
+  // tick before the registration is accepted.
+  const eventDocs = await documentsForEvent(event.clubId, event.id);
+  const gatedDocs = eventDocs.filter((d) => d.requirement !== "INFO");
+  if (gatedDocs.length > 0 && !body.acknowledgeDocuments) {
+    return NextResponse.json(
+      {
+        error: "DOCUMENTS_ACKNOWLEDGE_REQUIRED",
+        documents: gatedDocs.map((d) => ({ id: d.id, title: d.title })),
+        message: `Please review and acknowledge: ${gatedDocs.map((d) => d.title).join(", ")}.`,
+      },
+      { status: 400 },
+    );
+  }
+
   // Try to match an existing member by email (so it shows on their account).
   const member = await prisma.member.findFirst({
     where: { clubId: event.clubId, email: body.email.toLowerCase(), deletedAt: null },
@@ -178,7 +198,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       name: body.name,
       email: body.email.toLowerCase(),
       phone: body.phone || null,
-      formResponses: body.formResponses,
+      formResponses: {
+        ...body.formResponses,
+        ...(gatedDocs.length > 0
+          ? { __documentsAcknowledged: `${new Date().toISOString()} — ${gatedDocs.map((d) => d.title).join("; ")}` }
+          : {}),
+      },
       // A card registration isn't complete until Stripe confirms it.
       status: method === "CARD" ? "PENDING_PAYMENT" : method ? offlineStatusForMethod(method) : "REGISTERED",
       paymentMethod: method,
@@ -211,6 +236,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   if (method === "CASH" || method === "CHECK") {
     const tx = await createEventOfflinePendingTx({
       clubId: event.clubId,
+      eventId: event.id,
       memberId: member?.id ?? null,
       amount: amountDue,
       method,

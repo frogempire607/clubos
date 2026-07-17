@@ -11,6 +11,7 @@ import {
 } from "@/lib/email";
 import type Stripe from "stripe";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { settleBundlePurchase } from "@/lib/bundlePurchases";
 import {
   invoiceSubscriptionId,
   invoiceSubscriptionMetadata,
@@ -471,36 +472,84 @@ export async function POST(req: Request) {
 
         // ── Event bundle checkout (#3): one payment books every included event ─
         if (memberId && bundleId) {
-          await prisma.transaction.create({
-            data: {
-              clubId,
-              memberId,
-              amount: (session.amount_total || 0) / 100,
-              status: "SUCCEEDED",
-              stripePaymentIntentId: session.payment_intent as string,
-              description: "Event bundle booking",
-              type: "EVENT",
-              category: "events",
-              paymentMethod: "STRIPE",
-              ...verifiedStripeTxFields(checkoutMoney),
-              ...discountFields,
-            },
-          });
+          // One Transaction per payment (unique PI id guards webhook replays —
+          // the old unconditional create 500'd on redelivery).
+          // payment-mode sessions always carry a PI, but NEVER dedupe on a
+          // null id — `where: { stripePaymentIntentId: undefined }` is "no
+          // filter" in Prisma and would match a random transaction.
+          const piId = typeof session.payment_intent === "string" ? session.payment_intent : null;
+          const existingTx = piId
+            ? await prisma.transaction.findFirst({
+                where: { stripePaymentIntentId: piId },
+                select: { id: true },
+              })
+            : null;
+          const tx =
+            existingTx ??
+            (await prisma.transaction.create({
+              data: {
+                clubId,
+                memberId,
+                amount: (session.amount_total || 0) / 100,
+                status: "SUCCEEDED",
+                stripePaymentIntentId: piId ?? undefined,
+                description: "Event bundle booking",
+                type: "EVENT",
+                category: "events",
+                paymentMethod: "STRIPE",
+                txDate: new Date(),
+                ...verifiedStripeTxFields(checkoutMoney),
+                ...discountFields,
+              },
+              select: { id: true },
+            }));
 
-          const bundle = await prisma.eventBundle.findFirst({
-            where: { id: bundleId, clubId, deletedAt: null },
-            include: { items: { select: { eventId: true } } },
-          });
-          if (bundle) {
-            for (const it of bundle.items) {
-              // Idempotent — a retried webhook won't double-book.
-              const existing = await prisma.booking.findUnique({
-                where: { eventId_memberId: { eventId: it.eventId, memberId } },
-              });
-              if (!existing) {
-                await prisma.booking.create({
-                  data: { eventId: it.eventId, memberId, status: "CONFIRMED" },
+          const bundlePurchaseId = session.metadata?.bundlePurchaseId;
+          const purchase = bundlePurchaseId
+            ? await prisma.eventBundlePurchase.findFirst({
+                where: { id: bundlePurchaseId, clubId },
+              })
+            : null;
+          if (purchase) {
+            // New flow: settle the purchase — claims the row, books the events,
+            // audits, and sends the receipt in one idempotent path.
+            await settleBundlePurchase({
+              purchase,
+              amountPaid: (session.amount_total || 0) / 100,
+              paidVia: "STRIPE",
+              transactionId: tx.id,
+            });
+            if (purchase.transactionId && purchase.transactionId !== tx.id) {
+              // They chose cash/check first, then paid online — void the
+              // superseded PENDING offline row so the money isn't double-counted.
+              await prisma.transaction
+                .updateMany({
+                  where: { id: purchase.transactionId, status: "PENDING" },
+                  data: {
+                    status: "FAILED",
+                    reconciliationStatus: "VOID",
+                    notes: "Superseded — bundle paid online instead.",
+                  },
+                })
+                .catch((e) => console.error("bundle offline tx void failed", e));
+            }
+          } else {
+            // Legacy sessions (minted before purchases existed): book directly.
+            const bundle = await prisma.eventBundle.findFirst({
+              where: { id: bundleId, clubId, deletedAt: null },
+              include: { items: { select: { eventId: true } } },
+            });
+            if (bundle) {
+              for (const it of bundle.items) {
+                // Idempotent — a retried webhook won't double-book.
+                const existing = await prisma.booking.findUnique({
+                  where: { eventId_memberId: { eventId: it.eventId, memberId } },
                 });
+                if (!existing) {
+                  await prisma.booking.create({
+                    data: { eventId: it.eventId, memberId, status: "CONFIRMED" },
+                  });
+                }
               }
             }
           }
@@ -750,6 +799,7 @@ export async function POST(req: Request) {
                   stripePaymentIntentId: session.payment_intent as string | undefined,
                   description: `DUPLICATE PAYMENT — ${reg.event.name} — ${reg.name} (already paid via ${reg.paidVia ?? "another method"}) — likely refund due`,
                   type: "EVENT",
+                  eventId: reg.eventId,
                   category: "events",
                   paymentMethod: "STRIPE",
                   txDate: new Date(),
@@ -780,6 +830,7 @@ export async function POST(req: Request) {
                 stripePaymentIntentId: session.payment_intent as string | undefined,
                 description: `Event registration: ${reg.event.name}`,
                 type: "EVENT",
+                eventId: reg.eventId,
                 category: "events",
                 paymentMethod: "STRIPE",
                 txDate: new Date(),
@@ -851,6 +902,69 @@ export async function POST(req: Request) {
           }
         }
 
+        break;
+      }
+
+      // ── Refunds & chargebacks ──────────────────────────────────────────────
+      // Money that left again must reduce collected revenue — event percentage
+      // comp (lib/eventComp.ts) subtracts Transaction.refundedAmount, and a
+      // fully-refunded row also flips to REFUNDED so plain SUCCEEDED filters
+      // stop counting it. Both endpoints (platform + Connect) must be
+      // subscribed to these two event types in the Stripe dashboard.
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        const refunded = (charge.amount_refunded || 0) / 100;
+        const piId =
+          typeof charge.payment_intent === "string"
+            ? charge.payment_intent
+            : charge.payment_intent?.id ?? null;
+        const tx = await prisma.transaction.findFirst({
+          where: {
+            OR: [
+              { stripeChargeId: charge.id },
+              ...(piId ? [{ stripePaymentIntentId: piId }] : []),
+            ],
+          },
+          select: { id: true, amount: true, notes: true },
+        });
+        if (!tx) {
+          console.error(`charge.refunded: no local Transaction for charge ${charge.id}`);
+          break;
+        }
+        const fullyRefunded = refunded >= Number(tx.amount) - 0.005;
+        await prisma.transaction.update({
+          where: { id: tx.id },
+          data: {
+            refundedAmount: refunded,
+            ...(fullyRefunded ? { status: "REFUNDED" } : {}),
+            notes: `${tx.notes ? tx.notes + "\n" : ""}Refunded $${refunded.toFixed(2)}${fullyRefunded ? " (full)" : " (partial)"} — Stripe ${charge.id}.`,
+          },
+        });
+        break;
+      }
+      case "charge.dispute.created": {
+        const dispute = event.data.object as Stripe.Dispute;
+        const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id ?? null;
+        if (!chargeId) break;
+        const disputed = (dispute.amount || 0) / 100;
+        const tx = await prisma.transaction.findFirst({
+          where: { stripeChargeId: chargeId },
+          select: { id: true, refundedAmount: true, notes: true },
+        });
+        if (!tx) {
+          console.error(`charge.dispute.created: no local Transaction for charge ${chargeId}`);
+          break;
+        }
+        // Disputed funds are withdrawn immediately — treat like a refund for
+        // collected-revenue math, and flag the row for a human.
+        await prisma.transaction.update({
+          where: { id: tx.id },
+          data: {
+            refundedAmount: Math.max(Number(tx.refundedAmount ?? 0), disputed),
+            reconciliationStatus: "REVIEW",
+            notes: `${tx.notes ? tx.notes + "\n" : ""}CHARGEBACK/DISPUTE $${disputed.toFixed(2)} (${dispute.reason || "no reason"}) — funds withdrawn by Stripe.`,
+          },
+        });
         break;
       }
 

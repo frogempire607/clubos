@@ -46,16 +46,16 @@ enum TransactionStatus {
 }
 
 model Club {
-  id                       String    @id @default(cuid())
+  id                       String                @id @default(cuid())
   name                     String
-  slug                     String    @unique
+  slug                     String                @unique
   // Plans: growth | pro | enterprise. There is no free/Starter tier — every
   // club is on at least Growth. Definitions live in lib/tier.ts.
-  tier                     String    @default("growth")
+  tier                     String                @default("growth")
   // When true, Stripe processing fees are transparently added to the
   // member/customer's checkout total so the club nets the full amount.
   // Centralized math lives in lib/fees.ts — never hardcode the % elsewhere.
-  passProcessingFees       Boolean   @default(false)
+  passProcessingFees       Boolean               @default(false)
   processingFeeNote        String?
   // When a CASH/CHECK offer is accepted: 'ON_ACCEPTANCE' activates the
   // membership with payment still due; 'ON_PAYMENT' activates only when staff
@@ -64,25 +64,25 @@ model Club {
   offlineActivationPolicy  String?
   tagline                  String?
   sport                    String?
-  primaryColor             String?   @default("#534AB7")
+  primaryColor             String?               @default("#534AB7")
   logoUrl                  String?
   // Branded mobile-app configuration (owner-customizable). Shape:
   // { appName, shortDescription, iconUrl, themeColor, splashColor,
   //   iosBundleId, androidPackage, enabled }
   brandedAppConfig         Json?
   // Stripe Connect (the club's own Stripe account that receives payments)
-  stripeAccountId          String?   @unique
-  stripeOnboardingComplete Boolean   @default(false)
-  stripeChargesEnabled     Boolean   @default(false)
-  stripePayoutsEnabled     Boolean   @default(false)
+  stripeAccountId          String?               @unique
+  stripeOnboardingComplete Boolean               @default(false)
+  stripeChargesEnabled     Boolean               @default(false)
+  stripePayoutsEnabled     Boolean               @default(false)
   // ClubOS subscription billing (when the club pays us monthly)
-  stripeCustomerId         String?   @unique
-  stripeSubscriptionId     String?   @unique
+  stripeCustomerId         String?               @unique
+  stripeSubscriptionId     String?               @unique
   subscriptionStatus       String?
   // Plaid bank integration lives on the PlaidConnection model now (one row
   // per linked bank). The legacy single-account fields were dropped in
   // migration 20260608000000_drop_legacy_plaid_columns.
-  notificationPrefs        Json      @default("{}")
+  notificationPrefs        Json                  @default("{}")
   // Member intake form configuration
   // { enabledFields: string[], requiredFields: string[] }
   // When null, the form is in "default" mode (Athlete Name + Email only).
@@ -128,10 +128,10 @@ model Club {
   // falls back to the legacy per-membership trialEnabled/trialDays fields so
   // existing clubs keep working until they open the new Free Trial editor.
   freeTrialConfig          Json?
-  campaigns                  Campaign[]
-  campaignAttributions       CampaignAttribution[]
+  campaigns                Campaign[]
+  campaignAttributions     CampaignAttribution[]
   // JSON array of {label, url} pairs (Instagram, Facebook, YouTube, …)
-  socialLinks              Json      @default("[]")
+  socialLinks              Json                  @default("[]")
   // JSON map of {monday: "9-5", tuesday: "...", ...} or free-form blob
   hoursOfOperation         Json?
   // IANA timezone of the physical club (e.g. "America/Chicago"). Resolves the
@@ -139,8 +139,8 @@ model Club {
   // ICS feed, the /cal embed, and check-in windows. null = not set: those
   // surfaces keep the pre-timezone behavior (class stamps emitted as-is).
   timezone                 String?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
   deletedAt                DateTime?
 
   locations                   Location[]
@@ -198,6 +198,9 @@ model Club {
   stripeReconciliations       StripeReconciliation[]
   billingAuditLogs            BillingAuditLog[]
   membershipReactivations     MembershipReactivation[]
+  EventCompAssignment         EventCompAssignment[]
+  EventDocumentLink           EventDocumentLink[]
+  EventBundlePurchase         EventBundlePurchase[]
 
   @@index([slug])
   @@map("clubs")
@@ -209,18 +212,18 @@ model Club {
 // `Club.plaidAccessToken` columns stay for back-compat and are migrated
 // lazily into a PlaidConnection row on first read.
 model PlaidConnection {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   clubId          String
   // Owner-chosen friendly name. Falls back to the institution name from
   // Plaid when null.
   label           String?
   institutionName String?
   accessToken     String
-  itemId          String   @unique
+  itemId          String    @unique
   // Optional cache so the UI doesn't have to hit Plaid every render.
   accountsCache   Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
   club         Club          @relation(fields: [clubId], references: [id], onDelete: Cascade)
@@ -239,7 +242,7 @@ model PlaidConnection {
 // booking/charge logic lives in the booking endpoints; this table just
 // stores the intent + the replay payload.
 model PendingApproval {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   clubId        String
   memberId      String
   // Member-side (parental) kinds, surfaced in the family-approvals card:
@@ -258,10 +261,10 @@ model PendingApproval {
   // Optional dollar amount captured at request time. Powers the
   // dailySpendLimit cap check + the parent-side summary. Null for free
   // or amount-unknown actions.
-  amount        Decimal? @db.Decimal(10, 2)
+  amount        Decimal?  @db.Decimal(10, 2)
   // PENDING | APPROVED | DECLINED | EXPIRED
-  status        String   @default("PENDING")
-  requestedAt   DateTime @default(now())
+  status        String    @default("PENDING")
+  requestedAt   DateTime  @default(now())
   respondedAt   DateTime?
   // Which guardian User responded. Null until status changes from PENDING.
   respondedById String?
@@ -333,49 +336,50 @@ model Location {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  clubId        String
-  email         String
-  passwordHash  String
-  firstName     String
-  lastName      String
-  role          UserRole  @default(MEMBER)
-  emailVerified DateTime?
-  resetToken    String?   @unique
-  resetExpires  DateTime?
-  lastLoginAt   DateTime?
+  id               String    @id @default(cuid())
+  clubId           String
+  email            String
+  passwordHash     String
+  firstName        String
+  lastName         String
+  role             UserRole  @default(MEMBER)
+  emailVerified    DateTime?
+  resetToken       String?   @unique
+  resetExpires     DateTime?
+  lastLoginAt      DateTime?
   // Per-user dashboard widget preferences: { order: string[], hidden: string[] }.
   // Null = use sensible defaults.
   dashboardWidgets Json?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
-  club                    Club                         @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  staffProfile            StaffProfile?
-  memberProfile           Member?
-  guardianProfile         Guardian?                    @relation("GuardianUser")
-  guardianOf              MemberGuardianUser[]         @relation("GuardianLink")
-  sentMessages            Message[]                    @relation("Sender")
-  receivedMessages        Message[]                    @relation("Recipient")
-  announcementEngagements AnnouncementEngagement[]
-  messageGroupMemberships MessageGroupMember[]
-  sentGroupMessages       GroupMessage[]               @relation("GroupSender")
-  groupMessageReceipts    GroupMessageReceipt[]
-  availability            StaffAvailability[]
-  availabilityExceptions  StaffAvailabilityException[]
-  eventAssignments        EventStaffAssignment[]
-  coachBookings           PrivateBooking[]             @relation("CoachBookings")
-  privateLessonPayRates   PrivateLessonPayRate[]
-  attendanceAdded         AttendanceRecord[]           @relation("AttendanceAddedBy")
-  documentSignatures      DocumentSignature[]
-  uploadedFiles           UploadedFile[]
-  compensation            StaffCompensation?
-  staffDocuments          StaffDocument[]              @relation("StaffDocsTarget")
-  uploadedStaffDocs       StaffDocument[]              @relation("StaffDocsUploader")
-  legalAcceptances        LegalAcceptance[]
-  parentalConsentsAsGuardian ParentalConsent[]        @relation("GuardianConsent")
-  parentalConsentsAsChild    ParentalConsent[]        @relation("ChildConsent")
+  club                       Club                         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  staffProfile               StaffProfile?
+  memberProfile              Member?
+  guardianProfile            Guardian?                    @relation("GuardianUser")
+  guardianOf                 MemberGuardianUser[]         @relation("GuardianLink")
+  sentMessages               Message[]                    @relation("Sender")
+  receivedMessages           Message[]                    @relation("Recipient")
+  announcementEngagements    AnnouncementEngagement[]
+  messageGroupMemberships    MessageGroupMember[]
+  sentGroupMessages          GroupMessage[]               @relation("GroupSender")
+  groupMessageReceipts       GroupMessageReceipt[]
+  availability               StaffAvailability[]
+  availabilityExceptions     StaffAvailabilityException[]
+  eventAssignments           EventStaffAssignment[]
+  coachBookings              PrivateBooking[]             @relation("CoachBookings")
+  privateLessonPayRates      PrivateLessonPayRate[]
+  attendanceAdded            AttendanceRecord[]           @relation("AttendanceAddedBy")
+  documentSignatures         DocumentSignature[]
+  uploadedFiles              UploadedFile[]
+  compensation               StaffCompensation?
+  staffDocuments             StaffDocument[]              @relation("StaffDocsTarget")
+  uploadedStaffDocs          StaffDocument[]              @relation("StaffDocsUploader")
+  legalAcceptances           LegalAcceptance[]
+  parentalConsentsAsGuardian ParentalConsent[]            @relation("GuardianConsent")
+  parentalConsentsAsChild    ParentalConsent[]            @relation("ChildConsent")
+  EventCompAssignment        EventCompAssignment[]
 
   @@unique([clubId, email])
   @@index([clubId])
@@ -392,8 +396,8 @@ model LegalAcceptance {
   id           String   @id @default(cuid())
   userId       String
   clubId       String?
-  documentType String   // "TOS" | "PRIVACY"
-  version      String   // e.g. "2026-06-05-draft"
+  documentType String // "TOS" | "PRIVACY"
+  version      String // e.g. "2026-06-05-draft"
   acceptedAt   DateTime @default(now())
   ipAddress    String?
   userAgent    String?
@@ -419,16 +423,16 @@ model LegalAcceptance {
 model ParentalConsent {
   id             String   @id @default(cuid())
   clubId         String
-  memberId       String   // the child (minor) member the consent covers
-  childUserId    String?  // the minor's own login, when one exists
-  guardianUserId String?  // the consenting guardian's account, when one exists
-  guardianName   String   // snapshot of who consented
-  guardianEmail  String   // snapshot of the consenting guardian's email
-  relationship   String?  // e.g. Mother / Father / Legal guardian
-  termsVersion   String   // TERMS_VERSION accepted at consent time
-  privacyVersion String   // PRIVACY_VERSION accepted at consent time
-  consentVersion String   // version of the parental-consent statement shown
-  consentText    String   // verbatim statement the guardian accepted
+  memberId       String // the child (minor) member the consent covers
+  childUserId    String? // the minor's own login, when one exists
+  guardianUserId String? // the consenting guardian's account, when one exists
+  guardianName   String // snapshot of who consented
+  guardianEmail  String // snapshot of the consenting guardian's email
+  relationship   String? // e.g. Mother / Father / Legal guardian
+  termsVersion   String // TERMS_VERSION accepted at consent time
+  privacyVersion String // PRIVACY_VERSION accepted at consent time
+  consentVersion String // version of the parental-consent statement shown
+  consentText    String // verbatim statement the guardian accepted
   ipAddress      String?
   userAgent      String?
   // Which flow captured this consent:
@@ -455,12 +459,12 @@ model ParentalConsent {
 model GuardianConsentRequest {
   id              String    @id @default(cuid())
   clubId          String
-  memberId        String    // the minor the consent is for
+  memberId        String // the minor the consent is for
   guardianName    String?
   guardianEmail   String
   relationship    String?
   token           String    @unique
-  source          String    // SIGNUP | OWNER_INVITE | PARENT_INVITE
+  source          String // SIGNUP | OWNER_INVITE | PARENT_INVITE
   createdByUserId String?
   createdAt       DateTime  @default(now())
   expiresAt       DateTime
@@ -478,30 +482,30 @@ model GuardianConsentRequest {
 // whether the staff member can see/download each one via sharedWithStaff.
 // Files live in the existing private /api/upload + /api/files/[id] store.
 model StaffDocument {
-  id               String   @id @default(cuid())
-  clubId           String
+  id              String    @id @default(cuid())
+  clubId          String
   // The staff USER this document belongs to (target).
-  userId           String
+  userId          String
   // Optional link to the underlying UploadedFile; URL is stored independently
   // so back-compat /public/uploads paths still work.
-  fileId           String?
-  fileUrl          String
-  fileName         String?
-  mimeType         String?
-  sizeBytes        Int?
-  title            String
+  fileId          String?
+  fileUrl         String
+  fileName        String?
+  mimeType        String?
+  sizeBytes       Int?
+  title           String
   // W9 | 1099 | CONTRACT | AGREEMENT | CERTIFICATION | OTHER
-  kind             String   @default("OTHER")
-  notes            String?
+  kind            String    @default("OTHER")
+  notes           String?
   // Owner choice: false = owner-only; true = visible to the staff member.
-  sharedWithStaff  Boolean  @default(false)
-  uploadedById     String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  deletedAt        DateTime?
+  sharedWithStaff Boolean   @default(false)
+  uploadedById    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
 
   club       Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  user       User  @relation("StaffDocsTarget",   fields: [userId],       references: [id], onDelete: Cascade)
+  user       User  @relation("StaffDocsTarget", fields: [userId], references: [id], onDelete: Cascade)
   uploadedBy User? @relation("StaffDocsUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([clubId])
@@ -571,7 +575,7 @@ model Member {
   // When non-null, the member's date of birth is read-only — only an owner
   // or guardian can change it via a server-side action that clears this
   // field first. Prevents minors from editing their DOB to bypass age gates.
-  birthdayLockedAt     DateTime?
+  birthdayLockedAt DateTime?
   // Per-minor parent controls. Shape:
   //   {
   //     requirePaymentApproval: boolean,  // gate paid bookings on guardian approval
@@ -581,10 +585,10 @@ model Member {
   //   }
   // Null = no controls = existing behavior. Stored as JSON so we can extend
   // without a migration each time.
-  parentControls       Json?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  deletedAt            DateTime?
+  parentControls   Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
   guardianId String?
 
@@ -592,59 +596,59 @@ model Member {
   // Populated when a member is brought over from another club platform via the
   // migration wizard. Never tier-gated. Imported members are NEVER auto-charged
   // — billing only starts after they activate and add a payment method.
-  legacySource             String? // e.g. "Jackrabbit", "Mindbody", "Spreadsheet"
-  legacyMemberId           String? // their ID in the old system (for support)
-  importedAt               DateTime?
+  legacySource               String? // e.g. "Jackrabbit", "Mindbody", "Spreadsheet"
+  legacyMemberId             String? // their ID in the old system (for support)
+  importedAt                 DateTime?
   // null = not a migrated member.
   // IMPORTED | INVITED | ACTIVATED | COMPLETED | FAILED | NEEDS_REVIEW
-  migrationStatus          String?
+  migrationStatus            String?
   // null | REQUIRED | COMPLETE
-  paymentSetupStatus       String?
+  paymentSetupStatus         String?
   // Legacy membership snapshot (display only until activation creates the sub)
-  legacyMembershipName     String?
-  legacyMembershipPrice    Decimal? @db.Decimal(10, 2)
-  legacyBillingFrequency   String? // WEEKLY | MONTHLY | QUARTERLY | ANNUAL | ...
-  membershipStartDate      DateTime?
-  nextBillingDate          DateTime?
+  legacyMembershipName       String?
+  legacyMembershipPrice      Decimal?  @db.Decimal(10, 2)
+  legacyBillingFrequency     String? // WEEKLY | MONTHLY | QUARTERLY | ANNUAL | ...
+  membershipStartDate        DateTime?
+  nextBillingDate            DateTime?
   // THE key field: when Stripe should take the first charge so billing
   // continues on the member's existing cycle (not on import day).
-  billingAnchorDate        DateTime?
-  commitmentEndDate        DateTime?
+  billingAnchorDate          DateTime?
+  commitmentEndDate          DateTime?
   // Secure activation link
-  activationToken          String?  @unique
-  activationTokenExpires   DateTime?
-  activationEmailSentAt    DateTime?
-  activationEmailSendCount Int      @default(0)
+  activationToken            String?   @unique
+  activationTokenExpires     DateTime?
+  activationEmailSentAt      DateTime?
+  activationEmailSendCount   Int       @default(0)
   // "JOIN" = a free-join registration link sent to a non-member so they can
   // create a portal account and browse options. null / "MIGRATION" = the
   // software-switch activation flow.
-  activationKind           String?
-  activatedAt              DateTime?
-  migrationCompletedAt     DateTime?
+  activationKind             String?
+  activatedAt                DateTime?
+  migrationCompletedAt       DateTime?
   // Membership-agnostic free-trial window granted by staff (e.g. attendance
   // "Trial" check-in). While now < trialEndsAt the member can book classes
   // free in the portal and still subscribe to ANY membership.
-  trialEndsAt              DateTime?
+  trialEndsAt                DateTime?
   // Owner-assigned plan this migration continues (a real Membership.id).
   // Preferred over the legacy* snapshot when set.
-  migrationMembershipId    String?
+  migrationMembershipId      String?
   // Owner price override set BEFORE the activation link is sent. When non-null
   // this is the exact recurring price the migrated member pays — it wins over
   // both the legacy snapshot price and the assigned plan's option price.
-  migrationPriceOverride   Decimal? @db.Decimal(10, 2)
+  migrationPriceOverride     Decimal?  @db.Decimal(10, 2)
   // Free-text note for why (e.g. "Founding member 20% off"). Display only.
-  migrationDiscountNote    String?
+  migrationDiscountNote      String?
   // Owner-selected discount code (staff dropdown) for the staged offer —
   // validated server-side against lib/discounts on every use; never trusted
   // from the client as an amount.
-  migrationDiscountCode    String?
+  migrationDiscountCode      String?
   // Owner flag: this member is in their already-paid final period. The
   // activation link then shows "active through <commitmentEndDate>", collects
   // no card, and completes as a non-renewing membership (no subscription).
-  migrationFinalPeriodPaid Boolean  @default(false)
+  migrationFinalPeriodPaid   Boolean   @default(false)
   // Which fields/abilities the client may edit on the activation page.
   // Shape: { phone, email, billingDateRequest, notes }. null = defaults.
-  activationEditableFields Json?
+  activationEditableFields   Json?
   // Client-submitted requests captured at activation (owner reviews these).
   requestedBillingDate       DateTime?
   requestedBillingNote       String?
@@ -670,48 +674,49 @@ model Member {
   // Operational classification for the pre-migration review. These fields are
   // PLANNING data — setting them never charges anyone or touches Stripe.
   // A | B | C | LEAVE_ALONE | FUTURE_FOLLOW_UP | NEEDS_PAYMENT_METHOD
-  migrationGroup             String?
+  migrationGroup            String?
   // MANUAL_APPROVE | ACTIVATION_EMAIL | LEAVE_ALONE | FUTURE_FOLLOW_UP |
   // NEEDS_CARD | OWNER_REVIEW
-  migrationFinalAction       String?
-  migrationGroupNote         String?
+  migrationFinalAction      String?
+  migrationGroupNote        String?
   // The owner-approved FINAL first-charge date. Approval/reactivation read it
   // as the proposed anchor and still validate it is not silently in the past.
-  migrationFinalBillingDate  DateTime?
+  migrationFinalBillingDate DateTime?
   // Deliberate payer assignment: the portal User (usually a guardian) whose
   // Stripe customer/payment method funds this athlete's membership. Bare id
   // (actorUserId convention); resolved to a name at read time.
-  responsiblePayerUserId     String?
+  responsiblePayerUserId    String?
   // Who last changed the billing setup, and when (roster display; the full
   // before/after trail lives in billing_audit_logs).
-  billingUpdatedAt           DateTime?
-  billingUpdatedById         String?
+  billingUpdatedAt          DateTime?
+  billingUpdatedById        String?
 
-  club              Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  user              User?                 @relation(fields: [userId], references: [id])
-  membership        Membership?           @relation(fields: [membershipId], references: [id])
-  guardian          Guardian?             @relation(fields: [guardianId], references: [id])
-  guardianLinks     MemberGuardianUser[]
-  bookings          Booking[]
-  transactions      Transaction[]
-  subscriptions     MemberSubscription[]
-  productSales      ProductSale[]
-  privateCredits    PrivateCreditLedger[]
-  privateBookings   PrivateBooking[]
-  privateBookingPartners PrivateBookingPartner[]
-  attendanceRecords AttendanceRecord[]
-  documentSignatures DocumentSignature[]
-  eventRegistrations EventRegistration[]
-  migrationEvents    MemberMigrationEvent[]
-  campaignAttributions CampaignAttribution[]
-  relationshipsFrom  MemberRelationship[] @relation("RelationshipFrom")
-  relationshipsTo    MemberRelationship[] @relation("RelationshipTo")
-  pendingApprovals   PendingApproval[]
-  invoiceSplits      InvoiceSplit[]
-  parentalConsents   ParentalConsent[]
+  club                    Club                     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user                    User?                    @relation(fields: [userId], references: [id])
+  membership              Membership?              @relation(fields: [membershipId], references: [id])
+  guardian                Guardian?                @relation(fields: [guardianId], references: [id])
+  guardianLinks           MemberGuardianUser[]
+  bookings                Booking[]
+  transactions            Transaction[]
+  subscriptions           MemberSubscription[]
+  productSales            ProductSale[]
+  privateCredits          PrivateCreditLedger[]
+  privateBookings         PrivateBooking[]
+  privateBookingPartners  PrivateBookingPartner[]
+  attendanceRecords       AttendanceRecord[]
+  documentSignatures      DocumentSignature[]
+  eventRegistrations      EventRegistration[]
+  migrationEvents         MemberMigrationEvent[]
+  campaignAttributions    CampaignAttribution[]
+  relationshipsFrom       MemberRelationship[]     @relation("RelationshipFrom")
+  relationshipsTo         MemberRelationship[]     @relation("RelationshipTo")
+  pendingApprovals        PendingApproval[]
+  invoiceSplits           InvoiceSplit[]
+  parentalConsents        ParentalConsent[]
   guardianConsentRequests GuardianConsentRequest[]
-  billingAuditLogs   BillingAuditLog[]
-  reactivations      MembershipReactivation[]
+  billingAuditLogs        BillingAuditLog[]
+  reactivations           MembershipReactivation[]
+  EventBundlePurchase     EventBundlePurchase[]
 
   @@index([clubId])
   @@index([status])
@@ -723,15 +728,15 @@ model Member {
 // member's migration lifecycle (imported, activation sent, reminder, activated,
 // completed, failed, note). Never deleted — preserves the legacy paper trail.
 model MemberMigrationEvent {
-  id        String   @id @default(cuid())
-  clubId    String
-  memberId  String
+  id          String   @id @default(cuid())
+  clubId      String
+  memberId    String
   // IMPORTED | ACTIVATION_SENT | REMINDER_SENT | ACTIVATED | COMPLETED |
   // FAILED | NOTE
-  type      String
-  message   String?
+  type        String
+  message     String?
   actorUserId String?
-  createdAt DateTime @default(now())
+  createdAt   DateTime @default(now())
 
   club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -781,24 +786,24 @@ model BillingAuditLog {
 // (regenerated) end an offer without deleting its history. Consent JSON:
 // { at, email, offerVersion, ip, userAgent, buttonLabel }.
 model MembershipReactivation {
-  id                   String    @id @default(cuid())
-  clubId               String
-  memberId             String
-  token                String    @unique
-  tokenExpires         DateTime
-  offerVersion         Int       @default(1)
-  offer                Json
-  personalNote         String?
-  status               String    @default("DRAFT")
-  emailSentAt          DateTime?
-  emailSendCount       Int       @default(0)
-  sentToEmail          String?
-  viewedAt             DateTime?
-  confirmedAt          DateTime?
-  confirmedByUserId    String?
-  consent              Json?
-  memberSubscriptionId String?
-  createdById          String?
+  id                        String    @id @default(cuid())
+  clubId                    String
+  memberId                  String
+  token                     String    @unique
+  tokenExpires              DateTime
+  offerVersion              Int       @default(1)
+  offer                     Json
+  personalNote              String?
+  status                    String    @default("DRAFT")
+  emailSentAt               DateTime?
+  emailSendCount            Int       @default(0)
+  sentToEmail               String?
+  viewedAt                  DateTime?
+  confirmedAt               DateTime?
+  confirmedByUserId         String?
+  consent                   Json?
+  memberSubscriptionId      String?
+  createdById               String?
   // Client change request (2026-07-15): never mutates billing — it LOCKS the
   // offer's confirmation until the owner approves (new offer version) or
   // denies. changeRequest JSON: { fields: {…}, note, requestedAt, byUserId?,
@@ -808,8 +813,8 @@ model MembershipReactivation {
   changeRequestAt           DateTime?
   changeRequestResolvedAt   DateTime?
   changeRequestResolvedById String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -828,7 +833,7 @@ model MemberRelationship {
   clubId          String
   memberId        String
   relatedMemberId String
-  type            String   // SIBLING | COUSIN | FRIEND | TEAMMATE | PARENT | CHILD | SPOUSE | OTHER
+  type            String // SIBLING | COUSIN | FRIEND | TEAMMATE | PARENT | CHILD | SPOUSE | OTHER
   note            String?
   createdAt       DateTime @default(now())
 
@@ -976,7 +981,7 @@ model Membership {
   // first charge. trialAppliesToReturning controls whether a member can use a
   // trial again after a previous active subscription (default: one-time only).
   trialEnabled            Boolean @default(false)
-  trialDays               Int?    // null when disabled; positive integer otherwise
+  trialDays               Int? // null when disabled; positive integer otherwise
   trialAppliesToReturning Boolean @default(false)
 
   createdAt DateTime  @default(now())
@@ -1046,8 +1051,8 @@ model Event {
   purchaseAccess         String    @default("ANYONE") // ANYONE | STAFF_ONLY
   allowMembershipPayment Boolean   @default(false)
   imageUrl               String?
-  imagePositionX Int @default(50)
-  imagePositionY Int @default(50)
+  imagePositionX         Int       @default(50)
+  imagePositionY         Int       @default(50)
   isTournament           Boolean   @default(false)
   registrationLink       String?
   registrationDeadline   DateTime?
@@ -1059,37 +1064,37 @@ model Event {
   //   HOST   = the club is running the tournament; attach a registration form.
   //   ATTEND = the club is taking a team to someone else's tournament; gather
   //            signups and (optionally) split a shared cost across attendees.
-  tournamentMode         String?   // HOST | ATTEND
+  tournamentMode String? // HOST | ATTEND
 
   // Owner-editable registration form. Array of field defs:
   //   [{ id, label, type: "text|email|phone|textarea|select|checkbox", required, options?: string[] }]
-  registrationForm       Json?
+  registrationForm Json?
 
   // Public (non-member) registration via /e/[publicSlug]
-  publicRegistration     Boolean   @default(false)
-  publicSlug             String?   @unique
-  publicFormIntro        String?
+  publicRegistration  Boolean @default(false)
+  publicSlug          String? @unique
+  publicFormIntro     String?
   // Which price the public registration page charges: MEMBER | NON_MEMBER |
   // DROP_IN. null = auto (non-member full price).
-  publicPricingOption    String?
+  publicPricingOption String?
 
   // Variable cost (ATTEND tournaments): split a shared cost across attendees.
   //   ESTIMATED = charge total / estimatedSignups at signup time.
   //   OFFICIAL  = collect free signups, then bill total / actualSignups after.
-  variableCostEnabled         Boolean   @default(false)
-  variableCostMode            String?   // ESTIMATED | OFFICIAL
-  variableCostTotal           Decimal?  @db.Decimal(10, 2)
+  variableCostEnabled          Boolean   @default(false)
+  variableCostMode             String? // ESTIMATED | OFFICIAL
+  variableCostTotal            Decimal?  @db.Decimal(10, 2)
   variableCostEstimatedSignups Int?
   // Shown to parents as a "roughly $X each" estimate even in OFFICIAL mode,
   // before the official total is known. Display-only; never billed.
-  variableCostEstimatedTotal  Decimal?  @db.Decimal(10, 2)
-  variableCostBilledAt        DateTime?
+  variableCostEstimatedTotal   Decimal?  @db.Decimal(10, 2)
+  variableCostBilledAt         DateTime?
 
   // P1 tournament invoicing: when invoices should go out.
   //   null / past  = invoice immediately (owner sends now).
   //   future date  = a reminder surfaces in the Action Center on/after this date.
   // There is no cron in the app, so this is a prompt to send — never an auto-charge.
-  invoiceScheduledAt          DateTime?
+  invoiceScheduledAt DateTime?
 
   // Registration payment decision (lib/eventPayments.ts is the model):
   //   paymentMethods — JSON array of methods the owner allows for this event's
@@ -1101,9 +1106,14 @@ model Event {
   // Check-in gate: block event check-in until the registration is paid.
   requirePaymentBeforeCheckin Boolean   @default(false)
 
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-  deletedAt              DateTime?
+  // Event payroll: when true, percentage compensation ignores refunds and
+  // chargebacks — the owner has a strict no-refunds policy and pays helpers
+  // on everything collected, even if some of it is later clawed back.
+  compNoRefunds Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   club             Club                   @relation(fields: [clubId], references: [id], onDelete: Cascade)
   location         Location?              @relation(fields: [locationId], references: [id])
@@ -1115,6 +1125,8 @@ model Event {
   bundleItems      EventBundleItem[]
   expenseItems     EventExpenseItem[]
   chatGroup        MessageGroup?
+  compAssignments  EventCompAssignment[]
+  documentLinks    EventDocumentLink[]
 
   @@index([clubId])
   @@index([startsAt])
@@ -1166,19 +1178,19 @@ model EventSession {
 // existing member is matched. formResponses holds answers to the event's
 // owner-defined registrationForm.
 model EventRegistration {
-  id                      String   @id @default(cuid())
+  id                      String    @id @default(cuid())
   eventId                 String
   clubId                  String
   memberId                String?
   name                    String
   email                   String
   phone                   String?
-  formResponses           Json     @default("{}")
+  formResponses           Json      @default("{}")
   // REGISTERED | PENDING_PAYMENT | SCHEDULED | AWAITING_CASH | AWAITING_CHECK
   // | PAYMENT_FAILED | PAID | CANCELED  (lib/eventPayments.ts)
-  status                  String   @default("REGISTERED")
-  amountDue               Decimal? @db.Decimal(10, 2)
-  amountPaid              Decimal? @db.Decimal(10, 2)
+  status                  String    @default("REGISTERED")
+  amountDue               Decimal?  @db.Decimal(10, 2)
+  amountPaid              Decimal?  @db.Decimal(10, 2)
   // The registrant's payment decision: CARD | AUTO_CARD | CASH | CHECK.
   // null = legacy row from before payment decisions existed.
   paymentMethod           String?
@@ -1186,7 +1198,7 @@ model EventRegistration {
   // userAgent,buttonLabel,amount} + when the charge should run.
   autoChargeConsent       Json?
   scheduledChargeAt       DateTime?
-  chargeAttempts          Int      @default(0)
+  chargeAttempts          Int       @default(0)
   lastChargeError         String?
   // Settlement facts (any method): when/how it was paid, who took the money.
   paidAt                  DateTime?
@@ -1203,9 +1215,9 @@ model EventRegistration {
   // Mass-invoice tracking: when the most recent invoice/payment link was sent
   // and how many times this registrant has been invoiced.
   invoicedAt              DateTime?
-  invoiceCount            Int      @default(0)
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  invoiceCount            Int       @default(0)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   event  Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
   club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
@@ -1222,23 +1234,68 @@ model EventRegistration {
 // #3: a discounted package of several events sold for one price. Registering
 // for the bundle books the member into every included event in one payment.
 model EventBundle {
-  id          String    @id @default(cuid())
-  clubId      String
-  name        String
-  description String?
+  id             String    @id @default(cuid())
+  clubId         String
+  name           String
+  description    String?
   // Single package price for the whole bundle (the deal vs. buying each event
   // separately). Applies to members and non-members alike.
-  price       Decimal   @db.Decimal(10, 2)
-  published   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  price          Decimal   @db.Decimal(10, 2)
+  published      Boolean   @default(false)
+  // Payment methods the owner allows at purchase (lib/bundlePurchases.ts):
+  // CARD | CASH | CHECK | PAY_LATER. null/empty = ["CARD"] (legacy behavior).
+  // A saved-card pay-now option is offered automatically whenever CARD is
+  // allowed and the buyer has a verified saved card.
+  paymentMethods Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
-  club  Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  items EventBundleItem[]
+  club      Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  items     EventBundleItem[]
+  purchases EventBundlePurchase[]
 
   @@index([clubId])
   @@map("event_bundles")
+}
+
+// A member's claim on a bundle + the money owed for it. Bookings (the usable
+// "credits") are granted ONLY when the purchase is PAID — or at acceptance
+// when the club's existing offlineActivationPolicy is ON_ACCEPTANCE. One
+// distinct status per payment method, never a vague "pending":
+//   PENDING_PAYMENT — card checkout in flight/abandoned (books nothing)
+//   AWAITING_CASH / AWAITING_CHECK — confirmed claim, physical payment due
+//   PAY_LATER       — confirmed claim, the club will invoice/collect
+//   PAYMENT_FAILED  — a saved-card charge declined (books nothing)
+// A partial unique index (migration SQL) makes duplicate live purchases per
+// (bundleId, memberId) structurally impossible.
+model EventBundlePurchase {
+  id                      String    @id @default(cuid())
+  clubId                  String
+  bundleId                String
+  memberId                String
+  status                  String    @default("PENDING_PAYMENT")
+  paymentMethod           String? // CARD | SAVED_CARD | CASH | CHECK | PAY_LATER
+  amountDue               Decimal?  @db.Decimal(10, 2)
+  amountPaid              Decimal?  @db.Decimal(10, 2)
+  transactionId           String?
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  lastChargeError         String?
+  paidAt                  DateTime?
+  paidVia                 String?
+  receivedById            String?
+  checkReference          String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  club   Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  bundle EventBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  member Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status])
+  @@index([bundleId, memberId])
+  @@map("event_bundle_purchases")
 }
 
 // Explicit join: which events belong to a bundle.
@@ -1272,13 +1329,13 @@ model Booking {
 }
 
 model Message {
-  id          String    @id @default(cuid())
-  clubId      String
-  senderId    String
-  recipientId String
-  body        String
-  readAt      DateTime?
-  createdAt   DateTime  @default(now())
+  id              String    @id @default(cuid())
+  clubId          String
+  senderId        String
+  recipientId     String
+  body            String
+  readAt          DateTime?
+  createdAt       DateTime  @default(now())
   // Which athlete this DM is "about" — lets a guardian ↔ coach thread be scoped
   // to a specific child (even one with no login). Null = the participant's own
   // thread. Scalar only (no FK) so historical messages survive member deletes.
@@ -1350,6 +1407,14 @@ model Transaction {
   stripeInvoiceId       String?
   stripeSubscriptionId  String?
   type                  String            @default("CHARGE")
+  // The Event this money belongs to (loose reference, no FK — money outlives
+  // events). Stamped at every event-money creation point; drives per-event
+  // revenue for percentage compensation. Null on pre-2026-07-17 rows.
+  eventId               String?
+  // Total refunded so far (partial refunds + chargebacks accumulate here via
+  // the charge.refunded / dispute webhooks). Full refund also flips status to
+  // REFUNDED. Collected revenue = amount − refundedAmount.
+  refundedAmount        Decimal?          @db.Decimal(10, 2)
   // ── Financial OS ──────────────────────────────────────────────────────
   // Revenue category (memberships, classes, events, products, donations,
   // manual_invoice, cash_payment, sponsorships, other_income …). Null = needs
@@ -1391,16 +1456,17 @@ model Transaction {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
-  club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  member      Member?      @relation(fields: [memberId], references: [id])
-  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
-  plaidConnection PlaidConnection? @relation(fields: [plaidConnectionId], references: [id])
+  club                 Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member               Member?               @relation(fields: [memberId], references: [id])
+  legalEntity          LegalEntity?          @relation(fields: [legalEntityId], references: [id])
+  plaidConnection      PlaidConnection?      @relation(fields: [plaidConnectionId], references: [id])
   campaignAttributions CampaignAttribution[]
 
   @@index([clubId])
   @@index([memberId])
   @@index([legalEntityId])
   @@index([clubId, reconciliationStatus])
+  @@index([eventId])
   @@map("transactions")
 }
 
@@ -1478,12 +1544,23 @@ model Document {
   // every two years, etc.
   signatureValidForDays     Int?
   deliveryTrigger           String    @default("MANUAL") // MANUAL | MEMBERSHIP | EVENT | MESSAGE
+  // Event attachment (lib/eventDocuments.ts). appliesToAllEvents covers every
+  // event — including future ones — until unset; per-event scoping uses
+  // EventDocumentLink rows. eventRequirement is what attachment MEANS:
+  //   INFO           — shown on the event, nothing required
+  //   ACKNOWLEDGE    — registrant must tick acknowledgement to register
+  //   SIGN_REQUIRED  — a valid signature (existing DocumentSignature rules,
+  //                    incl. guardian + expiry) is required before
+  //                    registration and check-in
+  appliesToAllEvents        Boolean   @default(false)
+  eventRequirement          String    @default("INFO")
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
   deletedAt                 DateTime?
 
   club       Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
   signatures DocumentSignature[]
+  eventLinks EventDocumentLink[]
 
   @@index([clubId])
   @@map("documents")
@@ -1493,18 +1570,18 @@ model Document {
 // page and provides idempotency: if a Stripe event ID is seen twice we skip
 // re-processing. Stores the raw payload so failures can be replayed.
 model StripeWebhookEvent {
-  id            String   @id @default(cuid())
-  stripeEventId String   @unique
+  id            String    @id @default(cuid())
+  stripeEventId String    @unique
   type          String
-  livemode      Boolean  @default(false)
+  livemode      Boolean   @default(false)
   // PLATFORM events arrive on the main account; CONNECT events arrive via
   // Stripe Connect on behalf of a connected club account.
-  source        String   @default("PLATFORM") // PLATFORM | CONNECT
+  source        String    @default("PLATFORM") // PLATFORM | CONNECT
   clubId        String?
-  processed     Boolean  @default(false)
+  processed     Boolean   @default(false)
   errorMessage  String?
   payload       Json
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   processedAt   DateTime?
 
   @@index([type])
@@ -1555,17 +1632,17 @@ model StripeReconciliation {
 // Files are served only via /api/files/[id] which scopes by clubId, so URLs
 // are not world-readable like /public/uploads used to be.
 model UploadedFile {
-  id            String   @id @default(cuid())
-  clubId        String
-  uploaderId    String?
-  storageKey    String   @unique // disk filename, not the public URL
-  originalName  String
-  mimeType      String
-  sizeBytes     Int
-  kind          String   @default("IMAGE") // IMAGE | DOCUMENT | OTHER
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  clubId       String
+  uploaderId   String?
+  storageKey   String   @unique // disk filename, not the public URL
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  kind         String   @default("IMAGE") // IMAGE | DOCUMENT | OTHER
+  createdAt    DateTime @default(now())
 
-  club     Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club     Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
   uploader User? @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
 
   @@index([clubId])
@@ -1577,15 +1654,15 @@ model UploadedFile {
 // signerUserId = which logged-in User clicked "I have read and acknowledge".
 // relationship = "SELF" when the member signed for themselves; "GUARDIAN" when a parent/guardian signed for a minor.
 model DocumentSignature {
-  id            String   @id @default(cuid())
-  documentId    String
-  memberId      String
-  signerUserId  String
-  signerName    String
-  relationship  String   @default("SELF") // SELF | GUARDIAN
-  signedAt      DateTime @default(now())
-  ipAddress     String?
-  userAgent     String?
+  id               String   @id @default(cuid())
+  documentId       String
+  memberId         String
+  signerUserId     String
+  signerName       String
+  relationship     String   @default("SELF") // SELF | GUARDIAN
+  signedAt         DateTime @default(now())
+  ipAddress        String?
+  userAgent        String?
   // Drawn-signature image (PNG data URL). Null for legacy / typed-only
   // acknowledgements. Stored inline so it works for both authenticated portal
   // signing and the public onboarding/activation flow (no auth-gated upload).
@@ -1602,30 +1679,30 @@ model DocumentSignature {
 }
 
 model Expense {
-  id            String   @id @default(cuid())
-  clubId        String
-  description   String
-  amount        Decimal  @db.Decimal(10, 2)
-  category      String   @default("OTHER")
+  id                String   @id @default(cuid())
+  clubId            String
+  description       String
+  amount            Decimal  @db.Decimal(10, 2)
+  category          String   @default("OTHER")
   // FIXED = same amount every period (rent, insurance, software). VARIABLE =
   // fluctuates (gear, travel, meals). null = unclassified.
-  kind          String?
-  date          DateTime @default(now())
-  isRecurring   Boolean  @default(false)
-  notes         String?
+  kind              String?
+  date              DateTime @default(now())
+  isRecurring       Boolean  @default(false)
+  notes             String?
   // ── Financial OS ────────────────────────────────────────────────────────
-  vendor        String?
+  vendor            String?
   // CASH | CARD | BANK | CHECK | OTHER
-  paymentMethod String?
-  legalEntityId String?
-  reimbursable  Boolean  @default(false)
+  paymentMethod     String?
+  legalEntityId     String?
+  reimbursable      Boolean  @default(false)
   // Receipt: private file URL from /api/upload (type=document) or null.
-  receiptUrl    String?
+  receiptUrl        String?
   // Optional FK to the PlaidConnection this expense came out of. Lets
   // financials/reports filter by bank account.
   plaidConnectionId String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   club            Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
   legalEntity     LegalEntity?     @relation(fields: [legalEntityId], references: [id])
@@ -1924,6 +2001,68 @@ model StaffAvailabilityException {
   @@map("staff_availability_exceptions")
 }
 
+// Event payroll: who works an event (staff OR a guest clinician on file as a
+// Contractor) and how they're paid for it. Never moves money — "generate
+// payouts" turns each assignment into a PENDING Payout row that the owner
+// reviews and marks paid through the existing payouts workflow.
+model EventCompAssignment {
+  id           String   @id @default(cuid())
+  clubId       String
+  eventId      String
+  // STAFF (userId set) | CONTRACTOR (contractorId set — guest clinicians)
+  payeeType    String   @default("STAFF")
+  userId       String?
+  contractorId String?
+  // Denormalized display name so the record survives staff/contractor changes.
+  payeeName    String
+  // FLAT (flatAmount $) | PERCENT (percent% of event revenue) | NONE
+  // (informational — listed on the event, no pay record).
+  compMethod   String   @default("NONE")
+  flatAmount   Decimal? @db.Decimal(10, 2)
+  percent      Decimal? @db.Decimal(5, 2)
+  // What PERCENT is computed from (lib/eventComp.ts is the math):
+  //   GROSS_COLLECTED — money actually collected: after discounts, after
+  //                     refunds/chargebacks, before processing fees.
+  //   NET_COLLECTED   — gross minus known processing fees.
+  // Pending cash/check, failed and abandoned payments never count in either.
+  basis        String   @default("GROSS_COLLECTED")
+  notes        String?
+  // Set once a Payout row has been generated for this assignment — the
+  // never-pay-twice guard.
+  payoutId     String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  club       Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  @@index([clubId])
+  @@index([eventId])
+  @@map("event_comp_assignments")
+}
+
+// Attach an existing Document to specific events. "All events" lives on the
+// Document itself (appliesToAllEvents) so it automatically covers future
+// events; these links are only for one-event / selected-events scoping.
+model EventDocumentLink {
+  id         String   @id @default(cuid())
+  clubId     String
+  documentId String
+  eventId    String
+  createdAt  DateTime @default(now())
+
+  club     Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, eventId])
+  @@index([clubId])
+  @@index([eventId])
+  @@map("event_document_links")
+}
+
 model EventStaffAssignment {
   id      String @id @default(cuid())
   clubId  String
@@ -1978,31 +2117,31 @@ model PrivateLessonType {
 }
 
 model PrivatePackage {
-  id               String    @id @default(cuid())
-  clubId           String
-  lessonTypeId     String? // null = applies to all lesson types
+  id                 String    @id @default(cuid())
+  clubId             String
+  lessonTypeId       String? // null = applies to all lesson types
   // New multi-select package eligibility. Empty/null means all lesson types.
   // Back-compat: legacy lessonTypeId is still honored when this list is empty.
-  lessonTypeIds    Json      @default("[]")
-  title            String
-  description      String?
-  credits          Int // lessons included
-  bonusCredits     Int       @default(0) // e.g. buy 10 get 1 free
+  lessonTypeIds      Json      @default("[]")
+  title              String
+  description        String?
+  credits            Int // lessons included
+  bonusCredits       Int       @default(0) // e.g. buy 10 get 1 free
   // Pricing model:
   //   FLAT    → `price` is the total prepaid cost for `credits` lessons (legacy).
   //   PERCENT → `discountValue` % off each lesson's tier price; total computed at
   //             purchase based on the chosen lesson type / coach tier price.
   //   FIXED   → `discountValue` $ off each lesson's tier price.
-  pricingMode      String    @default("FLAT")
-  discountValue    Decimal?  @db.Decimal(10, 2)
-  price            Decimal   @db.Decimal(10, 2)
-  expiresAfterDays Int? // days after purchase; null = no expiry
-  active           Boolean   @default(true)
+  pricingMode        String    @default("FLAT")
+  discountValue      Decimal?  @db.Decimal(10, 2)
+  price              Decimal   @db.Decimal(10, 2)
+  expiresAfterDays   Int? // days after purchase; null = no expiry
+  active             Boolean   @default(true)
   // Owner gate for the member-facing package shop. Defaults to false so
   // existing packages stay owner-only until each one is explicitly
   // published — no surprise public exposure on deploy.
-  publishedToMembers Boolean @default(false)
-  deletedAt        DateTime?
+  publishedToMembers Boolean   @default(false)
+  deletedAt          DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2082,11 +2221,11 @@ model PrivateBooking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  club         Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  member       Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  lessonType   PrivateLessonType    @relation(fields: [lessonTypeId], references: [id])
-  coach        User?                @relation("CoachBookings", fields: [coachId], references: [id])
-  creditLedger PrivateCreditLedger? @relation(fields: [creditLedgerId], references: [id])
+  club         Club                    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member       Member                  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  lessonType   PrivateLessonType       @relation(fields: [lessonTypeId], references: [id])
+  coach        User?                   @relation("CoachBookings", fields: [coachId], references: [id])
+  creditLedger PrivateCreditLedger?    @relation(fields: [creditLedgerId], references: [id])
   partners     PrivateBookingPartner[]
 
   @@index([clubId])
@@ -2183,7 +2322,7 @@ model StaffCompensation {
   clubId     String
   userId     String   @unique
   baseType   String   @default("HOURLY") // SALARY | PER_CLASS | HOURLY
-  baseAmount Decimal   @default(0) @db.Decimal(10, 2)
+  baseAmount Decimal  @default(0) @db.Decimal(10, 2)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -2214,8 +2353,9 @@ model Contractor {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  club     Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  payments ContractorPayment[]
+  club           Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  payments       ContractorPayment[]
+  eventCompRoles EventCompAssignment[]
 
   @@index([clubId])
   @@map("contractors")
@@ -2301,8 +2441,8 @@ model CompensationAssignment {
   id             String  @id @default(cuid())
   compensationId String
   bonusId        String? // null = scopes the base component; set = scopes that bonus
-  scopeType      String  // CLASS | EVENT | MEMBERSHIP | PRIVATE_LESSON_TYPE
-  scopeId        String  // RecurringClass / Event / Membership / PrivateLessonType id
+  scopeType      String // CLASS | EVENT | MEMBERSHIP | PRIVATE_LESSON_TYPE
+  scopeId        String // RecurringClass / Event / Membership / PrivateLessonType id
 
   compensation StaffCompensation  @relation(fields: [compensationId], references: [id], onDelete: Cascade)
   bonus        CompensationBonus? @relation(fields: [bonusId], references: [id], onDelete: Cascade)
@@ -2359,13 +2499,13 @@ model RecurringClass {
 }
 
 model ClassSession {
-  id        String   @id @default(cuid())
-  classId   String
-  clubId    String
-  date      DateTime
-  startsAt  DateTime
-  endsAt    DateTime
-  canceled  Boolean  @default(false)
+  id            String   @id @default(cuid())
+  classId       String
+  clubId        String
+  date          DateTime
+  startsAt      DateTime
+  endsAt        DateTime
+  canceled      Boolean  @default(false)
   // Per-occurrence overrides. null = inherit the RecurringClass.
   //   staffOverride: userId[] just for this session (substitute / replacement
   //                  coach). [] means "explicitly nobody". null = inherit
@@ -2376,7 +2516,7 @@ model ClassSession {
   staffOverride Json?
   note          String?
   overridden    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  createdAt     DateTime @default(now())
 
   recurringClass RecurringClass     @relation(fields: [classId], references: [id], onDelete: Cascade)
   club           Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)

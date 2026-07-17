@@ -13,6 +13,13 @@ export async function GET() {
   const docs = await prisma.document.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },
     orderBy: { createdAt: "desc" },
+    // Which events each document is attached to (for the "linked events"
+    // display; All-Events docs list none here — the flag says it all).
+    include: {
+      eventLinks: {
+        select: { eventId: true, event: { select: { id: true, name: true, startsAt: true } } },
+      },
+    },
   });
 
   return NextResponse.json(docs);
@@ -30,6 +37,8 @@ const createSchema = z.object({
   deliveryTrigger: z.enum(["MANUAL", "MEMBERSHIP", "EVENT", "MESSAGE"]).default("MANUAL"),
   expiresAt: z.string().nullable().optional(),
   signatureValidForDays: z.number().int().positive().nullable().optional(),
+  appliesToAllEvents: z.boolean().default(false),
+  eventRequirement: z.enum(["INFO", "ACKNOWLEDGE", "SIGN_REQUIRED"]).default("INFO"),
 });
 
 export async function POST(req: Request) {

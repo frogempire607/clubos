@@ -110,6 +110,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!txId) {
     const created = await createEventOfflinePendingTx({
       clubId,
+      eventId,
       memberId: reg.memberId,
       amount: due,
       method: finalMethod,

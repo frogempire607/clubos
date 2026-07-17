@@ -35,6 +35,7 @@ type PublicEvent = {
   capacityReached: boolean;
   registrationOpen: boolean;
   paymentMethods?: string[];
+  documents?: { id: string; title: string; type: string; body: string | null; requirement: string }[];
 };
 
 // What each public payment choice means to the registrant. AUTO_CARD is
@@ -60,6 +61,7 @@ export default function PublicEventPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<null | { message: string }>(null);
   const [payMethod, setPayMethod] = useState<string>("");
+  const [docsAcknowledged, setDocsAcknowledged] = useState(false);
 
   const justRegistered = searchParams.get("registered") === "true";
   const justPaid = searchParams.get("paid") === "true";
@@ -90,11 +92,17 @@ export default function PublicEventPage() {
   // Only ask how they'll pay when money is actually owed at registration.
   const payOptions = (event?.paymentMethods ?? []).filter((m) => PAY_CHOICES[m]);
   const needsPayChoice = !!event && (event.price ?? 0) > 0 && payOptions.length > 0;
+  const eventDocs = event?.documents ?? [];
+  const gatedDocs = eventDocs.filter((d) => d.requirement !== "INFO");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (needsPayChoice && !payMethod) {
       setError("Please choose how you'd like to pay.");
+      return;
+    }
+    if (gatedDocs.length > 0 && !docsAcknowledged) {
+      setError("Please review and acknowledge the event documents.");
       return;
     }
     setSubmitting(true);
@@ -108,6 +116,7 @@ export default function PublicEventPage() {
         phone: phone || null,
         formResponses: responses,
         ...(needsPayChoice ? { paymentMethod: payMethod } : {}),
+        ...(gatedDocs.length > 0 ? { acknowledgeDocuments: docsAcknowledged } : {}),
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -366,6 +375,42 @@ export default function PublicEventPage() {
                 )}
               </div>
             ))}
+
+            {eventDocs.length > 0 && (
+              <div className="pt-1">
+                <p className="text-sm font-medium text-stone-900 mb-1">Event documents</p>
+                <div className="space-y-2">
+                  {eventDocs.map((d) => (
+                    <details key={d.id} className="border border-stone-200 rounded-lg p-3">
+                      <summary className="text-sm text-stone-900 cursor-pointer">
+                        {d.title}
+                        <span className="ml-2 text-[11px] text-stone-500">
+                          {d.requirement === "INFO" ? "for your information" : "acknowledgement required"}
+                        </span>
+                      </summary>
+                      {d.body ? (
+                        <div className="doc-prose mt-2 text-sm" dangerouslySetInnerHTML={{ __html: d.body }} />
+                      ) : (
+                        <p className="mt-2 text-xs text-stone-500">See the club for the full document.</p>
+                      )}
+                    </details>
+                  ))}
+                </div>
+                {gatedDocs.length > 0 && (
+                  <label className="flex items-start gap-2.5 mt-2 p-3 rounded-lg bg-stone-50 border border-stone-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={docsAcknowledged}
+                      onChange={(e) => setDocsAcknowledged(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-xs text-stone-700">
+                      I have read and acknowledge: {gatedDocs.map((d) => d.title).join(", ")}.
+                    </span>
+                  </label>
+                )}
+              </div>
+            )}
 
             {needsPayChoice && (
               <div className="pt-1">

@@ -18,6 +18,11 @@ const updateSchema = z.object({
   publishAt: z.string().nullable().optional(),
   unpublishAt: z.string().nullable().optional(),
   signatureValidForDays: z.number().int().positive().nullable().optional(),
+  // Event attachment (lib/eventDocuments.ts): All-Events auto-applies to
+  // future events; eventRequirement is what attachment means (INFO |
+  // ACKNOWLEDGE | SIGN_REQUIRED).
+  appliesToAllEvents: z.boolean().optional(),
+  eventRequirement: z.enum(["INFO", "ACKNOWLEDGE", "SIGN_REQUIRED"]).optional(),
 });
 
 async function getDoc(id: string, clubId: string) {

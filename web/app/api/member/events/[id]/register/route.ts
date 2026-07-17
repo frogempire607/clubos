@@ -22,6 +22,10 @@ import {
   type EventPaymentMethod,
 } from "@/lib/eventPayments";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
+import { missingSignedEventDocs, acknowledgementDocs, documentsForEvent, EVENT_DOC_REQUIREMENT_LABELS } from "@/lib/eventDocuments";
+import { chargeEventRegistration } from "@/lib/eventAutoCharge";
+import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
+import { applyProcessingFee } from "@/lib/fees";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -68,12 +72,15 @@ const schema = z.object({
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
   // The registrant's payment decision, when the event offers a choice.
-  paymentMethod: z.enum(["CARD", "AUTO_CARD", "CASH", "CHECK"]).optional(),
+  paymentMethod: z.enum(["CARD", "SAVED_CARD", "AUTO_CARD", "CASH", "CHECK"]).optional(),
   // AUTO_CARD only: the exact consent the client agreed to. Required so the
   // stored audit reflects what they actually saw on the button.
   autoChargeConsent: z
     .object({ agreed: z.literal(true), buttonLabel: z.string().max(200).optional() })
     .optional(),
+  // Set once the client has ticked acknowledgement for the event's
+  // ACKNOWLEDGE-level documents.
+  acknowledgeDocuments: z.boolean().optional(),
 });
 
 async function resolveBookingMember(args: {
@@ -117,7 +124,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many registration attempts. Try again in a moment.");
 
   try {
-    const { pricingType, memberId, discountCode, paymentMethod, autoChargeConsent } = schema.parse(
+    const { pricingType, memberId, discountCode, paymentMethod, autoChargeConsent, acknowledgeDocuments } = schema.parse(
       await req.json().catch(() => ({})),
     );
 
@@ -165,6 +172,56 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       where: { eventId_memberId: { eventId: event.id, memberId: member.id } },
     });
     if (existing) return NextResponse.json({ error: "You're already registered for this event." }, { status: 409 });
+
+    // ── Event documents ─────────────────────────────────────────────────────
+    // Enforced before ANY registration path (membership-covered, free, paid):
+    // SIGN_REQUIRED docs need a valid signature (existing signing flow,
+    // guardian + expiry rules included); ACKNOWLEDGE docs need an explicit
+    // tick, recorded as a typed acknowledgement in the same audit trail.
+    const missingDocs = await missingSignedEventDocs(session.user.clubId, event.id, member.id);
+    if (missingDocs.length > 0) {
+      return NextResponse.json(
+        {
+          error: "DOCUMENTS_REQUIRED",
+          documents: missingDocs,
+          message: `Before registering, please sign: ${missingDocs.map((d) => d.title).join(", ")}. You can sign in Documents.`,
+        },
+        { status: 403 },
+      );
+    }
+    const ackDocs = await acknowledgementDocs(session.user.clubId, event.id);
+    if (ackDocs.length > 0) {
+      if (!acknowledgeDocuments) {
+        return NextResponse.json(
+          {
+            error: "DOCUMENTS_ACKNOWLEDGE_REQUIRED",
+            documents: ackDocs,
+            message: `Please acknowledge: ${ackDocs.map((d) => d.title).join(", ")}.`,
+          },
+          { status: 400 },
+        );
+      }
+      // Record the acknowledgement with the same machinery as signatures so
+      // the owner's audit modal shows who acknowledged what, when, from where.
+      const signerName = `${member.firstName} ${member.lastName ?? ""}`.trim();
+      for (const d of ackDocs) {
+        await prisma.documentSignature
+          .upsert({
+            where: { documentId_memberId: { documentId: d.id, memberId: member.id } },
+            create: {
+              documentId: d.id,
+              memberId: member.id,
+              signerUserId: session.user.id,
+              signerName,
+              relationship: member.userId === session.user.id ? "SELF" : "GUARDIAN",
+              ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+              userAgent: req.headers.get("user-agent") ?? null,
+            },
+            update: {},
+          })
+          .catch((e) => console.error("event doc acknowledgement record failed", e));
+      }
+    }
 
     const acceptedMembershipIds = (
       (event.pricingOptions as unknown as Array<{ type: string; membershipId?: string }> | null) || []
@@ -398,7 +455,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const registrantName = `${member.firstName} ${member.lastName ?? ""}`.trim();
 
     let savedCardAvailable = false;
-    if (allowed.includes("AUTO_CARD")) {
+    if (allowed.includes("AUTO_CARD") || allowed.includes("CARD")) {
       const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
       savedCardAvailable = !!(await resolveChargeablePaymentMethodId(
         customerId,
@@ -406,14 +463,53 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         member.stripeSetupPaymentMethodId,
       ));
     }
-    // A method the client can actually complete right now.
-    const selectable = allowed.filter((m) => (m === "AUTO_CARD" ? savedCardAvailable : true));
+    // Methods the client can actually complete right now. SAVED_CARD (pay now
+    // with the card on file) rides on CARD permission + a verified saved card.
+    const selectable: string[] = [
+      ...(allowed.includes("CARD") && savedCardAvailable ? ["SAVED_CARD"] : []),
+      ...allowed.filter((m) => (m === "AUTO_CARD" ? savedCardAvailable : true)),
+    ];
 
-    const chosen: EventPaymentMethod | null =
-      paymentMethod ?? (selectable.length === 1 ? selectable[0] : selectable.includes("CARD") ? "CARD" : null);
+    // A payment decision is required whenever there's more than one way to
+    // pay. The old code defaulted to CARD here, which sent members straight to
+    // Stripe without ever seeing the choice.
+    const chosen: EventPaymentMethod | "SAVED_CARD" | null =
+      paymentMethod ?? (selectable.length === 1 ? (selectable[0] as EventPaymentMethod) : null);
     if (!chosen) {
+      // Exact totals per method so the client confirms the real number: card
+      // methods include the processing fee when the club passes it; cash and
+      // check owe the sticker price.
+      const fee = applyProcessingFee(priceCents, club.passProcessingFees);
+      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
+      const card = savedCardAvailable ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
+      const [allDocs, missingSign, ackDocs2] = await Promise.all([
+        documentsForEvent(session.user.clubId, event.id),
+        missingSignedEventDocs(session.user.clubId, event.id, member.id),
+        acknowledgementDocs(session.user.clubId, event.id),
+      ]);
+      const missingIds = new Set(missingSign.map((d) => d.id));
+      const ackIds = new Set(ackDocs2.map((d) => d.id));
       return NextResponse.json(
-        { error: "PAYMENT_METHOD_REQUIRED", message: "Choose how you'd like to pay.", options: selectable },
+        {
+          error: "PAYMENT_METHOD_REQUIRED",
+          message: "Choose how you'd like to pay.",
+          options: selectable,
+          quote: {
+            base: price,
+            cardFee: fee.feeCents / 100,
+            cardTotal: fee.totalCents / 100,
+            offlineTotal: price,
+          },
+          savedCard: card ? { label: `${prettyBrand(card.brand)} ····${card.last4}` } : null,
+          documents: allDocs.map((d) => ({
+            id: d.id,
+            title: d.title,
+            requirement: d.requirement,
+            requirementLabel: EVENT_DOC_REQUIREMENT_LABELS[d.requirement],
+            needsSignature: missingIds.has(d.id),
+            needsAcknowledgement: ackIds.has(d.id),
+          })),
+        },
         { status: 400 },
       );
     }
@@ -421,7 +517,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const reason =
         chosen === "AUTO_CARD" && allowed.includes("AUTO_CARD")
           ? "You don't have a saved card yet — add one in your profile, or choose another way to pay."
-          : `${EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`;
+          : `${chosen === "SAVED_CARD" ? "Paying now with a saved card" : EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`;
       return NextResponse.json({ error: "PAYMENT_METHOD_NOT_ALLOWED", message: reason }, { status: 400 });
     }
 
@@ -435,60 +531,119 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const regPhone = member.phone ?? null;
     const upsertRegistration = async (data: {
       status: string;
-      method: EventPaymentMethod;
+      method: EventPaymentMethod | "SAVED_CARD";
       scheduledChargeAt?: Date | null;
       consent?: Prisma.InputJsonValue;
-    }) => {
-      const existing = await prisma.eventRegistration.findFirst({
-        where: { eventId: regEventId, memberId: regMemberId, status: { not: "CANCELED" } },
-        select: { id: true, status: true, transactionId: true },
-      });
-      // Never re-open a settled registration: replacing a PAID row's payment
-      // decision would ask for money that's already been collected.
-      if (existing?.status === "PAID") return existing;
-      const fields = {
-        status: data.status,
-        paymentMethod: data.method,
-        amountDue: price,
-        scheduledChargeAt: data.scheduledChargeAt ?? null,
-        ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
-      };
-      if (existing) {
-        // This row's payment decision is being replaced (e.g. they registered
-        // for cash earlier and are now choosing the saved card). Void the
-        // PENDING offline row first — otherwise it's orphaned: unreachable
-        // from any registration, permanently PENDING, and permanently
-        // inflating "money owed". Same rule the webhook applies when a cash
-        // registrant pays online instead.
-        if (existing.transactionId) {
-          await prisma.transaction
-            .updateMany({
+    }) =>
+      // event_registrations has NO unique on (eventId, memberId) — historical
+      // public rows can legitimately duplicate. So this select-then-write is
+      // serialized with a transaction-scoped advisory lock instead: without
+      // it, a double-click on "Pay now with saved card" creates TWO SCHEDULED
+      // rows, and two registrations means two idempotency keys — a real
+      // double charge. With the lock both clicks converge on one row (and the
+      // charge engine's PI dedupe covers the rest).
+      prisma.$transaction(async (db) => {
+        await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evreg:${regEventId}:${regMemberId}`}, 0))`;
+        const existing = await db.eventRegistration.findFirst({
+          where: { eventId: regEventId, memberId: regMemberId, status: { not: "CANCELED" } },
+          select: { id: true, status: true, transactionId: true },
+        });
+        // Never re-open a settled registration: replacing a PAID row's payment
+        // decision would ask for money that's already been collected.
+        if (existing?.status === "PAID") return existing;
+        const fields = {
+          status: data.status,
+          paymentMethod: data.method,
+          amountDue: price,
+          scheduledChargeAt: data.scheduledChargeAt ?? null,
+          ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
+        };
+        if (existing) {
+          // This row's payment decision is being replaced (e.g. they registered
+          // for cash earlier and are now choosing the saved card). Void the
+          // PENDING offline row first — otherwise it's orphaned: unreachable
+          // from any registration, permanently PENDING, and permanently
+          // inflating "money owed". Same rule the webhook applies when a cash
+          // registrant pays online instead.
+          if (existing.transactionId) {
+            await db.transaction.updateMany({
               where: { id: existing.transactionId, clubId: regClubId, status: "PENDING" },
               data: {
                 status: "FAILED",
                 reconciliationStatus: "VOID",
                 notes: "Superseded — the registrant changed how they're paying.",
               },
-            })
-            .catch((e) => console.error("event reg supersede void failed", e));
+            });
+          }
+          return db.eventRegistration.update({
+            where: { id: existing.id },
+            data: { ...fields, transactionId: null },
+          });
         }
-        return prisma.eventRegistration.update({
-          where: { id: existing.id },
-          data: { ...fields, transactionId: null },
+        return db.eventRegistration.create({
+          data: {
+            eventId: regEventId,
+            clubId: regClubId,
+            memberId: regMemberId,
+            name: registrantName,
+            email: regEmail,
+            phone: regPhone,
+            ...fields,
+          },
         });
-      }
-      return prisma.eventRegistration.create({
-        data: {
-          eventId: regEventId,
-          clubId: regClubId,
-          memberId: regMemberId,
-          name: registrantName,
-          email: regEmail,
-          phone: regPhone,
-          ...fields,
-        },
       });
-    };
+
+    // ── Pay now with the saved card ─────────────────────────────────────────
+    // The client explicitly confirmed the exact total on the button. Reuses
+    // the scheduled-charge engine with "now" as the date — same idempotency
+    // key discipline, same VERIFIED Transaction, same receipt + audit. The
+    // Booking is created ONLY after Stripe confirms: a failed charge books
+    // nothing and marks nothing paid.
+    if (chosen === "SAVED_CARD") {
+      const reg = await upsertRegistration({
+        status: "SCHEDULED",
+        method: "SAVED_CARD",
+        scheduledChargeAt: new Date(),
+        // Not a consent record (the click IS the confirmation) — this carries
+        // the discount identity the charge engine stamps onto the Transaction.
+        consent: discount ? { kind: "SAVED_CARD_NOW", discountCode: discount.code } : { kind: "SAVED_CARD_NOW" },
+      });
+      if (reg.status === "PAID") {
+        return NextResponse.json({ error: "This registration is already paid." }, { status: 409 });
+      }
+      const result = await chargeEventRegistration(reg.id);
+      if (result.outcome !== "succeeded") {
+        return NextResponse.json(
+          {
+            error: "CHARGE_FAILED",
+            outcome: result.outcome,
+            message:
+              result.outcome === "processing"
+                ? "Your payment is processing — check back shortly."
+                : result.error || "The card charge didn't go through. Choose another way to pay.",
+          },
+          { status: result.outcome === "processing" ? 202 : 402 },
+        );
+      }
+      const bookingStatus =
+        event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      try {
+        await prisma.booking.create({
+          data: { eventId: event.id, memberId: member.id, status: bookingStatus },
+        });
+      } catch {
+        // Unique (eventId, memberId) — a concurrent request already booked it.
+      }
+      // Redemption is counted inside the charge engine, gated on Transaction
+      // creation — route-level counting here double-counted when two
+      // concurrent confirms both saw the replayed PaymentIntent succeed.
+      return NextResponse.json({
+        ok: true,
+        paid: true,
+        status: bookingStatus,
+        message: `Paid — you're ${bookingStatus === "WAITLISTED" ? "on the waitlist" : "registered"}. A receipt is on its way.`,
+      });
+    }
 
     if (chosen === "AUTO_CARD" || chosen === "CASH" || chosen === "CHECK") {
       if (chosen === "AUTO_CARD" && !autoChargeConsent?.agreed) {
@@ -566,6 +721,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const reg = await upsertRegistration({ status: offlineStatusForMethod(chosen), method: chosen });
       const tx = await createEventOfflinePendingTx({
         clubId: session.user.clubId,
+        eventId: event.id,
         memberId: member.id,
         amount: price,
         method: chosen,

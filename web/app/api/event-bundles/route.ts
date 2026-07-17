@@ -32,6 +32,9 @@ const createSchema = z.object({
   price: z.number().nonnegative(),
   published: z.boolean().default(false),
   eventIds: z.array(z.string()).default([]),
+  // Payment methods buyers may choose (lib/bundlePurchases.ts). null/empty =
+  // card only. Saved-card pay-now is offered automatically with CARD.
+  paymentMethods: z.array(z.enum(["CARD", "CASH", "CHECK", "PAY_LATER"])).optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -59,6 +62,7 @@ export async function POST(req: Request) {
         description: data.description?.trim() || null,
         price: data.price,
         published: data.published,
+        paymentMethods: data.paymentMethods ?? undefined,
         items: { create: validIds.map((eventId) => ({ eventId })) },
       },
       include: { items: true },
