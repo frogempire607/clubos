@@ -11,6 +11,11 @@ import {
 } from "@/lib/eventPayments";
 import { publicFixedPrice } from "@/lib/eventPricing";
 
+// The lazy charge sweep below talks to Stripe, so this GET can outlive the
+// default serverless limit. It stays deliberately small (see the sweep call) —
+// /api/cron/event-charges is the path built for volume.
+export const maxDuration = 60;
+
 // GET /api/events/[id]/registrations
 // Owner/staff: list everyone who signed up (public link or matched member),
 // with form answers, payment status, and per-registrant invoice tracking.
@@ -47,9 +52,12 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Lazy sweep: with no cron in the app, opening the roster is one of the
-  // moments a due event-day charge actually runs. Never blocks the response
-  // on failure (runDueEventCharges swallows its own errors).
-  await runDueEventCharges({ clubId: session.user.clubId, eventId: event.id, limit: 10 });
+  // moments a due event-day charge actually runs. Never blocks the response on
+  // failure (runDueEventCharges swallows its own errors). Capped low on
+  // purpose — each charge is a round trip to Stripe, and staff opening a roster
+  // shouldn't wait on a long queue. Whatever's left is picked up by the next
+  // open or by /api/cron/event-charges.
+  await runDueEventCharges({ clubId: session.user.clubId, eventId: event.id, limit: 3 });
 
   const registrations = await prisma.eventRegistration.findMany({
     where: { eventId: event.id },
