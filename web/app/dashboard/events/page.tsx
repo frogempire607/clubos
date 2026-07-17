@@ -148,6 +148,8 @@ export default function EventsPage() {
   const [editing, setEditing] = useState<Event | null>(null);
   const [viewingBookings, setViewingBookings] = useState<string | null>(null);
   const [viewingRegistrations, setViewingRegistrations] = useState<string | null>(null);
+  const [viewingComp, setViewingComp] = useState<string | null>(null);
+  const [viewingDocs, setViewingDocs] = useState<string | null>(null);
   const [showManageTypes, setShowManageTypes] = useState(false);
   const [filter, setFilter] = useState<"upcoming" | "past" | "all">("upcoming");
   const [builtInOverrides, setBuiltInOverrides] = useState<BuiltInOverrides>(null);
@@ -455,6 +457,18 @@ export default function EventsPage() {
                       </button>
                     )}
                     <button
+                      onClick={() => setViewingComp(e.id)}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                    >
+                      Payroll
+                    </button>
+                    <button
+                      onClick={() => setViewingDocs(e.id)}
+                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                    >
+                      Documents
+                    </button>
+                    <button
                       onClick={() => setViewingBookings(e.id)}
                       className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
                     >
@@ -533,6 +547,18 @@ export default function EventsPage() {
                         </button>
                       )}
                       <button
+                        onClick={() => { setActionMenuFor(null); setViewingComp(e.id); }}
+                        className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                      >
+                        Payroll
+                      </button>
+                      <button
+                        onClick={() => { setActionMenuFor(null); setViewingDocs(e.id); }}
+                        className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                      >
+                        Documents
+                      </button>
+                      <button
                         onClick={() => { setActionMenuFor(null); setViewingBookings(e.id); }}
                         className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
                       >
@@ -585,6 +611,8 @@ export default function EventsPage() {
       {viewingBookings && <BookingsModal eventId={viewingBookings} onClose={() => { setViewingBookings(null); load(); }} />}
 
       {viewingRegistrations && <RegistrationsModal eventId={viewingRegistrations} onClose={() => { setViewingRegistrations(null); load(); }} />}
+      {viewingComp && <EventCompModal eventId={viewingComp} onClose={() => setViewingComp(null)} />}
+      {viewingDocs && <EventDocsModal eventId={viewingDocs} onClose={() => setViewingDocs(null)} />}
 
       {showManageTypes && clubMeta && (
         <ManageTypesModal
@@ -2480,6 +2508,339 @@ function EventImageFocalPicker({
         Click or drag inside the preview to set the part of the image that should
         stay visible on the public registration page.
       </p>
+    </div>
+  );
+}
+
+
+// ── Event payroll (staff + guest clinicians) ─────────────────────────────────
+// Config + live estimates from /api/events/[id]/comp; "Create payout records"
+// turns assignments into PENDING Payout rows reviewed on the payouts page.
+type CompAssignmentRow = {
+  id?: string;
+  payeeType: "STAFF" | "CONTRACTOR";
+  userId?: string | null;
+  contractorId?: string | null;
+  payeeName?: string;
+  compMethod: "FLAT" | "PERCENT" | "NONE";
+  flatAmount?: number | null;
+  percent?: number | null;
+  basis: "GROSS_COLLECTED" | "NET_COLLECTED";
+  estimatedPayout?: number | null;
+  payout?: { id: string; status: string; amount: number } | null;
+};
+
+function EventCompModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
+  const [data, setData] = useState<{
+    event: { name: string; compNoRefunds: boolean; startsAt: string };
+    revenue: { gross: number; net: number; refunded: number; fees: number; countedTransactions: number };
+    eventOver: boolean;
+    assignments: CompAssignmentRow[];
+    staff: { id: string; firstName: string; lastName: string }[];
+    contractors: { id: string; name: string; role: string | null }[];
+  } | null>(null);
+  const [rows, setRows] = useState<CompAssignmentRow[]>([]);
+  const [noRefunds, setNoRefunds] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  function load() {
+    fetch(`/api/events/${eventId}/comp`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) { setErr("You need Finances access to manage event pay."); return; }
+        setData(d);
+        setRows(d.assignments);
+        setNoRefunds(!!d.event.compNoRefunds);
+      });
+  }
+  useEffect(() => { load(); }, [eventId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function save() {
+    setBusy(true); setErr(""); setMsg("");
+    const res = await fetch(`/api/events/${eventId}/comp`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        compNoRefunds: noRefunds,
+        assignments: rows.map((r) => ({
+          id: r.id,
+          payeeType: r.payeeType,
+          userId: r.userId ?? null,
+          contractorId: r.contractorId ?? null,
+          compMethod: r.compMethod,
+          flatAmount: r.compMethod === "FLAT" ? Number(r.flatAmount) || 0 : null,
+          percent: r.compMethod === "PERCENT" ? Number(r.percent) || 0 : null,
+          basis: r.basis,
+        })),
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setErr(d.error || "Could not save."); return; }
+    setData((prev) => (prev ? { ...prev, ...d } : prev));
+    setRows(d.assignments);
+    setMsg("Saved.");
+  }
+
+  async function generatePayouts() {
+    if (!window.confirm("Create pending payout records for everyone below? Amounts are computed from revenue collected so far. Nothing is sent — you review and mark paid on the Payouts page.")) return;
+    setBusy(true); setErr(""); setMsg("");
+    const res = await fetch(`/api/events/${eventId}/comp/generate-payouts`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setErr(d.error || "Could not create payout records."); return; }
+    setMsg(`${d.created} payout record(s) created${d.skippedExisting ? ` · ${d.skippedExisting} already existed` : ""}${d.skippedZero ? ` · ${d.skippedZero} skipped ($0)` : ""}. Review them on Staff → Payroll / Payouts.`);
+    load();
+  }
+
+  const rev = data?.revenue;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-app-border">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Event payroll</h2>
+            {data && <p className="text-xs text-text-muted">{data.event.name}</p>}
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+        </div>
+        <div className="p-6 space-y-4">
+          {!data && !err && <SkeletonList rows={3} />}
+          {err && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{err}</p>}
+          {data && rev && (
+            <>
+              <div className="bg-app-bg border border-app-border rounded-lg p-4 text-xs text-text-muted space-y-1">
+                <p className="text-sm text-text-primary font-semibold">
+                  Collected so far: ${rev.gross.toFixed(2)} gross · ${rev.net.toFixed(2)} net
+                </p>
+                <p>
+                  Gross = actually collected (after discounts{noRefunds ? "; refunds ignored — no-refunds policy" : ` and $${rev.refunded.toFixed(2)} of refunds`}), before processing fees.
+                  Net = gross − ${rev.fees.toFixed(2)} in known fees. Pending cash/check and unfinished checkouts never count.
+                </p>
+                <label className="flex items-center gap-2 pt-1 cursor-pointer text-text-primary">
+                  <input type="checkbox" checked={noRefunds} onChange={(e) => setNoRefunds(e.target.checked)} />
+                  NO REFUNDS policy — pay percentages on everything collected, even if later refunded
+                </label>
+              </div>
+
+              {rows.map((r, i) => (
+                <div key={r.id ?? `new-${i}`} className="border border-app-border rounded-lg p-3 space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <select
+                      value={`${r.payeeType}:${r.payeeType === "STAFF" ? r.userId ?? "" : r.contractorId ?? ""}`}
+                      onChange={(e) => {
+                        const [t, pid] = e.target.value.split(":");
+                        setRows((prev) => prev.map((x, j) => j === i
+                          ? { ...x, payeeType: t as "STAFF" | "CONTRACTOR", userId: t === "STAFF" ? pid : null, contractorId: t === "CONTRACTOR" ? pid : null }
+                          : x));
+                      }}
+                      className="px-3 py-2 border border-app-border rounded-lg text-sm"
+                    >
+                      <option value={`${r.payeeType}:`}>Choose a person…</option>
+                      <optgroup label="Staff">
+                        {data.staff.map((u) => (
+                          <option key={u.id} value={`STAFF:${u.id}`}>{u.firstName} {u.lastName}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Guest clinicians / contractors">
+                        {data.contractors.map((c) => (
+                          <option key={c.id} value={`CONTRACTOR:${c.id}`}>{c.name}{c.role ? ` — ${c.role}` : ""}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <select
+                      value={r.compMethod}
+                      onChange={(e) => setRows((prev) => prev.map((x, j) => (j === i ? { ...x, compMethod: e.target.value as CompAssignmentRow["compMethod"] } : x)))}
+                      className="px-3 py-2 border border-app-border rounded-lg text-sm"
+                    >
+                      <option value="FLAT">Flat payment</option>
+                      <option value="PERCENT">% of event revenue</option>
+                      <option value="NONE">No compensation (informational)</option>
+                    </select>
+                  </div>
+                  {r.compMethod !== "NONE" && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {r.compMethod === "FLAT" ? (
+                        <input
+                          type="number" min="0" step="0.01" placeholder="Amount ($)"
+                          value={r.flatAmount ?? ""}
+                          onChange={(e) => setRows((prev) => prev.map((x, j) => (j === i ? { ...x, flatAmount: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                          className="px-3 py-2 border border-app-border rounded-lg text-sm"
+                        />
+                      ) : (
+                        <input
+                          type="number" min="0" max="100" step="0.1" placeholder="Percent (%)"
+                          value={r.percent ?? ""}
+                          onChange={(e) => setRows((prev) => prev.map((x, j) => (j === i ? { ...x, percent: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                          className="px-3 py-2 border border-app-border rounded-lg text-sm"
+                        />
+                      )}
+                      {r.compMethod === "PERCENT" && (
+                        <select
+                          value={r.basis}
+                          onChange={(e) => setRows((prev) => prev.map((x, j) => (j === i ? { ...x, basis: e.target.value as CompAssignmentRow["basis"] } : x)))}
+                          className="px-3 py-2 border border-app-border rounded-lg text-sm"
+                        >
+                          <option value="GROSS_COLLECTED">of gross collected</option>
+                          <option value="NET_COLLECTED">of net collected</option>
+                        </select>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-text-muted">
+                      {r.payout
+                        ? `Payout ${r.payout.status.toLowerCase()} · $${Number(r.payout.amount).toFixed(2)}`
+                        : r.estimatedPayout != null
+                          ? `${data.eventOver ? "Final" : "Estimated"} payout: $${Number(r.estimatedPayout).toFixed(2)}`
+                          : r.compMethod === "NONE"
+                            ? "Listed on the event — no pay record"
+                            : "Estimate appears after saving"}
+                    </span>
+                    <button onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))} className="text-red-600 hover:underline">
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={() => setRows((prev) => [...prev, { payeeType: "STAFF", compMethod: "FLAT", basis: "GROSS_COLLECTED" }])}
+                className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
+              >
+                + Add staff or guest clinician
+              </button>
+
+              {msg && <p className="text-xs text-text-primary bg-lime-accent/15 border border-lime-accent/30 rounded px-2 py-1">{msg}</p>}
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button onClick={save} disabled={busy} className="text-xs px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+                  {busy ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={generatePayouts}
+                  disabled={busy || rows.every((r) => r.compMethod === "NONE" || r.payout)}
+                  className="text-xs px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                >
+                  Create payout records
+                </button>
+              </div>
+              <p className="text-[11px] text-text-muted">
+                Payout records are payables — nothing is charged or sent. Review and mark them paid on Staff → Payroll / Payouts.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Event documents ──────────────────────────────────────────────────────────
+// Attach EXISTING club documents (the same document/waiver system) to this
+// event. All-Events docs are managed on /dashboard/documents and shown here.
+function EventDocsModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
+  const [data, setData] = useState<{
+    attached: { id: string; title: string; requirement: string; appliesToAllEvents: boolean; linkedDirectly: boolean }[];
+    available: { id: string; title: string; eventRequirement: string; appliesToAllEvents: boolean }[];
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [pick, setPick] = useState("");
+
+  function load() {
+    fetch(`/api/events/${eventId}/documents`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setData(d); else setErr("Couldn't load documents."); });
+  }
+  useEffect(() => { load(); }, [eventId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function setLinks(ids: string[]) {
+    setBusy(true); setErr("");
+    const res = await fetch(`/api/events/${eventId}/documents`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentIds: ids }),
+    });
+    setBusy(false);
+    if (!res.ok) { setErr("Couldn't update documents."); return; }
+    setPick("");
+    load();
+  }
+
+  const REQ_LABELS: Record<string, string> = {
+    INFO: "Informational",
+    ACKNOWLEDGE: "Must acknowledge",
+    SIGN_REQUIRED: "Sign before registering / check-in",
+  };
+  const directIds = (data?.attached ?? []).filter((d) => d.linkedDirectly).map((d) => d.id);
+  const attachable = (data?.available ?? []).filter(
+    (d) => !d.appliesToAllEvents && !directIds.includes(d.id),
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto border border-app-border">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
+          <h2 className="text-base font-semibold text-text-primary">Event documents</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+        </div>
+        <div className="p-6 space-y-3">
+          {!data && !err && <SkeletonList rows={2} />}
+          {err && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{err}</p>}
+          {data && (
+            <>
+              {(data.attached.length === 0) && (
+                <p className="text-sm text-text-muted">No documents attached to this event yet.</p>
+              )}
+              {data.attached.map((d) => (
+                <div key={d.id} className="flex items-center justify-between border border-app-border rounded-lg p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm text-text-primary font-medium truncate">{d.title}</p>
+                    <p className="text-[11px] text-text-muted">
+                      {REQ_LABELS[d.requirement] ?? d.requirement}
+                      {d.appliesToAllEvents ? " · All events" : ""}
+                    </p>
+                  </div>
+                  {d.linkedDirectly ? (
+                    <button
+                      onClick={() => setLinks(directIds.filter((x) => x !== d.id))}
+                      disabled={busy}
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-text-muted">Managed in Documents</span>
+                  )}
+                </div>
+              ))}
+
+              <div className="flex gap-2 pt-1">
+                <select value={pick} onChange={(e) => setPick(e.target.value)} className="flex-1 px-3 py-2 border border-app-border rounded-lg text-sm">
+                  <option value="">Attach an existing document…</option>
+                  {attachable.map((d) => (
+                    <option key={d.id} value={d.id}>{d.title} ({REQ_LABELS[d.eventRequirement] ?? d.eventRequirement})</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => pick && setLinks([...directIds, pick])}
+                  disabled={busy || !pick}
+                  className="text-xs px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                >
+                  Attach
+                </button>
+              </div>
+              <p className="text-[11px] text-text-muted">
+                What attachment means (informational / acknowledge / sign-required) and the
+                &quot;All events&quot; setting are configured on each document in Documents.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

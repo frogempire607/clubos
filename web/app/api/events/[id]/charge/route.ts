@@ -242,6 +242,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             amount,
             status: "SUCCEEDED",
             type: "MANUAL",
+            eventId: event.id,
             category: "event_booking",
             paymentMethod, // "CASH" | "TERMINAL"
             discountCode: discount?.code ?? null,

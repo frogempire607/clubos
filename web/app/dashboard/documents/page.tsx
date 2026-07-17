@@ -19,6 +19,9 @@ type Doc = {
   requiresGuardianSignature: boolean;
   signatureValidForDays: number | null;
   deliveryTrigger: string;
+  appliesToAllEvents?: boolean;
+  eventRequirement?: string;
+  eventLinks?: { eventId: string; event: { id: string; name: string; startsAt: string } }[];
   createdAt: string;
   updatedAt: string;
 };
@@ -613,6 +616,8 @@ function DocumentModal({
   const [signatureFrequency, setSignatureFrequency] = useState<string>(
     doc?.signatureValidForDays ? String(doc.signatureValidForDays) : "0"
   );
+  const [appliesToAllEvents, setAppliesToAllEvents] = useState(!!doc?.appliesToAllEvents);
+  const [eventRequirement, setEventRequirement] = useState(doc?.eventRequirement || "INFO");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -638,6 +643,8 @@ function DocumentModal({
           deliveryTrigger,
           expiresAt: expiresAt || null,
           signatureValidForDays: signatureFrequency === "0" ? null : parseInt(signatureFrequency, 10),
+          appliesToAllEvents,
+          eventRequirement,
         }),
       });
 
@@ -767,6 +774,44 @@ function DocumentModal({
                 Requires guardian signature for minors
               </span>
             </label>
+
+            {/* Events: attach this document to events (specific events are
+                attached from each event's Documents button). */}
+            <div className="mt-4 rounded-lg border border-app-border p-3 space-y-2">
+              <p className="text-sm font-medium text-text-primary">Events</p>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={appliesToAllEvents}
+                  onChange={(e) => setAppliesToAllEvents(e.target.checked)}
+                  className="w-4 h-4 accent-stone-900 mt-0.5"
+                />
+                <span className="text-sm text-text-primary leading-tight">
+                  All events
+                  <span className="block text-[11px] text-text-muted">
+                    Automatically applies to every event — including ones created later — until unchecked.
+                    Attach to specific events from the event&apos;s Documents button.
+                  </span>
+                </span>
+              </label>
+              <label className="block text-xs font-medium text-text-primary mt-1">
+                When attached to an event, this document is
+              </label>
+              <select
+                value={eventRequirement}
+                onChange={(e) => setEventRequirement(e.target.value)}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+              >
+                <option value="INFO">Informational — shown, nothing required</option>
+                <option value="ACKNOWLEDGE">Required to acknowledge before registering</option>
+                <option value="SIGN_REQUIRED">Required to sign before registration / check-in</option>
+              </select>
+              {doc?.eventLinks && doc.eventLinks.length > 0 && (
+                <p className="text-[11px] text-text-muted">
+                  Attached to: {doc.eventLinks.map((l) => l.event.name).join(", ")}
+                </p>
+              )}
+            </div>
           </div>
 
           {error && (

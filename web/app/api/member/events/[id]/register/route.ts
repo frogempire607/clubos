@@ -22,6 +22,7 @@ import {
   type EventPaymentMethod,
 } from "@/lib/eventPayments";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
+import { missingSignedEventDocs, acknowledgementDocs } from "@/lib/eventDocuments";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -74,6 +75,9 @@ const schema = z.object({
   autoChargeConsent: z
     .object({ agreed: z.literal(true), buttonLabel: z.string().max(200).optional() })
     .optional(),
+  // Set once the client has ticked acknowledgement for the event's
+  // ACKNOWLEDGE-level documents.
+  acknowledgeDocuments: z.boolean().optional(),
 });
 
 async function resolveBookingMember(args: {
@@ -117,7 +121,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many registration attempts. Try again in a moment.");
 
   try {
-    const { pricingType, memberId, discountCode, paymentMethod, autoChargeConsent } = schema.parse(
+    const { pricingType, memberId, discountCode, paymentMethod, autoChargeConsent, acknowledgeDocuments } = schema.parse(
       await req.json().catch(() => ({})),
     );
 
@@ -165,6 +169,56 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       where: { eventId_memberId: { eventId: event.id, memberId: member.id } },
     });
     if (existing) return NextResponse.json({ error: "You're already registered for this event." }, { status: 409 });
+
+    // ── Event documents ─────────────────────────────────────────────────────
+    // Enforced before ANY registration path (membership-covered, free, paid):
+    // SIGN_REQUIRED docs need a valid signature (existing signing flow,
+    // guardian + expiry rules included); ACKNOWLEDGE docs need an explicit
+    // tick, recorded as a typed acknowledgement in the same audit trail.
+    const missingDocs = await missingSignedEventDocs(session.user.clubId, event.id, member.id);
+    if (missingDocs.length > 0) {
+      return NextResponse.json(
+        {
+          error: "DOCUMENTS_REQUIRED",
+          documents: missingDocs,
+          message: `Before registering, please sign: ${missingDocs.map((d) => d.title).join(", ")}. You can sign in Documents.`,
+        },
+        { status: 403 },
+      );
+    }
+    const ackDocs = await acknowledgementDocs(session.user.clubId, event.id);
+    if (ackDocs.length > 0) {
+      if (!acknowledgeDocuments) {
+        return NextResponse.json(
+          {
+            error: "DOCUMENTS_ACKNOWLEDGE_REQUIRED",
+            documents: ackDocs,
+            message: `Please acknowledge: ${ackDocs.map((d) => d.title).join(", ")}.`,
+          },
+          { status: 400 },
+        );
+      }
+      // Record the acknowledgement with the same machinery as signatures so
+      // the owner's audit modal shows who acknowledged what, when, from where.
+      const signerName = `${member.firstName} ${member.lastName ?? ""}`.trim();
+      for (const d of ackDocs) {
+        await prisma.documentSignature
+          .upsert({
+            where: { documentId_memberId: { documentId: d.id, memberId: member.id } },
+            create: {
+              documentId: d.id,
+              memberId: member.id,
+              signerUserId: session.user.id,
+              signerName,
+              relationship: member.userId === session.user.id ? "SELF" : "GUARDIAN",
+              ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+              userAgent: req.headers.get("user-agent") ?? null,
+            },
+            update: {},
+          })
+          .catch((e) => console.error("event doc acknowledgement record failed", e));
+      }
+    }
 
     const acceptedMembershipIds = (
       (event.pricingOptions as unknown as Array<{ type: string; membershipId?: string }> | null) || []
@@ -566,6 +620,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const reg = await upsertRegistration({ status: offlineStatusForMethod(chosen), method: chosen });
       const tx = await createEventOfflinePendingTx({
         clubId: session.user.clubId,
+        eventId: event.id,
         memberId: member.id,
         amount: price,
         method: chosen,

@@ -111,6 +111,7 @@ async function recordSuccess(reg: RegForCharge, pi: Stripe.PaymentIntent, totalC
         discountCode,
         discountAmount: typeof consentDiscountAmount === "number" ? consentDiscountAmount : null,
         type: "EVENT",
+        eventId: reg.eventId,
         category: "events",
         paymentMethod: "STRIPE",
         paymentSource: "STRIPE",

@@ -7,6 +7,7 @@ import { resolveFamilyContext } from "@/lib/memberContext";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { wallClockUTCToInstant } from "@/lib/datetime";
 import { checkinPaymentBlock } from "@/lib/eventPayments";
+import { missingSignedEventDocs } from "@/lib/eventDocuments";
 
 // /api/member/checkin/[id] — completes the attendance-QR intent AFTER the
 // scanner is signed in. `id` is a ClassSession id or an Event id (same ids the
@@ -243,6 +244,27 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         },
         { status: 402 },
       );
+    }
+  }
+
+  // Event documents: SIGN_REQUIRED docs block check-in until validly signed
+  // (same signing flow + guardian/expiry rules as everywhere else). Errors
+  // fall through open — a broken lookup must not lock the door.
+  if (target.kind === "event") {
+    try {
+      const missing = await missingSignedEventDocs(clubId, target.eventId, member.id);
+      if (missing.length > 0) {
+        return NextResponse.json(
+          {
+            error: "DOCUMENTS_REQUIRED",
+            message: `Before checking in, ${member.firstName} needs to sign: ${missing.map((d) => d.title).join(", ")}. Open Documents in the portal to sign.`,
+            documents: missing,
+          },
+          { status: 403 },
+        );
+      }
+    } catch (e) {
+      console.error("event doc check-in gate failed open", e);
     }
   }
 

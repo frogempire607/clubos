@@ -750,6 +750,7 @@ export async function POST(req: Request) {
                   stripePaymentIntentId: session.payment_intent as string | undefined,
                   description: `DUPLICATE PAYMENT — ${reg.event.name} — ${reg.name} (already paid via ${reg.paidVia ?? "another method"}) — likely refund due`,
                   type: "EVENT",
+                  eventId: reg.eventId,
                   category: "events",
                   paymentMethod: "STRIPE",
                   txDate: new Date(),
@@ -780,6 +781,7 @@ export async function POST(req: Request) {
                 stripePaymentIntentId: session.payment_intent as string | undefined,
                 description: `Event registration: ${reg.event.name}`,
                 type: "EVENT",
+                eventId: reg.eventId,
                 category: "events",
                 paymentMethod: "STRIPE",
                 txDate: new Date(),
@@ -851,6 +853,69 @@ export async function POST(req: Request) {
           }
         }
 
+        break;
+      }
+
+      // ── Refunds & chargebacks ──────────────────────────────────────────────
+      // Money that left again must reduce collected revenue — event percentage
+      // comp (lib/eventComp.ts) subtracts Transaction.refundedAmount, and a
+      // fully-refunded row also flips to REFUNDED so plain SUCCEEDED filters
+      // stop counting it. Both endpoints (platform + Connect) must be
+      // subscribed to these two event types in the Stripe dashboard.
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        const refunded = (charge.amount_refunded || 0) / 100;
+        const piId =
+          typeof charge.payment_intent === "string"
+            ? charge.payment_intent
+            : charge.payment_intent?.id ?? null;
+        const tx = await prisma.transaction.findFirst({
+          where: {
+            OR: [
+              { stripeChargeId: charge.id },
+              ...(piId ? [{ stripePaymentIntentId: piId }] : []),
+            ],
+          },
+          select: { id: true, amount: true, notes: true },
+        });
+        if (!tx) {
+          console.error(`charge.refunded: no local Transaction for charge ${charge.id}`);
+          break;
+        }
+        const fullyRefunded = refunded >= Number(tx.amount) - 0.005;
+        await prisma.transaction.update({
+          where: { id: tx.id },
+          data: {
+            refundedAmount: refunded,
+            ...(fullyRefunded ? { status: "REFUNDED" } : {}),
+            notes: `${tx.notes ? tx.notes + "\n" : ""}Refunded $${refunded.toFixed(2)}${fullyRefunded ? " (full)" : " (partial)"} — Stripe ${charge.id}.`,
+          },
+        });
+        break;
+      }
+      case "charge.dispute.created": {
+        const dispute = event.data.object as Stripe.Dispute;
+        const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id ?? null;
+        if (!chargeId) break;
+        const disputed = (dispute.amount || 0) / 100;
+        const tx = await prisma.transaction.findFirst({
+          where: { stripeChargeId: chargeId },
+          select: { id: true, refundedAmount: true, notes: true },
+        });
+        if (!tx) {
+          console.error(`charge.dispute.created: no local Transaction for charge ${chargeId}`);
+          break;
+        }
+        // Disputed funds are withdrawn immediately — treat like a refund for
+        // collected-revenue math, and flag the row for a human.
+        await prisma.transaction.update({
+          where: { id: tx.id },
+          data: {
+            refundedAmount: Math.max(Number(tx.refundedAmount ?? 0), disputed),
+            reconciliationStatus: "REVIEW",
+            notes: `${tx.notes ? tx.notes + "\n" : ""}CHARGEBACK/DISPUTE $${disputed.toFixed(2)} (${dispute.reason || "no reason"}) — funds withdrawn by Stripe.`,
+          },
+        });
         break;
       }
 

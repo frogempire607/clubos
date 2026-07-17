@@ -123,6 +123,7 @@ export default function MemberEventsPage() {
     eventId: string,
     pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" = "MEMBER",
     payment?: { method: string; consentLabel?: string },
+    acknowledgeDocuments?: boolean,
   ) {
     setBusy(eventId);
     setError("");
@@ -138,6 +139,7 @@ export default function MemberEventsPage() {
         ...(payment?.method === "AUTO_CARD"
           ? { autoChargeConsent: { agreed: true, buttonLabel: payment.consentLabel } }
           : {}),
+        ...(acknowledgeDocuments ? { acknowledgeDocuments: true } : {}),
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -147,6 +149,15 @@ export default function MemberEventsPage() {
     // the choice can't drift from what it will accept.
     if (res.status === 400 && d.error === "PAYMENT_METHOD_REQUIRED") {
       setPayPrompt({ eventId, pricingType, options: d.options ?? [] });
+      return;
+    }
+    // Event documents: ACKNOWLEDGE-level docs get a one-tap confirm and retry;
+    // SIGN_REQUIRED docs are signed in Documents first (the message says which).
+    if (res.status === 400 && d.error === "DOCUMENTS_ACKNOWLEDGE_REQUIRED") {
+      const titles = (d.documents ?? []).map((x: { title: string }) => x.title).join(", ");
+      if (window.confirm(`This event requires acknowledging: ${titles}. Acknowledge and continue?`)) {
+        register(eventId, pricingType, payment, true);
+      }
       return;
     }
     if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { eventAllowedPaymentMethods, capacityWhere } from "@/lib/eventPayments";
+import { documentsForEvent } from "@/lib/eventDocuments";
 
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
@@ -114,6 +115,16 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     event.capacity != null &&
     event._count.registrations + event._count.bookings >= event.capacity;
 
+  // Documents attached to this event (specific links + All Events). Anonymous
+  // visitors can read and acknowledge them; full signatures need an account.
+  const documents = (await documentsForEvent(event.club.id, event.id)).map((d) => ({
+    id: d.id,
+    title: d.title,
+    type: d.type,
+    body: d.body,
+    requirement: d.requirement,
+  }));
+
   return NextResponse.json({
     id: event.id,
     name: event.name,
@@ -136,6 +147,7 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     // AUTO_CARD needs an authenticated member with a saved card — the public
     // page is anonymous, so it only ever offers CARD / CASH / CHECK.
     paymentMethods: eventAllowedPaymentMethods(event).filter((m) => m !== "AUTO_CARD"),
+    documents,
     registrationOpen:
       (event.publicRegistration || event.tournamentMode === "HOST") && !capacityReached,
   });
