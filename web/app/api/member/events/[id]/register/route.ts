@@ -534,57 +534,64 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       method: EventPaymentMethod | "SAVED_CARD";
       scheduledChargeAt?: Date | null;
       consent?: Prisma.InputJsonValue;
-    }) => {
-      const existing = await prisma.eventRegistration.findFirst({
-        where: { eventId: regEventId, memberId: regMemberId, status: { not: "CANCELED" } },
-        select: { id: true, status: true, transactionId: true },
-      });
-      // Never re-open a settled registration: replacing a PAID row's payment
-      // decision would ask for money that's already been collected.
-      if (existing?.status === "PAID") return existing;
-      const fields = {
-        status: data.status,
-        paymentMethod: data.method,
-        amountDue: price,
-        scheduledChargeAt: data.scheduledChargeAt ?? null,
-        ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
-      };
-      if (existing) {
-        // This row's payment decision is being replaced (e.g. they registered
-        // for cash earlier and are now choosing the saved card). Void the
-        // PENDING offline row first — otherwise it's orphaned: unreachable
-        // from any registration, permanently PENDING, and permanently
-        // inflating "money owed". Same rule the webhook applies when a cash
-        // registrant pays online instead.
-        if (existing.transactionId) {
-          await prisma.transaction
-            .updateMany({
+    }) =>
+      // event_registrations has NO unique on (eventId, memberId) — historical
+      // public rows can legitimately duplicate. So this select-then-write is
+      // serialized with a transaction-scoped advisory lock instead: without
+      // it, a double-click on "Pay now with saved card" creates TWO SCHEDULED
+      // rows, and two registrations means two idempotency keys — a real
+      // double charge. With the lock both clicks converge on one row (and the
+      // charge engine's PI dedupe covers the rest).
+      prisma.$transaction(async (db) => {
+        await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evreg:${regEventId}:${regMemberId}`}, 0))`;
+        const existing = await db.eventRegistration.findFirst({
+          where: { eventId: regEventId, memberId: regMemberId, status: { not: "CANCELED" } },
+          select: { id: true, status: true, transactionId: true },
+        });
+        // Never re-open a settled registration: replacing a PAID row's payment
+        // decision would ask for money that's already been collected.
+        if (existing?.status === "PAID") return existing;
+        const fields = {
+          status: data.status,
+          paymentMethod: data.method,
+          amountDue: price,
+          scheduledChargeAt: data.scheduledChargeAt ?? null,
+          ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
+        };
+        if (existing) {
+          // This row's payment decision is being replaced (e.g. they registered
+          // for cash earlier and are now choosing the saved card). Void the
+          // PENDING offline row first — otherwise it's orphaned: unreachable
+          // from any registration, permanently PENDING, and permanently
+          // inflating "money owed". Same rule the webhook applies when a cash
+          // registrant pays online instead.
+          if (existing.transactionId) {
+            await db.transaction.updateMany({
               where: { id: existing.transactionId, clubId: regClubId, status: "PENDING" },
               data: {
                 status: "FAILED",
                 reconciliationStatus: "VOID",
                 notes: "Superseded — the registrant changed how they're paying.",
               },
-            })
-            .catch((e) => console.error("event reg supersede void failed", e));
+            });
+          }
+          return db.eventRegistration.update({
+            where: { id: existing.id },
+            data: { ...fields, transactionId: null },
+          });
         }
-        return prisma.eventRegistration.update({
-          where: { id: existing.id },
-          data: { ...fields, transactionId: null },
+        return db.eventRegistration.create({
+          data: {
+            eventId: regEventId,
+            clubId: regClubId,
+            memberId: regMemberId,
+            name: registrantName,
+            email: regEmail,
+            phone: regPhone,
+            ...fields,
+          },
         });
-      }
-      return prisma.eventRegistration.create({
-        data: {
-          eventId: regEventId,
-          clubId: regClubId,
-          memberId: regMemberId,
-          name: registrantName,
-          email: regEmail,
-          phone: regPhone,
-          ...fields,
-        },
       });
-    };
 
     // ── Pay now with the saved card ─────────────────────────────────────────
     // The client explicitly confirmed the exact total on the button. Reuses
@@ -597,6 +604,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         status: "SCHEDULED",
         method: "SAVED_CARD",
         scheduledChargeAt: new Date(),
+        // Not a consent record (the click IS the confirmation) — this carries
+        // the discount identity the charge engine stamps onto the Transaction.
+        consent: discount ? { kind: "SAVED_CARD_NOW", discountCode: discount.code } : { kind: "SAVED_CARD_NOW" },
       });
       if (reg.status === "PAID") {
         return NextResponse.json({ error: "This registration is already paid." }, { status: 409 });

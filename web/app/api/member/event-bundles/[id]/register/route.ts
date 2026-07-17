@@ -193,20 +193,32 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     if (chosen === "CASH" || chosen === "CHECK" || chosen === "PAY_LATER") {
       const payLater = chosen === "PAY_LATER";
       let purchase;
-      try {
-        purchase = await prisma.eventBundlePurchase.create({
-          data: {
-            clubId: club.id,
-            bundleId: bundle.id,
-            memberId: member.id,
-            status: bundleOfflineStatus(chosen),
-            paymentMethod: chosen,
-            amountDue: price,
-          },
+      if (live?.status === "PENDING_PAYMENT") {
+        // They started a card checkout earlier and are switching to an offline
+        // method. Convert that row — creating would trip the live-unique index
+        // and 409 them out of ever paying cash. (If the abandoned checkout is
+        // somehow completed later, the webhook's settle claims the row and
+        // voids this branch's PENDING offline Transaction — money stays right.)
+        purchase = await prisma.eventBundlePurchase.update({
+          where: { id: live.id },
+          data: { status: bundleOfflineStatus(chosen), paymentMethod: chosen, amountDue: price },
         });
-      } catch {
-        // Partial unique index fired — someone (or a double click) beat us.
-        return NextResponse.json({ error: "You've already claimed this bundle." }, { status: 409 });
+      } else {
+        try {
+          purchase = await prisma.eventBundlePurchase.create({
+            data: {
+              clubId: club.id,
+              bundleId: bundle.id,
+              memberId: member.id,
+              status: bundleOfflineStatus(chosen),
+              paymentMethod: chosen,
+              amountDue: price,
+            },
+          });
+        } catch {
+          // Partial unique index fired — someone (or a double click) beat us.
+          return NextResponse.json({ error: "You've already claimed this bundle." }, { status: 409 });
+        }
       }
       const memberName = `${member.firstName} ${member.lastName ?? ""}`.trim();
       const tx = await prisma.transaction.create({

@@ -474,11 +474,16 @@ export async function POST(req: Request) {
         if (memberId && bundleId) {
           // One Transaction per payment (unique PI id guards webhook replays —
           // the old unconditional create 500'd on redelivery).
-          const piId = session.payment_intent as string;
-          const existingTx = await prisma.transaction.findFirst({
-            where: { stripePaymentIntentId: piId },
-            select: { id: true },
-          });
+          // payment-mode sessions always carry a PI, but NEVER dedupe on a
+          // null id — `where: { stripePaymentIntentId: undefined }` is "no
+          // filter" in Prisma and would match a random transaction.
+          const piId = typeof session.payment_intent === "string" ? session.payment_intent : null;
+          const existingTx = piId
+            ? await prisma.transaction.findFirst({
+                where: { stripePaymentIntentId: piId },
+                select: { id: true },
+              })
+            : null;
           const tx =
             existingTx ??
             (await prisma.transaction.create({
@@ -487,7 +492,7 @@ export async function POST(req: Request) {
                 memberId,
                 amount: (session.amount_total || 0) / 100,
                 status: "SUCCEEDED",
-                stripePaymentIntentId: piId,
+                stripePaymentIntentId: piId ?? undefined,
                 description: "Event bundle booking",
                 type: "EVENT",
                 category: "events",
