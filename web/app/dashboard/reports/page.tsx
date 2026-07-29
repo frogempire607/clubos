@@ -10,6 +10,7 @@ import RangeDropdown, { type RangeKey } from "@/components/reports/RangeDropdown
 import SnapshotTab from "@/components/reports/SnapshotTab";
 import RevenueTab from "@/components/reports/RevenueTab";
 import CostsTab from "@/components/reports/CostsTab";
+import PnlTab from "@/components/reports/PnlTab";
 
 type TabKey =
   | "snapshot"
@@ -171,14 +172,14 @@ export default function ReportsPage() {
       {tab === "snapshot" && <SnapshotTab range={range} customFrom={customFrom} customTo={customTo} />}
       {tab === "revenue" && <RevenueTab range={range} customFrom={customFrom} customTo={customTo} />}
       {tab === "costs" && <CostsTab range={range} customFrom={customFrom} customTo={customTo} />}
-      {tab !== "snapshot" && tab !== "revenue" && tab !== "costs" && <TabPlaceholder tabKey={tab} />}
+      {tab === "pnl" && <PnlTab range={range} customFrom={customFrom} customTo={customTo} />}
+      {tab !== "snapshot" && tab !== "revenue" && tab !== "costs" && tab !== "pnl" && <TabPlaceholder tabKey={tab} />}
     </div>
   );
 }
 
-function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue" | "costs"> }) {
-  const messages: Record<Exclude<TabKey, "snapshot" | "revenue" | "costs">, { title: string; sub: string; phase: string }> = {
-    pnl: { title: "P&L with drill-through coming soon", sub: "Monthly + weekly, cash + accrual, CSV + PDF export, click any figure to drill.", phase: "Phase 2.5.4" },
+function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl"> }) {
+  const messages: Record<Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl">, { title: string; sub: string; phase: string }> = {
     membership: { title: "Membership analytics coming soon", sub: "Movement, churn, retention, top movers.", phase: "Phase 2.5.5" },
     unit_economics: { title: "Unit economics coming soon", sub: "Per-athlete margins, break-even, CAC, LTV.", phase: "Phase 2.5.6" },
     cash_flow: { title: "Cash flow coming soon", sub: "Waterfall, operating/investing/financing, forecast.", phase: "Phase 2.5.7" },
