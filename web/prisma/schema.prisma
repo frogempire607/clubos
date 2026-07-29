@@ -197,6 +197,7 @@ model Club {
   plaidSyncCursors            PlaidSyncCursor[]
   transactionCategoryRules    TransactionCategoryRule[]
   actionItemSnoozes           ActionItemSnooze[]
+  expenseClassificationOverrides ExpenseClassificationOverride[]
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
   invoiceSplits               InvoiceSplit[]
@@ -1881,6 +1882,25 @@ model ActionItemSnooze {
   @@index([clubId, snoozedUntil], map: "action_item_snoozes_clubId_snoozedUntil_idx")
   @@index([userId, kind], map: "action_item_snoozes_userId_kind_idx")
   @@map("action_item_snoozes")
+}
+
+// Reports Phase 2.5.3 — owner override for fixed vs variable classification
+// per expense category. Applied by /api/reports/costs when an Expense row's
+// own `kind` field is null. Owner-only writes.
+model ExpenseClassificationOverride {
+  id          String   @id @default(cuid())
+  clubId      String
+  category    String
+  treatAs     String   // "FIXED" | "VARIABLE"
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, category], map: "expense_classification_overrides_clubId_category_key")
+  @@index([clubId], map: "expense_classification_overrides_clubId_idx")
+  @@map("expense_classification_overrides")
 }
 
 // Tracked donation / sponsorship for nonprofit & foundation entities.

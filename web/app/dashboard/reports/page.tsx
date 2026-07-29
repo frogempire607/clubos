@@ -9,6 +9,7 @@ import ReliabilityStrip from "@/components/reports/ReliabilityStrip";
 import RangeDropdown, { type RangeKey } from "@/components/reports/RangeDropdown";
 import SnapshotTab from "@/components/reports/SnapshotTab";
 import RevenueTab from "@/components/reports/RevenueTab";
+import CostsTab from "@/components/reports/CostsTab";
 
 type TabKey =
   | "snapshot"
@@ -169,14 +170,14 @@ export default function ReportsPage() {
 
       {tab === "snapshot" && <SnapshotTab range={range} customFrom={customFrom} customTo={customTo} />}
       {tab === "revenue" && <RevenueTab range={range} customFrom={customFrom} customTo={customTo} />}
-      {tab !== "snapshot" && tab !== "revenue" && <TabPlaceholder tabKey={tab} />}
+      {tab === "costs" && <CostsTab range={range} customFrom={customFrom} customTo={customTo} />}
+      {tab !== "snapshot" && tab !== "revenue" && tab !== "costs" && <TabPlaceholder tabKey={tab} />}
     </div>
   );
 }
 
-function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue"> }) {
-  const messages: Record<Exclude<TabKey, "snapshot" | "revenue">, { title: string; sub: string; phase: string }> = {
-    costs: { title: "Costs tab coming soon", sub: "Fixed vs variable split, top categories, top vendors, unusual increases.", phase: "Phase 2.5.3" },
+function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue" | "costs"> }) {
+  const messages: Record<Exclude<TabKey, "snapshot" | "revenue" | "costs">, { title: string; sub: string; phase: string }> = {
     pnl: { title: "P&L with drill-through coming soon", sub: "Monthly + weekly, cash + accrual, CSV + PDF export, click any figure to drill.", phase: "Phase 2.5.4" },
     membership: { title: "Membership analytics coming soon", sub: "Movement, churn, retention, top movers.", phase: "Phase 2.5.5" },
     unit_economics: { title: "Unit economics coming soon", sub: "Per-athlete margins, break-even, CAC, LTV.", phase: "Phase 2.5.6" },
