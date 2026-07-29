@@ -192,6 +192,7 @@ model Club {
   plaidConnections            PlaidConnection[]
   plaidTransactions           PlaidTransaction[]
   plaidSyncCursors            PlaidSyncCursor[]
+  transactionCategoryRules    TransactionCategoryRule[]
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
   invoiceSplits               InvoiceSplit[]
@@ -1797,6 +1798,17 @@ model Expense {
   // expense (Money-Out matching in Phase 1C). Nullable; loose reference —
   // deleting the bank row does NOT cascade to the expense.
   matchedPlaidTransactionId String?
+  // ── Money-Out review + splits (Phase 1C) ──────────────────────────────
+  reviewedAt        DateTime?
+  reviewedByUserId  String?
+  excludedFromTax   Boolean  @default(false)
+  // Owner override of the tax bucket for this expense (e.g. mark a rent
+  // payment as "SBA loan repayment" so it doesn't count against tax). Null =
+  // use `category` for tax bucketing.
+  taxCategory       String?
+  // Optional line splits when one bank row covers multiple categories.
+  // Shape: [{ amount, category, notes? }]. Sum must equal `amount`.
+  splits            Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -1808,7 +1820,34 @@ model Expense {
   @@index([date])
   @@index([legalEntityId])
   @@index([matchedPlaidTransactionId], map: "expenses_matchedPlaidTransactionId_idx")
+  @@index([clubId, reviewedAt], map: "expenses_reviewedAt_idx")
   @@map("expenses")
+}
+
+// Owner-editable rules for auto-categorizing PlaidTransactions. Applied on
+// new bank rows during sync AND on user "Apply to similar" clicks. Never
+// auto-finalizes: rules SUGGEST a category; owner accepts to move a row
+// from "Needs review" to "Categorized".
+model TransactionCategoryRule {
+  id              String   @id @default(cuid())
+  clubId          String
+  // VENDOR_EXACT | VENDOR_CONTAINS | DESCRIPTION_CONTAINS | AMOUNT_EQUALS | AMOUNT_RANGE
+  matchType       String
+  matchValue      String?
+  matchMin        Decimal? @db.Decimal(12, 2)
+  matchMax        Decimal? @db.Decimal(12, 2)
+  category        String
+  active          Boolean  @default(true)
+  excludeFromTax  Boolean  @default(false)
+  markAsTransfer  Boolean  @default(false)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, active], map: "transaction_category_rules_clubId_active_idx")
+  @@map("transaction_category_rules")
 }
 
 // Tracked donation / sponsorship for nonprofit & foundation entities.

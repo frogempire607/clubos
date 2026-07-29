@@ -60,7 +60,25 @@ type Donation = {
   legalEntity: { id: string; name: string; entityType: string } | null;
 };
 type BankAccount = { account_id: string; name: string; type: string; subtype: string; balances: { available: number | null; current: number | null; iso_currency_code: string }; connectionId?: string; connectionLabel?: string };
-type BankTx = { transaction_id: string; date: string; name: string; amount: number; category: string[] | null; connectionId?: string; connectionLabel?: string };
+type BankTx = {
+  id?: string; // PlaidTransaction row id (server-side identifier)
+  transaction_id: string;
+  date: string;
+  name: string;
+  merchantName?: string | null;
+  amount: number;
+  category: string[] | null;
+  connectionId?: string;
+  connectionLabel?: string;
+  // Review state (Phase 1C)
+  reviewedAt?: string | null;
+  categorizedExpenseId?: string | null;
+  categoryOverride?: string | null;
+  markedAsTransfer?: boolean;
+  excludedFromTax?: boolean;
+  notes?: string | null;
+  suggestedCategory?: string | null;
+};
 type BankConnection = { id: string; label: string | null; institutionName: string | null };
 
 const DATE_PRESETS = [
@@ -836,10 +854,19 @@ function DonationModal({ donation, entities, defaultEntity, onClose, onSaved }: 
 }
 
 /* ── Tax Summary ── */
+type BankTaxSummary = {
+  income: { stripeGross: number; stripeFees: number; stripeNet: number; stripeRefunded: number; cashRecorded: number; checkRecorded: number; compRecorded: number; bankOtherIncome: number };
+  expenses: { categorized: { key: string; amount: number }[]; total: number; needsReview: { count: number; amount: number }; excluded: number; transfers: number };
+  totals: { grossIncome: number; refunds: number; processingFees: number; netIncome: number; categorizedExpenses: number; estimatedTaxableProfit: number };
+  notes: string[];
+};
+
 function TaxSummaryTab({ qs }: { qs: string }) {
   const [type, setType] = useState<ReportType>("pnl");
   const [report, setReport] = useState<{ title: string; columns: string[]; rows: (string | number)[][] } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [bank, setBank] = useState<BankTaxSummary | null>(null);
+  const [loadingBank, setLoadingBank] = useState(true);
 
   useEffect(() => {
     setLoading(true);
@@ -847,6 +874,12 @@ function TaxSummaryTab({ qs }: { qs: string }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { setReport(d); setLoading(false); });
   }, [type, qs]);
+  useEffect(() => {
+    setLoadingBank(true);
+    fetch(`/api/financials/tax-summary?${qs}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { setBank(d); setLoadingBank(false); });
+  }, [qs]);
 
   return (
     <>
@@ -854,6 +887,39 @@ function TaxSummaryTab({ qs }: { qs: string }) {
         <p className="font-semibold mb-0.5">{TAX_SUMMARY_NOTE}</p>
         <p className="text-xs text-text-muted">{FINANCIAL_DISCLAIMER}</p>
       </div>
+
+      {/* Bank-based Tax Summary — the primary view. Uses bank data +
+          Stripe money in AthletixOS; avoids double-counting Stripe payouts
+          into the bank. */}
+      {loadingBank ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+        </div>
+      ) : bank ? (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <StatCard label="Gross income" value={money(bank.totals.grossIncome)} hint="Stripe + non-Stripe recorded + bank credits" />
+            <StatCard label="Refunds" value={money(bank.totals.refunds)} hint="Stripe refunds/reversals" />
+            <StatCard label="Processing fees" value={money(bank.totals.processingFees)} hint="Exact Stripe fees" />
+            <StatCard label="Net income" value={money(bank.totals.netIncome)} hint="Gross − refunds − fees" />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <StatCard label="Categorized expenses" value={money(bank.totals.categorizedExpenses)} hint="Reviewed bank outflows" />
+            <StatCard label="Uncategorized" value={money(bank.expenses.needsReview.amount)} hint={`${bank.expenses.needsReview.count} bank rows need review`} accent={bank.expenses.needsReview.count > 0 ? "red" : undefined} />
+            <StatCard label="Transfers" value={money(bank.expenses.transfers)} hint="Between the club's own accounts" />
+            <StatCard label="Excluded" value={money(bank.expenses.excluded)} hint="Kept out of tax by owner" />
+          </div>
+          <div className="bg-white rounded-xl border border-app-border p-5 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-text-primary">Estimated taxable profit</h3>
+              <span className="text-2xl font-semibold text-text-primary tabular-nums">{money(bank.totals.estimatedTaxableProfit)}</span>
+            </div>
+            <ul className="text-xs text-text-muted list-disc pl-5 space-y-0.5">
+              {bank.notes.map((n, i) => <li key={i}>{n}</li>)}
+            </ul>
+          </div>
+        </>
+      ) : null}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex flex-wrap gap-1.5">
           {REPORT_TYPES.map((t) => (
@@ -1704,16 +1770,16 @@ function BankTab() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-app-bg border-b border-app-border"><tr><Th>Date</Th><Th>Description</Th><Th>Bank</Th><Th>Category</Th><Th>Amount</Th></tr></thead>
+              <thead className="bg-app-bg border-b border-app-border">
+                <tr><Th>Date</Th><Th>Description</Th><Th>Bank</Th><Th>Category</Th><Th>Amount</Th><Th>Status</Th><Th></Th></tr>
+              </thead>
               <tbody>
                 {bankData.transactions.map((t) => (
-                  <tr key={t.transaction_id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
-                    <Td><span className="text-xs text-text-muted">{new Date(t.date + "T00:00:00").toLocaleDateString()}</span></Td>
-                    <Td><span className="text-sm text-text-primary">{t.name}</span></Td>
-                    <Td><span className="text-xs text-text-muted">{t.connectionLabel || "—"}</span></Td>
-                    <Td><span className="text-xs text-text-muted">{t.category?.[0] || "—"}</span></Td>
-                    <Td><span className={`text-sm font-medium ${t.amount > 0 ? "text-red-700" : "text-text-primary"}`}>{t.amount > 0 ? "-" : "+"}{money(Math.abs(t.amount))}</span></Td>
-                  </tr>
+                  <BankRow
+                    key={t.id || t.transaction_id}
+                    tx={t}
+                    onReload={() => loadBankData(connectionFilter, range, page)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -1741,6 +1807,254 @@ function BankTab() {
         )}
       </div>
     </>
+  );
+}
+
+/* ── Bank row + Manage modal ── */
+function bankRowStatus(t: BankTx): { label: string; cls: string } {
+  if (t.markedAsTransfer) return { label: "Transfer", cls: "bg-app-bg text-text-muted" };
+  if (t.excludedFromTax) return { label: "Excluded", cls: "bg-app-bg text-text-muted" };
+  if (t.categorizedExpenseId) return { label: "Matched", cls: "bg-lime-accent/25 text-text-primary" };
+  if (t.reviewedAt) return { label: "Categorized", cls: "bg-lime-accent/25 text-text-primary" };
+  if (t.suggestedCategory) return { label: "Suggested", cls: "bg-brand/20 text-brand" };
+  return { label: "Needs review", cls: "bg-orange-accent/15 text-orange-accent" };
+}
+
+function BankRow({ tx, onReload }: { tx: BankTx; onReload: () => void }) {
+  const [open, setOpen] = useState(false);
+  const status = bankRowStatus(tx);
+  return (
+    <>
+      <tr className="border-b border-app-border last:border-0 hover:bg-app-bg">
+        <Td><span className="text-xs text-text-muted">{new Date(tx.date + "T00:00:00").toLocaleDateString()}</span></Td>
+        <Td>
+          <div>
+            <span className="text-sm text-text-primary">{tx.name}</span>
+            {tx.merchantName && tx.merchantName !== tx.name && (
+              <span className="text-[11px] text-text-muted block">{tx.merchantName}</span>
+            )}
+          </div>
+        </Td>
+        <Td><span className="text-xs text-text-muted">{tx.connectionLabel || "—"}</span></Td>
+        <Td>
+          <span className="text-xs text-text-muted">
+            {tx.categoryOverride || tx.category?.[0] || "—"}
+          </span>
+        </Td>
+        <Td><span className={`text-sm font-medium ${tx.amount > 0 ? "text-red-700" : "text-text-primary"}`}>{tx.amount > 0 ? "-" : "+"}{money(Math.abs(tx.amount))}</span></Td>
+        <Td><span className={`text-xs px-2 py-0.5 rounded-full ${status.cls}`}>{status.label}</span></Td>
+        <Td>
+          <button onClick={() => setOpen(true)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
+            Manage
+          </button>
+        </Td>
+      </tr>
+      {open && <BankRowManageModal tx={tx} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); onReload(); }} />}
+    </>
+  );
+}
+
+function BankRowManageModal({ tx, onClose, onSaved }: { tx: BankTx; onClose: () => void; onSaved: () => void }) {
+  const [tab, setTab] = useState<"categorize" | "match">("categorize");
+  const [category, setCategory] = useState<string>(tx.categoryOverride || tx.suggestedCategory || "OTHER");
+  const [markTransfer, setMarkTransfer] = useState<boolean>(tx.markedAsTransfer || false);
+  const [excludeTax, setExcludeTax] = useState<boolean>(tx.excludedFromTax || false);
+  const [notes, setNotes] = useState(tx.notes || "");
+  const [suggestions, setSuggestions] = useState<{ id: string; label: string; date: string; amount: number; score: number }[]>([]);
+  const [loadingSug, setLoadingSug] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (tab !== "match" || !tx.id) return;
+    setLoadingSug(true);
+    fetch(`/api/plaid/transactions/${tx.id}/match`).then((r) => r.json()).then((d) => {
+      setSuggestions(d.suggestions || []);
+      setLoadingSug(false);
+    });
+  }, [tab, tx.id]);
+
+  async function saveCategorize() {
+    if (!tx.id) return;
+    setSaving(true); setErr("");
+    const res = await fetch(`/api/plaid/transactions/${tx.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        categoryOverride: category || null,
+        markedAsTransfer: markTransfer,
+        excludedFromTax: excludeTax,
+        notes,
+        reviewed: true,
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not save"); return; }
+    onSaved();
+  }
+
+  async function confirmMatch(expenseId: string) {
+    if (!tx.id) return;
+    setSaving(true); setErr("");
+    const res = await fetch(`/api/plaid/transactions/${tx.id}/match`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expenseId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not match"); return; }
+    onSaved();
+  }
+
+  async function createNewExpense() {
+    if (!tx.id) return;
+    setSaving(true); setErr("");
+    const res = await fetch(`/api/plaid/transactions/${tx.id}/match`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        createExpense: {
+          category,
+          description: tx.name,
+          vendor: tx.merchantName || undefined,
+        },
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not create expense"); return; }
+    onSaved();
+  }
+
+  return (
+    <Modal title={`Manage · ${tx.name}`} onClose={onClose}>
+      <div className="bg-app-bg rounded-lg p-3 space-y-1 text-xs mb-4">
+        <div className="flex justify-between"><span className="text-text-muted">Date</span><span>{new Date(tx.date + "T00:00:00").toLocaleDateString()}</span></div>
+        <div className="flex justify-between"><span className="text-text-muted">Amount</span>
+          <span className={`font-medium ${tx.amount > 0 ? "text-red-700" : "text-text-primary"}`}>
+            {tx.amount > 0 ? "-" : "+"}{money(Math.abs(tx.amount))}
+          </span>
+        </div>
+        <div className="flex justify-between"><span className="text-text-muted">Bank</span><span>{tx.connectionLabel || "—"}</span></div>
+      </div>
+
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-4 w-fit">
+        <button
+          onClick={() => setTab("categorize")}
+          className={`text-xs px-3 py-1 rounded-md ${tab === "categorize" ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"}`}
+        >
+          Categorize
+        </button>
+        {tx.amount > 0 && (
+          <button
+            onClick={() => setTab("match")}
+            className={`text-xs px-3 py-1 rounded-md ${tab === "match" ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"}`}
+          >
+            Match to expense
+          </button>
+        )}
+      </div>
+
+      {tab === "categorize" && (
+        <div className="space-y-4">
+          <Field label="Category">
+            <select value={category} onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm">
+              {EXPENSE_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </select>
+            {tx.suggestedCategory && !tx.categoryOverride && (
+              <p className="text-[11px] text-text-muted mt-1">
+                Suggested from vendor: {expenseCategoryLabel(tx.suggestedCategory)}
+              </p>
+            )}
+          </Field>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={markTransfer} onChange={(e) => setMarkTransfer(e.target.checked)} />
+              <span className="text-text-primary">Transfer between accounts</span>
+            </label>
+            <p className="text-[11px] text-text-muted ml-6">
+              Transfers between the club&apos;s own accounts are neither income nor expense.
+            </p>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={excludeTax} onChange={(e) => setExcludeTax(e.target.checked)} />
+              <span className="text-text-primary">Exclude from Tax Summary</span>
+            </label>
+          </div>
+          <Field label="Notes">
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+          </Field>
+          {err && <p className="text-xs text-red-600">{err}</p>}
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveCategorize}
+              disabled={saving}
+              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === "match" && (
+        <div className="space-y-3">
+          {loadingSug ? (
+            <div className="text-sm text-text-muted">Looking for likely matches…</div>
+          ) : suggestions.length === 0 ? (
+            <div className="text-sm text-text-muted">
+              No obvious matches within 3 days. Create a new expense from this row?
+            </div>
+          ) : (
+            <ul className="divide-y divide-app-border border border-app-border rounded-lg">
+              {suggestions.map((s) => (
+                <li key={s.id} className="p-3 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm text-text-primary truncate">{s.label}</div>
+                    <div className="text-[11px] text-text-muted">
+                      {new Date(s.date + "T00:00:00").toLocaleDateString()} · {money(s.amount)} · {(s.score * 100).toFixed(0)}% match
+                    </div>
+                  </div>
+                  <button
+                    disabled={saving}
+                    onClick={() => confirmMatch(s.id)}
+                    className="text-xs font-semibold px-3 py-1 rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+                  >
+                    Match
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="border-t border-app-border pt-3">
+            <p className="text-xs text-text-muted mb-2">Or create a new expense from this row:</p>
+            <Field label="Category">
+              <select value={category} onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm">
+                {EXPENSE_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+            </Field>
+            <button
+              disabled={saving}
+              onClick={createNewExpense}
+              className="mt-3 w-full px-4 py-2 bg-charcoal text-white rounded-lg text-sm hover:bg-charcoal-hover disabled:opacity-50"
+            >
+              Create expense &amp; match
+            </button>
+          </div>
+          {err && <p className="text-xs text-red-600">{err}</p>}
+        </div>
+      )}
+    </Modal>
   );
 }
 
