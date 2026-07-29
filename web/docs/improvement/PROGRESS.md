@@ -27,7 +27,7 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | M5 | `20260728010000_plaid_transactions` — PlaidTransaction + PlaidSyncCursor + Expense.matchedPlaidTransactionId | 1B | ✅ 2026-07-29 |
 | M6–M7 | `20260728020000_money_out_matching` — Expense review + TransactionCategoryRule | 1C | ✅ 2026-07-29 |
 | M8 | `20260728030000_reports_indexes` — composite indexes for range queries | 2 | ✅ 2026-07-29 |
-| M9 | `Club.wentLiveAt` — before/since AthletixOS ranges | 2.5.1 | ⬜ |
+| M9 + M9a | `Club.wentLiveAt` + `ActionItemSnooze` (bundled in `20260730_club_wentliveat_actionitems`) | 2.5.1 + 2.5.1a | ⬜ |
 | M10 | `ExpenseClassificationOverride` — owner FIXED/VARIABLE per category | 2.5.3 | ⬜ |
 | M11 | `PayoutMatch` — Stripe payout ↔ bank credit link | 2.5.7 | ⬜ |
 | M12 | `ReportAlertSetting` — alert thresholds per club | 2.5.8 | ⬜ |
@@ -161,9 +161,11 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 
 **Source of truth:** `docs/improvement/design_handoff_reports/`. See `plan.md` §Phase 2.5 for complete acceptance criteria per sub-phase.
 
+**Owner-approved adjustments (2026-07-29):** (A) owner-first Snapshot answers 5 concrete questions; SaaS metrics (MRR/ARR/ARPA/ARPM/CAC/LTV) move to secondary positions on Revenue tab + Unit economics tab. (B) Mobile is a per-sub-phase requirement, not a final polish sub-phase. (C) New sub-phase 2.5.1a — Action Items feed on Snapshot.
+
 **Non-negotiable regression guard**: `/dashboard/financials` must render byte-identical before and after this phase. Snapshot-test in 2.5.13.
 
-### 2.5.1 Shell + Snapshot + Reliability
+### 2.5.1 Shell + extended range + reliability strip + owner-first Snapshot
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
@@ -171,18 +173,31 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | 2.5.1.2 | Extended range dropdown: `this_week, last_week, month, last_month, qtd, ytd, year, all, before_athletix, since_athletix, custom`. Weeks Mon–Sun in club timezone. | UI + Backend | — | ⬜ |
 | 2.5.1.3 | Every API response carries `range: { key, label, start, end, isPartialPeriod, partialNote, comparison }`. | Backend | — | ⬜ |
 | 2.5.1.4 | `GET /api/reports/reliability` — cached ~60s, 8 states per spec 03. Every `href` deep-links to the exact fix. | Backend | — | ⬜ |
-| 2.5.1.5 | `GET /api/reports/snapshot` per spec 02 §snapshot: net position, avg burn/net, cash accounts, runway (null when no bank), 12-column trend chart with partial-column mark. | Backend | — | ⬜ |
-| 2.5.1.6 | Snapshot tab UI: alert stack, 4 KPI cards, financial snapshot card, cash-on-hand card (highlighted total + Healthy pill + progress bar + basis note), money-in-vs-money-out chart, "where these numbers come from" 3-column grid. | UI | — | ⬜ |
-| 2.5.1.7 | **M9** — `Club.wentLiveAt DateTime?`. | Migration | M9 | ⬜ |
+| 2.5.1.5 | `GET /api/reports/snapshot` returns the **owner-first** shape: `didIMakeMoney`, `whoOwesMe`, `membershipsGrowing`, `revenueDrivers`, plus `cash`, `runway`, `trend`, `burnBasis`, `reliability`. SaaS metrics NOT included here (they're on 2.5.2 + 2.5.6). | Backend | — | ⬜ |
+| 2.5.1.6 | Snapshot tab UI, owner-first ordering top-to-bottom: reliability strip → Action Items (2.5.1a) → "Did I make money?" card → "Who owes me money?" card → "Which memberships are growing?" card → "Which coaches/classes are driving revenue?" card → Cash on hand card → Money-in-vs-money-out chart → "Where these numbers come from" grid. | UI | — | ⬜ |
+| 2.5.1.7 | **M9 + M9a** — `Club.wentLiveAt DateTime?` + `ActionItemSnooze` in one migration file. | Migration | M9 + M9a | ⬜ |
+| 2.5.1.8 | Mobile responsive: cards stack 1→2 col, plain-English headline wraps at 375px, breakdown chips wrap, 44×44 targets, reliability strip never collapses. | UI | — | ⬜ |
 
-### 2.5.2 Revenue tab
+### 2.5.1a Action Items feed on Snapshot (owner-approved 2026-07-29)
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 2.5.2.1 | `GET /api/reports/revenue` per spec 02 §revenue: MRR/ARR/ARPA/ARPM, recurring/variable split, byItem, byCoach, byLocation, bySource. | Backend | — | ⬜ |
+| 2.5.1a.1 | `GET /api/reports/action-items` returns `{ items[], counts: {high, medium, low}, generatedAt }`. Each item: `{id, kind, severity, title, detail, count, amount, href, action}`. | Backend | — | ⬜ |
+| 2.5.1a.2 | MVP action kinds: `FAILED_PAYMENT`, `EXPIRING_MEMBERSHIP`, `UPCOMING_RENEWAL_LARGE`, `UNRECONCILED_DEPOSIT`, `OFFLINE_PAYMENT_PENDING`, `UNCATEGORIZED_LARGE_BANK`, `HISTORICAL_IMPORT_REVIEW`, `PAYMENT_METHOD_EXPIRING`. | Backend | — | ⬜ |
+| 2.5.1a.3 | Items ordered: high severity first, then by amount desc. Permission-gated on both client and server. | Backend | — | ⬜ |
+| 2.5.1a.4 | `components/reports/ActionItems.tsx` — one card per item (severity dot + title + detail + count/amount + primary action + `⋯` dismiss/snooze). Filter chips at top: All / High / Medium / Low. Empty state: lime tile "Nothing needs your attention today." | UI | — | ⬜ |
+| 2.5.1a.5 | Snooze writes to `ActionItemSnooze` (bundled with M9). Dismissed items disappear until `snoozedUntil`. | Backend + UI | (in M9) | ⬜ |
+| 2.5.1a.6 | Mobile: cards render full-width, severity dot + title + detail stacked, action button at 44px height; filter chips horizontally scroll; snooze/dismiss `⋯` opens bottom sheet with 44px rows. | UI | — | ⬜ |
+
+### 2.5.2 Revenue tab (owner-first: primary = mix, top items, top coaches, top classes; SaaS metrics secondary)
+
+| # | Task | Class | Migration | Status |
+|---|---|---|---|---|
+| 2.5.2.1 | `GET /api/reports/revenue` returns `{ range, total, primary: {byItem, byCoach, byLocation, bySource, mix}, recurring: {MRR/ARR/ARPA/ARPM/...}, variable }`. Primary block on top. | Backend | — | ⬜ |
 | 2.5.2.2 | MRR excludes past_due + pending; forward-looking (not period revenue). | Backend | — | ⬜ |
 | 2.5.2.3 | Upgrade/downgrade detection: normalized monthly comparison; equal = neither. | Backend | — | ⬜ |
-| 2.5.2.4 | Revenue tab UI: revenue mix bar (recurring/variable), metrics list + category bars, revenue-by-item table (drill target), coach + location cards, source chips. | UI | — | ⬜ |
+| 2.5.2.4 | Revenue tab UI, owner-first order: mix bar → top by item → top by coach + top by class side-by-side → source chips → collapsible "Recurring revenue metrics" (SaaS block). | UI | — | ⬜ |
+| 2.5.2.5 | Mobile: mix bar stacked labels at `<sm`; coach + class cards stack; source chips wrap; recurring section 2-up KPI grid at `<md`; drill-through opens full-screen sheet. | UI | — | ⬜ |
 
 ### 2.5.3 Costs tab + fixed/variable override
 
@@ -193,6 +208,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | 2.5.3.3 | `PATCH /api/reports/costs/classification` — owner-only. | Backend | — | ⬜ |
 | 2.5.3.4 | **M10** — `ExpenseClassificationOverride` model. | Migration | M10 | ⬜ |
 | 2.5.3.5 | Costs tab UI: split bar, metric cards + category chip lists, override prompt, top-categories table with delta column, top-vendors + largest-single-expense cards, "Needs a look" 6-card grid. | UI | — | ⬜ |
+| 2.5.3.6 | Mobile: split bar full-width; top-categories horizontal-scroll with sticky first col; top-vendors + largest-expenses stack; "Needs a look" 2×3 at `sm` / 1×6 at `<sm`; override tap targets ≥44×44. | UI | — | ⬜ |
 
 ### 2.5.4 P&L + drill-through + CSV/PDF (the most-requested behavior)
 
@@ -204,6 +220,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | 2.5.4.4 | **`GET /api/reports/pnl/drill`** — every P&L / Costs / Revenue figure links here. Full-screen sheet on mobile. | Backend + UI | — | ⬜ |
 | 2.5.4.5 | `GET /api/reports/pnl/export?format=csv` (reuse `reportToCsv`) + `?format=pdf` (new; ship in this sub-phase, not deferred). | Backend | — | ⬜ |
 | 2.5.4.6 | UI: monthly table (6 columns per design) + weekly table with partial-week warning, segmented Cash/Accrual + Monthly/Weekly controls, CSV+PDF export buttons. | UI | — | ⬜ |
+| 2.5.4.7 | Mobile: P&L table stacked card layout at `<sm`, horizontal scroll with sticky first col at `sm+`. Controls wrap under header at `<md`. Drill-through opens full-screen sheet with virtualized list + CSV export. Export buttons ≥44×44. | UI | — | ⬜ |
 
 ### 2.5.5 Membership tab
 
@@ -214,6 +231,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | 2.5.5.3 | Until Phase 4.5.10 lands `MemberSubscriptionEvent`, return `reliability: "ESTIMATED"` on affected fields. Never fabricate. | Backend | — | ⬜ |
 | 2.5.5.4 | UI: 4 KPI cards, movement card, churn breakdown pills + formula card, churn trend chart, breakdown table. | UI | — | ⬜ |
 | 2.5.5.5 | `groupBy=coach` returns 403 without `reports.by_coach`; `null` for clubs without coach-on-membership assignment. | Backend | — | ⬜ |
+| 2.5.5.6 | Mobile: movement card 1-col at `<md`; breakdown pills horizontal scroll; trend chart 6-month + "show all" toggle at `<sm`; formula rule-line renders vertically at `<sm`. | UI | — | ⬜ |
 
 ### 2.5.6 Unit economics tab
 
@@ -223,6 +241,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | 2.5.6.2 | Non-positive contribution margin returns `null` + message (never divides by negative). | Backend | — | ⬜ |
 | 2.5.6.3 | CAC/LTV return `null` when inputs missing; caveats array populated. | Backend | — | ⬜ |
 | 2.5.6.4 | UI: 4 per-athlete KPI cards, break-even card (34px number + progress bar + formula block), margins + acquisition card with Estimated badge. | UI | — | ⬜ |
+| 2.5.6.5 | Mobile: KPI 2×2 at `<md` / 4-across at `md+`; break-even 34px number wraps at `<sm`; formula block vertical at `<sm`. | UI | — | ⬜ |
 
 ### 2.5.7 Cash flow + PayoutMatch
 
@@ -234,6 +253,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | 2.5.7.4 | Transfer detection: matched debit+credit within 3 days across two connected accounts of same club. | Backend | — | ⬜ |
 | 2.5.7.5 | Forecast returns `null` when <3 complete months of history. | Backend | — | ⬜ |
 | 2.5.7.6 | UI: 5-column waterfall, grouped table (Operating / Investing / Financing / Excluded), forecast card, alerts card. | UI | — | ⬜ |
+| 2.5.7.7 | Mobile: waterfall horizontal-scrolls with legend fixed at top; grouped table horizontal scroll with sticky first col; forecast + alerts full-width. | UI | — | ⬜ |
 
 ### 2.5.8 Alerts + settings
 
@@ -241,7 +261,8 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 |---|---|---|---|---|
 | 2.5.8.1 | **M12** — `ReportAlertSetting` model. Seed defaults on existing clubs (BF-7). | Migration + Backfill | M12 | ⬜ |
 | 2.5.8.2 | `GET /api/reports/alerts` + `PUT /api/reports/alerts/settings`. Owner-only. Reuse `NotificationBell` severity/color. | Backend | — | ⬜ |
-| 2.5.8.3 | Alert kinds: `RUNWAY_BELOW, EXPENSES_EXCEED_REVENUE, CHURN_SPIKE, UNCATEGORIZED_COUNT, BANK_SYNC_STALE, REFUND_RATE, RECURRING_REVENUE_DECLINE, PAYROLL_ABOVE_AVERAGE`. | Backend | — | ⬜ |
+| 2.5.8.3 | Alert kinds: `RUNWAY_BELOW, EXPENSES_EXCEED_REVENUE, CHURN_SPIKE, UNCATEGORIZED_COUNT, BANK_SYNC_STALE, REFUND_RATE, RECURRING_REVENUE_DECLINE, PAYROLL_ABOVE_AVERAGE`. Adds Action-Items thresholds `UPCOMING_RENEWAL_LARGE`, `UNCATEGORIZED_LARGE_BANK` — settings surface used by 2.5.1a. | Backend | — | ⬜ |
+| 2.5.8.4 | Mobile: alerts list 1-column; threshold settings drawer opens as bottom sheet; toggle tap targets ≥44×44. | UI | — | ⬜ |
 
 ### 2.5.9 Historical import schema + Member/Transaction field additions
 
@@ -268,6 +289,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | 2.5.10.9 | Rollback endpoint: owner-only, 30-day window, converts to `isHistoricalOnly` when rows have activity. | Backend | — | ⬜ |
 | 2.5.10.10 | All 12 endpoint contracts from spec 02 §imports. | Backend | — | ⬜ |
 | 2.5.10.11 | Assertion test: imported members trigger NO email/invite/billing/campaign. | Testing | — | ⬜ |
+| 2.5.10.12 | Mobile: step rail horizontal-scroll with active step centered; dropzone fill-width; column-mapping horizontal scroll with sticky first col; error groups collapse into cards; review-match panels stack; footer nav sticky-bottom with safe-area inset. | UI | — | ⬜ |
 
 ### 2.5.11 Granular permissions
 
@@ -421,6 +443,8 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 
 **Core problem:** one vocabulary was doing three jobs. Split into 3 tracks, `nextAction(member)` next to every person, imports source label owner-typed.
 
+**Owner-approved adjustment (2026-07-29):** every 4.5.x sub-phase has explicit mobile acceptance criteria. Sub-phase 4.5.9 remains the cross-cutting audit + Capacitor shell regression, not the first attention to mobile.
+
 **Dependency reminder:** 4.5.10's `MemberSubscriptionEvent` (M22) closes Phase 2.5.5's ESTIMATED churn caveat. Reports Membership tab flips to COMPLETE reliability after 4.5.10 backfill.
 
 ### 4.5.1 Status model + `nextAction` resolver
@@ -450,6 +474,7 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 | 4.5.2.8 | `⋯` menu (238px popover, fixed order, permission-gated items greyed with lock icon + role badge). | UI + Backend | — | ⬜ |
 | 4.5.2.9 | Footer: rows-of-total + Previous/Next + A–Z jump. Server-side. | UI + Backend | — | ⬜ |
 | 4.5.2.10 | **M20** — `SavedMemberView` model. | Migration | M20 | ⬜ |
+| 4.5.2.11 | Mobile: table → card list at `<md`; header actions collapse behind `⋯` (keep primary Add); work-queue 2×2 at `sm` / 1-col at `<sm`; person-type control horizontal scroll; Filters full-screen sheet; bulk bar sticks bottom with safe-area; family collapse "3 more in family" chip. | UI | — | ⬜ |
 
 ### 4.5.3 Member profile (tabs variant, 1c)
 
@@ -463,6 +488,7 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 | 4.5.3.6 | Right col: Account & security (password-reset action), Money, Attendance (3 figures), Waivers & documents (`Request` action), Staff notes. | UI | — | ⬜ |
 | 4.5.3.7 | Payments tab wires drill-through from Phase 2.5.4. | UI + Backend | — | ⬜ |
 | 4.5.3.8 | Extended `GET /api/members/[id]` include: `guardianLinks: { include: user }` + `user: { include: { guardianOf: { include: { member: true } } } }`. Folds in Phase 4B's Cameron-symptom fix if not yet shipped. | Backend | — | ⬜ |
+| 4.5.3.9 | Mobile: 56px avatar; right actions collapse to `⋯` at `<sm` (keep Message); family switcher becomes single-select at `<sm`; next-action banner actions stack; tabs horizontal scroll; body stacks 1-col at `<lg`; locked-birthday row bleeds to edge. | UI | — | ⬜ |
 
 ### 4.5.4 Edit member drawer
 
@@ -473,6 +499,7 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 | 4.5.4.3 | Locked block (birthday + password) with dashed fields, lock icons, portal explanation copy verbatim. | UI | — | ⬜ |
 | 4.5.4.4 | Editing an email **re-points the pending invitation, never silently re-sends**. Edits never reset migration progress. | Backend | — | ⬜ |
 | 4.5.4.5 | Every write attributed to `MemberMigrationEvent`. | Backend | — | ⬜ |
+| 4.5.4.6 | Mobile: drawer opens full-screen at `<md`; field groups stack; locked block ≥48px tall; footer sticks with safe-area inset; Revert links ≥44×44. | UI | — | ⬜ |
 
 ### 4.5.5 Password reset (3 states)
 
@@ -482,6 +509,7 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 | 4.5.5.2 | Success dialog with **live `Resend in mm:ss` countdown**. | UI | — | ⬜ |
 | 4.5.5.3 | No-email dialog with red-tinted note + bounce history. | UI | — | ⬜ |
 | 4.5.5.4 | Reuse existing `/api/auth/reset-password` machinery. Every send writes attributable audit. | Backend | — | ⬜ |
+| 4.5.5.5 | Mobile: dialogs render as bottom sheets at `<sm`; buttons stack; countdown legible; bounce history scrolls inside sheet. | UI | — | ⬜ |
 
 ### 4.5.6 Family & access
 
@@ -493,6 +521,7 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 | 4.5.6.4 | Permissions table with editable-in-place checkboxes for Book / Pay / Waivers / Messages + Status + actions. Pending rows tinted `#FFFBF5`. | UI + Backend | — | ⬜ |
 | 4.5.6.5 | Transfer account management flow: owner-only, both adults emailed, incoming holder must add PM before completion, in-flight invoices stay with old holder, `BillingAuditLog` entry. | Backend + UI | — | ⬜ |
 | 4.5.6.6 | Staff-created relationships start `PENDING`; grant no book/pay/waivers/messages rights until confirmed. | Backend + UI | — | ⬜ |
+| 4.5.6.7 | Mobile: header stacks; account-holder card 44px avatar; permissions table → card list with 44×44 toggle switches; Transfer + Add-relationship modals as bottom sheets; pending action buttons ≥44×44. | UI | — | ⬜ |
 
 ### 4.5.7 Migration dashboard
 
@@ -504,6 +533,7 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 | 4.5.7.4 | Queue segmented by whose turn (`Needs you / Waiting on member / In setup / Done`). Columns per spec. Bulk row for Send / Assign / Mark reviewed. | UI + Backend | — | ⬜ |
 | 4.5.7.5 | Cut-over advisory + `Cut-over checklist`. | UI | — | ⬜ |
 | 4.5.7.6 | Retire `migrationGroup / migrationFinalAction / readiness*` from UI. Schema columns retained. | UI | — | ⬜ |
+| 4.5.7.7 | Mobile: funnel 7 segments as horizontal-scroll strip at `<md`; progress bar full-width; "Needs you" 2×2 → 1-col; queue tabs horizontal scroll; queue table → card list at `<md`; bulk actions bar sticks bottom with safe-area. | UI | — | ⬜ |
 
 ### 4.5.8 Migration detail drawer
 
@@ -514,6 +544,7 @@ Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes on
 | 4.5.8.3 | 7-vertical-step progress timeline with ringed current step. Invitation step embeds `Resend now` / `Send to a different email` / `Copy invite link`. | UI + Backend | — | ⬜ |
 | 4.5.8.4 | Imported data 4-col grid; header text = owner's `ImportBatch.sourceLabel` (never hardcoded vendor name). Corrected rows tinted with struck-through old value. | UI | — | ⬜ |
 | 4.5.8.5 | Footer: `Assign a different plan` + `Resend invitation`. | UI | — | ⬜ |
+| 4.5.8.6 | Mobile: drawer opens full-screen at `<md`; progress timeline dot targets ≥44×44; imported data 4-col → 2-col at `md` → stacked at `<md`; corrected tint stays visible; footer sticks bottom with safe-area. | UI | — | ⬜ |
 
 ### 4.5.9 Mobile
 
@@ -673,6 +704,8 @@ Each phase gets one dated entry per meaningful checkpoint below.
 - 2026-07-29 — **All four Phase 1/2 migrations applied to production.** psql pooler fallback (direct DNS unreachable from sandbox); each SQL ran under `-1 -v ON_ERROR_STOP=1`, bookkeeping row inserted with SHA-256 matching Prisma format. Smoke checks: all 7 new columns on `transactions`, `plaid_transactions` + `plaid_sync_cursors` tables, `Expense.matchedPlaidTransactionId`, 5 M6 columns, `transaction_category_rules`, 5 M8 indexes — all present. Row counts unchanged (`transactions=37`, `members=292`, `expenses=0`). VOID→refundedAt backfill hit 2/2 rows. Backup at `/Users/cubano/clubos-backups/pre-migration-20260729-1124.sql` (4.6 MB) retained.
 
 - 2026-07-29 — **Roadmap restructured to Option B.** `plan.md` + `PROGRESS.md` updated: full Reports design handoff scheduled as Phase 2.5 (13 sub-phases, migrations M9–M15, ships between Phase 2 and Phase 3); full Members design handoff scheduled as Phase 4.5 (11 sub-phases, migrations M17–M22, ships between Phase 4 and Phase 5). Full cross-phase dependency table added to `plan.md §4a`. Full migration inventory (M1–M22) and backfill inventory (BF-1 through BF-7) added to `PROGRESS.md`. **Note on M-numbering collision**: the pre-existing Phase 3–6 sections in `PROGRESS.md` reference M9–M15 for pre-Phase-2.5-planning purposes; those references will be renumbered to M23+ when Phase 3 is actually implemented. No code shipped in this update — documentation only. Awaiting owner sign-off on the roadmap before starting Phase 3.
+
+- 2026-07-29 (evening) — **Owner-approved roadmap adjustments.** Three amendments to Phase 2.5 + 4.5 before Phase 2.5 code starts: (A) **Owner-first Snapshot**: the default `/dashboard/reports` Snapshot now answers 5 concrete owner questions (Did I make money? Who owes me money? Which memberships are growing? Which coaches/classes are driving revenue? What requires my attention today?), and SaaS metrics (MRR/ARR/ARPA/ARPM/CAC/LTV) move to secondary sections on Revenue and Unit economics tabs. (B) **Mobile in every sub-phase**: every 2.5.x and 4.5.x sub-phase now has explicit mobile acceptance criteria; sub-phases 2.5.12 and 4.5.9 remain as cross-cutting audit + regression passes rather than the first time responsive gets attention. (C) **New sub-phase 2.5.1a — Action Items** feed on Snapshot with `FAILED_PAYMENT`, `EXPIRING_MEMBERSHIP`, `UPCOMING_RENEWAL_LARGE`, `UNRECONCILED_DEPOSIT`, `OFFLINE_PAYMENT_PENDING`, `UNCATEGORIZED_LARGE_BANK`, `HISTORICAL_IMPORT_REVIEW`, `PAYMENT_METHOD_EXPIRING` kinds; snooze via new `ActionItemSnooze` model bundled into M9. Roadmap otherwise approved. Committing docs, pushing, then starting Phase 2.5.1.
 
 ---
 

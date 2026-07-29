@@ -290,45 +290,178 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 6. Reuse existing helpers (`EXCLUDE_VOID`, `resolveRevenueCategory`, `computePayrollTotalForRange`, `isCashMethod`).
 7. **Out of scope: `/dashboard/financials`.** Reports reads it, must not modify it. Regression test at 6.1.
 
-## 2.5.1 — Shell, extended range, reliability strip, Snapshot tab (`specs/02` §range, §snapshot, §reliability; `specs/03` §snapshot, §runway; `README.md` Tab 1)
+**Owner-approved adjustments (2026-07-29):**
 
-**Deliverable:** owner opens `/dashboard/reports`, sees the eight-tab hub, the reliability strip, and a working Snapshot tab.
+**A. Owner-first Snapshot.** The default Snapshot answers the questions a club owner actually asks, not SaaS-vendor questions. The five primary answers:
+1. **Did I make money?** — period net + comparison + one-line explanation.
+2. **Who owes me money?** — outstanding invoices, unpaid registrations, past-due subscriptions, with drill-through.
+3. **Which memberships are growing?** — net change per plan, side-by-side new vs canceled, top movers.
+4. **Which coaches / classes are driving revenue?** — top revenue by coach + top by class/program.
+5. **What requires my attention today?** — Action Items feed (see §2.5.1a).
 
-**Acceptance criteria:**
+Advanced SaaS metrics — ARR, MRR, ARPA, ARPM, CAC, LTV, LTV:CAC — still exist and remain accurate. They move to secondary positions on the Revenue tab (MRR / ARR / ARPA / ARPM) and Unit economics tab (CAC / LTV / LTV:CAC / break-even). They are not the first thing the owner sees.
+
+**B. Mobile is a per-sub-phase acceptance criterion, not a final polish sub-phase.** Every 2.5.x below has explicit mobile acceptance criteria. Sub-phase 2.5.12 remains as the cross-cutting responsive audit + regression test, not as the first time responsive gets attention.
+
+**C. New sub-phase 2.5.1a — Action Items.** A first-class Snapshot section (and its own endpoint) that surfaces tasks the owner should act on today: failed payments, expiring memberships, unreconciled deposits, upcoming renewals, pending offline payments, uncategorized bank rows over threshold. Every item has a permission-gated action button and drill-through. This ships in Phase 2.5.1a so the Snapshot renders it from the first commit.
+
+## 2.5.1 — Shell, extended range, reliability strip, owner-first Snapshot tab (`specs/02` §range, §snapshot, §reliability; `specs/03` §snapshot, §runway; `README.md` Tab 1)
+
+**Deliverable:** owner opens `/dashboard/reports`, sees the eight-tab hub, the reliability strip, and a working owner-first Snapshot tab that answers the five questions above.
+
+**Acceptance criteria — hub + range + reliability:**
 - Eight tabs render (`Snapshot · Revenue · Costs · P&L · Membership · Unit economics · Cash flow · History & imports`) with horizontal scroll at `<lg` and active-tab-scroll-into-view (`getBoundingClientRect`, 12px slack, `scroll-behavior: smooth`).
 - Range dropdown supports every key: `this_week`, `last_week`, `month`, `last_month`, `qtd`, `ytd`, `year`, `all`, `before_athletix`, `since_athletix`, `custom`. Weeks are Monday–Sunday, months are calendar months in the **club's timezone** (`Club.timezone`, not server-local).
 - Every API response carries `range: { key, label, start, end, isPartialPeriod, partialNote, comparison }`.
 - `GET /api/reports/reliability` — cached ~60s, returns `{ sections: [{ key, label, state, detail, count, lastUpdatedAt, href }], attentionCount }`. Every `href` deep-links to the exact fix, not a section index.
 - Reliability states from `specs/03`: `COMPLETE`, `MISSING_BANK_CONNECTION`, `AWAITING_CATEGORIZATION`, `HISTORICAL_DATA_INCOMPLETE`, `CASH_DATA_NOT_INCLUDED`, `ESTIMATED`, `NEEDS_REVIEW`, `STALE`.
-- `GET /api/reports/snapshot` returns the shape in `specs/02`: `netPosition`, `totalInflows`, `totalOutflows`, `avgWeeklyBurn`, `avgMonthlyBurn`, `avgWeeklyNet`, `avgMonthlyNet`, `burnBasis`, `cash.accounts[]`, `cash.stripePending`, `cash.totalAvailable`, `runway.months`, `runway.status`, `runway.basisLabel`, `comparison`, `trend`, `reliability`.
-- **`runway.months` is `null` when no bank connection** — never `0`. The UI reads "Connect a bank account to see runway" (not "0 months").
+
+**Acceptance criteria — owner-first Snapshot API (`GET /api/reports/snapshot`):**
+- Returns the answers to the five questions plus supporting metrics. Shape:
+  ```
+  {
+    range: {...},
+    reliability: [...],   // reliability strip payload (subset relevant to Snapshot)
+    didIMakeMoney: {
+      netPosition, totalInflows, totalOutflows,
+      comparison: { key, label, netPositionDelta, inflowsDelta, outflowsDelta } | null,
+      explanation: string          // "You brought in $X, spent $Y, kept $Z."
+    },
+    whoOwesMe: {
+      total, count,
+      breakdown: [{ kind: "unpaid_invoice"|"unpaid_registration"|"past_due_sub"|"offline_pending", label, amount, count, href }]
+    },
+    membershipsGrowing: {
+      netChange, newCount, canceledCount,
+      topMovers: [{ id, name, netChange, newCount, canceledCount, direction: "growing"|"shrinking" }]
+    },
+    revenueDrivers: {
+      byCoach: [{ id, name, amount, share, href }] | null,   // null when no coach assignment
+      byClass: [{ id, name, kind: "class"|"program"|"event"|"private", amount, share, href }]
+    },
+    cash: {
+      accounts: [{ id, label, institution, mask, balance, lastSyncedAt }],
+      stripePending, totalAvailable, lastUpdatedAt
+    },
+    runway: { months: number | null, status: "healthy"|"tight"|"critical", basisLabel: string },
+    trend: [{ month: string, inflows: number, outflows: number, isPartial: boolean }],
+    burnBasis: { label, months },
+    avgWeeklyBurn, avgMonthlyBurn, avgWeeklyNet, avgMonthlyNet,
+    partialPeriodNote: string | null
+  }
+  ```
+- **`runway.months` is `null` when no bank connection** — never `0`. UI reads "Connect a bank account to see runway."
 - **Partial-period detection**: monthly = `today < last day of month`; weekly = fewer than 7 elapsed days. Partial columns marked in the trend chart, excluded from rolling averages, never used as a comparison base.
-- Alert stack renders warnings inline; the first row is orange-tinted for warning severity.
-- Four KPI cards (Net profit · Money in · Money out · Available cash) at `26px/600` tabular-nums, delta in green `#15803D` or muted.
-- Cash-on-hand card: highlighted total row (`rgba(163,230,53,.14)`) with "Healthy" pill + 6px lime progress bar + basis note naming months + average used.
-- Money-in-vs-money-out chart: 12 grouped bar pairs (or fewer for shorter ranges), partial month rendered at `opacity: 0.55` with an asterisk and footnote.
-- "Where these numbers come from" 3-column grid of six source cards.
+- SaaS metrics (MRR, ARR, ARPA, ARPM, CAC, LTV, LTV:CAC, avg lifetime value) are **not** included in this endpoint. They live in `/api/reports/revenue` (2.5.2) and `/api/reports/unit-economics` (2.5.6).
+
+**Acceptance criteria — Snapshot tab UI (owner-first ordering, top-to-bottom):**
+1. **Reliability strip** — same on every tab.
+2. **Action Items** (see §2.5.1a) — actionable list, above the fold.
+3. **"Did I make money?" card** — plain-English headline (`You brought in $X, spent $Y, kept $Z.`) + net delta pill (green up / red down) vs comparison period + `View P&L →`.
+4. **"Who owes me money?" card** — total + count + drillable breakdown chips (Unpaid invoices, Unpaid registrations, Past due, Offline pending). Each chip → transaction list drill.
+5. **"Which memberships are growing?" card** — net change + top movers (grid at desktop, list at mobile). Each mover → membership detail (Phase 4.5 profile).
+6. **"Which coaches / classes are driving revenue?" card** — two mini-tables side-by-side at desktop, stacked at mobile. Each row → drill.
+7. **Cash on hand card** — highlighted total row (`rgba(163,230,53,.14)`) with "Healthy" pill + 6px lime progress bar + basis note.
+8. **Money-in-vs-money-out chart** — grouped bar pairs (or fewer for shorter ranges); partial month rendered at `opacity: 0.55` with asterisk + footnote.
+9. **"Where these numbers come from"** — 3-column grid of six source cards. On mobile: single column.
+
+**Acceptance criteria — mobile (specs/05 §mobile):**
+- Tab bar horizontally scrolls at `<lg` with active tab scrolled into view on mount.
+- Cards stack 1-column below `md`, 2-column at `md`, full ordering above at `lg`.
+- The "Did I make money?" plain-English headline never truncates on 375px — wraps to two lines instead.
+- "Who owes me money?" breakdown chips wrap to multiple lines below `sm`, never overflow.
+- Top movers and revenue drivers render as list on mobile (not table) with amount right-aligned.
+- Cash-on-hand card total row bleeds to card edge on mobile (`-mx-3` equivalent) to keep the highlighted band visible.
+- Money-in-vs-money-out chart: below `sm` shows last 6 buckets with "show all" toggle.
+- Every interactive target ≥ 44×44.
+- Reliability strip never collapsed on any breakpoint.
 
 **Migration required:**
 - **M9**: `Club.wentLiveAt DateTime?` (nullable; if set, `before_athletix` uses it; otherwise falls back to `Club.createdAt`).
 
+## 2.5.1a — Action Items (`specs/02` §alerts + owner-approved extension 2026-07-29)
+
+**Deliverable:** a first-class Action Items section on the Snapshot tab that surfaces tasks the owner should act on today, not just KPIs. Every item has a permission-gated action button and a drill-through.
+
+**Acceptance criteria — API (`GET /api/reports/action-items`):**
+- Returns `{ items: ActionItem[], counts: { high: n, medium: n, low: n }, generatedAt }`.
+- Each `ActionItem` shape:
+  ```
+  {
+    id: string,
+    kind: ActionKind,           // enum below
+    severity: "high"|"medium"|"low",
+    title: string,              // "3 payments failed this week"
+    detail: string,             // plain-English evidence
+    count: number | null,       // how many rows
+    amount: number | null,      // aggregate dollars if relevant
+    href: string,               // drill-through to the exact fix
+    action: { label: string, kind: string, permission: string } | null
+  }
+  ```
+- **`ActionKind`** — MVP set (2.5.1a):
+  - `FAILED_PAYMENT` — Stripe `invoice.payment_failed` in the last 7 days, subscription still `past_due`.
+  - `EXPIRING_MEMBERSHIP` — MANUAL subs with `endDate` in next 14 days, or Stripe subs with `cancel_at_period_end=true` and `currentPeriodEnd` in next 14 days.
+  - `UPCOMING_RENEWAL_LARGE` — active recurring sub with `currentPeriodEnd` in next 7 days AND amount above the club's median charge (default $200; owner-configurable via `ReportAlertSetting.threshold` in 2.5.8).
+  - `UNRECONCILED_DEPOSIT` — Stripe payout with no `PayoutMatch.bankTransactionId` after 10 days (also flags reliability warning, per specs/03).
+  - `OFFLINE_PAYMENT_PENDING` — `Transaction.status='PENDING'` + `paymentSource IN ('CASH','CHECK')` older than 3 days.
+  - `UNCATEGORIZED_LARGE_BANK` — `PlaidTransaction` with `reviewedAt IS NULL AND categorizedExpenseId IS NULL AND markedAsTransfer=false AND excludedFromTax=false AND ABS(amount) >= threshold` (default $500; owner-configurable).
+  - `HISTORICAL_IMPORT_REVIEW` — `ImportBatch.reviewCount > 0` and `status='AWAITING_REVIEW'` (comes online in 2.5.10).
+  - `PAYMENT_METHOD_EXPIRING` — Stripe payment method expiring in next 30 days (via existing `stripeSetupCustomerId` lookup).
+- Items ordered: high severity first, then by amount desc.
+- Permission-gated: each item's `action.permission` is enforced client-side (button greyed with lock icon) and server-side (drill routes 403 for insufficient permission).
+
+**Acceptance criteria — UI (`components/reports/ActionItems.tsx`):**
+- Owner-first — rendered **above** the "Did I make money?" card on the Snapshot tab.
+- One card per item: severity dot (red / orange / yellow) + title + detail + count/amount + primary action button + `⋯` (dismiss / snooze).
+- Empty state (well-run club, no items): a lime tile, `check-circle-2` icon, "Nothing needs your attention today." + reassurance copy.
+- Loading skeleton = 3 rows of card outlines.
+- Filter chips at the top: `All (n) · High (n) · Medium (n) · Low (n)`. Chips are pills, `bg-app-bg` inactive / `bg-charcoal text-white` active.
+- Every card carries a `data-action-item-kind` attribute for the `/api/reports/reliability` deep-link to jump to it.
+- Snooze writes to a new `ActionItemSnooze` table (see migration below). Snoozed items disappear until `snoozedUntil` passes.
+
+**Acceptance criteria — mobile:**
+- Cards render full-width on mobile with severity dot + title + detail stacked, action button below at 44px height.
+- Filter chips horizontally scroll with `-webkit-overflow-scrolling: touch`.
+- Snooze / dismiss `⋯` opens a bottom sheet on mobile with 44px minimum row height.
+- No horizontal page scroll at 375, 414, 768 px.
+
+**Migration required:**
+- **M9a**: `ActionItemSnooze` model — `{ id, clubId, userId, kind (ActionKind enum), targetId String?, snoozedUntil DateTime, createdAt, @@index([clubId, snoozedUntil]) }`. Bundled with M9 in the same migration file (`20260730_club_wentliveat_actionitems`) since both are small and land together.
+
 ## 2.5.2 — Revenue tab (`specs/02` §revenue; `specs/03` §recurring revenue; `README.md` Tab 2)
 
-**Acceptance criteria:**
-- `GET /api/reports/revenue` returns `{ range, total, recurring: {activeMemberships, mrr, arr, arpa, arpMembership, newMemberships, renewedMemberships, endedMemberships, upgrades, downgrades, amount, percentOfTotal}, variable: {amount, percentOfTotal, byCategory}, byItem, byCoach, byLocation, bySource }`.
+**Owner-first framing:** top of the tab answers "where is my revenue coming from?" — mix, top items, top coaches, top classes. SaaS metrics (MRR / ARR / ARPA / ARPM) live in a **secondary "Recurring revenue metrics" section further down the tab**, not in the primary answer.
+
+**Acceptance criteria — API:**
+- `GET /api/reports/revenue` returns `{ range, total, primary: { byItem, byCoach, byLocation, bySource, mix: {recurring, variable, recurringPercent, variablePercent} }, recurring: {activeMemberships, mrr, arr, arpa, arpMembership, newMemberships, renewedMemberships, endedMemberships, upgrades, downgrades, amount, percentOfTotal}, variable: {amount, percentOfTotal, byCategory} }`.
 - **MRR is forward-looking:** sum of active recurring subscriptions normalized to monthly (annual ÷ 12, quarterly ÷ 3, weekly × 52 ÷ 12, biweekly × 26 ÷ 12). Excludes `past_due` and `pending` subscriptions.
-- Revenue mix bar: 34px, purple recurring / lime variable, inline percentages.
-- Revenue by item table (drill target — every cell links to `/api/reports/pnl/drill` in 2.5.4).
+- Revenue by item, coach, location, source — all drill targets (link to `/api/reports/pnl/drill` in 2.5.4).
 - Revenue by coach: returns `null` for clubs with no coach-on-membership assignment. Gated by `reports.by_coach`.
 - Revenue by location: returns `null` when the club has one location.
 - Source chips (999px radius, `bg-app-bg`, 1px border, 8px dot, bold amount) — sources: `ATHLETIXOS | STRIPE | PREVIOUS_SOFTWARE | CASH | MANUAL_IMPORT | BANK | OTHER`.
 - A plan change is an **upgrade** if the new normalized monthly amount is higher, **downgrade** if lower. Equal amounts are neither and are excluded from both counts.
 
+**Acceptance criteria — UI (owner-first ordering):**
+1. Revenue mix bar (34px, purple recurring / lime variable, inline percentages).
+2. Top revenue by item table.
+3. Top revenue by coach card + Top revenue by class card, side-by-side.
+4. Source chips grid.
+5. **Below the fold — "Recurring revenue metrics"** collapsible section with MRR, ARR, ARPA, ARPM, new/renewed/ended/upgrades/downgrades. Section header: "For SaaS-style metrics" + info tooltip.
+
+**Acceptance criteria — mobile:**
+- Revenue mix bar: full width, stacked labels below at `<sm` if percentages would collide.
+- Coach + class cards stack 1-column below `md`; horizontal scroll table with sticky first column.
+- Source chips wrap to multiple lines.
+- Recurring revenue metrics section: 2-up KPI grid at `<md`, 4-up at `md+`.
+- Every drill-through opens a full-screen sheet on mobile (matches P&L pattern from 2.5.4).
+- No horizontal page scroll at 375, 414, 768 px.
+
 **No new migrations** — reads existing data + `Transaction.sourceSystem` (added in 2.5.9).
 
 ## 2.5.3 — Costs tab + fixed/variable override (`specs/02` §costs; `specs/03` §rounding; `README.md` Tab 3)
 
-**Acceptance criteria:**
+**Acceptance criteria — API:**
 - `GET /api/reports/costs` returns `{ range, fixed: {total, monthlyAverage, percentOfRevenue, categories}, variable: {…}, topCategories: [{rank, category, label, behavior, amount, percentOfRevenue, deltaPercent}], topVendors, largestExpenses, attention }`.
 - `attention` object includes: `uncategorized`, `missingReceipts`, `awaitingReview`, `unusualIncreases`, `recurringSubscriptions`, `possibleDuplicates`.
 - **Unusual increase** = current period ≥ 1.5× trailing 3-period average **AND** absolute diff ≥ $250 (both conditions).
@@ -337,6 +470,13 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 - Owner override survives a category rename.
 - Fixed + variable = total outflows to the cent.
 
+**Acceptance criteria — mobile:**
+- Split bar full-width; category chips wrap.
+- Top-categories table: horizontal scroll with sticky first column below `md`.
+- Top vendors + Largest expenses cards stack 1-column below `md`.
+- "Needs a look" 6-card grid: 2×3 at `sm`, 1×6 at `<sm`.
+- Fixed/variable override tap target ≥44×44.
+
 **Migration required:**
 - **M10**: `ExpenseClassificationOverride` — `{ id, clubId, category, treatAs: CostBehavior, updatedById, updatedAt, @@unique([clubId, category]) }` (`specs/01`).
 
@@ -344,7 +484,7 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 
 **This is the most-requested behavior in the brief. It ships in this sub-phase, not later.**
 
-**Acceptance criteria:**
+**Acceptance criteria — API + logic:**
 - `GET /api/reports/pnl?period=monthly|weekly&basis=cash|accrual&range=…&from=…&to=…&compare=previous|last_year` returns the shape in `specs/02`: `{ period, basis, columns, sections, summary[], rollingAverage, accrualCoverage, warnings }`.
 - Sections: `income`, `cost_of_sales`, `operating_expenses`.
 - `values[]` arrays are index-aligned with `columns[]`.
@@ -358,13 +498,22 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 - **`GET /api/reports/pnl/export?format=csv|pdf`** with same params. CSV reuses `reportToCsv` from `web/lib/financialReports.ts`. PDF ships in this sub-phase (not deferred).
 - Rounding: compute in `Decimal`; never accumulate in JS floats. Round at the boundary, half-up, 2 dp. Percentages 1 dp. Percentage-point changes written as "pp" not "%". Negatives parenthesised (`($1,284.00)`).
 
+**Acceptance criteria — mobile:**
+- P&L table: below `sm`, stacked card layout (one card per line, label above, values as label/value pairs). Above `sm`, horizontal scroll with sticky first column.
+- Segmented controls (Monthly/Weekly, Cash/Accrual) wrap under the header at `<md`; stay in a row at `md+`.
+- CSV + PDF export buttons: 44×44 minimum at mobile.
+- **Drill-through opens a full-screen sheet on mobile** (not popover). Sheet has a close button at 44×44, list is virtualized for perf, and CSV export of the drill list stays available.
+- No horizontal page scroll at 375, 414, 768 px.
+
 **Migration required:** none — reads existing data.
 
 **Blocker for Phase 4.5.5 acceptance:** drill-through must be live before the Members Payments tab wires it.
 
 ## 2.5.5 — Membership tab (`specs/02` §membership; `specs/03` §churn; `README.md` Tab 5)
 
-**Acceptance criteria:**
+**Owner-first framing:** primary answer is "which memberships are growing / shrinking?" — same top-mover data the Snapshot answers, expanded with drill-through. SaaS churn/retention/LTV metrics are the secondary section.
+
+**Acceptance criteria — API + logic:**
 - `GET /api/reports/membership?range=…&groupBy=type|program|location|age|coach` returns `{ range, movement, rates, formula, trend, breakdown, notes }`.
 - Movement card: starting active → new → reactivated → canceled → expired → ending active → plan changes (marked "not counted as churn").
 - **Churn formula** (verbatim from `specs/03`): `membershipChurnRate = memberships lost during period ÷ active memberships at start of period`. "Lost" = canceled OR expired AND member did not start another membership within the **14-day grace window**. The window is a named constant.
@@ -379,11 +528,21 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 - `groupBy=coach` returns 403 for non-owners without `reports.by_coach`, `null` for clubs with no coach assignment.
 - **Precision caveat until Phase 4.5.1 lands:** if member-subscription-event history isn't yet indexed, the response includes `reliability: "ESTIMATED"` on affected fields with the note "Exact churn requires member subscription-event history." Never fabricate a number.
 
+**Acceptance criteria — mobile:**
+- Movement card: 1-column below `md`, 2-column at `md+`.
+- Churn breakdown pills: horizontal scroll below `sm`.
+- Churn trend chart: below `sm` shows last 6 months with "show all" toggle.
+- Breakdown table: horizontal scroll with sticky first column below `md`.
+- Formula card: full-width; rule-line fraction renders vertically (numerator over denominator) below `sm`.
+- No horizontal page scroll at 375, 414, 768 px.
+
 **Migration required:** none in this sub-phase; consumes Phase 4.5.1's new tracking data when available.
 
 ## 2.5.6 — Unit economics tab (`specs/02` §unit-economics; `specs/03` §unit economics; `README.md` Tab 6)
 
-**Acceptance criteria:**
+**Owner-first framing:** this is where CAC, LTV, LTV:CAC, break-even and per-athlete margins live. It's a secondary tab by design — the Snapshot and Membership tabs answer the primary questions with plain-English numbers first. Users who want the ratios come here.
+
+**Acceptance criteria — API + logic:**
 - `GET /api/reports/unit-economics` returns `{ range, athleteCount, perAthlete: {revenue, cost, grossProfit, operatingProfit, marginPercent}, margins, breakEven, acquisition }`.
 - Per-athlete KPIs: revenue, cost, gross profit, operating profit, margin %.
 - `contributionMarginPerAthlete = revenuePerAthlete − variableCostPerAthlete`.
@@ -396,11 +555,18 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 - Margins + Acquisition card with an "Estimated" badge + caveat paragraph.
 - Every estimated field carries `isEstimate: true`.
 
+**Acceptance criteria — mobile:**
+- 4 per-athlete KPI cards: 2×2 at `<md`, 4-across at `md+`. Values never truncate at 375px (wrap or drop to next type-scale step).
+- Break-even card: progress bar full-width; the 34px break-even number wraps below on `<sm`.
+- Formula block on `bg-app-bg` renders vertically at `<sm` (numerator over rule over denominator).
+- Margins + acquisition card: single column at `<md`.
+- Estimated badge visible without truncation on every card.
+
 **Migration required:** none in this sub-phase.
 
 ## 2.5.7 — Cash flow tab + PayoutMatch (`specs/02` §cash-flow; `specs/03` §double counting, §cash flow, §forecasts; `README.md` Tab 7)
 
-**Acceptance criteria:**
+**Acceptance criteria — API + logic:**
 - `GET /api/reports/cash-flow` returns `{ range, beginningCash, cashReceived, cashSpent, netMovement, endingCash, operating: {inflows, outflows}, investing[], financing[], excluded: {accountTransfers, matchedStripePayouts}, forecast }`.
 - Waterfall visualization: five columns — beginning `#E9E7FB`, received lime, spent `#F3C6C6`, investing/financing `#F3C6C6`, ending charcoal with white text — heights proportional to value.
 - Classification per `specs/03`:
@@ -420,6 +586,13 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 
 **Matching algorithm (`specs/03`):** same amount within ±$0.01, bank posting date within 5 days of the payout's `arrival_date`, description contains the Stripe descriptor. Unmatched payouts older than 10 days raise a reliability warning, not a silent adjustment.
 
+**Acceptance criteria — mobile:**
+- Waterfall visualization: horizontal scrolls with a legend that stays visible at the top.
+- Grouped table (Operating / Investing / Financing / Excluded): horizontal scroll with sticky first column.
+- Forecast card: full-width; the "Estimated" badge stays visible.
+- Alerts card: full-width; dot-prefixed rows readable at 375px.
+- Excluded section chips (matched-payouts, transfers) wrap.
+
 ## 2.5.8 — Alerts + settings (`specs/02` §alerts; `specs/01` §ReportAlertSetting)
 
 **Acceptance criteria:**
@@ -428,6 +601,12 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 - Kinds: `RUNWAY_BELOW`, `EXPENSES_EXCEED_REVENUE`, `CHURN_SPIKE`, `UNCATEGORIZED_COUNT`, `BANK_SYNC_STALE`, `REFUND_RATE`, `RECURRING_REVENUE_DECLINE`, `PAYROLL_ABOVE_AVERAGE`.
 - Reuse severity vocabulary and dot colors from `components/NotificationBell.tsx`.
 - Seed defaults on club creation: runway floor 3 months, uncategorized 20, refund rate 5%, payroll 15% above trailing average.
+- New default seeds for the Action Items thresholds from 2.5.1a: `UPCOMING_RENEWAL_LARGE=200`, `UNCATEGORIZED_LARGE_BANK=500`. Owner-configurable via the settings form here.
+
+**Acceptance criteria — mobile:**
+- Alerts list: 1-column at all breakpoints (severity + title + toggle row).
+- Threshold settings drawer: opens as bottom sheet on mobile, 44px minimum row height.
+- Toggle switch tap target ≥44×44.
 
 **Migration required:**
 - **M12**: `ReportAlertSetting` — `{ id, clubId, kind: AlertKind, threshold: Decimal?, enabled: Boolean @default(true), @@unique([clubId, kind]) }` (`specs/01`).
@@ -465,6 +644,9 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 - **BF-3**: `Transaction.sourceSystem` derived from `paymentSource` (STRIPE→STRIPE, CASH→CASH, CHECK→BANK-like or OTHER, EXTERNAL_READER→OTHER, MANUAL_ADJUSTMENT→MANUAL_IMPORT, COMP→OTHER).
 - All backfills dry-run first with per-club report; allowlist-required `--apply`.
 
+**Acceptance criteria — mobile (schema sub-phase, minimal UI):**
+- No mobile UI in this sub-phase (schema + backfill only). The `sourceLabel`-typing surface is part of the import wizard (2.5.10) which has its own mobile criteria.
+
 ## 2.5.10 — Import wizard (7 steps) (`specs/04` — entire spec)
 
 **Acceptance criteria:**
@@ -483,6 +665,18 @@ Apply the same standards as Phase 1: date-range filtering, pagination or increme
 - **Step 7 — Done**: success card with import ID, timing, four actions, then permanent audit log with row-level filters + CSV download.
 - **Rollback (`specs/04` §rollback)**: owner-only (`reports.rollback`), 30-day window from `completedAt`. `CREATED` rows: hard-delete only if no activity attached; else convert to `isHistoricalOnly`. `MATCHED`: delete attached historical record. `MERGED`: restore archived + move relations using field-change log. Shows preview of what will be removed before confirming.
 - **No emails.** Imported members are not invited, not notified, not billed, not added to campaigns. Assertion test at 6.2.
+
+**Acceptance criteria — mobile:**
+- Wizard step rail: horizontal scroll below `md` with active step centered on mount; steps clickable-backwards freely.
+- Step 1 dropzone: fill-width, drop target ≥44×44 tap area, `Choose file` fallback button.
+- Step 2 column-mapping table: horizontal scroll with sticky first column.
+- Step 3 error table: grouped rows collapse into 1 card per error kind at `<md`, expandable.
+- Step 4 preview table: horizontal scroll with sticky first column.
+- Step 5 review-match cards: side-by-side panels stack at `<md`; five outcome buttons render as 44px tap targets.
+- Step 6 confirm dialog: full-screen at `<sm`.
+- Step 7 audit log table: horizontal scroll with sticky first column.
+- Footer nav (Back / Step / Next): fixed to bottom at `<md` with safe-area inset.
+- No horizontal page scroll at 375, 414, 768 px.
 
 **Routes (`specs/02` §import routes):**
 ```
@@ -514,7 +708,9 @@ GET    /api/reports/imports                      → history list
 
 **No new migration** — permission JSON is a blob.
 
-## 2.5.12 — Mobile + responsive polish (`specs/05` §mobile)
+## 2.5.12 — Mobile + responsive audit + regression pass (`specs/05` §mobile)
+
+**Scope note:** every earlier sub-phase (2.5.1 through 2.5.11) already ships mobile-responsive per its own acceptance criteria. This sub-phase is the **cross-cutting audit + polish pass**: pixel-diff every screen at 375 / 414 / 768 / 1024 / 1280 / 1440, fix any drift, and lock in the responsive behavior with tests.
 
 **Acceptance criteria:**
 - Tab bar horizontally scrollable at `<lg`, momentum scroll, active tab scrolled into view on mount. Never collapses into `<select>`.
@@ -990,6 +1186,8 @@ Cover:
 
 **Core problem being fixed (from `README.md`):** one vocabulary was doing three jobs. A paying member mid-migration read as "Prospect · Un-invited." The redesign splits status into three independent tracks that **never share vocabulary** and puts `nextAction(member)` next to every person.
 
+**Owner-approved adjustment (2026-07-29):** every 4.5.x sub-phase below has explicit mobile acceptance criteria. Sub-phase 4.5.9 remains as the cross-cutting audit + regression pass, not as the first time responsive gets attention.
+
 ## 4.5.1 — Status model + `nextAction` resolver (`README.md` "The status model", "Migration steps"; suggested build order §1)
 
 **This is the foundation. Everything else in Phase 4.5 depends on it.**
@@ -1027,6 +1225,9 @@ Filled segments `#1F1F23`; current step `#FF6A00` (waiting on member), `#DC2626`
 - **M18**: `Member.blockedReason` enum + `Member.snoozedUntil DateTime?` — drives Blocked state and "Snooze 7 days" banner.
 - **M19**: `MemberInvitationDelivery` — one row per invitation send: `{ id, clubId, memberId, sentAt, deliveredAt?, openedAt?, bouncedAt?, bounceReason?, provider, providerMessageId? }`. Drives Blocked ("3 sends, never opened") and the invitation-step "delivered/opened/bounced" surface.
 
+**Acceptance criteria — mobile:**
+- 4.5.1 is a library sub-phase (server-side derivation + resolver). Mobile surfaces begin in 4.5.2. This sub-phase has no user-facing UI to render.
+
 ## 4.5.2 — Members list (`README.md` §1a Members list)
 
 **Acceptance criteria:**
@@ -1049,6 +1250,18 @@ Filled segments `#1F1F23`; current step `#FF6A00` (waiting on member), `#DC2626`
   - *Actions*: **one** recommended next action as 12px outline button (brand outline when primary: `Resend invite`, `Fix email` on charcoal, `Assign membership`, `Win back`, muted `Leave alone`) + 28px `⋯` button.
 - **`⋯` menu** — 238px popover, radius 10px, padding 5px, items 13px + 14px lucide icon + 9px gap, hover `#F7F7F9`, dividers `#F1F1F3`. **Fixed order, identical everywhere**: View profile · Edit member · Resend invitation · Send password reset · Continue migration — Assign membership · Add relationship · Check in to class — Archive member. **Permission-gated items stay visible, greyed with lock icon + role badge** (never hidden).
 - **Footer** — `#FAFAFB`: `Rows 1–50 of 1,284 · sorted by last seen`, Previous/Next, A–Z jump. **Server-side search/sort/pagination mandatory. Counts come from the query, not the loaded page.**
+
+**Acceptance criteria — mobile (partial preview of §1j; full walkthrough at 4.5.9):**
+- Table swaps to card list below `md` (per `README.md` §Responsive rules). One card per person, 44px avatar, name + meta stacked, Track 2 pill + Track 3 dot on second line, 44×44 `⋯` target.
+- Header actions (`Export`, `Import`, `Add member`) collapse into a `⋯` overflow menu at `<sm`, keeping `Add member` (primary) as its own visible pill.
+- Work-queue strip 4-column → 2×2 at `sm` → 1-column at `<sm`.
+- Person-type segmented control: horizontal scroll below `sm`.
+- Filters panel: full-screen sheet below `md`.
+- Active-filter chip bar wraps to multiple lines; `Clear all` link stays visible.
+- Bulk bar: sticks to bottom of viewport on mobile with `env(safe-area-inset-bottom)`.
+- Pill FAB (`user-plus` + `Add`) 78px above bottom nav.
+- Family collapse: 3-child family cards render as a single card with a "3 more in family" chip that expands inline.
+- No horizontal page scroll at 375, 414, 768 px.
 
 **Backend acceptance:**
 - `GET /api/members?page&pageSize&search&filter[key]=&sort` — server-side paginated + searched + sorted. Response: `{ members[], pagination: {total, page, pageSize}, counts: {everyone, athletes, parents, accountHolders, prospects, inactive, mid_migration} }`.
@@ -1084,6 +1297,16 @@ Filled segments `#1F1F23`; current step `#FF6A00` (waiting on member), `#DC2626`
 - **Payments tab** wires the drill-through from Phase 2.5.4 (`/api/reports/pnl/drill?line=…&memberId=…`).
 - Extended `GET /api/members/[id]` include: `guardianLinks: { include: user }` + `user: { include: { guardianOf: { include: { member: true } } } }` — the Cameron-symptom fix from Phase 4B (folds in if it hasn't shipped yet).
 
+**Acceptance criteria — mobile:**
+- Identity header: 56px avatar (down from 64px), name wraps to two lines rather than truncating, right actions collapse behind `⋯` at `<sm` (only `Message` visible).
+- Family switcher: 3-up segmented control below `md`, single-select dropdown at `<sm`.
+- Next-action banner: full-width, actions stack vertically below `<sm`, primary action at 44px height.
+- Tabs: horizontally scroll below `md`, active tab centered.
+- Two-column body stacks 1-column below `lg`, left column above right (Migration progress + Contact + Recent above Account & security + Money + Attendance).
+- Locked birthday row: `-mx-3` bleed to card edge on mobile for visibility.
+- Every action button ≥44×44.
+- No horizontal page scroll at 375, 414, 768 px.
+
 ## 4.5.4 — Edit member drawer (`README.md` §1e Edit member)
 
 **Acceptance criteria:**
@@ -1101,6 +1324,14 @@ Filled segments `#1F1F23`; current step `#FF6A00` (waiting on member), `#DC2626`
   - Edits never reset migration progress.
   - Every write is attributed (writes to `MemberMigrationEvent`).
 
+**Acceptance criteria — mobile:**
+- Drawer opens full-screen at `<md` (not 560px overlay).
+- Info strip stays visible at the top.
+- Field groups stack 1-column below `md`; 44×44 tap targets on every input.
+- Locked block: dashed field renders at least 48px tall so the lock icon + label + age fit.
+- Footer sticky to bottom with safe-area inset; `Cancel` and `Save changes` at 44×44.
+- Every corrected-field `Revert` link ≥44×44 tap target.
+
 ## 4.5.5 — Password reset (`README.md` §1f Password reset — three states)
 
 **Copy is final; use verbatim.**
@@ -1110,6 +1341,12 @@ Filled segments `#1F1F23`; current step `#FF6A00` (waiting on member), `#DC2626`
 - **No email dialog**: `#FEF2F2` tile with `mail-x`; **"This member does not have an email address on file"**; *"<Name> has no email, and no guardian is linked to his account — so there's nowhere to send a reset link."*; red-tinted note with bounce history; `Add an email address` (primary), `Link a guardian`, `Close`.
 
 Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
+
+**Acceptance criteria — mobile:**
+- Dialogs render as bottom sheet at `<sm` (not centered 412px modal).
+- Buttons stack vertically at `<sm` with primary at 44px height.
+- Live `Resend in mm:ss` countdown stays visible and legible; disabled state is clear.
+- Bounce history list scrolls within the sheet.
 
 ## 4.5.6 — Family & access (`README.md` §1g Family & access)
 
@@ -1127,6 +1364,13 @@ Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
 **Migration required:**
 - **M21**: `MemberGuardianUser` gains `canBook Boolean @default(false)`, `canPay Boolean @default(false)`, `canWaivers Boolean @default(false)`, `canMessages Boolean @default(false)`, `status String @default('CONFIRMED')` (values: `CONFIRMED | PENDING | REJECTED`), `confirmedAt DateTime?`, `createdByUserId String?`. Backfill: existing rows → `status='CONFIRMED'`, `confirmedAt = createdAt`, all four booleans `true` (they were unrestricted before).
 
+**Acceptance criteria — mobile:**
+- Header stacks: title + counts on one row, actions on the next row at `<sm`.
+- Account-holder card: 44px avatar (down from 46), name + meta stacked.
+- Permissions table: swaps to card list below `md` — one card per relationship with Book/Pay/Waivers/Messages as 44×44 toggle switches.
+- Transfer + Add-relationship modals: bottom sheet at `<sm`.
+- Pending relationship confirm/resend/cancel buttons: 44×44.
+
 ## 4.5.7 — Migration dashboard (`README.md` §1h Migration dashboard)
 
 **Acceptance criteria:**
@@ -1138,6 +1382,14 @@ Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
 
 **Deprecations enforced in UI (schema columns retained):** `migrationGroup`, `migrationFinalAction`, `readiness*` chips, `GROUP_FILTERS`, `READINESS_FILTERS` rows.
 
+**Acceptance criteria — mobile:**
+- Funnel card: 7 segments render as horizontal-scroll strip at `<md`; segment counts stay legible at 375px.
+- Progress bar below funnel: full-width, legend wraps.
+- "Needs you" cards: 2×2 at `sm`, 1-column at `<sm`.
+- Queue tabs (Needs you / Waiting on member / In setup / Done): horizontal scroll below `md`.
+- Queue table swaps to card list at `<md`; each card carries name + step meter + waiting-on pill + one primary action + `⋯`.
+- Bulk actions bar sticks to bottom with safe-area inset.
+
 ## 4.5.8 — Migration detail drawer (`README.md` §1i Migration detail)
 
 **Acceptance criteria:**
@@ -1148,7 +1400,16 @@ Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
 - **Imported data table**: 4-col grid `118px 1fr 1fr 58px` — Field · **As imported** (header text from owner's `Import.sourceLabel` — never a hardcoded vendor name) · In AthletixOS · edit. Corrected rows tint `#FFFBF5` with old value struck through and `· fixed by <staff>`. Birthday shows lock in both value and action cell. Linked guardian shows `linked <date>` chip.
 - **Footer**: reassurance line + `Assign a different plan` + `Resend invitation`.
 
-## 4.5.9 — Mobile (`README.md` §1j Mobile — 390 × 844, Capacitor shells)
+**Acceptance criteria — mobile:**
+- Drawer opens full-screen at `<md`.
+- Progress timeline: 7 vertical steps compress with reduced connector spacing but keep 44×44 dot tap targets for each step's contextual actions.
+- Imported data 4-column grid → 2-column at `md`, 1-column stacked at `<md` (Field / As imported → In AthletixOS → edit).
+- Corrected row tint + struck-through old value stays visible on mobile.
+- Footer sticky to bottom with safe-area inset.
+
+## 4.5.9 — Mobile audit + regression pass (`README.md` §1j Mobile — 390 × 844, Capacitor shells)
+
+**Scope note:** every earlier sub-phase (4.5.1 through 4.5.8) already ships mobile-responsive per its own acceptance criteria. This sub-phase is the **cross-cutting audit + Capacitor shell regression pass** — walk every screen at 375 × 812 (iPhone SE-ish), 390 × 844 (iPhone 14), 414 × 896, 768 × 1024, 1024 × 768, 1280 × 800. Fix any drift, verify Capacitor shell interaction, lock in with tests.
 
 **Acceptance criteria:**
 - Charcoal topbar (menu, 26px logo, Georgia wordmark, bell, 28px avatar) + existing 5-slot bottom nav (`Home · Members · Classes · Money · More`, active icon `#A3E635`, 10px/500 labels, `env(safe-area-inset-bottom)`).
