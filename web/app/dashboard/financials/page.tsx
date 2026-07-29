@@ -1323,14 +1323,29 @@ function ReconciliationCard() {
   );
 }
 
-/* ── Bank / Plaid (unchanged) ── */
+/* ── Bank / Plaid — persistent ledger + date-range filters ── */
+type BankRange = "30" | "60" | "90" | "ytd" | "year" | "all" | "custom";
+const BANK_RANGES: { key: BankRange; label: string }[] = [
+  { key: "30", label: "30 days" },
+  { key: "60", label: "60 days" },
+  { key: "90", label: "90 days" },
+  { key: "ytd", label: "Year to date" },
+  { key: "year", label: "12 months" },
+  { key: "all", label: "All time" },
+];
+type SyncStatusRow = { connectionId: string; lastSyncedAt: string | null; lastSyncError: string | null };
+type BankDataV2 = {
+  connected: boolean;
+  accounts: BankAccount[];
+  transactions: BankTx[];
+  connections?: BankConnection[];
+  earliestAvailableDate?: string | null;
+  syncStatus?: SyncStatusRow[];
+  pagination?: { total: number; page: number; pageSize: number };
+};
+
 function BankTab() {
-  const [bankData, setBankData] = useState<{
-    connected: boolean;
-    accounts: BankAccount[];
-    transactions: BankTx[];
-    connections?: BankConnection[];
-  } | null>(null);
+  const [bankData, setBankData] = useState<BankDataV2 | null>(null);
   const [loading, setLoading] = useState(true);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -1339,10 +1354,30 @@ function BankTab() {
   // Owner-selected filter — when set, transactions/accounts are scoped
   // to just that bank connection. null = "All accounts".
   const [connectionFilter, setConnectionFilter] = useState<string | null>(null);
+  const [range, setRange] = useState<BankRange>("30");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [page, setPage] = useState(1);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
-  async function loadBankData(filterId: string | null = connectionFilter) {
-    const qs = filterId ? `?connectionId=${encodeURIComponent(filterId)}` : "";
-    const res = await fetch(`/api/plaid/transactions${qs}`);
+  const pageSize = 100;
+
+  async function loadBankData(
+    filterId: string | null = connectionFilter,
+    rangeKey: BankRange = range,
+    pageNum: number = page,
+  ) {
+    const params = new URLSearchParams();
+    if (filterId) params.set("connectionId", filterId);
+    params.set("range", rangeKey);
+    if (rangeKey === "custom") {
+      if (customFrom) params.set("from", customFrom);
+      if (customTo) params.set("to", customTo);
+    }
+    params.set("page", String(pageNum));
+    params.set("pageSize", String(pageSize));
+    const res = await fetch(`/api/plaid/transactions?${params}`);
     if (res.ok) {
       const data = await res.json();
       if (data.error === "Plaid not configured") setPlaidConfigured(false);
@@ -1350,7 +1385,49 @@ function BankTab() {
     }
     setLoading(false);
   }
-  useEffect(() => { loadBankData(null); }, []);
+  useEffect(() => { loadBankData(null, range, 1); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  function applyRange(next: BankRange) {
+    setRange(next);
+    setPage(1);
+    setLoading(true);
+    loadBankData(connectionFilter, next, 1);
+  }
+  function applyCustom() {
+    setPage(1);
+    setLoading(true);
+    loadBankData(connectionFilter, "custom", 1);
+  }
+  function goPage(next: number) {
+    setPage(next);
+    setLoading(true);
+    loadBankData(connectionFilter, range, next);
+  }
+
+  async function runSync() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch("/api/plaid/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(connectionFilter ? { connectionId: connectionFilter } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSyncMsg(typeof data.error === "string" ? data.error : "Sync failed");
+      } else {
+        const total = (data.results || []).reduce(
+          (s: number, r: { added: number; modified: number }) => s + r.added + r.modified,
+          0,
+        );
+        setSyncMsg(`Synced ${total} update(s) from Plaid.`);
+      }
+      await loadBankData(connectionFilter, range, page);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function startPlaidLink() {
     setConnecting(true);
@@ -1370,14 +1447,23 @@ function BankTab() {
     // Use the new connections endpoint so the bank is stored as a
     // PlaidConnection row. The legacy exchange endpoint still works for
     // older clients but the new flow gives us per-bank labels.
-    await fetch("/api/plaid/connections", {
+    const res = await fetch("/api/plaid/connections", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ publicToken }),
     });
     setLinkToken(null);
-    loadBankData(null);
-  }, []);
+    // Kick off the initial sync (full history) so the transaction table is
+    // populated immediately. Ignoring the response body — the follow-up load
+    // renders whatever landed.
+    if (res.ok) {
+      try {
+        await fetch("/api/plaid/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      } catch { /* non-fatal */ }
+    }
+    loadBankData(null, range, 1);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [range]);
   const { open: openPlaid, ready: plaidReady } = usePlaidLink({ token: linkToken || "", onSuccess });
   useEffect(() => { if (linkToken && plaidReady) openPlaid(); }, [linkToken, plaidReady, openPlaid]);
 
@@ -1386,14 +1472,14 @@ function BankTab() {
     await fetch("/api/plaid/transactions", { method: "DELETE" });
     setBankData(null);
     setConnectionFilter(null);
-    loadBankData(null);
+    loadBankData(null, range, 1);
   }
 
   async function disconnectOne(id: string, label: string) {
     if (!confirm(`Disconnect "${label}"? Other bank accounts stay connected.`)) return;
     await fetch(`/api/plaid/connections/${id}`, { method: "DELETE" });
     if (connectionFilter === id) setConnectionFilter(null);
-    loadBankData(connectionFilter === id ? null : connectionFilter);
+    loadBankData(connectionFilter === id ? null : connectionFilter, range, 1);
   }
 
   async function renameConnection(id: string, current: string) {
@@ -1404,13 +1490,14 @@ function BankTab() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label: next.trim() || null }),
     });
-    loadBankData(connectionFilter);
+    loadBankData(connectionFilter, range, page);
   }
 
   function applyFilter(id: string | null) {
     setConnectionFilter(id);
+    setPage(1);
     setLoading(true);
-    loadBankData(id);
+    loadBankData(id, range, 1);
   }
 
   if (loading) return <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>;
@@ -1534,37 +1621,123 @@ function BankTab() {
           </div>
         </div>
       </div>
+      {/* Date-range filter row + Sync CTA + earliest-available note. */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <div className="flex gap-1 bg-app-bg rounded-lg p-1 flex-wrap">
+          {BANK_RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => applyRange(r.key)}
+              className={`text-xs px-3 py-1 rounded-md transition ${
+                range === r.key ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+          <button
+            onClick={() => applyRange("custom")}
+            className={`text-xs px-3 py-1 rounded-md transition ${
+              range === "custom" ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
+            }`}
+          >
+            Custom
+          </button>
+        </div>
+        <button
+          onClick={runSync}
+          disabled={syncing}
+          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-hover disabled:opacity-50"
+        >
+          {syncing ? "Syncing…" : "Sync from Plaid"}
+        </button>
+        {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
+      </div>
+      {range === "custom" && (
+        <div className="flex items-center gap-2 mb-3">
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+            className="text-xs px-2 py-1 border border-app-border rounded" />
+          <span className="text-xs text-text-muted">to</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+            className="text-xs px-2 py-1 border border-app-border rounded" />
+          <button onClick={applyCustom} className="text-xs font-semibold px-3 py-1 rounded bg-charcoal text-white">
+            Apply
+          </button>
+        </div>
+      )}
+      {bankData.earliestAvailableDate && range === "all" && (
+        <p className="text-xs text-text-muted mb-3">
+          We have bank history back to {new Date(bankData.earliestAvailableDate + "T00:00:00").toLocaleDateString()}.
+          Older transactions aren&apos;t available from your bank.
+        </p>
+      )}
+      {bankData.syncStatus && bankData.syncStatus.some((s) => s.lastSyncError) && (
+        <div className="border border-red-300 bg-red-50 rounded-lg p-3 mb-3 text-xs text-red-800">
+          Sync error on one or more banks — try again, or reconnect the bank.
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-app-border overflow-hidden">
         <div className="px-5 py-3 border-b border-app-border flex items-center justify-between">
           <h2 className="text-sm font-semibold text-text-primary">
-            Bank transactions (last 30 days)
+            Bank transactions
             {connectionFilter && connections.length > 1 ? (
               <span className="ml-2 text-xs font-normal text-text-muted">
                 — {connections.find((c) => c.id === connectionFilter)?.label || "filtered"}
               </span>
             ) : null}
+            {bankData.pagination && bankData.pagination.total > 0 && (
+              <span className="ml-2 text-xs font-normal text-text-muted">
+                — {bankData.pagination.total.toLocaleString()} row{bankData.pagination.total === 1 ? "" : "s"} in range
+              </span>
+            )}
           </h2>
           <button onClick={disconnectAll} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">
             Disconnect all
           </button>
         </div>
         {bankData.transactions.length === 0 ? (
-          <div className="p-8 text-center text-text-muted text-sm">No transactions in the last 30 days.</div>
+          <div className="p-8 text-center text-text-muted text-sm">
+            No transactions in this range.{" "}
+            <button onClick={runSync} className="text-brand hover:underline">Sync from Plaid</button> to pull the latest.
+          </div>
         ) : (
-          <table className="w-full">
-            <thead className="bg-app-bg border-b border-app-border"><tr><Th>Date</Th><Th>Description</Th><Th>Bank</Th><Th>Category</Th><Th>Amount</Th></tr></thead>
-            <tbody>
-              {bankData.transactions.map((t) => (
-                <tr key={t.transaction_id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
-                  <Td><span className="text-xs text-text-muted">{new Date(t.date).toLocaleDateString()}</span></Td>
-                  <Td><span className="text-sm text-text-primary">{t.name}</span></Td>
-                  <Td><span className="text-xs text-text-muted">{t.connectionLabel || "—"}</span></Td>
-                  <Td><span className="text-xs text-text-muted">{t.category?.[0] || "—"}</span></Td>
-                  <Td><span className={`text-sm font-medium ${t.amount > 0 ? "text-red-700" : "text-text-primary"}`}>{t.amount > 0 ? "-" : "+"}{money(Math.abs(t.amount))}</span></Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-app-bg border-b border-app-border"><tr><Th>Date</Th><Th>Description</Th><Th>Bank</Th><Th>Category</Th><Th>Amount</Th></tr></thead>
+              <tbody>
+                {bankData.transactions.map((t) => (
+                  <tr key={t.transaction_id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                    <Td><span className="text-xs text-text-muted">{new Date(t.date + "T00:00:00").toLocaleDateString()}</span></Td>
+                    <Td><span className="text-sm text-text-primary">{t.name}</span></Td>
+                    <Td><span className="text-xs text-text-muted">{t.connectionLabel || "—"}</span></Td>
+                    <Td><span className="text-xs text-text-muted">{t.category?.[0] || "—"}</span></Td>
+                    <Td><span className={`text-sm font-medium ${t.amount > 0 ? "text-red-700" : "text-text-primary"}`}>{t.amount > 0 ? "-" : "+"}{money(Math.abs(t.amount))}</span></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {bankData.pagination && bankData.pagination.total > pageSize && (
+          <div className="px-5 py-3 border-t border-app-border flex items-center justify-between text-xs">
+            <span className="text-text-muted">
+              Page {page} of {Math.max(1, Math.ceil(bankData.pagination.total / pageSize))}
+            </span>
+            <div className="flex gap-1">
+              <button disabled={page <= 1} onClick={() => goPage(page - 1)}
+                className="px-3 py-1 rounded border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-40">
+                Previous
+              </button>
+              <button
+                disabled={page * pageSize >= bankData.pagination.total}
+                onClick={() => goPage(page + 1)}
+                className="px-3 py-1 rounded border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </>

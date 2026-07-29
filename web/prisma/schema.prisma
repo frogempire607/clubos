@@ -190,6 +190,8 @@ model Club {
   memberRelationships         MemberRelationship[]
   staffCompensations          StaffCompensation[]
   plaidConnections            PlaidConnection[]
+  plaidTransactions           PlaidTransaction[]
+  plaidSyncCursors            PlaidSyncCursor[]
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
   invoiceSplits               InvoiceSplit[]
@@ -226,12 +228,79 @@ model PlaidConnection {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  club         Club          @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
-  expenses     Expense[]
+  club              Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  transactions      Transaction[]
+  expenses          Expense[]
+  plaidTransactions PlaidTransaction[]
+  syncCursor        PlaidSyncCursor?
 
   @@index([clubId])
   @@map("plaid_connections")
+}
+
+// Persisted bank transactions from Plaid /transactions/sync. Replaces the
+// old live-fetch-every-request path; unlocks date range filters back further
+// than 30 days and the Money-Out matching UX in Phase 1C.
+//
+// `amount` uses Plaid's sign convention: POSITIVE = outflow (money left the
+// account), NEGATIVE = inflow. Owner-facing UI displays with the appropriate
+// sign, but stored data matches Plaid so re-syncing never confuses us.
+model PlaidTransaction {
+  id                              String    @id @default(cuid())
+  clubId                          String
+  plaidConnectionId               String
+  plaidTransactionId              String    @unique
+  accountId                       String
+  amount                          Decimal   @db.Decimal(12, 2)
+  isoCurrencyCode                 String?
+  date                            DateTime  @db.Date
+  name                            String
+  merchantName                    String?
+  paymentChannel                  String?
+  category                        Json?
+  personalFinanceCategoryPrimary  String?
+  personalFinanceCategoryDetailed String?
+  pending                         Boolean   @default(false)
+  // ── Owner review + matching (Phase 1C uses these) ─────────────────
+  categorizedExpenseId            String?
+  categoryOverride                String?
+  reviewedAt                      DateTime?
+  reviewedByUserId                String?
+  excludedFromTax                 Boolean   @default(false)
+  markedAsTransfer                Boolean   @default(false)
+  notes                           String?
+  syncedAt                        DateTime  @default(now())
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
+
+  club       Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  connection PlaidConnection @relation(fields: [plaidConnectionId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, date(sort: Desc)], map: "plaid_transactions_clubId_date_idx")
+  @@index([clubId, plaidConnectionId, date(sort: Desc)], map: "plaid_transactions_clubId_connection_idx")
+  @@index([clubId, reviewedAt], map: "plaid_transactions_clubId_reviewed_idx")
+  @@index([categorizedExpenseId], map: "plaid_transactions_categorizedExpenseId_idx")
+  @@map("plaid_transactions")
+}
+
+// One row per PlaidConnection. Holds the Plaid /transactions/sync cursor
+// and the earliest-available date the UI shows on the All-Time range.
+model PlaidSyncCursor {
+  id                    String    @id @default(cuid())
+  clubId                String
+  plaidConnectionId     String    @unique
+  cursor                String?
+  earliestAvailableDate DateTime? @db.Date
+  lastSyncedAt          DateTime?
+  lastSyncError         String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  club       Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  connection PlaidConnection @relation(fields: [plaidConnectionId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("plaid_sync_cursors")
 }
 
 // Per-action gate for minors with parentControls.requirePaymentApproval.
@@ -1724,6 +1793,10 @@ model Expense {
   // Optional FK to the PlaidConnection this expense came out of. Lets
   // financials/reports filter by bank account.
   plaidConnectionId String?
+  // Optional back-reference to the PlaidTransaction row that produced this
+  // expense (Money-Out matching in Phase 1C). Nullable; loose reference —
+  // deleting the bank row does NOT cascade to the expense.
+  matchedPlaidTransactionId String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -1734,6 +1807,7 @@ model Expense {
   @@index([clubId])
   @@index([date])
   @@index([legalEntityId])
+  @@index([matchedPlaidTransactionId], map: "expenses_matchedPlaidTransactionId_idx")
   @@map("expenses")
 }
 
