@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { BarChart3, Download } from "lucide-react";
+import { BarChart3, Bell, Download } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import ReliabilityStrip from "@/components/reports/ReliabilityStrip";
@@ -14,6 +14,7 @@ import PnlTab from "@/components/reports/PnlTab";
 import MembershipTab from "@/components/reports/MembershipTab";
 import UnitEconomicsTab from "@/components/reports/UnitEconomicsTab";
 import CashFlowTab from "@/components/reports/CashFlowTab";
+import AlertsDrawer from "@/components/reports/AlertsDrawer";
 
 type TabKey =
   | "snapshot"
@@ -51,6 +52,8 @@ export default function ReportsPage() {
   const [customTo, setCustomTo] = useState<string>(search.get("to") ?? "");
   const [tierBlocked, setTierBlocked] = useState<{ message: string; upgradeTo: string | null } | null>(null);
   const [reliability, setReliability] = useState<{ sections: unknown[]; generatedAt?: string }>({ sections: [] });
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [alertsBadge, setAlertsBadge] = useState<number | null>(null);
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
@@ -84,6 +87,16 @@ export default function ReportsPage() {
       .then((d) => {
         if (d) setReliability({ sections: d.sections ?? [], generatedAt: d.generatedAt });
       });
+    // Alerts badge — owner-only endpoint. Silently ignore 403 for staff.
+    fetch("/api/reports/alerts")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.alerts) {
+          const triggered = (d.alerts as Array<{ state: string }>).filter((a) => a.state === "TRIGGERED").length;
+          setAlertsBadge(triggered);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Scroll the active tab into view on mount (mobile horizontal-scroll bar).
@@ -134,16 +147,29 @@ export default function ReportsPage() {
             />
             <button
               type="button"
-              disabled
-              title="CSV / PDF export ships with P&L in Phase 2.5.4"
-              className="h-9 min-h-[44px] sm:min-h-9 flex items-center gap-1.5 px-3 border border-app-border rounded-lg bg-surface text-sm text-text-muted opacity-60"
+              onClick={() => setAlertsOpen(true)}
+              className="relative h-9 min-h-[44px] sm:min-h-9 flex items-center gap-1.5 px-3 border border-app-border rounded-lg bg-surface text-sm text-text-primary hover:bg-app-bg"
+            >
+              <Bell size={14} strokeWidth={2} />
+              Alerts
+              {alertsBadge != null && alertsBadge > 0 && (
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-orange-accent text-white text-[10px] font-bold tabular-nums">
+                  {alertsBadge}
+                </span>
+              )}
+            </button>
+            <a
+              href="/api/reports/pnl/export?format=pdf"
+              className="h-9 min-h-[44px] sm:min-h-9 flex items-center gap-1.5 px-3 border border-app-border rounded-lg bg-surface text-sm text-text-primary hover:bg-app-bg"
+              title="Export current P&L as PDF"
             >
               <Download size={14} strokeWidth={2} />
               Export
-            </button>
+            </a>
           </div>
         }
       />
+      <AlertsDrawer open={alertsOpen} onClose={() => setAlertsOpen(false)} />
 
       <ReliabilityStrip
         sections={reliability.sections as Parameters<typeof ReliabilityStrip>[0]["sections"]}
