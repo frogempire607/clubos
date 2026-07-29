@@ -198,6 +198,7 @@ model Club {
   transactionCategoryRules    TransactionCategoryRule[]
   actionItemSnoozes           ActionItemSnooze[]
   expenseClassificationOverrides ExpenseClassificationOverride[]
+  payoutMatches               PayoutMatch[]
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
   invoiceSplits               InvoiceSplit[]
@@ -1882,6 +1883,28 @@ model ActionItemSnooze {
   @@index([clubId, snoozedUntil], map: "action_item_snoozes_clubId_snoozedUntil_idx")
   @@index([userId, kind], map: "action_item_snoozes_userId_kind_idx")
   @@map("action_item_snoozes")
+}
+
+// Reports Phase 2.5.7 — Stripe payout ↔ bank credit link. Cash flow reads
+// this to EXCLUDE the bank rows that are really Stripe payouts, so a
+// single dollar doesn't count once as a charge AND again as a bank credit.
+model PayoutMatch {
+  id                String    @id @default(cuid())
+  clubId            String
+  stripePayoutId    String
+  bankTransactionId String?
+  amount            Decimal   @db.Decimal(12, 2)
+  arrivalDate       DateTime? @db.Date
+  matchedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, stripePayoutId], map: "payout_matches_clubId_stripePayoutId_key")
+  @@index([clubId, arrivalDate], map: "payout_matches_clubId_arrivalDate_idx")
+  @@index([bankTransactionId], map: "payout_matches_bankTransactionId_idx")
+  @@map("payout_matches")
 }
 
 // Reports Phase 2.5.3 — owner override for fixed vs variable classification
