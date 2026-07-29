@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getTierFeatures, getTierName, tierBlockedBody, upgradeRequired } from "@/lib/tier";
 import { requirePermission } from "@/lib/apiGuard";
 import { computePayrollTotalForRange } from "@/lib/payroll";
@@ -73,6 +74,10 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const rangeParam = (url.searchParams.get("range") || "month") as Range;
   const range = resolveRange(rangeParam);
+  // When true, member/subscription counts include soft-deleted rows and every
+  // status (canceled, expired). Off by default so the "This month" widget
+  // stays sensible.
+  const includeHistorical = url.searchParams.get("includeHistorical") === "1";
 
   const txWhereBase = { clubId, status: "SUCCEEDED" as const, ...EXCLUDE_VOID };
   const txWhereRange = range.start
@@ -98,12 +103,20 @@ export async function GET(req: Request) {
     prisma.transaction.findMany({ where: txWhereRange, select: { amount: true, type: true, platformFee: true, createdAt: true } }),
     txWherePrev ? prisma.transaction.findMany({ where: txWherePrev, select: { amount: true } }) : Promise.resolve([]),
     prisma.member.findMany({
-      where: { clubId, deletedAt: null },
-      select: { id: true, status: true, isMinor: true, joinedAt: true },
+      // Historical view includes soft-deleted rows so "All time" reports
+      // reflect every member the club ever had.
+      where: includeHistorical ? { clubId } : { clubId, deletedAt: null },
+      select: { id: true, status: true, isMinor: true, joinedAt: true, deletedAt: true },
     }),
     range.start
-      ? prisma.member.count({ where: { clubId, deletedAt: null, joinedAt: { gte: range.start, lt: range.end } } })
-      : prisma.member.count({ where: { clubId, deletedAt: null } }),
+      ? prisma.member.count({
+          where: {
+            clubId,
+            ...(includeHistorical ? {} : { deletedAt: null }),
+            joinedAt: { gte: range.start, lt: range.end },
+          },
+        })
+      : prisma.member.count({ where: { clubId, ...(includeHistorical ? {} : { deletedAt: null }) } }),
     prisma.memberSubscription.count({
       where: { member: { clubId, deletedAt: null }, status: "active" },
     }),
@@ -141,19 +154,41 @@ export async function GET(req: Request) {
       orderBy: { _count: { eventId: "desc" } },
       take: 5,
     }),
-    // Revenue by month for last 12 months (independent of range, for the chart)
-    prisma.$queryRaw<Array<{ month: Date; total: number }>>`
-      SELECT
-        date_trunc('month', "createdAt") as month,
-        SUM("amount")::float as total
-      FROM "transactions"
-      WHERE "clubId" = ${clubId}
-        AND "status" = 'SUCCEEDED'
-        AND ("reconciliationStatus" IS NULL OR "reconciliationStatus" <> 'VOID')
-        AND "createdAt" >= NOW() - INTERVAL '12 months'
-      GROUP BY date_trunc('month', "createdAt")
-      ORDER BY month ASC
-    `,
+    // Revenue by month for the selected range. `all` picks the earliest
+    // Transaction as the start so the chart shows the club's whole history.
+    (async () => {
+      // Bucket size: month for anything >= 90 days, day otherwise so short
+      // ranges don't collapse to one column.
+      const start = range.start
+        ? range.start
+        : (await prisma.transaction.findFirst({
+            where: { clubId, status: "SUCCEEDED", ...EXCLUDE_VOID },
+            orderBy: { createdAt: "asc" },
+            select: { createdAt: true },
+          }))?.createdAt || null;
+      const end = range.end;
+      const daySpan = start ? (end.getTime() - start.getTime()) / 86400000 : 365;
+      const bucket = daySpan >= 90 ? "month" : "day";
+      const rangeFilter = start
+        ? Prisma.sql`AND "createdAt" >= ${start} AND "createdAt" < ${end}`
+        : Prisma.empty;
+      const trunc =
+        bucket === "day"
+          ? Prisma.sql`date_trunc('day', "createdAt")`
+          : Prisma.sql`date_trunc('month', "createdAt")`;
+      return prisma.$queryRaw<Array<{ month: Date; total: number }>>`
+        SELECT
+          ${trunc} as month,
+          SUM("amount")::float as total
+        FROM "transactions"
+        WHERE "clubId" = ${clubId}
+          AND "status" = 'SUCCEEDED'
+          AND ("reconciliationStatus" IS NULL OR "reconciliationStatus" <> 'VOID')
+          ${rangeFilter}
+        GROUP BY ${trunc}
+        ORDER BY month ASC
+      `;
+    })(),
   ]);
 
   const sumAmounts = (rows: { amount: { toString: () => string } }[]) =>
@@ -172,10 +207,21 @@ export async function GET(req: Request) {
 
   const memberStatusCounts: Record<string, number> = { ACTIVE: 0, PROSPECT: 0, INACTIVE: 0, PAUSED: 0 };
   let minorCount = 0;
+  let deletedCount = 0;
   for (const m of allMembers) {
     memberStatusCounts[m.status] = (memberStatusCounts[m.status] || 0) + 1;
     if (m.isMinor) minorCount++;
+    if (m.deletedAt) deletedCount++;
   }
+
+  // Historical subscription counts — canceled + expired are only surfaced
+  // when includeHistorical=1 so the default report stays terse.
+  const [canceledSubs, expiredSubs] = includeHistorical
+    ? await Promise.all([
+        prisma.memberSubscription.count({ where: { member: { clubId }, status: "canceled" } }),
+        prisma.memberSubscription.count({ where: { member: { clubId }, status: "expired" } }),
+      ])
+    : [0, 0];
 
   let expensesTotal = expenses.reduce((acc, e) => acc + Number(e.amount), 0);
   const expensesByCategory: Record<string, number> = {};
@@ -259,11 +305,16 @@ export async function GET(req: Request) {
       newInRange: newMembers,
       byStatus: memberStatusCounts,
       minors: minorCount,
+      deleted: deletedCount,
+      includeHistorical,
     },
     subscriptions: {
       active: activeSubs,
       pastDue: pastDueSubs,
       pending: pendingSubs,
+      canceled: canceledSubs,
+      expired: expiredSubs,
+      includeHistorical,
     },
     attendance: attendanceCounts,
     expenses: {

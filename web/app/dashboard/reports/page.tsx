@@ -23,8 +23,17 @@ type ReportData = {
     newInRange: number;
     byStatus: Record<string, number>;
     minors: number;
+    deleted?: number;
+    includeHistorical?: boolean;
   };
-  subscriptions: { active: number; pastDue: number; pending: number };
+  subscriptions: {
+    active: number;
+    pastDue: number;
+    pending: number;
+    canceled?: number;
+    expired?: number;
+    includeHistorical?: boolean;
+  };
   attendance: { total: number; present: number; dropIn: number; trial: number; absent: number };
   expenses: { total: number; net: number; byCategory: Record<string, number> };
   topEvents: { id: string; name: string; type: string | null; bookings: number }[];
@@ -62,6 +71,10 @@ function formatMonthLabel(iso: string) {
 
 export default function ReportsPage() {
   const [range, setRange] = useState<Range>("month");
+  // All-time toggle — surfaces historical members (soft-deleted) and
+  // subscription statuses (canceled, expired). Auto-enabled for "All time"
+  // so a fresh visit to All Time doesn't lie about counts.
+  const [includeHistorical, setIncludeHistorical] = useState(false);
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [tierBlocked, setTierBlocked] = useState<{ message: string; upgradeTo: string | null } | null>(null);
@@ -69,7 +82,10 @@ export default function ReportsPage() {
   useEffect(() => {
     setLoading(true);
     setTierBlocked(null);
-    fetch(`/api/reports/overview?range=${range}`)
+    const effectiveHistorical = includeHistorical || range === "all";
+    const params = new URLSearchParams({ range });
+    if (effectiveHistorical) params.set("includeHistorical", "1");
+    fetch(`/api/reports/overview?${params}`)
       .then(async (r) => {
         if (r.status === 403) {
           const body = await r.json().catch(() => ({}));
@@ -84,7 +100,7 @@ export default function ReportsPage() {
         setData(d);
         setLoading(false);
       });
-  }, [range]);
+  }, [range, includeHistorical]);
 
   const maxRevenue = useMemo(() => {
     if (!data) return 0;
@@ -97,20 +113,32 @@ export default function ReportsPage() {
         title="Reports"
         description="Revenue, members, and attendance at a glance"
         actions={
-          <div className="flex flex-wrap gap-1 bg-app-bg rounded-lg p-1">
-            {ranges.map((r) => (
-              <button
-                key={r.key}
-                onClick={() => setRange(r.key)}
-                className={`text-xs px-3 py-1.5 rounded-md transition ${
-                  range === r.key
-                    ? "bg-surface shadow-sm text-text-primary font-medium"
-                    : "text-text-muted hover:text-text-primary"
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap gap-1 bg-app-bg rounded-lg p-1">
+              {ranges.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRange(r.key)}
+                  className={`text-xs px-3 py-1.5 rounded-md transition ${
+                    range === r.key
+                      ? "bg-surface shadow-sm text-text-primary font-medium"
+                      : "text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeHistorical || range === "all"}
+                disabled={range === "all"}
+                onChange={(e) => setIncludeHistorical(e.target.checked)}
+                className="rounded"
+              />
+              <span>Include historical (deleted, canceled, expired)</span>
+            </label>
           </div>
         }
       />
@@ -166,23 +194,26 @@ export default function ReportsPage() {
 
           {/* Revenue chart + breakdown */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            <Card title="Revenue — last 12 months" className="lg:col-span-2">
+            <Card title={`Revenue — ${data.range.label}`} className="lg:col-span-2">
               {data.revenueMonthly.length === 0 ? (
                 <EmptyState icon={<DollarSign size={24} strokeWidth={1.75} />} title="No revenue recorded yet." className="py-8" />
               ) : (
-                <div className="flex items-end gap-2 h-40 mt-2">
+                <div className="flex items-end gap-1 h-40 mt-2 overflow-x-auto">
                   {data.revenueMonthly.map((m) => {
                     const pct = (m.total / maxRevenue) * 100;
+                    const label = new Date(m.month).toLocaleDateString("en-US", {
+                      month: data.revenueMonthly.length > 24 ? undefined : "short",
+                      day: data.revenueMonthly.length > 12 ? "numeric" : undefined,
+                      year: data.revenueMonthly.length > 24 ? "2-digit" : undefined,
+                    });
                     return (
-                      <div key={m.month} className="flex-1 flex flex-col items-center gap-1.5 min-w-0">
+                      <div key={m.month} className="flex-1 flex flex-col items-center gap-1.5 min-w-[16px]">
                         <div
                           className="w-full bg-brand rounded-t"
                           style={{ height: `${Math.max(pct, 2)}%` }}
-                          title={formatMoney(m.total)}
+                          title={`${formatMonthLabel(m.month)} · ${formatMoney(m.total)}`}
                         />
-                        <span className="text-[10px] text-text-muted truncate w-full text-center">
-                          {formatMonthLabel(m.month)}
-                        </span>
+                        <span className="text-[10px] text-text-muted truncate w-full text-center">{label}</span>
                       </div>
                     );
                   })}
@@ -208,13 +239,16 @@ export default function ReportsPage() {
 
           {/* Members + Subscriptions + Attendance */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            <Card title="Members">
+            <Card title={data.members.includeHistorical ? "Members (all time)" : "Members"}>
               <BreakdownList
                 rows={[
                   { label: "Active", value: data.members.byStatus.ACTIVE || 0 },
                   { label: "Prospect", value: data.members.byStatus.PROSPECT || 0 },
                   { label: "Paused", value: data.members.byStatus.PAUSED || 0 },
                   { label: "Inactive", value: data.members.byStatus.INACTIVE || 0 },
+                  ...(data.members.deleted && data.members.deleted > 0
+                    ? [{ label: "Deleted (historical)", value: data.members.deleted, accent: "red" as const }]
+                    : []),
                 ]}
                 total={data.members.total}
               />
@@ -225,14 +259,26 @@ export default function ReportsPage() {
               )}
             </Card>
 
-            <Card title="Subscriptions">
+            <Card title={data.subscriptions.includeHistorical ? "Subscriptions (all time)" : "Subscriptions"}>
               <BreakdownList
                 rows={[
                   { label: "Active", value: data.subscriptions.active, accent: "green" },
                   { label: "Pending", value: data.subscriptions.pending },
                   { label: "Past due", value: data.subscriptions.pastDue, accent: "red" },
+                  ...(data.subscriptions.canceled && data.subscriptions.canceled > 0
+                    ? [{ label: "Canceled (historical)", value: data.subscriptions.canceled }]
+                    : []),
+                  ...(data.subscriptions.expired && data.subscriptions.expired > 0
+                    ? [{ label: "Expired (historical)", value: data.subscriptions.expired }]
+                    : []),
                 ]}
-                total={data.subscriptions.active + data.subscriptions.pastDue + data.subscriptions.pending}
+                total={
+                  data.subscriptions.active +
+                  data.subscriptions.pastDue +
+                  data.subscriptions.pending +
+                  (data.subscriptions.canceled || 0) +
+                  (data.subscriptions.expired || 0)
+                }
               />
             </Card>
 

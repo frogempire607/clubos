@@ -791,6 +791,8 @@ model Member {
   @@index([clubId])
   @@index([status])
   @@index([guardianId])
+  @@index([clubId, joinedAt], map: "members_clubId_joinedAt_idx")
+  @@index([clubId, status], map: "members_clubId_status_idx")
   @@map("members")
 }
 
@@ -1560,6 +1562,8 @@ model Transaction {
   @@index([clubId, paymentSource, status], map: "transactions_paymentSource_idx")
   @@index([athleteMemberId], map: "transactions_athleteMemberId_idx")
   @@index([recordedByUserId], map: "transactions_recordedByUserId_idx")
+  @@index([clubId, status, createdAt], map: "transactions_clubId_status_createdAt_idx")
+  @@index([clubId, txDate], map: "transactions_clubId_txDate_idx")
   @@map("transactions")
 }
 
@@ -1821,6 +1825,7 @@ model Expense {
   @@index([legalEntityId])
   @@index([matchedPlaidTransactionId], map: "expenses_matchedPlaidTransactionId_idx")
   @@index([clubId, reviewedAt], map: "expenses_reviewedAt_idx")
+  @@index([clubId, date], map: "expenses_clubId_date_idx")
   @@map("expenses")
 }
 

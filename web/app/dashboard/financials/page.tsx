@@ -1087,66 +1087,106 @@ function CashOfflineTab({ qs, entities }: { qs: string; entities: Entity[] }) {
       ) : !data?.transactions.length ? (
         <div className="bg-white rounded-xl border border-app-border p-12 text-center text-sm text-text-muted">No offline payments in this period.</div>
       ) : (
-        <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-app-bg border-b border-app-border">
-              <tr>
-                <Th>Date</Th>
-                <Th>Payer</Th>
-                <Th>Athlete</Th>
-                <Th>Item</Th>
-                <Th>Method</Th>
-                <Th>Amount</Th>
-                <Th>Recorded by</Th>
-                <Th>State</Th>
-                <Th>Receipt</Th>
-                <Th></Th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.transactions.map((t) => {
-                const isRefunded = !!t.refundedAt || Number(t.refundedAmount || 0) > 0;
-                const state = isRefunded
-                  ? { label: "Refunded", cls: "bg-red-100 text-red-800" }
-                  : t.status === "PENDING"
-                    ? { label: "Awaiting", cls: "bg-orange-accent/15 text-text-primary" }
-                    : t.status === "SUCCEEDED"
-                      ? { label: "Received", cls: "bg-lime-accent/25 text-text-primary" }
-                      : { label: t.status, cls: "bg-app-bg text-text-muted" };
-                const payer = t.member ? `${t.member.firstName} ${t.member.lastName}` : t.source || "—";
-                const athlete = t.athlete
-                  ? `${t.athlete.firstName} ${t.athlete.lastName}`
-                  : t.member
-                    ? "" /* same as payer */
-                    : "—";
-                return (
-                  <tr key={t.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
-                    <Td><span className="text-xs text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</span></Td>
-                    <Td><span className="text-sm text-text-primary">{payer}</span></Td>
-                    <Td><span className="text-xs text-text-muted">{athlete || "—"}</span></Td>
-                    <Td><span className="text-xs text-text-primary">{t.description || t.category || "—"}</span></Td>
-                    <Td><span className="text-xs text-text-muted">{t.paymentSource ?? t.paymentMethod ?? "—"}</span></Td>
-                    <Td><span className="text-sm font-medium text-text-primary">{money(t.amount)}</span></Td>
-                    <Td><span className="text-xs text-text-muted">{t.recordedBy?.name || "—"}</span></Td>
-                    <Td><span className={`text-xs px-2 py-0.5 rounded-full ${state.cls}`}>{state.label}</span></Td>
-                    <Td>
-                      {t.receiptUrl ? (
-                        <a href={t.receiptUrl} target="_blank" rel="noreferrer" className="text-xs text-brand hover:underline">View</a>
-                      ) : (
-                        <span className="text-xs text-text-muted">—</span>
-                      )}
-                    </Td>
-                    <Td>
-                      <button onClick={() => setEdit(t)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
-                        Manage
-                      </button>
-                    </Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* Mobile: card layout — the wide table is hidden below md. */}
+          <ul className="md:hidden space-y-2">
+            {data.transactions.map((t) => {
+              const isRefunded = !!t.refundedAt || Number(t.refundedAmount || 0) > 0;
+              const state = isRefunded
+                ? { label: "Refunded", cls: "bg-red-100 text-red-800" }
+                : t.status === "PENDING"
+                  ? { label: "Awaiting", cls: "bg-orange-accent/15 text-text-primary" }
+                  : t.status === "SUCCEEDED"
+                    ? { label: "Received", cls: "bg-lime-accent/25 text-text-primary" }
+                    : { label: t.status, cls: "bg-app-bg text-text-muted" };
+              const payer = t.member ? `${t.member.firstName} ${t.member.lastName}` : t.source || "—";
+              return (
+                <li key={t.id} className="bg-white rounded-xl border border-app-border p-3">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary truncate">{payer}</div>
+                      <div className="text-xs text-text-muted truncate">{t.description || t.category || "—"}</div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-sm font-semibold text-text-primary tabular-nums">{money(t.amount)}</div>
+                      <div className="text-[11px] text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex gap-2 items-center">
+                      <span className={`px-2 py-0.5 rounded-full ${state.cls}`}>{state.label}</span>
+                      <span className="text-text-muted">{t.paymentSource ?? t.paymentMethod}</span>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      {t.receiptUrl && <a href={t.receiptUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">Receipt</a>}
+                      <button onClick={() => setEdit(t)} className="text-text-muted hover:text-text-primary">Manage</button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden md:block bg-white rounded-xl border border-app-border overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-app-bg border-b border-app-border">
+                <tr>
+                  <Th>Date</Th>
+                  <Th>Payer</Th>
+                  <Th>Athlete</Th>
+                  <Th>Item</Th>
+                  <Th>Method</Th>
+                  <Th>Amount</Th>
+                  <Th>Recorded by</Th>
+                  <Th>State</Th>
+                  <Th>Receipt</Th>
+                  <Th></Th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.transactions.map((t) => {
+                  const isRefunded = !!t.refundedAt || Number(t.refundedAmount || 0) > 0;
+                  const state = isRefunded
+                    ? { label: "Refunded", cls: "bg-red-100 text-red-800" }
+                    : t.status === "PENDING"
+                      ? { label: "Awaiting", cls: "bg-orange-accent/15 text-text-primary" }
+                      : t.status === "SUCCEEDED"
+                        ? { label: "Received", cls: "bg-lime-accent/25 text-text-primary" }
+                        : { label: t.status, cls: "bg-app-bg text-text-muted" };
+                  const payer = t.member ? `${t.member.firstName} ${t.member.lastName}` : t.source || "—";
+                  const athlete = t.athlete
+                    ? `${t.athlete.firstName} ${t.athlete.lastName}`
+                    : t.member
+                      ? "" /* same as payer */
+                      : "—";
+                  return (
+                    <tr key={t.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                      <Td><span className="text-xs text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</span></Td>
+                      <Td><span className="text-sm text-text-primary">{payer}</span></Td>
+                      <Td><span className="text-xs text-text-muted">{athlete || "—"}</span></Td>
+                      <Td><span className="text-xs text-text-primary">{t.description || t.category || "—"}</span></Td>
+                      <Td><span className="text-xs text-text-muted">{t.paymentSource ?? t.paymentMethod ?? "—"}</span></Td>
+                      <Td><span className="text-sm font-medium text-text-primary">{money(t.amount)}</span></Td>
+                      <Td><span className="text-xs text-text-muted">{t.recordedBy?.name || "—"}</span></Td>
+                      <Td><span className={`text-xs px-2 py-0.5 rounded-full ${state.cls}`}>{state.label}</span></Td>
+                      <Td>
+                        {t.receiptUrl ? (
+                          <a href={t.receiptUrl} target="_blank" rel="noreferrer" className="text-xs text-brand hover:underline">View</a>
+                        ) : (
+                          <span className="text-xs text-text-muted">—</span>
+                        )}
+                      </Td>
+                      <Td>
+                        <button onClick={() => setEdit(t)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
+                          Manage
+                        </button>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
       {edit && (
         <OfflineTxManageModal
@@ -1668,7 +1708,7 @@ function BankTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {bankData.accounts.map((a) => (
           <div key={a.account_id} className="bg-white rounded-xl border border-app-border p-5">
             <div className="text-xs text-text-muted uppercase tracking-wider mb-1">{a.name}</div>
