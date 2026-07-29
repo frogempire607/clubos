@@ -12,6 +12,7 @@ import RevenueTab from "@/components/reports/RevenueTab";
 import CostsTab from "@/components/reports/CostsTab";
 import PnlTab from "@/components/reports/PnlTab";
 import MembershipTab from "@/components/reports/MembershipTab";
+import UnitEconomicsTab from "@/components/reports/UnitEconomicsTab";
 
 type TabKey =
   | "snapshot"
@@ -175,14 +176,14 @@ export default function ReportsPage() {
       {tab === "costs" && <CostsTab range={range} customFrom={customFrom} customTo={customTo} />}
       {tab === "pnl" && <PnlTab range={range} customFrom={customFrom} customTo={customTo} />}
       {tab === "membership" && <MembershipTab range={range} customFrom={customFrom} customTo={customTo} />}
-      {tab !== "snapshot" && tab !== "revenue" && tab !== "costs" && tab !== "pnl" && tab !== "membership" && <TabPlaceholder tabKey={tab} />}
+      {tab === "unit_economics" && <UnitEconomicsTab range={range} customFrom={customFrom} customTo={customTo} />}
+      {tab !== "snapshot" && tab !== "revenue" && tab !== "costs" && tab !== "pnl" && tab !== "membership" && tab !== "unit_economics" && <TabPlaceholder tabKey={tab} />}
     </div>
   );
 }
 
-function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl" | "membership"> }) {
-  const messages: Record<Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl" | "membership">, { title: string; sub: string; phase: string }> = {
-    unit_economics: { title: "Unit economics coming soon", sub: "Per-athlete margins, break-even, CAC, LTV.", phase: "Phase 2.5.6" },
+function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl" | "membership" | "unit_economics"> }) {
+  const messages: Record<Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl" | "membership" | "unit_economics">, { title: string; sub: string; phase: string }> = {
     cash_flow: { title: "Cash flow coming soon", sub: "Waterfall, operating/investing/financing, forecast.", phase: "Phase 2.5.7" },
     imports: { title: "Import wizard coming soon", sub: "Seven-step CSV importer for pre-AthletixOS history.", phase: "Phase 2.5.10" },
   };
