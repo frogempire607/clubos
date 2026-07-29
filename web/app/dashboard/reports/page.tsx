@@ -1,149 +1,100 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { BarChart3, DollarSign } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { BarChart3, Download } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
-import { SkeletonCard } from "@/components/LoadingSkeleton";
+import ReliabilityStrip from "@/components/reports/ReliabilityStrip";
+import RangeDropdown, { type RangeKey } from "@/components/reports/RangeDropdown";
+import SnapshotTab from "@/components/reports/SnapshotTab";
 
-type Range = "month" | "last_month" | "last_30" | "last_90" | "ytd" | "year" | "all";
+type TabKey =
+  | "snapshot"
+  | "revenue"
+  | "costs"
+  | "pnl"
+  | "membership"
+  | "unit_economics"
+  | "cash_flow"
+  | "imports";
 
-type ReportData = {
-  range: { key: Range; label: string; start: string | null; end: string };
-  revenue: {
-    current: number;
-    previous: number;
-    deltaPercent: number | null;
-    byType: Record<string, number>;
-    platformFees: number;
-  };
-  members: {
-    total: number;
-    newInRange: number;
-    byStatus: Record<string, number>;
-    minors: number;
-    deleted?: number;
-    includeHistorical?: boolean;
-  };
-  subscriptions: {
-    active: number;
-    pastDue: number;
-    pending: number;
-    canceled?: number;
-    expired?: number;
-    includeHistorical?: boolean;
-  };
-  attendance: { total: number; present: number; dropIn: number; trial: number; absent: number };
-  expenses: { total: number; net: number; byCategory: Record<string, number> };
-  topEvents: { id: string; name: string; type: string | null; bookings: number }[];
-  revenueMonthly: { month: string; total: number }[];
-};
-
-const ranges: { key: Range; label: string }[] = [
-  { key: "month", label: "This month" },
-  { key: "last_month", label: "Last month" },
-  { key: "last_30", label: "Last 30 days" },
-  { key: "last_90", label: "Last 90 days" },
-  { key: "ytd", label: "YTD" },
-  { key: "year", label: "Last 12 months" },
-  { key: "all", label: "All time" },
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "snapshot", label: "Snapshot" },
+  { key: "revenue", label: "Revenue" },
+  { key: "costs", label: "Costs" },
+  { key: "pnl", label: "Profit & Loss" },
+  { key: "membership", label: "Membership" },
+  { key: "unit_economics", label: "Unit economics" },
+  { key: "cash_flow", label: "Cash flow" },
+  { key: "imports", label: "History & imports" },
 ];
 
-const typeLabels: Record<string, string> = {
-  CHARGE: "One-time charges",
-  MEMBERSHIP: "Memberships",
-  EVENT: "Events",
-  CLASS: "Class drop-ins",
-  PRODUCT: "Products",
-  PRIVATE: "Private lessons",
-  REFUND: "Refunds",
-  OTHER: "Other",
-};
-
-function formatMoney(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
-function formatMonthLabel(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-}
-
 export default function ReportsPage() {
-  const [range, setRange] = useState<Range>("month");
-  // All-time toggle — surfaces historical members (soft-deleted) and
-  // subscription statuses (canceled, expired). Auto-enabled for "All time"
-  // so a fresh visit to All Time doesn't lie about counts.
-  const [includeHistorical, setIncludeHistorical] = useState(false);
-  const [data, setData] = useState<ReportData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const search = useSearchParams();
+  const [tab, setTab] = useState<TabKey>(() => {
+    const t = search.get("tab");
+    return (TABS.find((x) => x.key === t)?.key ?? "snapshot") as TabKey;
+  });
+  const [range, setRange] = useState<RangeKey>(() => {
+    const r = search.get("range");
+    return (r as RangeKey) ?? "month";
+  });
+  const [customFrom, setCustomFrom] = useState<string>(search.get("from") ?? "");
+  const [customTo, setCustomTo] = useState<string>(search.get("to") ?? "");
   const [tierBlocked, setTierBlocked] = useState<{ message: string; upgradeTo: string | null } | null>(null);
+  const [reliability, setReliability] = useState<{ sections: unknown[]; generatedAt?: string }>({ sections: [] });
 
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
+    snapshot: null, revenue: null, costs: null, pnl: null, membership: null, unit_economics: null, cash_flow: null, imports: null,
+  });
+
+  // Persist tab + range in the URL query so links are shareable.
   useEffect(() => {
-    setLoading(true);
-    setTierBlocked(null);
-    const effectiveHistorical = includeHistorical || range === "all";
-    const params = new URLSearchParams({ range });
-    if (effectiveHistorical) params.set("includeHistorical", "1");
-    fetch(`/api/reports/overview?${params}`)
+    const params = new URLSearchParams();
+    if (tab !== "snapshot") params.set("tab", tab);
+    if (range !== "month") params.set("range", range);
+    if (range === "custom") {
+      if (customFrom) params.set("from", customFrom);
+      if (customTo) params.set("to", customTo);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/dashboard/reports?${qs}` : "/dashboard/reports", { scroll: false });
+  }, [tab, range, customFrom, customTo, router]);
+
+  // Load reliability strip data.
+  useEffect(() => {
+    fetch("/api/reports/reliability")
       .then(async (r) => {
         if (r.status === 403) {
           const body = await r.json().catch(() => ({}));
-          if (body.code === "UPGRADE_REQUIRED") {
-            setTierBlocked({ message: body.error, upgradeTo: body.upgradeRequired });
-          }
+          if (body.code === "UPGRADE_REQUIRED") setTierBlocked({ message: body.error, upgradeTo: body.upgradeRequired });
           return null;
         }
         return r.ok ? r.json() : null;
       })
       .then((d) => {
-        setData(d);
-        setLoading(false);
+        if (d) setReliability({ sections: d.sections ?? [], generatedAt: d.generatedAt });
       });
-  }, [range, includeHistorical]);
+  }, []);
 
-  const maxRevenue = useMemo(() => {
-    if (!data) return 0;
-    return Math.max(1, ...data.revenueMonthly.map((m) => m.total));
-  }, [data]);
+  // Scroll the active tab into view on mount (mobile horizontal-scroll bar).
+  useEffect(() => {
+    const el = tabRefs.current[tab];
+    if (el && tabsRef.current) {
+      const rect = el.getBoundingClientRect();
+      const barRect = tabsRef.current.getBoundingClientRect();
+      const outOfView = rect.left < barRect.left + 12 || rect.right > barRect.right - 12;
+      if (outOfView) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
+  }, [tab]);
 
-  return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
-      <PageHeader
-        title="Reports"
-        description="Revenue, members, and attendance at a glance"
-        actions={
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="flex flex-wrap gap-1 bg-app-bg rounded-lg p-1">
-              {ranges.map((r) => (
-                <button
-                  key={r.key}
-                  onClick={() => setRange(r.key)}
-                  className={`text-xs px-3 py-1.5 rounded-md transition ${
-                    range === r.key
-                      ? "bg-surface shadow-sm text-text-primary font-medium"
-                      : "text-text-muted hover:text-text-primary"
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-            <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeHistorical || range === "all"}
-                disabled={range === "all"}
-                onChange={(e) => setIncludeHistorical(e.target.checked)}
-                className="rounded"
-              />
-              <span>Include historical (deleted, canceled, expired)</span>
-            </label>
-          </div>
-        }
-      />
-
-      {tierBlocked ? (
+  if (tierBlocked) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+        <PageHeader title="Reports" description="Revenue, members, and attendance at a glance" />
         <EmptyState
           icon={<BarChart3 size={26} strokeWidth={1.75} />}
           title="Reports require a paid plan"
@@ -154,274 +105,90 @@ export default function ReportsPage() {
           }}
           className="bg-surface border border-app-border rounded-xl"
         />
-      ) : loading || !data ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      ) : (
-        <>
-          {/* KPI cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <Kpi
-              label="Revenue"
-              value={formatMoney(data.revenue.current)}
-              hint={
-                data.revenue.deltaPercent !== null
-                  ? `${data.revenue.deltaPercent >= 0 ? "+" : "−"}${Math.abs(data.revenue.deltaPercent).toFixed(0)}% vs previous`
-                  : "No prior period"
-              }
-              hintColor={data.revenue.deltaPercent !== null && data.revenue.deltaPercent < 0 ? "text-red-600" : "text-green-700"}
-            />
-            <Kpi
-              label="Net (after expenses)"
-              value={formatMoney(data.expenses.net)}
-              hint={`Expenses ${formatMoney(data.expenses.total)}`}
-            />
-            <Kpi
-              label="New members"
-              value={String(data.members.newInRange)}
-              hint={`${data.members.total} total`}
-            />
-            <Kpi
-              label="Attendance"
-              value={String(data.attendance.total)}
-              hint={`${data.attendance.dropIn} drop-ins`}
-            />
-          </div>
-
-          {/* Revenue chart + breakdown */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            <Card title={`Revenue — ${data.range.label}`} className="lg:col-span-2">
-              {data.revenueMonthly.length === 0 ? (
-                <EmptyState icon={<DollarSign size={24} strokeWidth={1.75} />} title="No revenue recorded yet." className="py-8" />
-              ) : (
-                <div className="flex items-end gap-1 h-40 mt-2 overflow-x-auto">
-                  {data.revenueMonthly.map((m) => {
-                    const pct = (m.total / maxRevenue) * 100;
-                    const label = new Date(m.month).toLocaleDateString("en-US", {
-                      month: data.revenueMonthly.length > 24 ? undefined : "short",
-                      day: data.revenueMonthly.length > 12 ? "numeric" : undefined,
-                      year: data.revenueMonthly.length > 24 ? "2-digit" : undefined,
-                    });
-                    return (
-                      <div key={m.month} className="flex-1 flex flex-col items-center gap-1.5 min-w-[16px]">
-                        <div
-                          className="w-full bg-brand rounded-t"
-                          style={{ height: `${Math.max(pct, 2)}%` }}
-                          title={`${formatMonthLabel(m.month)} · ${formatMoney(m.total)}`}
-                        />
-                        <span className="text-[10px] text-text-muted truncate w-full text-center">{label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-
-            <Card title="Revenue by source">
-              <BreakdownList
-                rows={Object.entries(data.revenue.byType)
-                  .map(([k, v]) => ({ label: typeLabels[k] || k, value: v }))
-                  .sort((a, b) => b.value - a.value)}
-                total={data.revenue.current}
-                format={formatMoney}
-              />
-              {data.revenue.platformFees > 0 && (
-                <p className="text-[11px] text-text-muted mt-3 pt-3 border-t border-app-border">
-                  Platform fees collected: {formatMoney(data.revenue.platformFees)}
-                </p>
-              )}
-            </Card>
-          </div>
-
-          {/* Members + Subscriptions + Attendance */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            <Card title={data.members.includeHistorical ? "Members (all time)" : "Members"}>
-              <BreakdownList
-                rows={[
-                  { label: "Active", value: data.members.byStatus.ACTIVE || 0 },
-                  { label: "Prospect", value: data.members.byStatus.PROSPECT || 0 },
-                  { label: "Paused", value: data.members.byStatus.PAUSED || 0 },
-                  { label: "Inactive", value: data.members.byStatus.INACTIVE || 0 },
-                  ...(data.members.deleted && data.members.deleted > 0
-                    ? [{ label: "Deleted (historical)", value: data.members.deleted, accent: "red" as const }]
-                    : []),
-                ]}
-                total={data.members.total}
-              />
-              {data.members.minors > 0 && (
-                <p className="text-[11px] text-text-muted mt-3 pt-3 border-t border-app-border">
-                  {data.members.minors} {data.members.minors === 1 ? "member is" : "members are"} minors
-                </p>
-              )}
-            </Card>
-
-            <Card title={data.subscriptions.includeHistorical ? "Subscriptions (all time)" : "Subscriptions"}>
-              <BreakdownList
-                rows={[
-                  { label: "Active", value: data.subscriptions.active, accent: "green" },
-                  { label: "Pending", value: data.subscriptions.pending },
-                  { label: "Past due", value: data.subscriptions.pastDue, accent: "red" },
-                  ...(data.subscriptions.canceled && data.subscriptions.canceled > 0
-                    ? [{ label: "Canceled (historical)", value: data.subscriptions.canceled }]
-                    : []),
-                  ...(data.subscriptions.expired && data.subscriptions.expired > 0
-                    ? [{ label: "Expired (historical)", value: data.subscriptions.expired }]
-                    : []),
-                ]}
-                total={
-                  data.subscriptions.active +
-                  data.subscriptions.pastDue +
-                  data.subscriptions.pending +
-                  (data.subscriptions.canceled || 0) +
-                  (data.subscriptions.expired || 0)
-                }
-              />
-            </Card>
-
-            <Card title="Attendance">
-              <BreakdownList
-                rows={[
-                  { label: "Present", value: data.attendance.present, accent: "green" },
-                  { label: "Drop-in", value: data.attendance.dropIn },
-                  { label: "Trial", value: data.attendance.trial },
-                  { label: "Absent", value: data.attendance.absent },
-                ]}
-                total={data.attendance.total}
-              />
-            </Card>
-          </div>
-
-          {/* Top events + Expenses */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-            <Card title="Top events by bookings">
-              {data.topEvents.length === 0 ? (
-                <p className="text-sm text-text-muted">No bookings in this range.</p>
-              ) : (
-                <ul className="space-y-2 mt-1">
-                  {data.topEvents.map((e, i) => (
-                    <li key={e.id} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-text-muted w-5">{i + 1}.</span>
-                        <span className="text-text-primary truncate">{e.name}</span>
-                        {e.type && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-app-bg text-text-muted flex-shrink-0">
-                            {e.type}
-                          </span>
-                        )}
-                      </div>
-                      <span className="font-semibold text-text-primary flex-shrink-0">{e.bookings}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-
-            <Card title="Expenses by category">
-              {Object.keys(data.expenses.byCategory).length === 0 ? (
-                <p className="text-sm text-text-muted">No expenses recorded in this range.</p>
-              ) : (
-                <BreakdownList
-                  rows={Object.entries(data.expenses.byCategory)
-                    .map(([k, v]) => ({ label: k, value: v }))
-                    .sort((a, b) => b.value - a.value)}
-                  total={data.expenses.total}
-                  format={formatMoney}
-                />
-              )}
-            </Card>
-          </div>
-
-          {/* Exports */}
-          <div className="bg-surface border border-app-border rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-text-primary mb-1">Export raw data</h3>
-            <p className="text-xs text-text-muted mb-3">Download CSVs for accounting or further analysis.</p>
-            <div className="flex flex-wrap gap-2">
-              <a
-                href="/api/export/transactions"
-                className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
-              >
-                Transactions CSV
-              </a>
-              <a
-                href="/api/export/members"
-                className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
-              >
-                Members CSV
-              </a>
-              <a
-                href="/api/export/attendance"
-                className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
-              >
-                Attendance CSV
-              </a>
-              <Link
-                href="/dashboard/financials"
-                className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
-              >
-                Full financials →
-              </Link>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Kpi({ label, value, hint, hintColor }: { label: string; value: string; hint?: string; hintColor?: string }) {
-  return (
-    <div className="bg-surface border border-app-border rounded-xl p-4">
-      <p className="text-xs text-text-muted uppercase tracking-wide mb-1">{label}</p>
-      <p className="text-2xl font-semibold text-text-primary">{value}</p>
-      {hint && <p className={`text-xs mt-1 ${hintColor || "text-text-muted"}`}>{hint}</p>}
-    </div>
-  );
-}
-
-function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-surface border border-app-border rounded-xl p-5 ${className}`}>
-      <h3 className="text-sm font-semibold text-text-primary mb-3">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-function BreakdownList({
-  rows,
-  total,
-  format,
-}: {
-  rows: { label: string; value: number; accent?: "green" | "red" }[];
-  total: number;
-  format?: (n: number) => string;
-}) {
-  const fmt = format || ((n: number) => String(n));
-  if (rows.every((r) => r.value === 0)) {
-    return <p className="text-sm text-text-muted">No data yet.</p>;
+      </div>
+    );
   }
+
   return (
-    <div className="space-y-2">
-      {rows.map((r) => {
-        const pct = total > 0 ? (r.value / total) * 100 : 0;
-        const barColor =
-          r.accent === "green" ? "bg-green-500" : r.accent === "red" ? "bg-red-500" : "bg-brand";
-        return (
-          <div key={r.label}>
-            <div className="flex items-center justify-between text-xs mb-0.5">
-              <span className="text-text-muted">{r.label}</span>
-              <span className="font-medium text-text-primary">{fmt(r.value)}</span>
-            </div>
-            <div className="h-1.5 bg-app-bg rounded-full overflow-hidden">
-              <div className={`h-full ${barColor} rounded-full`} style={{ width: `${pct}%` }} />
-            </div>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+      <PageHeader
+        title="Reports"
+        description="Owner-first answers about the health of your club."
+        actions={
+          <div className="flex items-center gap-2 flex-wrap">
+            <RangeDropdown
+              value={range}
+              onChange={setRange}
+              customFrom={customFrom}
+              customTo={customTo}
+              onCustomChange={(f, t) => {
+                setCustomFrom(f);
+                setCustomTo(t);
+              }}
+            />
+            <button
+              type="button"
+              disabled
+              title="CSV / PDF export ships with P&L in Phase 2.5.4"
+              className="h-9 min-h-[44px] sm:min-h-9 flex items-center gap-1.5 px-3 border border-app-border rounded-lg bg-surface text-sm text-text-muted opacity-60"
+            >
+              <Download size={14} strokeWidth={2} />
+              Export
+            </button>
           </div>
-        );
-      })}
+        }
+      />
+
+      <ReliabilityStrip
+        sections={reliability.sections as Parameters<typeof ReliabilityStrip>[0]["sections"]}
+        generatedAt={reliability.generatedAt}
+      />
+
+      {/* Tabs bar. Horizontal scroll below lg. */}
+      <div
+        ref={tabsRef}
+        className="bg-surface border border-app-border rounded-xl mb-5 p-1 flex gap-1 overflow-x-auto relative"
+        style={{ scrollBehavior: "smooth" }}
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            ref={(el) => { tabRefs.current[t.key] = el; }}
+            onClick={() => setTab(t.key)}
+            className={`text-xs sm:text-sm px-3 py-2 rounded-md whitespace-nowrap font-medium transition-colors min-h-[44px] sm:min-h-0 flex items-center ${
+              tab === t.key
+                ? "bg-charcoal text-white"
+                : "text-text-muted hover:text-text-primary"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "snapshot" && <SnapshotTab range={range} customFrom={customFrom} customTo={customTo} />}
+      {tab !== "snapshot" && <TabPlaceholder tabKey={tab} />}
     </div>
+  );
+}
+
+function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot"> }) {
+  const messages: Record<Exclude<TabKey, "snapshot">, { title: string; sub: string; phase: string }> = {
+    revenue: { title: "Revenue tab coming next", sub: "Mix, top items, top coaches/classes, source chips, then recurring metrics.", phase: "Phase 2.5.2" },
+    costs: { title: "Costs tab coming soon", sub: "Fixed vs variable split, top categories, top vendors, unusual increases.", phase: "Phase 2.5.3" },
+    pnl: { title: "P&L with drill-through coming soon", sub: "Monthly + weekly, cash + accrual, CSV + PDF export, click any figure to drill.", phase: "Phase 2.5.4" },
+    membership: { title: "Membership analytics coming soon", sub: "Movement, churn, retention, top movers.", phase: "Phase 2.5.5" },
+    unit_economics: { title: "Unit economics coming soon", sub: "Per-athlete margins, break-even, CAC, LTV.", phase: "Phase 2.5.6" },
+    cash_flow: { title: "Cash flow coming soon", sub: "Waterfall, operating/investing/financing, forecast.", phase: "Phase 2.5.7" },
+    imports: { title: "Import wizard coming soon", sub: "Seven-step CSV importer for pre-AthletixOS history.", phase: "Phase 2.5.10" },
+  };
+  const m = messages[tabKey];
+  return (
+    <EmptyState
+      icon={<BarChart3 size={26} strokeWidth={1.75} />}
+      title={m.title}
+      description={`${m.sub} (${m.phase})`}
+      className="bg-surface border border-app-border rounded-xl"
+    />
   );
 }

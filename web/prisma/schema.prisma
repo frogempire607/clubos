@@ -139,6 +139,9 @@ model Club {
   // ICS feed, the /cal embed, and check-in windows. null = not set: those
   // surfaces keep the pre-timezone behavior (class stamps emitted as-is).
   timezone                 String?
+  // Reports Phase 2.5.1 — boundary between "Before AthletixOS" and "Since
+  // AthletixOS" ranges. Optional; if null the code falls back to `createdAt`.
+  wentLiveAt               DateTime?
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
   deletedAt                DateTime?
@@ -193,6 +196,7 @@ model Club {
   plaidTransactions           PlaidTransaction[]
   plaidSyncCursors            PlaidSyncCursor[]
   transactionCategoryRules    TransactionCategoryRule[]
+  actionItemSnoozes           ActionItemSnooze[]
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
   invoiceSplits               InvoiceSplit[]
@@ -450,6 +454,7 @@ model User {
   parentalConsentsAsGuardian ParentalConsent[]            @relation("GuardianConsent")
   parentalConsentsAsChild    ParentalConsent[]            @relation("ChildConsent")
   EventCompAssignment        EventCompAssignment[]
+  actionItemSnoozes          ActionItemSnooze[]
 
   @@unique([clubId, email])
   @@index([clubId])
@@ -1853,6 +1858,29 @@ model TransactionCategoryRule {
 
   @@index([clubId, active], map: "transaction_category_rules_clubId_active_idx")
   @@map("transaction_category_rules")
+}
+
+// Reports Phase 2.5.1a — per-user snooze row for an Action Item on the
+// owner-first Snapshot tab. `targetId` null = snooze the entire kind for
+// the user; populated = snooze one specific row (e.g. one failed payment).
+// The (userId, kind, COALESCE(targetId,'')) unique index in the migration
+// enforces "one active snooze per row per user."
+model ActionItemSnooze {
+  id           String   @id @default(cuid())
+  clubId       String
+  userId       String
+  kind         String
+  targetId     String?
+  snoozedUntil DateTime
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, snoozedUntil], map: "action_item_snoozes_clubId_snoozedUntil_idx")
+  @@index([userId, kind], map: "action_item_snoozes_userId_kind_idx")
+  @@map("action_item_snoozes")
 }
 
 // Tracked donation / sponsorship for nonprofit & foundation entities.
