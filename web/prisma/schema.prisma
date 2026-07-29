@@ -1453,6 +1453,26 @@ model Transaction {
   // Optional FK to the bank/PlaidConnection this money landed in. Lets
   // financials/reports filter by bank account (operating vs foundation).
   plaidConnectionId     String?
+  // ── Cash/Offline attribution (2026-07-28, Phase 1A) ───────────────────
+  // Staff who recorded this row for cash/check/comp/external-reader/manual
+  // adjustments. Null for Stripe rows (Stripe wrote them) and for pre-2026-
+  // 07-28 offline rows. Displayed as "—" when null.
+  recordedByUserId      String?
+  // Guardian pays for a child: memberId stays the beneficiary/payer as
+  // today; athleteMemberId is populated only when the money is FOR another
+  // linked athlete. Null for direct-pay / adult members. Never overwrites
+  // memberId — reads that expect one member still work.
+  athleteMemberId       String?
+  // Refund/reversal state (first-class). refundedAmount is pre-existing;
+  // these four columns are new. NOTE: Phase 1A does NOT call Stripe refunds
+  // — refunded* here is an owner-declared FLAG, not a Stripe API call.
+  refundedAt            DateTime?
+  refundReason          String?
+  refundedByUserId      String?
+  // Optional receipt URL (private file id from /api/upload — same shape as
+  // Expense.receiptUrl) + a timestamp for the last receipt-email dispatch.
+  receiptUrl            String?
+  receiptSentAt         DateTime?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
@@ -1467,6 +1487,9 @@ model Transaction {
   @@index([legalEntityId])
   @@index([clubId, reconciliationStatus])
   @@index([eventId])
+  @@index([clubId, paymentSource, status], map: "transactions_paymentSource_idx")
+  @@index([athleteMemberId], map: "transactions_athleteMemberId_idx")
+  @@index([recordedByUserId], map: "transactions_recordedByUserId_idx")
   @@map("transactions")
 }
 

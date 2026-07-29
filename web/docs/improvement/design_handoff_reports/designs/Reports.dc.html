@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.379.0/dist/umd/lucide.min.js"></script>
+<style>
+  body { margin: 0; background: #F7F7F9; color: #111111; font-family: "Inter", system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: #6D5DF6; text-decoration: none; }
+  a:hover { color: #5948E8; }
+</style>
+</helmet>
+
+<div style="display: flex; height: 100vh; background: #F7F7F9; color: #111111; font-family: 'Inter', system-ui, sans-serif;">
+
+  <aside style="width: 248px; flex-shrink: 0; display: flex; flex-direction: column; background: #1F1F23; overflow-y: auto;">
+    <div style="padding: 16px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 3px;">
+        <img src="web/public/brand/icon.png" alt="" style="width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: block;" />
+        <span style="color: #fff; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; font-family: Georgia, serif;">AthletixOS</span>
+      </div>
+      <div style="font-size: 11px; color: rgba(229,231,235,0.72); padding-left: 38px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">owner@northsideathletics.com</div>
+    </div>
+
+    <nav style="flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="layout-grid" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Dashboard</a>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="users" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Members</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="shield" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Staff</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="shopping-cart" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Purchase Options</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="calendar" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Classes &amp; Events</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="message-square" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Communication</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="check-square" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Attendance</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="dollar-sign" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Financials</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid #6D5DF6; font-size: 13px; font-weight: 500; background: #2A2A2E; color: #fff;"><i data-lucide="bar-chart-3" width="18" height="18" stroke-width="2" style="flex-shrink: 0;"></i>Reports</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="file-text" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Documents</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="settings" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Settings</a>
+    </nav>
+
+    <div style="padding: 10px 10px 0; display: flex;">
+      <button type="button" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 7px 12px; background: transparent; color: rgba(229,231,235,0.72); font-size: 12px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; cursor: pointer; font-family: inherit;"><i data-lucide="moon" width="14" height="14" stroke-width="2"></i>Dark mode</button>
+    </div>
+    <div style="padding: 4px 8px 0;"><a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="user-circle-2" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>My account</a></div>
+    <div style="padding: 4px 8px 0;"><a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="eye" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Client view</a></div>
+    <div style="padding: 10px 8px 0;"><a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="help-circle" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Need help?</a></div>
+    <div style="padding: 10px 8px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 8px;">
+      <button type="button" style="width: 100%; text-align: left; padding: 7px 12px; border-radius: 8px; font-size: 12px; border: none; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); display: flex; align-items: center; gap: 10px; font-family: inherit;"><i data-lucide="log-out" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Sign out</button>
+    </div>
+  </aside>
+
+  <main style="flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;">
+    <div style="position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #E5E7EB; background: #FFFFFF;">
+      <button type="button" style="display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: #6B7280; background: none; border: none; cursor: pointer; font-family: inherit;"><i data-lucide="arrow-left" width="16" height="16" stroke-width="2"></i><span>Back</span></button>
+      <div style="flex: 1; min-width: 0; max-width: 576px;">
+        <div style="display: flex; align-items: center; gap: 8px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; padding: 0 12px; height: 36px;">
+          <i data-lucide="search" width="16" height="16" stroke-width="2" style="color: #6B7280; flex-shrink: 0;"></i>
+          <span style="flex: 1; font-size: 14px; color: #6B7280;">Search members, classes, events, documents…</span>
+          <kbd style="font-size: 10px; color: #6B7280; border: 1px solid #E5E7EB; border-radius: 4px; padding: 2px 6px;">Ctrl K</kbd>
+        </div>
+      </div>
+      <button type="button" style="position: relative; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: #6B7280;"><i data-lucide="bell" width="20" height="20" stroke-width="2"></i><span style="position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; background: #FF6A00;">4</span></button>
+      <button type="button" style="display: flex; align-items: center; gap: 8px; border-radius: 999px; padding: 4px 12px 4px 4px; background: none; border: none; cursor: pointer; font-family: inherit;"><span style="width: 32px; height: 32px; border-radius: 999px; background: #1F1F23; color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center;">JM</span><span style="font-size: 14px; color: #111111; font-weight: 500;">Jordan Mills</span><i data-lucide="chevron-down" width="12" height="12" stroke-width="2" style="color: #6B7280;"></i></button>
+    </div>
+
+    <div style="flex: 1; padding: 32px; max-width: 1152px; margin: 0 auto; width: 100%;">
+
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+        <div style="min-width: 0;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #111111; line-height: 1.2; letter-spacing: -0.02em; margin: 0;">Reports</h1>
+          <p style="font-size: 14px; color: #6B7280; margin: 6px 0 0; max-width: 620px; text-wrap: pretty;">Your club's financial health, membership performance, and full lifetime history — including everything from before AthletixOS.</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+          <div style="position: relative;">
+            <button type="button" onClick="{{ toggleRange }}" style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; font-size: 13px; color: #111111; cursor: pointer; font-family: inherit; font-weight: 500;"><i data-lucide="calendar" width="15" height="15" stroke-width="2" style="color: #6B7280;"></i>{{ rangeLabel }}<i data-lucide="chevron-down" width="13" height="13" stroke-width="2" style="color: #6B7280;"></i></button>
+            <sc-if value="{{ rangeOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; right: 0; top: 42px; z-index: 50; width: 248px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; box-shadow: 0 10px 30px rgba(17,17,17,0.12); padding: 6px; display: flex; flex-direction: column; gap: 1px;">
+                <sc-for list="{{ rangeOptions }}" as="opt" hint-placeholder-count="10">
+                  <button type="button" onClick="{{ opt.pick }}" style="text-align: left; padding: 8px 10px; border: none; border-radius: 7px; font-size: 13px; cursor: pointer; font-family: inherit; background: {{ opt.bg }}; color: {{ opt.fg }}; font-weight: {{ opt.fw }};">{{ opt.label }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; font-size: 13px; color: #111111; cursor: pointer; font-family: inherit;"><i data-lucide="download" width="15" height="15" stroke-width="2" style="color: #6B7280;"></i>Export</button>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding: 10px 14px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; flex-wrap: wrap;">
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #111111;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #A3E635;"></span>Bank synced 12 min ago</span>
+        <span style="width: 1px; height: 14px; background: #E5E7EB;"></span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #111111;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #A3E635;"></span>Stripe synced 4 min ago</span>
+        <span style="width: 1px; height: 14px; background: #E5E7EB;"></span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #111111;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #FF6A00;"></span>3 sections need attention</span>
+        <span style="flex: 1;"></span>
+        <span style="font-size: 11px; color: #6B7280;">Figures reflect data as of Jul 28, 2026 · 2:41 PM</span>
+      </div>
+
+      <div style="position: relative; display: flex; gap: 2px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 4px; margin-bottom: 24px; overflow-x: auto; scroll-behavior: smooth;">
+        <button type="button" onClick="{{ go_snapshot }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_snapshot }}; color: {{ fg_snapshot }}; font-weight: {{ fw_snapshot }};">Snapshot</button>
+        <button type="button" onClick="{{ go_revenue }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_revenue }}; color: {{ fg_revenue }}; font-weight: {{ fw_revenue }};">Revenue</button>
+        <button type="button" onClick="{{ go_costs }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_costs }}; color: {{ fg_costs }}; font-weight: {{ fw_costs }};">Costs</button>
+        <button type="button" onClick="{{ go_pnl }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_pnl }}; color: {{ fg_pnl }}; font-weight: {{ fw_pnl }};">Profit &amp; Loss</button>
+        <button type="button" onClick="{{ go_membership }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_membership }}; color: {{ fg_membership }}; font-weight: {{ fw_membership }};">Membership</button>
+        <button type="button" onClick="{{ go_unit }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_unit }}; color: {{ fg_unit }}; font-weight: {{ fw_unit }};">Unit economics</button>
+        <button type="button" onClick="{{ go_cashflow }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_cashflow }}; color: {{ fg_cashflow }}; font-weight: {{ fw_cashflow }};">Cash flow</button>
+        <button type="button" onClick="{{ go_imports }}" style="flex: 1; white-space: nowrap; font-size: 13px; padding: 8px 10px; border-radius: 7px; border: none; cursor: pointer; font-family: inherit; background: {{ bg_imports }}; color: {{ fg_imports }}; font-weight: {{ fw_imports }};">History &amp; imports</button>
+      </div>
+
+      <sc-if value="{{ is_snapshot }}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #E5E7EB; background: rgba(255,106,0,0.05);">
+            <i data-lucide="alert-triangle" width="17" height="17" stroke-width="2" style="color: #FF6A00; flex-shrink: 0; margin-top: 1px;"></i>
+            <div style="flex: 1; min-width: 0;">
+              <p style="margin: 0; font-size: 13px; font-weight: 600; color: #111111;">23 transactions are uncategorized ($4,180.22)</p>
+              <p style="margin: 3px 0 0; font-size: 12px; color: #6B7280;">Your profit figure can move by up to 6.6% once these are filed. Nothing else is blocked.</p>
+            </div>
+            <a href="#" style="font-size: 12px; font-weight: 500; flex-shrink: 0; white-space: nowrap;">Categorize now →</a>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px;">
+            <i data-lucide="info" width="17" height="17" stroke-width="2" style="color: #6D5DF6; flex-shrink: 0; margin-top: 1px;"></i>
+            <div style="flex: 1; min-width: 0;">
+              <p style="margin: 0; font-size: 13px; font-weight: 600; color: #111111;">Historical data before Mar 2024 is incomplete</p>
+              <p style="margin: 3px 0 0; font-size: 12px; color: #6B7280;">412 members imported from WellnessLiving are missing join dates or membership type. All-time figures under-count that period.</p>
+            </div>
+            <a href="#" onClick="{{ go_imports }}" style="font-size: 12px; font-weight: 500; flex-shrink: 0; white-space: nowrap;">Review import →</a>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+            <p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Net profit</p>
+            <p style="font-size: 26px; font-weight: 600; color: #111111; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$15,326.37</p>
+            <p style="font-size: 12px; margin: 5px 0 0; color: #15803D; font-weight: 500;">↑ 12.4% vs. Jun 2026</p>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+            <p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Money in</p>
+            <p style="font-size: 26px; font-weight: 600; color: #111111; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$63,418.50</p>
+            <p style="font-size: 12px; margin: 5px 0 0; color: #15803D; font-weight: 500;">↑ 4.2% vs. Jun 2026</p>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+            <p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Money out</p>
+            <p style="font-size: 26px; font-weight: 600; color: #111111; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$48,092.13</p>
+            <p style="font-size: 12px; margin: 5px 0 0; color: #15803D; font-weight: 500;">↓ 2.1% vs. Jun 2026</p>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+            <p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Available cash</p>
+            <p style="font-size: 26px; font-weight: 600; color: #111111; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$260,554.40</p>
+            <p style="font-size: 12px; margin: 5px 0 0; color: #6B7280;">5.5 months of runway</p>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px;">
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Financial snapshot</h3>
+              <span style="font-size: 11px; color: #6B7280;">Jul 1 – Jul 28, 2026</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 7px; padding: 8px 10px; background: #F7F7F9; border-radius: 8px; margin-bottom: 12px;">
+              <i data-lucide="clock" width="13" height="13" stroke-width="2" style="color: #6B7280;"></i>
+              <span style="font-size: 11.5px; color: #6B7280;">Partial month — 28 of 31 days. Monthly averages use the trailing 3 full months.</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Net position</span><span style="font-size: 13px; font-weight: 600; color: #15803D; font-variant-numeric: tabular-nums;">$15,326.37</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Total inflows</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$63,418.50</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Total outflows</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$48,092.13</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Average weekly burn</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$10,904.26</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Average monthly burn</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$47,318.44</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Average weekly net</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$3,275.44</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0;"><span style="font-size: 13px; color: #6B7280;">Average monthly net</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$14,207.90</span></div>
+          </div>
+
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px;">
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Cash on hand</h3>
+              <span style="font-size: 11px; color: #6B7280;">Bank balance updated 12 min ago</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Operating checking · Chase ••4182</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$186,412.09</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Savings · Chase ••7730</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$65,000.00</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Stripe payouts in transit</span><span style="font-size: 13px; font-weight: 500; color: #111111; font-variant-numeric: tabular-nums;">$9,142.31</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 12px 12px; margin: 10px -12px 0; background: rgba(163,230,53,0.14); border-radius: 8px;"><span style="font-size: 13px; font-weight: 600; color: #111111;">Total available cash</span><span style="font-size: 16px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">$260,554.40</span></div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px;">
+              <span style="font-size: 13px; color: #6B7280;">Estimated runway</span>
+              <span style="display: inline-flex; align-items: center; gap: 8px;"><span style="font-size: 16px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">5.5 months</span><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(163,230,53,0.2); color: #3F6212;">Healthy</span></span>
+            </div>
+            <div style="height: 6px; border-radius: 999px; background: #F1F2F4; margin-top: 10px; overflow: hidden;"><div style="height: 100%; width: 55%; border-radius: 999px; background: #A3E635;"></div></div>
+            <p style="font-size: 11px; color: #6B7280; margin: 10px 0 0; line-height: 1.5;">Runway = total available cash ÷ average monthly operating expenses over the trailing 3 full months (Apr–Jun 2026, $47,318.44/mo). Available credit is not counted as cash.</p>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Money in vs. money out</h3>
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #6B7280;"><span style="width: 9px; height: 9px; border-radius: 2px; background: #6D5DF6;"></span>Money in</span>
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #6B7280;"><span style="width: 9px; height: 9px; border-radius: 2px; background: #D8D5F7;"></span>Money out</span>
+            </div>
+          </div>
+          <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 16px;">Last 12 months · thousands of dollars</p>
+          <div style="display: flex; align-items: flex-end; gap: 10px; height: 190px;">
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 76%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 69%;"></div></div><span style="font-size: 10px; color: #6B7280;">Aug</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 85%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 75%;"></div></div><span style="font-size: 10px; color: #6B7280;">Sep</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 89%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 78%;"></div></div><span style="font-size: 10px; color: #6B7280;">Oct</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 80%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 73%;"></div></div><span style="font-size: 10px; color: #6B7280;">Nov</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 72%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 71%;"></div></div><span style="font-size: 10px; color: #6B7280;">Dec</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 100%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 82%;"></div></div><span style="font-size: 10px; color: #6B7280;">Jan</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 93%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 79%;"></div></div><span style="font-size: 10px; color: #6B7280;">Feb</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 96%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 80%;"></div></div><span style="font-size: 10px; color: #6B7280;">Mar</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 91%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 78%;"></div></div><span style="font-size: 10px; color: #6B7280;">Apr</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 90%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 84%;"></div></div><span style="font-size: 10px; color: #6B7280;">May</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 98%;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 88%;"></div></div><span style="font-size: 10px; color: #6B7280;">Jun</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; display: flex; align-items: flex-end; gap: 3px; height: 100%;"><div style="flex: 1; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 92%; opacity: 0.55;"></div><div style="flex: 1; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 70%; opacity: 0.55;"></div></div><span style="font-size: 10px; color: #6B7280;">Jul*</span></div>
+          </div>
+          <p style="font-size: 11px; color: #6B7280; margin: 12px 0 0;">* July is a partial month (28 of 31 days) and is shown faded.</p>
+        </div>
+
+        <div>
+          <h3 style="font-size: 13px; font-weight: 600; color: #111111; margin: 0 0 10px;">Where these numbers come from</h3>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+            <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;"><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;"><span style="font-size: 12.5px; font-weight: 600; color: #111111;">Bank transactions</span><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(163,230,53,0.2); color: #3F6212;">Complete</span></div><p style="font-size: 11.5px; color: #6B7280; margin: 0;">2 accounts connected · synced 12 min ago</p></div>
+            <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;"><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;"><span style="font-size: 12.5px; font-weight: 600; color: #111111;">Stripe payments</span><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(163,230,53,0.2); color: #3F6212;">Complete</span></div><p style="font-size: 11.5px; color: #6B7280; margin: 0;">Fees + payouts reconciled · synced 4 min ago</p></div>
+            <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;"><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;"><span style="font-size: 12.5px; font-weight: 600; color: #111111;">Cash &amp; offline</span><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(163,230,53,0.2); color: #3F6212;">Included</span></div><p style="font-size: 11.5px; color: #6B7280; margin: 0;">$1,760.00 recorded this period</p></div>
+            <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;"><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;"><span style="font-size: 12.5px; font-weight: 600; color: #111111;">Categorization</span><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(255,106,0,0.14); color: #B24700;">Needs review</span></div><p style="font-size: 11.5px; color: #6B7280; margin: 0;">23 transactions awaiting a category</p></div>
+            <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;"><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;"><span style="font-size: 12.5px; font-weight: 600; color: #111111;">Historical import</span><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(255,106,0,0.14); color: #B24700;">Incomplete</span></div><p style="font-size: 11.5px; color: #6B7280; margin: 0;">Pre-Mar 2024 records missing fields</p></div>
+            <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;"><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;"><span style="font-size: 12.5px; font-weight: 600; color: #111111;">Payroll</span><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(163,230,53,0.2); color: #3F6212;">Complete</span></div><p style="font-size: 11.5px; color: #6B7280; margin: 0;">2 runs posted · next Aug 1</p></div>
+          </div>
+        </div>
+
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is_revenue }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Revenue mix</h3>
+            <span style="font-size: 13px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">$63,418.50 total</span>
+          </div>
+          <div style="display: flex; height: 34px; border-radius: 8px; overflow: hidden; gap: 2px;">
+            <div style="width: 73.9%; background: #6D5DF6; display: flex; align-items: center; padding-left: 12px; color: #fff; font-size: 12px; font-weight: 600;">Recurring 73.9%</div>
+            <div style="width: 26.1%; background: #A3E635; display: flex; align-items: center; padding-left: 12px; color: #1F1F23; font-size: 12px; font-weight: 600;">Variable 26.1%</div>
+          </div>
+          <div style="display: flex; gap: 20px; margin-top: 12px;">
+            <span style="font-size: 12px; color: #6B7280;">Recurring <strong style="color: #111111; font-weight: 600; font-variant-numeric: tabular-nums;">$46,894.00</strong></span>
+            <span style="font-size: 12px; color: #6B7280;">Variable <strong style="color: #111111; font-weight: 600; font-variant-numeric: tabular-nums;">$16,524.50</strong></span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Recurring — memberships</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">Predictable revenue you can plan against.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Active memberships</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">186</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Monthly recurring revenue (MRR)</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$52,140.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Annualized recurring revenue (ARR)</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$625,680.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Average revenue per athlete</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$296.35</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Average revenue per membership</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$280.32</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">New memberships</span><span style="font-size: 13px; font-weight: 500; color: #15803D; font-variant-numeric: tabular-nums;">+14</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Renewed memberships</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">41</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Ended memberships</span><span style="font-size: 13px; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">−9</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Upgrades / downgrades</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">5 / 3</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0;"><span style="font-size: 13px; color: #6B7280;">Recurring as % of revenue</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">73.9%</span></div>
+          </div>
+
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Variable — everything else</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">Events, camps, clinics, privates, drop-ins, merch and rentals.</p>
+            <div style="display: flex; flex-direction: column; gap: 9px;">
+              <div><div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;"><span style="color: #6B7280;">Camps</span><span style="font-weight: 500; font-variant-numeric: tabular-nums;">$6,240.00</span></div><div style="height: 7px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; width: 100%; background: #A3E635; border-radius: 999px;"></div></div></div>
+              <div><div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;"><span style="color: #6B7280;">Events</span><span style="font-weight: 500; font-variant-numeric: tabular-nums;">$3,180.00</span></div><div style="height: 7px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; width: 51%; background: #A3E635; border-radius: 999px;"></div></div></div>
+              <div><div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;"><span style="color: #6B7280;">Private lessons</span><span style="font-weight: 500; font-variant-numeric: tabular-nums;">$2,865.00</span></div><div style="height: 7px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; width: 46%; background: #A3E635; border-radius: 999px;"></div></div></div>
+              <div><div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;"><span style="color: #6B7280;">Clinics</span><span style="font-weight: 500; font-variant-numeric: tabular-nums;">$1,620.00</span></div><div style="height: 7px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; width: 26%; background: #A3E635; border-radius: 999px;"></div></div></div>
+              <div><div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;"><span style="color: #6B7280;">Drop-ins</span><span style="font-weight: 500; font-variant-numeric: tabular-nums;">$1,090.00</span></div><div style="height: 7px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; width: 17%; background: #A3E635; border-radius: 999px;"></div></div></div>
+              <div><div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;"><span style="color: #6B7280;">Merchandise &amp; products</span><span style="font-weight: 500; font-variant-numeric: tabular-nums;">$985.00</span></div><div style="height: 7px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; width: 16%; background: #A3E635; border-radius: 999px;"></div></div></div>
+              <div><div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px;"><span style="color: #6B7280;">Rentals</span><span style="font-weight: 500; font-variant-numeric: tabular-nums;">$544.50</span></div><div style="height: 7px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; width: 9%; background: #A3E635; border-radius: 999px;"></div></div></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 12px 0 0; margin-top: 12px; border-top: 1px solid #E5E7EB;"><span style="font-size: 13px; color: #6B7280;">Variable as % of revenue</span><span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">26.1%</span></div>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB; display: flex; align-items: baseline; justify-content: space-between;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Revenue by item</h3>
+            <span style="font-size: 11.5px; color: #6B7280;">Click any row to see the transactions behind it</span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Item</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Category</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Units</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Revenue</th>
+              <th style="text-align: right; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">% of total</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">Competitive Team — Monthly</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Membership</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">62</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$18,420.00</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">29.0%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">All-Access Membership</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Membership</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">54</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$12,860.00</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">20.3%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">Youth Rec — Monthly</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Membership</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">70</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$9,240.00</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">14.6%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">Summer Camp — Week 3</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Camp</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">48</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$4,180.00</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">6.6%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">Private Lesson — 60 min</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Private</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">39</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$2,865.00</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">4.5%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">Open Gym Punch Card</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Drop-in</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">86</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$2,140.00</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">3.4%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">Team Apparel Drop</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Merchandise</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">41</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$985.00</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">1.6%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #111111;">Birthday Party Rental</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Rental</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">3</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">$544.50</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.9%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Revenue by coach</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">Privates, clinics and camps where a coach is assigned.</p>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Marcus Webb</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$4,120.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Dana Ortiz</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$3,480.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Priya Shah</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$2,640.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0;"><span style="font-size: 13px; color: #111111;">Sam Cole</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$1,890.00</span></div>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Revenue by location</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">Only shown when a purchase is tied to a location.</p>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Northside Gym</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$41,280.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Westfield Annex</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$16,940.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0;"><span style="font-size: 13px; color: #111111;">Off-site / travel</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$5,198.50</span></div>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Where this revenue was recorded</h3>
+          <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 14px;">Every transaction carries its source so imported history is never mistaken for native data.</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <span style="display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 11px; border-radius: 999px; background: #F7F7F9; border: 1px solid #E5E7EB;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #6D5DF6;"></span>AthletixOS <strong style="font-weight: 600; font-variant-numeric: tabular-nums;">$53,272.14</strong></span>
+            <span style="display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 11px; border-radius: 999px; background: #F7F7F9; border: 1px solid #E5E7EB;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #A3E635;"></span>Stripe <strong style="font-weight: 600; font-variant-numeric: tabular-nums;">$6,978.36</strong></span>
+            <span style="display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 11px; border-radius: 999px; background: #F7F7F9; border: 1px solid #E5E7EB;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #FF6A00;"></span>Previous software <strong style="font-weight: 600; font-variant-numeric: tabular-nums;">$1,408.00</strong></span>
+            <span style="display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 11px; border-radius: 999px; background: #F7F7F9; border: 1px solid #E5E7EB;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #6B7280;"></span>Cash <strong style="font-weight: 600; font-variant-numeric: tabular-nums;">$1,760.00</strong></span>
+            <span style="display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 11px; border-radius: 999px; background: #F7F7F9; border: 1px solid #E5E7EB;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9CA3AF;"></span>Manual import <strong style="font-weight: 600; font-variant-numeric: tabular-nums;">$0.00</strong></span>
+          </div>
+        </div>
+
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is_costs }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Fixed vs. variable costs</h3>
+            <span style="font-size: 13px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">$48,092.13 total</span>
+          </div>
+          <div style="display: flex; height: 34px; border-radius: 8px; overflow: hidden; gap: 2px;">
+            <div style="width: 60.2%; background: #1F1F23; display: flex; align-items: center; padding-left: 12px; color: #fff; font-size: 12px; font-weight: 600;">Fixed 60.2%</div>
+            <div style="width: 39.8%; background: #FF6A00; display: flex; align-items: center; padding-left: 12px; color: #fff; font-size: 12px; font-weight: 600;">Variable 39.8%</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Fixed costs</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">Costs that stay roughly the same whether 10 or 300 athletes show up.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Total fixed this period</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$28,940.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Average per month</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$28,940.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">As % of revenue</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">45.6%</span></div>
+            <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px;">
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Rent &amp; lease</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Salaried payroll</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Insurance</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Software</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Loan payments</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Recurring utilities</span>
+            </div>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Variable costs</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">Costs that rise and fall with how much activity you run.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Total variable this period</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$19,152.13</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Average per month</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$18,378.44</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">As % of revenue</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">30.2%</span></div>
+            <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px;">
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Hourly coaching</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Contractors</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Event expenses</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Merch costs</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Processing fees</span>
+              <span style="font-size: 11.5px; padding: 4px 9px; border-radius: 6px; background: #F7F7F9; color: #6B7280;">Travel</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: rgba(109,93,246,0.05); border: 1px solid rgba(109,93,246,0.2); border-radius: 10px;">
+          <i data-lucide="sliders-horizontal" width="16" height="16" stroke-width="2" style="color: #6D5DF6; flex-shrink: 0;"></i>
+          <p style="margin: 0; font-size: 12.5px; color: #111111; flex: 1;">Disagree with how a category is classified? You can move any category between fixed and variable — the change applies to every report.</p>
+          <a href="#" style="font-size: 12.5px; font-weight: 500; white-space: nowrap;">Edit classifications →</a>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB;"><h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Top expense categories</h3></div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280; width: 48px;">#</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Category</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Type</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Amount</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">% of revenue</th>
+              <th style="text-align: right; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">vs. prior</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">1</td><td style="padding: 10px 12px; font-size: 13px; color: #111111;">Payroll</td><td style="padding: 10px 12px; font-size: 12px; color: #6B7280;">Fixed</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">$19,480.00</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">30.7%</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.0%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">2</td><td style="padding: 10px 12px; font-size: 13px; color: #111111;">Rent &amp; lease</td><td style="padding: 10px 12px; font-size: 12px; color: #6B7280;">Fixed</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">$8,500.00</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">13.4%</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.0%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">3</td><td style="padding: 10px 12px; font-size: 13px; color: #111111;">Contractors</td><td style="padding: 10px 12px; font-size: 12px; color: #6B7280;">Variable</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">$6,120.00</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">9.7%</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">+14.6%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">4</td><td style="padding: 10px 12px; font-size: 13px; color: #111111;">Payment processing</td><td style="padding: 10px 12px; font-size: 12px; color: #6B7280;">Variable</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">$2,148.63</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">3.4%</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">+8.3%</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">5</td><td style="padding: 10px 12px; font-size: 13px; color: #111111;">Insurance</td><td style="padding: 10px 12px; font-size: 12px; color: #6B7280;">Fixed</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">$1,940.00</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">3.1%</td><td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.0%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Top vendors</h3>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Gusto Payroll</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$19,480.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Riverside Property LLC</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$8,500.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Stripe</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$2,148.63</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">State Farm Business</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$1,940.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0;"><span style="font-size: 13px; color: #111111;">Sports Supply Co.</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$1,412.80</span></div>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Largest single expenses</h3>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Payroll run<span style="color: #6B7280; font-size: 11.5px;"> · Jul 15</span></span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$9,740.00</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Monthly rent<span style="color: #6B7280; font-size: 11.5px;"> · Jul 1</span></span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$8,500.00</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Mat replacement<span style="color: #6B7280; font-size: 11.5px;"> · Jul 9</span></span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$2,410.00</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #111111;">Insurance renewal<span style="color: #6B7280; font-size: 11.5px;"> · Jul 3</span></span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$1,940.00</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0;"><span style="font-size: 13px; color: #111111;">Regional Qualifier travel<span style="color: #6B7280; font-size: 11.5px;"> · Jul 18</span></span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$1,180.00</span></div>
+          </div>
+        </div>
+
+        <div>
+          <h3 style="font-size: 13px; font-weight: 600; color: #111111; margin: 0 0 10px;">Needs a look</h3>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+            <a href="#" style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px; display: block;"><div style="font-size: 22px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">23</div><div style="font-size: 12.5px; color: #111111; margin-top: 2px; font-weight: 500;">Uncategorized expenses</div><div style="font-size: 11.5px; color: #6B7280; margin-top: 2px;">$4,180.22 unfiled</div></a>
+            <a href="#" style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px; display: block;"><div style="font-size: 22px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">11</div><div style="font-size: 12.5px; color: #111111; margin-top: 2px; font-weight: 500;">Missing receipts</div><div style="font-size: 11.5px; color: #6B7280; margin-top: 2px;">$3,640.00 total</div></a>
+            <a href="#" style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px; display: block;"><div style="font-size: 22px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">6</div><div style="font-size: 12.5px; color: #111111; margin-top: 2px; font-weight: 500;">Awaiting review</div><div style="font-size: 11.5px; color: #6B7280; margin-top: 2px;">Flagged by a staff member</div></a>
+            <a href="#" style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px; display: block;"><div style="font-size: 22px; font-weight: 600; color: #FF6A00; font-variant-numeric: tabular-nums;">2</div><div style="font-size: 12.5px; color: #111111; margin-top: 2px; font-weight: 500;">Unusual increases</div><div style="font-size: 11.5px; color: #6B7280; margin-top: 2px;">Travel +181%, Equipment +58%</div></a>
+            <a href="#" style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px; display: block;"><div style="font-size: 22px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums;">14</div><div style="font-size: 12.5px; color: #111111; margin-top: 2px; font-weight: 500;">Recurring subscriptions</div><div style="font-size: 11.5px; color: #6B7280; margin-top: 2px;">$1,284.00 / month</div></a>
+            <a href="#" style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px; display: block;"><div style="font-size: 22px; font-weight: 600; color: #FF6A00; font-variant-numeric: tabular-nums;">3</div><div style="font-size: 12.5px; color: #111111; margin-top: 2px; font-weight: 500;">Possible duplicate charges</div><div style="font-size: 11.5px; color: #6B7280; margin-top: 2px;">$612.40 at risk</div></a>
+          </div>
+        </div>
+
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is_pnl }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="display: flex; gap: 2px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 9px; padding: 3px;">
+              <button type="button" onClick="{{ go_pnl_monthly }}" style="font-size: 13px; padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: {{ pbg_monthly }}; color: {{ pfg_monthly }}; font-weight: {{ pfw_monthly }};">Monthly</button>
+              <button type="button" onClick="{{ go_pnl_weekly }}" style="font-size: 13px; padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: {{ pbg_weekly }}; color: {{ pfg_weekly }}; font-weight: {{ pfw_weekly }};">Weekly</button>
+            </div>
+            <div style="display: flex; gap: 2px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 9px; padding: 3px;">
+              <button type="button" onClick="{{ go_basis_cash }}" style="font-size: 13px; padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: {{ bbg_cash }}; color: {{ bfg_cash }}; font-weight: {{ bfw_cash }};">Cash basis</button>
+              <button type="button" onClick="{{ go_basis_accrual }}" style="font-size: 13px; padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: {{ bbg_accrual }}; color: {{ bfg_accrual }}; font-weight: {{ bfw_accrual }};">Accrual view</button>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; font-size: 12.5px; color: #111111; cursor: pointer; font-family: inherit;"><i data-lucide="file-spreadsheet" width="14" height="14" stroke-width="2" style="color: #6B7280;"></i>CSV</button>
+            <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; font-size: 12.5px; color: #111111; cursor: pointer; font-family: inherit;"><i data-lucide="file-text" width="14" height="14" stroke-width="2" style="color: #6B7280;"></i>PDF</button>
+          </div>
+        </div>
+
+        <sc-if value="{{ is_basis_accrual }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; background: rgba(109,93,246,0.05); border: 1px solid rgba(109,93,246,0.2); border-radius: 10px;">
+            <i data-lucide="info" width="16" height="16" stroke-width="2" style="color: #6D5DF6; flex-shrink: 0; margin-top: 1px;"></i>
+            <p style="margin: 0; font-size: 12.5px; color: #111111;">Accrual view spreads prepaid memberships, camp deposits and annual plans over the months they are earned. It needs a start and end date on every purchase — <strong style="font-weight: 600;">18 purchases are missing one</strong> and are shown on a cash basis instead.</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ is_pnl_monthly }}" hint-placeholder-val="{{ true }}">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB; display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Monthly profit &amp; loss — June 2026</h3>
+              <p style="font-size: 11.5px; color: #6B7280; margin: 4px 0 0;">Last complete month. Every line opens the transactions behind it.</p>
+            </div>
+            <span style="font-size: 11px; color: #6B7280;">Cash basis · Updated 12 min ago</span>
+          </div>
+          <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; min-width: 840px;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Line</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #111111;">Jun 2026</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">May 2026</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Change</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Jun 2025</th>
+              <th style="text-align: right; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">YTD 2026</th>
+            </tr></thead>
+            <tbody>
+              <tr><td colspan="6" style="padding: 10px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280; background: #FCFCFD; border-top: 1px solid #E5E7EB;">Income</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Membership revenue</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$48,920.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$47,140.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #15803D; font-variant-numeric: tabular-nums;">+3.8%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$41,280.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$285,420.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Event revenue</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$3,860.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$2,940.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #15803D; font-variant-numeric: tabular-nums;">+31.3%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$2,640.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$18,940.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Camp &amp; clinic revenue</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$7,410.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$4,120.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #15803D; font-variant-numeric: tabular-nums;">+79.9%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$5,120.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$31,280.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Private lesson revenue</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$3,140.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$3,380.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">−7.1%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$2,840.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$19,640.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Drop-in revenue</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,215.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,090.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #15803D; font-variant-numeric: tabular-nums;">+11.5%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$940.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$6,890.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Merchandise &amp; products</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,048.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,320.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">−20.6%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$780.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$7,240.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Cash &amp; offline revenue</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,760.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,540.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #15803D; font-variant-numeric: tabular-nums;">+14.3%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,320.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$9,480.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Other operating income</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$320.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$280.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #15803D; font-variant-numeric: tabular-nums;">+14.3%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$180.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,840.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Refunds &amp; discounts</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">($1,284.00)</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">($940.00)</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">+36.6%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">($820.00)</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">($6,120.00)</td></tr>
+              <tr style="border-top: 1px solid #E5E7EB; background: #FCFCFD;"><td style="padding: 9px 20px; font-size: 13px; font-weight: 600;">Net operating income</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">$66,389.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$60,870.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #15803D; font-variant-numeric: tabular-nums;">+9.1%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$54,280.00</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$374,610.00</td></tr>
+
+              <tr><td colspan="6" style="padding: 10px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280; background: #FCFCFD; border-top: 1px solid #E5E7EB;">Direct costs</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Coach payments tied to programs</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$9,840.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$9,120.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">+7.9%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$8,140.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$56,180.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Event-specific expenses</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$2,410.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,180.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">+104.2%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,240.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$9,240.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Merchandise costs</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$612.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$780.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">−21.5%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$480.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$4,120.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Payment-processing fees</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$2,148.63</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,984.20</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">+8.3%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,760.40</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$12,480.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Other direct program costs</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$480.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$520.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">−7.7%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,220.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$2,840.00</td></tr>
+              <tr style="border-top: 1px solid #E5E7EB; background: #FCFCFD;"><td style="padding: 9px 20px; font-size: 13px; font-weight: 600;">Gross profit <span style="font-weight: 400; color: #6B7280;">· 76.7% margin</span></td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">$50,898.37</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$47,285.80</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #15803D; font-variant-numeric: tabular-nums;">+7.6%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$41,439.60</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$289,750.00</td></tr>
+
+              <tr><td colspan="6" style="padding: 10px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280; background: #FCFCFD; border-top: 1px solid #E5E7EB;">Operating expenses</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Payroll</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$19,480.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$19,480.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.0%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$17,240.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$116,880.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Contractors</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$6,120.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$5,340.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">+14.6%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$4,880.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$32,140.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Rent &amp; lease</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$8,500.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$8,500.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.0%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$8,200.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$51,000.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Utilities</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,284.40</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,190.80</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">+7.9%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,104.20</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$7,240.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Insurance</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,940.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,940.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.0%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,720.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$11,640.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Software &amp; subscriptions</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,284.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,214.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">+5.8%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$980.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$7,480.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Marketing</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,640.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,680.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">−2.4%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,120.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$9,860.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Office supplies</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$384.99</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$512.40</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">−24.9%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$402.10</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$2,840.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Equipment</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,010.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$640.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">+57.8%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$380.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$6,120.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Repairs &amp; maintenance</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$618.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$940.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">−34.3%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$720.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$4,180.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Professional fees</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$750.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$750.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">0.0%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$650.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$4,500.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Travel</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$1,180.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$420.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #A32D2D; font-variant-numeric: tabular-nums;">+181.0%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$980.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$5,240.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Education</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$0.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,200.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">−100.0%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$0.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$2,400.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Taxes &amp; licenses</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$420.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$0.00</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">—</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$380.00</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,240.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 8px 20px; font-size: 13px;">Other categorized expenses</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">$268.40</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$315.60</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">−15.0%</td><td style="padding: 8px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$164.50</td><td style="padding: 8px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,840.00</td></tr>
+              <tr style="border-top: 1px solid #E5E7EB; background: #FCFCFD;"><td style="padding: 9px 20px; font-size: 13px; font-weight: 600;">Total operating expenses</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">$44,879.79</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$44,122.80</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">+1.7%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$38,920.80</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$264,600.00</td></tr>
+
+              <tr style="border-top: 2px solid #1F1F23; background: rgba(163,230,53,0.1);"><td style="padding: 12px 20px; font-size: 14px; font-weight: 700;">Net profit</td><td style="padding: 12px 12px; font-size: 15px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums;">$6,018.58</td><td style="padding: 12px 12px; font-size: 14px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$3,163.00</td><td style="padding: 12px 12px; font-size: 14px; text-align: right; font-weight: 700; color: #15803D; font-variant-numeric: tabular-nums;">+90.3%</td><td style="padding: 12px 12px; font-size: 14px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$2,518.80</td><td style="padding: 12px 20px; font-size: 14px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$25,150.00</td></tr>
+              <tr style="border-top: 1px solid #E5E7EB;"><td style="padding: 9px 20px; font-size: 13px; color: #6B7280;">Profit margin</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">9.1%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">5.2%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #15803D; font-variant-numeric: tabular-nums;">+3.9 pp</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">4.6%</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">6.7%</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ is_pnl_weekly }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(255,106,0,0.06); border: 1px solid rgba(255,106,0,0.25); border-radius: 10px;">
+            <i data-lucide="clock" width="16" height="16" stroke-width="2" style="color: #FF6A00; flex-shrink: 0;"></i>
+            <p style="margin: 0; font-size: 12.5px; color: #111111;">The week of <strong style="font-weight: 600;">Jul 27 – Aug 2</strong> is still in progress (2 of 7 days). It is excluded from the 4-week rolling average.</p>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+            <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB;">
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Weekly profit &amp; loss</h3>
+              <p style="font-size: 11.5px; color: #6B7280; margin: 4px 0 0;">Week runs Monday to Sunday. Switch to Monthly for the full line-by-line breakdown.</p>
+            </div>
+            <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; min-width: 880px;">
+              <thead><tr style="background: #FAFAFB;">
+                <th style="text-align: left; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Line</th>
+                <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Jun 29 – Jul 5</th>
+                <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Jul 6 – 12</th>
+                <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Jul 13 – 19</th>
+                <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #111111;">Jul 20 – 26</th>
+                <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #FF6A00;">Jul 27 – Aug 2 *</th>
+                <th style="text-align: right; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">4-wk avg</th>
+              </tr></thead>
+              <tbody>
+                <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Net operating income</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$15,240.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$16,880.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$14,920.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">$16,378.50</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$4,180.00</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$15,854.63</td></tr>
+                <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Direct costs</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$3,640.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$4,120.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$3,480.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">$3,890.63</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$1,020.00</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$3,782.66</td></tr>
+                <tr style="border-top: 1px solid #E5E7EB; background: #FCFCFD;"><td style="padding: 9px 20px; font-size: 13px; font-weight: 600;">Gross profit</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$11,600.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$12,760.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$11,440.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">$12,487.87</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$3,160.00</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$12,071.97</td></tr>
+                <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Operating expenses</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$10,240.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$11,860.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$10,480.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">$11,340.00</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$2,940.00</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$10,980.00</td></tr>
+                <tr style="border-top: 2px solid #1F1F23; background: rgba(163,230,53,0.1);"><td style="padding: 11px 20px; font-size: 13.5px; font-weight: 700;">Operating profit</td><td style="padding: 11px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$1,360.00</td><td style="padding: 11px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$900.00</td><td style="padding: 11px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$960.00</td><td style="padding: 11px 12px; font-size: 14px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums;">$1,147.87</td><td style="padding: 11px 12px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$220.00</td><td style="padding: 11px 20px; font-size: 13px; text-align: right; font-weight: 600; color: #6B7280; font-variant-numeric: tabular-nums;">$1,091.97</td></tr>
+                <tr style="border-top: 1px solid #E5E7EB;"><td style="padding: 9px 20px; font-size: 13px; color: #6B7280;">Profit margin</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">8.9%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">5.3%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">6.4%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">7.0%</td><td style="padding: 9px 12px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">5.3%</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">6.9%</td></tr>
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is_membership }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Churn rate</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">6.6%</p><p style="font-size: 12px; margin: 5px 0 0; color: #15803D; font-weight: 500;">↓ 0.9 pp vs. Jun</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Retention rate</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">93.4%</p><p style="font-size: 12px; margin: 5px 0 0; color: #6B7280;">186 of 199 kept</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Avg. membership length</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">14.2 mo</p><p style="font-size: 12px; margin: 5px 0 0; color: #6B7280;">Includes imported history</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Trial → paid</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">38.2%</p><p style="font-size: 12px; margin: 5px 0 0; color: #6B7280;">13 of 34 trials converted</p></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Membership movement — July 2026</h3>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Active at start of period</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">181</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">New memberships</span><span style="font-size: 13px; font-weight: 500; color: #15803D; font-variant-numeric: tabular-nums;">+14</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Reactivated</span><span style="font-size: 13px; font-weight: 500; color: #15803D; font-variant-numeric: tabular-nums;">+3</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Canceled</span><span style="font-size: 13px; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">−7</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Expired</span><span style="font-size: 13px; font-weight: 500; color: #A32D2D; font-variant-numeric: tabular-nums;">−5</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Plan changes <span style="font-size: 11.5px;">(not counted as churn)</span></span><span style="font-size: 13px; font-weight: 500; color: #6B7280; font-variant-numeric: tabular-nums;">8</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 10px 0 0; margin-top: 4px; border-top: 1px solid #E5E7EB;"><span style="font-size: 13px; font-weight: 600;">Active at end of period</span><span style="font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums;">186</span></div>
+          </div>
+
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">How churn is calculated</h3>
+            <div style="background: #F7F7F9; border-radius: 10px; padding: 16px; margin-bottom: 14px;">
+              <p style="margin: 0 0 8px; font-size: 12px; color: #6B7280; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;">Formula</p>
+              <p style="margin: 0; font-size: 14px; color: #111111; line-height: 1.6;">Memberships lost during the period<br /><span style="display: inline-block; border-top: 1px solid #111111; padding-top: 6px; margin-top: 2px;">Active memberships at the start of the period</span></p>
+              <p style="margin: 12px 0 0; font-size: 13px; color: #111111; font-variant-numeric: tabular-nums;">12 ÷ 181 = <strong style="font-weight: 600;">6.6%</strong></p>
+            </div>
+            <p style="font-size: 12.5px; color: #6B7280; margin: 0 0 8px; line-height: 1.55;">A member who switches plans, pauses for a scheduled break, or moves between memberships without going inactive is <strong style="color: #111111; font-weight: 600;">not</strong> counted as churned.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Revenue churn rate</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">4.8%</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Avg. member lifetime value</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$2,738.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Monthly revenue per athlete</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$296.35</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Monthly revenue per family</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$412.60</span></div>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Churn rate over time</h3>
+            <span style="font-size: 11.5px; color: #6B7280;">Monthly · trailing 12 months</span>
+          </div>
+          <div style="display: flex; align-items: flex-end; gap: 10px; height: 150px;">
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 74%;"></div><span style="font-size: 10px; color: #6B7280;">Aug</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 62%;"></div><span style="font-size: 10px; color: #6B7280;">Sep</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 58%;"></div><span style="font-size: 10px; color: #6B7280;">Oct</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 71%;"></div><span style="font-size: 10px; color: #6B7280;">Nov</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #FF6A00; border-radius: 3px 3px 0 0; height: 100%;"></div><span style="font-size: 10px; color: #6B7280;">Dec</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 66%;"></div><span style="font-size: 10px; color: #6B7280;">Jan</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 61%;"></div><span style="font-size: 10px; color: #6B7280;">Feb</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 55%;"></div><span style="font-size: 10px; color: #6B7280;">Mar</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 64%;"></div><span style="font-size: 10px; color: #6B7280;">Apr</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 70%;"></div><span style="font-size: 10px; color: #6B7280;">May</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #D8D5F7; border-radius: 3px 3px 0 0; height: 75%;"></div><span style="font-size: 10px; color: #6B7280;">Jun</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 3px 3px 0 0; height: 66%;"></div><span style="font-size: 10px; color: #111111; font-weight: 600;">Jul</span></div>
+          </div>
+          <p style="font-size: 11.5px; color: #6B7280; margin: 14px 0 0;">December spiked to 10.0% — the end of the fall session. Seasonal, not a trend.</p>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Churn breakdown</h3>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <sc-for list="{{ churnOptions }}" as="opt" hint-placeholder-count="4">
+                <button type="button" onClick="{{ opt.pick }}" style="font-size: 12px; padding: 5px 11px; border-radius: 999px; cursor: pointer; font-family: inherit; background: {{ opt.bg }}; color: {{ opt.fg }}; border: 1px solid {{ opt.bd }};">{{ opt.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Segment</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Active</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Lost</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Churn</th>
+              <th style="text-align: right; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Revenue</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ churnRows }}" as="row" hint-placeholder-count="3">
+                <tr style="border-top: 1px solid #F1F2F4;">
+                  <td style="padding: 10px 20px; font-size: 13px; color: #111111;">{{ row.name }}</td>
+                  <td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">{{ row.active }}</td>
+                  <td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">{{ row.lost }}</td>
+                  <td style="padding: 10px 12px; font-size: 13px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums;">{{ row.churn }}</td>
+                  <td style="padding: 10px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">{{ row.revenue }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <p style="font-size: 11.5px; color: #6B7280; margin: 0; padding: 12px 20px; border-top: 1px solid #E5E7EB;">Churn by coach is available to owners only, and only where a membership is actually assigned to a coach.</p>
+        </div>
+
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is_unit }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; background: rgba(109,93,246,0.05); border: 1px solid rgba(109,93,246,0.2); border-radius: 10px;">
+          <i data-lucide="info" width="16" height="16" stroke-width="2" style="color: #6D5DF6; flex-shrink: 0; margin-top: 1px;"></i>
+          <p style="margin: 0; font-size: 12.5px; color: #111111;">Unit economics answer one question: <strong style="font-weight: 600;">does each athlete you sign up make you money?</strong> Every figure below is per athlete per month, based on the last complete month (June 2026) and 214 active athletes.</p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Revenue / athlete</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$310.23</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Cost / athlete</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$282.11</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Gross profit / athlete</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$237.84</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Operating profit / athlete</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">$28.12</p></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Break-even</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 16px;">The number of athletes you need just to cover your fixed costs.</p>
+            <div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px;">
+              <span style="font-size: 34px; font-weight: 600; color: #111111; font-variant-numeric: tabular-nums; letter-spacing: -0.03em;">140</span>
+              <span style="font-size: 13px; color: #6B7280;">athletes to break even</span>
+            </div>
+            <div style="position: relative; height: 10px; border-radius: 999px; background: #F1F2F4; overflow: hidden; margin-bottom: 8px;">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 65.4%; background: #A3E635; border-radius: 999px;"></div>
+              <div style="position: absolute; left: 65.4%; top: -3px; bottom: -3px; width: 2px; background: #1F1F23;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: #6B7280; margin-bottom: 16px;"><span>0</span><span style="font-weight: 600; color: #111111;">Break-even 140</span><span>214 today</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Current athlete count</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">214</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Cushion above break-even</span><span style="font-size: 13px; font-weight: 600; color: #15803D; font-variant-numeric: tabular-nums;">+74 athletes</span></div>
+            <div style="background: #F7F7F9; border-radius: 10px; padding: 14px; margin-top: 14px;">
+              <p style="margin: 0 0 6px; font-size: 11px; color: #6B7280; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">Formula</p>
+              <p style="margin: 0; font-size: 13px; color: #111111; line-height: 1.6;">Monthly fixed costs ÷ contribution margin per athlete</p>
+              <p style="margin: 8px 0 0; font-size: 13px; color: #111111; font-variant-numeric: tabular-nums;">$28,940.00 ÷ $206.85 = <strong style="font-weight: 600;">139.9 → 140</strong></p>
+              <p style="margin: 8px 0 0; font-size: 11.5px; color: #6B7280;">Contribution margin = revenue per athlete ($296.35) − variable cost per athlete ($89.50).</p>
+            </div>
+          </div>
+
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Margins</h3>
+            </div>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">June 2026, cash basis.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Gross margin</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">76.7%</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Operating margin</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">9.1%</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Margin per athlete</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">9.1%</span></div>
+
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 20px 0 4px;">Acquisition &amp; lifetime value</h3>
+            <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 5px; background: rgba(255,106,0,0.12); color: #B24700; margin-bottom: 10px;">Estimated</div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Customer acquisition cost</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">~$214.80</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Lifetime value</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">~$2,738.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0;"><span style="font-size: 13px; color: #6B7280;">LTV : CAC ratio</span><span style="font-size: 13px; font-weight: 600; color: #15803D; font-variant-numeric: tabular-nums;">12.7 : 1</span></div>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 12px 0 0; line-height: 1.55;">Acquisition cost divides marketing spend ($1,640.00 in June) by new members (14, of which 6 have no recorded source). Treat it as a directional number, not a precise one.</p>
+          </div>
+        </div>
+
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is_cashflow }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Cash movement — June 2026</h3>
+            <span style="font-size: 11.5px; color: #6B7280;">Transfers between your own accounts are excluded</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: end;">
+            <div style="display: flex; flex-direction: column; gap: 8px;"><span style="font-size: 11.5px; color: #6B7280;">Beginning cash</span><div style="height: 96px; background: #E9E7FB; border-radius: 8px; display: flex; align-items: flex-end; padding: 10px;"><span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">$227,340.16</span></div></div>
+            <div style="display: flex; flex-direction: column; gap: 8px;"><span style="font-size: 11.5px; color: #6B7280;">Cash received</span><div style="height: 62px; background: #A3E635; border-radius: 8px; display: flex; align-items: flex-end; padding: 10px;"><span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">+$66,389.00</span></div></div>
+            <div style="display: flex; flex-direction: column; gap: 8px;"><span style="font-size: 11.5px; color: #6B7280;">Cash spent</span><div style="height: 58px; background: #F3C6C6; border-radius: 8px; display: flex; align-items: flex-end; padding: 10px;"><span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">−$60,370.42</span></div></div>
+            <div style="display: flex; flex-direction: column; gap: 8px;"><span style="font-size: 11.5px; color: #6B7280;">Investing &amp; financing</span><div style="height: 34px; background: #F3C6C6; border-radius: 8px; display: flex; align-items: flex-end; padding: 8px 10px;"><span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">−$11,042.00</span></div></div>
+            <div style="display: flex; flex-direction: column; gap: 8px;"><span style="font-size: 11.5px; color: #6B7280;">Ending cash</span><div style="height: 94px; background: #1F1F23; border-radius: 8px; display: flex; align-items: flex-end; padding: 10px;"><span style="font-size: 13px; font-weight: 600; color: #FFFFFF; font-variant-numeric: tabular-nums;">$222,316.74</span></div></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid #E5E7EB;">
+            <span style="font-size: 13px; color: #6B7280;">Net cash movement</span>
+            <span style="font-size: 15px; font-weight: 600; color: #A32D2D; font-variant-numeric: tabular-nums;">−$5,023.42</span>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB;"><h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Where the cash went</h3></div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tbody>
+              <tr><td colspan="2" style="padding: 10px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280; background: #FCFCFD;">Operating</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Operating inflows</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #15803D; font-weight: 500; font-variant-numeric: tabular-nums;">+$66,389.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Operating outflows</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #A32D2D; font-weight: 500; font-variant-numeric: tabular-nums;">−$60,370.42</td></tr>
+              <tr><td colspan="2" style="padding: 10px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280; background: #FCFCFD; border-top: 1px solid #E5E7EB;">Investing</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Equipment purchase — spring floor panels</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #A32D2D; font-weight: 500; font-variant-numeric: tabular-nums;">−$4,200.00</td></tr>
+              <tr><td colspan="2" style="padding: 10px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280; background: #FCFCFD; border-top: 1px solid #E5E7EB;">Financing</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Loan payment — equipment note</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #A32D2D; font-weight: 500; font-variant-numeric: tabular-nums;">−$1,842.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Owner distribution</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #A32D2D; font-weight: 500; font-variant-numeric: tabular-nums;">−$5,000.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Owner contribution</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$0.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px;">Loan proceeds</td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$0.00</td></tr>
+              <tr><td colspan="2" style="padding: 10px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280; background: #FCFCFD; border-top: 1px solid #E5E7EB;">Excluded from profit &amp; loss</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px; color: #6B7280;">Transfers between your own accounts <span style="font-size: 11.5px;">(3 transfers)</span></td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$18,000.00</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 20px; font-size: 13px; color: #6B7280;">Stripe payouts matched to bank deposits <span style="font-size: 11.5px;">(counted once)</span></td><td style="padding: 9px 20px; font-size: 13px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums;">$52,148.20</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">What's coming</h3>
+              <span style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 5px; background: rgba(255,106,0,0.12); color: #B24700;">Forecast</span>
+            </div>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 12px;">Based on active subscriptions, scheduled payroll, and recurring vendor charges.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Expected membership revenue — Aug</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">~$51,840.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Upcoming payroll — Aug 1</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$9,740.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Upcoming recurring expenses</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$11,724.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Stripe payouts expected</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">$9,142.31</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Projected cash at Aug 31</span><span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">~$268,900.00</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0;"><span style="font-size: 13px; color: #6B7280;">Estimated runway</span><span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">5.7 months</span></div>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 12px 0 0;">Forecasts use the last 3 complete months plus known scheduled charges. They are estimates and will move.</p>
+          </div>
+
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Alerts</h3>
+            <p style="font-size: 11.5px; color: #6B7280; margin: 0 0 14px;">You'll be told when any of these cross the line you set.</p>
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #FF6A00; margin-top: 5px; flex-shrink: 0;"></span><div><p style="margin: 0; font-size: 13px; color: #111111; font-weight: 500;">Travel spend is 181% above its 3-month average</p><p style="margin: 2px 0 0; font-size: 11.5px; color: #6B7280;">$1,180.00 in June vs. $420.00 average</p></div></div>
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #FF6A00; margin-top: 5px; flex-shrink: 0;"></span><div><p style="margin: 0; font-size: 13px; color: #111111; font-weight: 500;">23 transactions are uncategorized</p><p style="margin: 2px 0 0; font-size: 11.5px; color: #6B7280;">Alert triggers above 20</p></div></div>
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #A3E635; margin-top: 5px; flex-shrink: 0;"></span><div><p style="margin: 0; font-size: 13px; color: #111111; font-weight: 500;">Runway is above your 3-month floor</p><p style="margin: 2px 0 0; font-size: 11.5px; color: #6B7280;">5.5 months</p></div></div>
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #A3E635; margin-top: 5px; flex-shrink: 0;"></span><div><p style="margin: 0; font-size: 13px; color: #111111; font-weight: 500;">Refund rate is normal</p><p style="margin: 2px 0 0; font-size: 11.5px; color: #6B7280;">1.9% of gross · alert at 5%</p></div></div>
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #A3E635; margin-top: 5px; flex-shrink: 0;"></span><div><p style="margin: 0; font-size: 13px; color: #111111; font-weight: 500;">Both bank accounts are syncing</p><p style="margin: 2px 0 0; font-size: 11.5px; color: #6B7280;">Last sync 12 min ago</p></div></div>
+            <a href="#" style="display: inline-block; margin-top: 14px; font-size: 12.5px; font-weight: 500;">Set alert thresholds →</a>
+          </div>
+        </div>
+
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is_imports }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Your club's full history</h3>
+          <p style="font-size: 12.5px; color: #6B7280; margin: 0 0 16px; max-width: 720px; text-wrap: pretty;">Reports cover everything, not just the months since you joined. Bring in your old member roster and transaction history and every all-time figure — lifetime value, average membership length, revenue since day one — becomes real.</p>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+            <div style="padding: 14px; border: 1px solid #E5E7EB; border-radius: 10px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Club history covers</p><p style="font-size: 20px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums;">Mar 2019 →</p><p style="font-size: 11.5px; color: #6B7280; margin: 4px 0 0;">7 years, 4 months</p></div>
+            <div style="padding: 14px; border: 1px solid #E5E7EB; border-radius: 10px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Historical members</p><p style="font-size: 20px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums;">1,284</p><p style="font-size: 11.5px; color: #6B7280; margin: 4px 0 0;">412 with incomplete fields</p></div>
+            <div style="padding: 14px; border: 1px solid #E5E7EB; border-radius: 10px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Historical transactions</p><p style="font-size: 20px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums;">18,942</p><p style="font-size: 11.5px; color: #6B7280; margin: 4px 0 0;">$2.14M lifetime revenue</p></div>
+            <div style="padding: 14px; border: 1px solid #E5E7EB; border-radius: 10px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Joined AthletixOS</p><p style="font-size: 20px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums;">Sep 2025</p><p style="font-size: 11.5px; color: #6B7280; margin: 4px 0 0;">11 months of native data</p></div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px; display: flex; flex-direction: column;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+              <span style="width: 34px; height: 34px; border-radius: 9px; background: rgba(109,93,246,0.1); display: flex; align-items: center; justify-content: center;"><i data-lucide="users" width="17" height="17" stroke-width="2" style="color: #6D5DF6;"></i></span>
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">All-time member history</h3>
+            </div>
+            <p style="font-size: 12.5px; color: #6B7280; margin: 0 0 14px; flex: 1;">Upload every member you've ever had — names, contact details, join dates, membership type and status, athlete or parent role, and your old system's IDs.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 12.5px; color: #6B7280;">Last import</span><span style="font-size: 12.5px; font-weight: 500;">Jun 12, 2026 · 1,284 rows</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 12.5px; color: #6B7280;">Source</span><span style="font-size: 12.5px; font-weight: 500;">WellnessLiving</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 12.5px; color: #6B7280;">Awaiting your review</span><span style="font-size: 12.5px; font-weight: 600; color: #FF6A00;">37 uncertain matches</span></div>
+            <div style="display: flex; gap: 8px; margin-top: 14px;">
+              <a href="Reports Import Wizard.dc.html" style="flex: 1; text-align: center; padding: 9px 12px; border-radius: 8px; background: #6D5DF6; color: #FFFFFF; font-size: 13px; font-weight: 500;">Import members</a>
+              <a href="Reports Import Wizard.dc.html" style="padding: 9px 12px; border-radius: 8px; border: 1px solid #E5E7EB; color: #111111; font-size: 13px;">Review 37</a>
+            </div>
+          </div>
+
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px; display: flex; flex-direction: column;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+              <span style="width: 34px; height: 34px; border-radius: 9px; background: rgba(163,230,53,0.18); display: flex; align-items: center; justify-content: center;"><i data-lucide="receipt" width="17" height="17" stroke-width="2" style="color: #3F6212;"></i></span>
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">All-time transaction history</h3>
+            </div>
+            <p style="font-size: 12.5px; color: #6B7280; margin: 0 0 14px; flex: 1;">Upload every payment you've ever taken — gross, refunds, fees, net, payment method, and your old system's transaction IDs so nothing is imported twice.</p>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 12.5px; color: #6B7280;">Last import</span><span style="font-size: 12.5px; font-weight: 500;">Jun 14, 2026 · 18,942 rows</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 12.5px; color: #6B7280;">Duplicates blocked</span><span style="font-size: 12.5px; font-weight: 500;">2,118 rows</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 12.5px; color: #6B7280;">Status</span><span style="font-size: 12.5px; font-weight: 600; color: #3F6212;">Complete</span></div>
+            <div style="display: flex; gap: 8px; margin-top: 14px;">
+              <a href="Reports Import Wizard.dc.html" style="flex: 1; text-align: center; padding: 9px 12px; border-radius: 8px; background: #6D5DF6; color: #FFFFFF; font-size: 13px; font-weight: 500;">Import transactions</a>
+              <a href="#" style="padding: 9px 12px; border-radius: 8px; border: 1px solid #E5E7EB; color: #111111; font-size: 13px;">Download template</a>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB; display: flex; align-items: baseline; justify-content: space-between;">
+            <div>
+              <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Waiting on you — 37 uncertain matches</h3>
+              <p style="font-size: 11.5px; color: #6B7280; margin: 4px 0 0;">These rows look like people already in AthletixOS, but not confidently enough to merge on their own.</p>
+            </div>
+            <a href="Reports Import Wizard.dc.html" style="font-size: 12.5px; font-weight: 500; white-space: nowrap;">Open review queue →</a>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Imported row</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Possible match</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Why</th>
+              <th style="text-align: right; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Confidence</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px;">Maya Fitzgerald · b. 2014-03-08</td><td style="padding: 10px 12px; font-size: 13px;">Maya Fitzgerald-Rowe</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Name + date of birth</td><td style="padding: 10px 20px; text-align: right;"><span style="font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: rgba(255,106,0,0.12); color: #B24700;">Medium</span></td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px;">J. Alvarez · jalvarez@gmail.com</td><td style="padding: 10px 12px; font-size: 13px;">Jorge Alvarez</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Email matches a guardian, not the athlete</td><td style="padding: 10px 20px; text-align: right;"><span style="font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: rgba(255,106,0,0.12); color: #B24700;">Medium</span></td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px;">Sam Cole · (503) 555-0142</td><td style="padding: 10px 12px; font-size: 13px;">Samuel Cole <span style="font-size: 11.5px; color: #6B7280;">(staff)</span></td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Phone number matches a staff record</td><td style="padding: 10px 20px; text-align: right;"><span style="font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: rgba(163,58,58,0.1); color: #A32D2D;">Low</span></td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px;">Riley Nakamura · WL-88214</td><td style="padding: 10px 12px; font-size: 13px;">Riley Nakamura</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Two AthletixOS records share this external ID</td><td style="padding: 10px 20px; text-align: right;"><span style="font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: rgba(255,106,0,0.12); color: #B24700;">Medium</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #E5E7EB; display: flex; align-items: baseline; justify-content: space-between;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0;">Import history</h3>
+            <span style="font-size: 11.5px; color: #6B7280;">Every import is logged and can be rolled back for 30 days</span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Date</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">File</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Created</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Matched</th>
+              <th style="text-align: right; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Skipped</th>
+              <th style="text-align: right; padding: 9px 20px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;"></th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280;">Jun 14, 2026</td><td style="padding: 10px 12px; font-size: 13px;">wl-transactions-all.csv <span style="font-size: 11.5px; color: #6B7280;">· 21,060 rows</span></td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">18,942</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">0</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">2,118</td><td style="padding: 10px 20px; font-size: 12.5px; text-align: right;"><a href="#">View log</a></td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280;">Jun 12, 2026</td><td style="padding: 10px 12px; font-size: 13px;">wl-members-all-time.csv <span style="font-size: 11.5px; color: #6B7280;">· 1,412 rows</span></td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">1,284</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">91</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">37</td><td style="padding: 10px 20px; font-size: 12.5px; text-align: right;"><a href="#">View log</a></td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 20px; font-size: 13px; color: #6B7280;">Sep 3, 2025</td><td style="padding: 10px 12px; font-size: 13px;">active-roster-launch.csv <span style="font-size: 11.5px; color: #6B7280;">· 198 rows</span></td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">198</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">0</td><td style="padding: 10px 12px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">0</td><td style="padding: 10px 20px; font-size: 12.5px; text-align: right;"><a href="#">View log</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+      </sc-if>
+
+    </div>
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1000},&quot;initialTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;snapshot&quot;,&quot;revenue&quot;,&quot;costs&quot;,&quot;pnl&quot;,&quot;membership&quot;,&quot;unit&quot;,&quot;cashflow&quot;,&quot;imports&quot;],&quot;default&quot;:&quot;snapshot&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Reports&quot;}}">
+const TABS = ["snapshot", "revenue", "costs", "pnl", "membership", "unit", "cashflow", "imports"];
+const RANGES = [
+  ["this_week", "This week"],
+  ["last_week", "Last week"],
+  ["this_month", "This month"],
+  ["last_month", "Last month"],
+  ["qtd", "Quarter to date"],
+  ["ytd", "Year to date"],
+  ["all", "All time"],
+  ["before", "Before AthletixOS"],
+  ["since", "Since joining AthletixOS"],
+  ["custom", "Custom range…"],
+];
+
+class Component extends DCLogic {
+  state = { tab: null, range: "this_month", rangeOpen: false, pnlMode: "monthly", basis: "cash", churnBy: "type" };
+  revealTab(btn) {
+    const bar = btn && btn.parentElement;
+    if (!bar || bar.scrollWidth <= bar.clientWidth + 1) return;
+    const b = btn.getBoundingClientRect();
+    const r = bar.getBoundingClientRect();
+    if (b.right > r.right - 4) bar.scrollLeft += b.right - r.right + 12;
+    else if (b.left < r.left + 4) bar.scrollLeft -= r.left - b.left + 12;
+  }
+
+  componentDidMount() { this.icons(); }
+  componentDidUpdate() { this.icons(); }
+  icons() {
+    const run = () => { if (window.lucide) window.lucide.createIcons(); };
+    run();
+    setTimeout(run, 300);
+    setTimeout(run, 1200);
+  }
+
+  seg(current, key, activeBg) {
+    return {
+      bg: current === key ? (activeBg || "#F7F7F9") : "transparent",
+      fg: current === key ? "#111111" : "#6B7280",
+      fw: current === key ? 600 : 400,
+    };
+  }
+
+  renderVals() {
+    const tab = this.state.tab ?? this.props.initialTab ?? "snapshot";
+    const v = {};
+
+    TABS.forEach((t) => {
+      const on = tab === t;
+      v["is_" + t] = on;
+      v["bg_" + t] = on ? "#1F1F23" : "transparent";
+      v["fg_" + t] = on ? "#FFFFFF" : "#6B7280";
+      v["fw_" + t] = on ? 600 : 400;
+      v["go_" + t] = (e) => {
+        const btn = e && e.currentTarget;
+        this.setState({ tab: t, rangeOpen: false });
+        requestAnimationFrame(() => this.revealTab(btn));
+      };
+    });
+
+    const current = RANGES.find((r) => r[0] === this.state.range);
+    v.rangeLabel = current ? current[1] : "This month";
+    v.rangeOpen = this.state.rangeOpen;
+    v.toggleRange = () => this.setState((s) => ({ rangeOpen: !s.rangeOpen }));
+    v.rangeOptions = RANGES.map(([key, label]) => ({
+      key,
+      label,
+      bg: this.state.range === key ? "#F7F7F9" : "transparent",
+      fg: this.state.range === key ? "#111111" : "#6B7280",
+      fw: this.state.range === key ? 600 : 400,
+      pick: () => this.setState({ range: key, rangeOpen: false }),
+    }));
+
+    const pm = this.state.pnlMode;
+    v.is_pnl_monthly = pm === "monthly";
+    v.is_pnl_weekly = pm === "weekly";
+    const mo = this.seg(pm, "monthly", "#FFFFFF");
+    const wk = this.seg(pm, "weekly", "#FFFFFF");
+    v.pbg_monthly = mo.bg; v.pfg_monthly = mo.fg; v.pfw_monthly = mo.fw;
+    v.pbg_weekly = wk.bg; v.pfg_weekly = wk.fg; v.pfw_weekly = wk.fw;
+    v.go_pnl_monthly = () => this.setState({ pnlMode: "monthly" });
+    v.go_pnl_weekly = () => this.setState({ pnlMode: "weekly" });
+
+    const bs = this.state.basis;
+    v.is_basis_accrual = bs === "accrual";
+    const cash = this.seg(bs, "cash", "#FFFFFF");
+    const acc = this.seg(bs, "accrual", "#FFFFFF");
+    v.bbg_cash = cash.bg; v.bfg_cash = cash.fg; v.bfw_cash = cash.fw;
+    v.bbg_accrual = acc.bg; v.bfg_accrual = acc.fg; v.bfw_accrual = acc.fw;
+    v.go_basis_cash = () => this.setState({ basis: "cash" });
+    v.go_basis_accrual = () => this.setState({ basis: "accrual" });
+
+    v.churnOptions = [
+      ["type", "By membership type"],
+      ["program", "By program"],
+      ["location", "By location"],
+      ["age", "By age group"],
+    ].map(([key, label]) => ({
+      key,
+      label,
+      bg: this.state.churnBy === key ? "#1F1F23" : "#FFFFFF",
+      fg: this.state.churnBy === key ? "#FFFFFF" : "#6B7280",
+      bd: this.state.churnBy === key ? "#1F1F23" : "#E5E7EB",
+      pick: () => this.setState({ churnBy: key }),
+    }));
+    v.churnRows = {
+      type: [
+        ["Competitive Team", "62", "2", "3.2%", "$18,420.00"],
+        ["All-Access", "54", "4", "7.4%", "$12,860.00"],
+        ["Youth Rec", "70", "6", "8.6%", "$9,240.00"],
+      ],
+      program: [
+        ["Tumbling", "84", "5", "6.0%", "$21,140.00"],
+        ["Team", "62", "2", "3.2%", "$18,420.00"],
+        ["Ninja / Rec", "40", "5", "12.5%", "$7,334.00"],
+      ],
+      location: [
+        ["Northside Gym", "142", "8", "5.6%", "$41,280.00"],
+        ["Westfield Annex", "44", "4", "9.1%", "$16,940.00"],
+      ],
+      age: [
+        ["Under 8", "58", "5", "8.6%", "$11,240.00"],
+        ["8–12", "82", "4", "4.9%", "$24,180.00"],
+        ["13+", "46", "3", "6.5%", "$17,474.00"],
+      ],
+    }[this.state.churnBy].map((r) => ({ name: r[0], active: r[1], lost: r[2], churn: r[3], revenue: r[4] }));
+
+    return v;
+  }
+}
+</script>
+</body>
+</html>

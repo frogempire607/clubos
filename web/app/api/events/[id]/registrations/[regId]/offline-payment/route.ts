@@ -136,6 +136,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           "",
         ) + ` — paid by ${finalMethod.toLowerCase()}`,
       notes: `${tx.notes ? tx.notes + "\n" : ""}Received ${receivedAt.toISOString()} by staff${reference ? ` · ref: ${reference}` : ""}.`,
+      recordedByUserId: session.user.id ?? tx.recordedByUserId ?? null,
     },
   });
 

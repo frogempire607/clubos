@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+body{margin:0;background:#EFEEEB;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#6D5DF6;text-decoration:none}
+a:hover{color:#5948E8}
+.cx-frame *{box-sizing:border-box}
+.cx-frame select{appearance:none;-webkit-appearance:none;background-image:none}
+</style>
+</helmet>
+
+<section style="padding:40px 44px 48px;display:flex;flex-direction:column;gap:8px;max-width:1560px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px">TODAY</span>
+<span style="font:600 13px/1.2 Inter,system-ui,sans-serif;color:#1a1a1a">Current experience, rebuilt from the ClubOS source</span>
+</div>
+<p style="margin:0;font:400 13px/1.6 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55);max-width:760px;text-wrap:pretty">Three screens recreated from <code style="font-size:12px;background:rgba(0,0,0,.06);padding:1px 5px;border-radius:4px">web/app/dashboard/members</code> at the values in the repo today — tokens from <code style="font-size:12px;background:rgba(0,0,0,.06);padding:1px 5px;border-radius:4px">globals.css</code>, chrome from the dashboard layout and sidebar. This is the baseline the redesign is measured against, not a proposal.</p>
+</section>
+
+<section style="padding:0 44px 56px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:9px">
+<span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px">T1</span>
+<span style="font:500 12px Inter,system-ui,sans-serif;color:rgba(0,0,0,.6)">/dashboard/members — All members</span>
+</div>
+
+<div class="cx-frame" style="width:1440px;display:flex;background:#F7F7F9;border:1px solid rgba(0,0,0,.1);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);color:#111111;font-size:14px;line-height:1.45">
+<aside style="width:248px;flex-shrink:0;background:#1F1F23;display:flex;flex-direction:column">
+<div style="padding:16px 14px;border-bottom:1px solid rgba(255,255,255,0.08)">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:3px">
+<img src="brand/icon.png" alt="" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;display:block">
+<span style="color:#fff;font-weight:600;font-size:15px;letter-spacing:-0.01em;font-family:Georgia,serif">AthletixOS</span>
+</div>
+<div style="font-size:11px;color:rgba(229,231,235,0.72);padding-left:38px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">owner@frogempire.com</div>
+</div>
+<nav style="flex:1;padding:8px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="layout-grid" width="18" height="18" style="flex-shrink:0;opacity:.85"></i>Dashboard</div>
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;border-left:3px solid #6D5DF6;font-size:13px;font-weight:500;background:#2A2A2E;color:#fff">
+<span style="display:flex;align-items:center;gap:10px"><i data-lucide="users" width="18" height="18" style="flex-shrink:0"></i>Members</span>
+<i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4);transform:rotate(90deg)"></i>
+</div>
+<div style="margin-left:26px;margin-top:2px;padding-left:10px;border-left:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;gap:1px">
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid #6D5DF6;font-size:12px;font-weight:500;background:#2A2A2E;color:#fff">All members</div>
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,0.4)">Migration</div>
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,0.4)">Approvals</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="shield" width="18" height="18" style="opacity:.85"></i>Staff</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="shopping-cart" width="18" height="18" style="opacity:.85"></i>Purchase Options</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="calendar" width="18" height="18" style="opacity:.85"></i>Classes &amp; Events</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="message-square" width="18" height="18" style="opacity:.85"></i>Communication</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="check-square" width="18" height="18" style="opacity:.85"></i>Attendance</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="dollar-sign" width="18" height="18" style="opacity:.85"></i>Financials</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="bar-chart-3" width="18" height="18" style="opacity:.85"></i>Reports</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="file-text" width="18" height="18" style="opacity:.85"></i>Documents</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="settings" width="18" height="18" style="opacity:.85"></i>Settings</div>
+</nav>
+<div style="padding:10px 10px 0;display:flex">
+<div style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:7px 12px;color:rgba(229,231,235,0.72);font-size:12px;border:1px solid rgba(255,255,255,0.08);border-radius:8px"><i data-lucide="moon" width="14" height="14"></i>Dark mode</div>
+</div>
+<div style="padding:4px 8px 0"><div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="user-circle-2" width="16" height="16" style="opacity:.85"></i>My account</div></div>
+<div style="padding:4px 8px 0"><div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="eye" width="16" height="16" style="opacity:.85"></i>Client view</div></div>
+<div style="padding:10px 8px 0"><div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="help-circle" width="16" height="16" style="opacity:.85"></i>Need help?</div></div>
+<div style="padding:10px 8px;border-top:1px solid rgba(255,255,255,0.08);margin-top:8px"><div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:12px;color:rgba(229,231,235,0.72)"><i data-lucide="log-out" width="16" height="16" style="opacity:.85"></i>Sign out</div></div>
+</aside>
+
+<main style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #E5E7EB;background:#FFFFFF">
+<div style="display:inline-flex;align-items:center;gap:4px;font-size:14px;color:#6B7280"><i data-lucide="arrow-left" width="16" height="16"></i><span>Back</span></div>
+<div style="flex:1;min-width:0;max-width:576px">
+<div style="display:flex;align-items:center;gap:8px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;padding:0 12px;height:36px">
+<i data-lucide="search" width="16" height="16" style="color:#6B7280;flex-shrink:0"></i>
+<span style="flex:1;font-size:14px;color:#6B7280">Search members, classes, events, documents…</span>
+<span style="font-size:10px;color:#6B7280;border:1px solid #E5E7EB;border-radius:4px;padding:2px 6px">Ctrl K</span>
+</div>
+</div>
+<i data-lucide="bell" width="18" height="18" style="color:#6B7280"></i>
+<div style="display:flex;align-items:center;gap:8px;border-radius:999px;padding:4px 12px 4px 4px">
+<span style="width:32px;height:32px;border-radius:999px;background:#1F1F23;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">FE</span>
+<span style="font-size:14px;font-weight:500;color:#111111">Frog Empire</span>
+<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i>
+</div>
+</div>
+
+<div style="padding:32px;max-width:1280px">
+<div style="display:flex;align-items:center;gap:4px;border-bottom:1px solid #E5E7EB;margin-bottom:24px">
+<div style="padding:8px 12px;font-size:14px;font-weight:500;color:#6D5DF6;border-bottom:2px solid #6D5DF6;margin-bottom:-1px">All members</div>
+<div style="padding:8px 12px;font-size:14px;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-1px">Migration</div>
+<div style="padding:8px 12px;font-size:14px;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-1px">Approvals</div>
+</div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px">
+<div>
+<h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.01em;line-height:1.2">Members</h1>
+<p style="margin:6px 0 0;font-size:14px;color:#6B7280">267 total</p>
+</div>
+<div style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+<div style="font-size:14px;padding:8px 12px;border-radius:8px;border:1px solid #E5E7EB">Form settings</div>
+<div style="font-size:14px;padding:8px 12px;border-radius:8px;border:1px solid #E5E7EB">Custom fields</div>
+<div style="font-size:14px;padding:8px 12px;border-radius:8px;border:1px solid #E5E7EB;display:flex;align-items:center;gap:6px">Export<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i></div>
+<div style="font-size:14px;padding:8px 12px;border-radius:8px;border:1px solid #6D5DF6;color:#6D5DF6">Import / Migrate</div>
+<div style="font-size:14px;font-weight:500;padding:8px 16px;border-radius:8px;background:#6D5DF6;color:#fff">+ Add member</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+<div style="display:flex;gap:4px;background:#F7F7F9;border-radius:8px;padding:4px">
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;background:#FFFFFF;box-shadow:0 1px 2px rgba(0,0,0,.05);font-weight:500">All (267)</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;color:#6B7280">Active (37)</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;color:#6B7280">Migrating (218)</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;color:#6B7280">Prospect (9)</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;color:#6B7280">Inactive (3)</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;color:#6B7280">Paused (0)</div>
+</div>
+<div style="flex:1;max-width:320px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;color:#6B7280;background:#fff">Search name, email, phone, guardian…</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px">
+<div style="padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;font-size:14px;display:flex;align-items:center;justify-content:space-between">All tags<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i></div>
+<div style="padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;font-size:14px;display:flex;align-items:center;justify-content:space-between">All memberships<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i></div>
+<div style="padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;font-size:14px;display:flex;align-items:center;justify-content:space-between">All genders<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i></div>
+<div style="padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;font-size:14px;display:flex;align-items:center;justify-content:space-between">All ages<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i></div>
+<div style="padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;font-size:14px;display:flex;align-items:center;justify-content:space-between">All onboarding<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i></div>
+<div style="padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;font-size:14px;display:flex;align-items:center;justify-content:space-between">Custom field<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i></div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:16px">
+<span style="font-size:12px;color:#6B7280">Onboarding outreach:</span>
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #E5E7EB">Select all prospects (9)</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #E5E7EB">Select all non-active (230)</div>
+<span style="font-size:11px;color:#6B7280">then “Send onboarding link”.</span>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<table style="width:100%;border-collapse:collapse">
+<thead>
+<tr style="background:#F7F7F9;border-bottom:1px solid #E5E7EB">
+<th style="text-align:left;font-size:12px;font-weight:500;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;padding:12px 20px;width:44px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></th>
+<th style="text-align:left;font-size:12px;font-weight:500;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;padding:12px 20px">Name</th>
+<th style="text-align:left;font-size:12px;font-weight:500;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;padding:12px 20px">Status</th>
+<th style="text-align:left;font-size:12px;font-weight:500;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;padding:12px 20px">Onboarding</th>
+<th style="text-align:left;font-size:12px;font-weight:500;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;padding:12px 20px">Tags</th>
+<th style="text-align:left;font-size:12px;font-weight:500;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;padding:12px 20px">Membership</th>
+<th style="text-align:left;font-size:12px;font-weight:500;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;padding:12px 20px">Joined</th>
+<th style="padding:12px 20px"></th>
+</tr>
+</thead>
+<tbody>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px 20px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></td>
+<td style="padding:12px 20px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:32px;height:32px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">ML</div>
+<div><div style="font-size:14px;font-weight:500">Michael Lister</div><div style="font-size:12px;color:#6B7280">karen.mikelister@gmail.com</div></div>
+</div>
+</td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Active</span></td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Profile completed</span></td>
+<td style="padding:12px 20px"></td>
+<td style="padding:12px 20px"><div style="font-size:14px">MS/HS</div><div style="font-size:10px;color:#6B7280">Upfront</div></td>
+<td style="padding:12px 20px"><span style="font-size:14px;color:#6B7280">7/5/2026</span></td>
+<td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><span style="font-size:12px;color:#6B7280;padding:4px 8px">Edit</span><span style="font-size:12px;color:#DC2626;padding:4px 8px">Remove</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px 20px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></td>
+<td style="padding:12px 20px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:32px;height:32px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">KM</div>
+<div><div style="font-size:14px;font-weight:500">Kelly Merrill</div><div style="font-size:12px;color:#6B7280">kelkey214@aol.com</div></div>
+</div>
+</td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#6D5DF6;color:#fff">Prospect</span></td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Profile completed</span></td>
+<td style="padding:12px 20px"></td>
+<td style="padding:12px 20px"><span style="font-size:12px;color:#6B7280;padding:4px 8px">+ Purchase membership</span></td>
+<td style="padding:12px 20px"><span style="font-size:14px;color:#6B7280">7/5/2026</span></td>
+<td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><span style="font-size:12px;color:#6B7280;padding:4px 8px">Edit</span><span style="font-size:12px;color:#DC2626;padding:4px 8px">Remove</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px 20px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></td>
+<td style="padding:12px 20px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:32px;height:32px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">JB</div>
+<div><div style="font-size:14px;font-weight:500">Josiah Bennett Merrill</div><div style="font-size:12px;color:#6B7280;display:flex;gap:4px"><span>Minor</span><span>· Guardian: Kelly Merrill</span></div></div>
+</div>
+</td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#6D5DF6;color:#fff">Prospect</span></td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#F7F7F9;color:#6B7280">Un-invited</span></td>
+<td style="padding:12px 20px"></td>
+<td style="padding:12px 20px"><span style="font-size:12px;color:#6B7280;padding:4px 8px">+ Purchase membership</span></td>
+<td style="padding:12px 20px"><span style="font-size:14px;color:#6B7280">7/5/2026</span></td>
+<td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><span style="font-size:12px;color:#6B7280;padding:4px 8px">Edit</span><span style="font-size:12px;color:#DC2626;padding:4px 8px">Remove</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px 20px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></td>
+<td style="padding:12px 20px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:32px;height:32px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">AK</div>
+<div><div style="font-size:14px;font-weight:500">Andrew Koh</div><div style="font-size:12px;color:#6B7280;display:flex;gap:4px"><span>Minor</span><span>· Guardian: Sally</span></div></div>
+</div>
+</td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#1F1F23;color:#fff">Migrating</span></td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#FF6A00;color:#fff">Invited</span></td>
+<td style="padding:12px 20px"></td>
+<td style="padding:12px 20px"><div style="font-size:14px">MS/HS Olympic Style Subscription</div><div style="font-size:10px;color:#6B7280">migrating from previous software</div></td>
+<td style="padding:12px 20px"><span style="font-size:14px;color:#6B7280">7/5/2026</span></td>
+<td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><span style="font-size:12px;color:#6B7280;padding:4px 8px">Edit</span><span style="font-size:12px;color:#DC2626;padding:4px 8px">Remove</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px 20px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></td>
+<td style="padding:12px 20px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:32px;height:32px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">OC</div>
+<div><div style="font-size:14px;font-weight:500">Orson Chorba</div><div style="font-size:12px;color:#6B7280">chorbap@gmail.com</div><div style="font-size:12px;color:#6B7280;display:flex;gap:4px"><span>Minor</span><span>· Guardian: Phillip Chorba</span></div></div>
+</div>
+</td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Active</span></td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Profile completed</span></td>
+<td style="padding:12px 20px"></td>
+<td style="padding:12px 20px"><div style="font-size:14px">MS/HS</div><div style="font-size:10px;color:#6B7280">Monthly</div></td>
+<td style="padding:12px 20px"><span style="font-size:14px;color:#6B7280">7/5/2026</span></td>
+<td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><span style="font-size:12px;color:#6B7280;padding:4px 8px">Edit</span><span style="font-size:12px;color:#DC2626;padding:4px 8px">Remove</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px 20px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></td>
+<td style="padding:12px 20px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:32px;height:32px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">CC</div>
+<div><div style="font-size:14px;font-weight:500">Colton Clark</div><div style="font-size:12px;color:#6B7280;display:flex;gap:4px"><span>Minor</span><span>· Guardian: Jeffrey Clark</span></div></div>
+</div>
+</td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Active</span></td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Profile completed</span></td>
+<td style="padding:12px 20px"></td>
+<td style="padding:12px 20px"><div style="font-size:14px">Continued membership</div><div style="font-size:10px;color:#6B7280">Continued membership</div></td>
+<td style="padding:12px 20px"><span style="font-size:14px;color:#6B7280">7/5/2026</span></td>
+<td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><span style="font-size:12px;color:#6B7280;padding:4px 8px">Edit</span><span style="font-size:12px;color:#DC2626;padding:4px 8px">Remove</span></div></td>
+</tr>
+<tr>
+<td style="padding:12px 20px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px;background:#fff"></span></td>
+<td style="padding:12px 20px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:32px;height:32px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">HB</div>
+<div><div style="font-size:14px;font-weight:500">Harrison Bossert</div><div style="font-size:12px;color:#6B7280;display:flex;gap:4px"><span>Minor</span><span>· Guardian: James Bossert</span></div></div>
+</div>
+</td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Active</span></td>
+<td style="padding:12px 20px"><span style="display:inline-flex;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#A3E635;color:#1F1F23">Profile completed</span></td>
+<td style="padding:12px 20px"></td>
+<td style="padding:12px 20px"><div style="font-size:14px">Continued membership</div><div style="font-size:10px;color:#6B7280">Continued membership</div></td>
+<td style="padding:12px 20px"><span style="font-size:14px;color:#6B7280">7/5/2026</span></td>
+<td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><span style="font-size:12px;color:#6B7280;padding:4px 8px">Edit</span><span style="font-size:12px;color:#DC2626;padding:4px 8px">Remove</span></div></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</main>
+</div>
+</section>
+
+<section style="padding:0 44px 56px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:9px">
+<span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px">T2</span>
+<span style="font:500 12px Inter,system-ui,sans-serif;color:rgba(0,0,0,.6)">/dashboard/members/[id] — Member profile</span>
+</div>
+
+<div class="cx-frame" style="width:1440px;display:flex;background:#F7F7F9;border:1px solid rgba(0,0,0,.1);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);color:#111111;font-size:14px;line-height:1.45">
+<aside style="width:248px;flex-shrink:0;background:#1F1F23;display:flex;flex-direction:column">
+<div style="padding:16px 14px;border-bottom:1px solid rgba(255,255,255,0.08)">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:3px">
+<img src="brand/icon.png" alt="" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;display:block">
+<span style="color:#fff;font-weight:600;font-size:15px;letter-spacing:-0.01em;font-family:Georgia,serif">AthletixOS</span>
+</div>
+<div style="font-size:11px;color:rgba(229,231,235,0.72);padding-left:38px">owner@frogempire.com</div>
+</div>
+<nav style="flex:1;padding:8px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="layout-grid" width="18" height="18" style="opacity:.85"></i>Dashboard</div>
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;border-left:3px solid #6D5DF6;font-size:13px;font-weight:500;background:#2A2A2E;color:#fff">
+<span style="display:flex;align-items:center;gap:10px"><i data-lucide="users" width="18" height="18"></i>Members</span>
+<i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4);transform:rotate(90deg)"></i>
+</div>
+<div style="margin-left:26px;margin-top:2px;padding-left:10px;border-left:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;gap:1px">
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid #6D5DF6;font-size:12px;font-weight:500;background:#2A2A2E;color:#fff">All members</div>
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,0.4)">Migration</div>
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,0.4)">Approvals</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="shield" width="18" height="18" style="opacity:.85"></i>Staff</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="shopping-cart" width="18" height="18" style="opacity:.85"></i>Purchase Options</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="calendar" width="18" height="18" style="opacity:.85"></i>Classes &amp; Events</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="message-square" width="18" height="18" style="opacity:.85"></i>Communication</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="check-square" width="18" height="18" style="opacity:.85"></i>Attendance</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="dollar-sign" width="18" height="18" style="opacity:.85"></i>Financials</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="bar-chart-3" width="18" height="18" style="opacity:.85"></i>Reports</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="file-text" width="18" height="18" style="opacity:.85"></i>Documents</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="settings" width="18" height="18" style="opacity:.85"></i>Settings</div>
+</nav>
+<div style="padding:10px 10px 0;display:flex"><div style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:7px 12px;color:rgba(229,231,235,0.72);font-size:12px;border:1px solid rgba(255,255,255,0.08);border-radius:8px"><i data-lucide="moon" width="14" height="14"></i>Dark mode</div></div>
+<div style="padding:4px 8px 10px"><div style="display:flex;align-items:center;gap:10px;padding:7px 12px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="user-circle-2" width="16" height="16" style="opacity:.85"></i>My account</div></div>
+</aside>
+
+<main style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #E5E7EB;background:#FFFFFF">
+<div style="display:inline-flex;align-items:center;gap:4px;font-size:14px;color:#6B7280"><i data-lucide="arrow-left" width="16" height="16"></i><span>Back</span></div>
+<div style="flex:1;min-width:0;max-width:576px">
+<div style="display:flex;align-items:center;gap:8px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;padding:0 12px;height:36px">
+<i data-lucide="search" width="16" height="16" style="color:#6B7280;flex-shrink:0"></i>
+<span style="flex:1;font-size:14px;color:#6B7280">Search members, classes, events, documents…</span>
+<span style="font-size:10px;color:#6B7280;border:1px solid #E5E7EB;border-radius:4px;padding:2px 6px">Ctrl K</span>
+</div>
+</div>
+<i data-lucide="bell" width="18" height="18" style="color:#6B7280"></i>
+<div style="display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px">
+<span style="width:32px;height:32px;border-radius:999px;background:#1F1F23;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">FE</span>
+<span style="font-size:14px;font-weight:500">Frog Empire</span>
+<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i>
+</div>
+</div>
+
+<div style="padding:32px;max-width:1024px;margin:0 auto;width:100%">
+<div style="display:inline-flex;align-items:center;gap:4px;font-size:14px;color:#6B7280"><i data-lucide="arrow-left" width="14" height="14"></i> Back to members</div>
+<div style="margin:12px 0 24px;display:flex;align-items:flex-start;gap:16px">
+<div style="width:64px;height:64px;border-radius:999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;flex-shrink:0">Cc</div>
+<div style="flex:1">
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<h1 style="margin:0;font-size:24px;font-weight:600">Cooper cielesz</h1>
+<span style="display:inline-flex;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;background:#FF6A00;color:#fff">Prospect</span>
+<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#F7F7F9;color:#6B7280">Minor</span>
+</div>
+<div style="font-size:14px;color:#6B7280;margin-top:4px;display:flex;flex-wrap:wrap;gap:2px 16px"><span>2032462261</span><span>Joined Jul 27, 2026</span><span>DOB Jan 29, 2010</span></div>
+<div style="font-size:12px;color:#6B7280;margin-top:4px">Guardian: Chris cielesz · mrich262@gmail.com · 2032474411</div>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h2 style="margin:0;font-size:14px;font-weight:600">Current membership</h2><span style="font-size:12px;color:#6D5DF6">Manage billing</span></div>
+<p style="margin:0;font-size:14px;color:#6B7280">No active membership.</p>
+</div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h2 style="margin:0;font-size:14px;font-weight:600">Relationships</h2><span style="font-size:12px;color:#6D5DF6">+ Link member</span></div>
+<p style="margin:0;font-size:14px;color:#6B7280">No linked members.</p>
+</div>
+<div style="grid-column:span 2;background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+<div style="margin-bottom:12px"><h2 style="margin:0;font-size:14px;font-weight:600">Membership history</h2></div>
+<p style="margin:0;font-size:14px;color:#6B7280">No membership history.</p>
+</div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+<div style="margin-bottom:12px"><h2 style="margin:0;font-size:14px;font-weight:600">Event bookings</h2></div>
+<p style="margin:0;font-size:14px;color:#6B7280">No bookings.</p>
+</div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+<div style="margin-bottom:12px"><h2 style="margin:0;font-size:14px;font-weight:600">Attendance</h2></div>
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:14px"><span>Ms/HS Olympic Season</span><span style="font-size:12px;color:#6B7280">Jul 27, 2026 · PRESENT</span></div>
+</div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+<div style="margin-bottom:12px"><h2 style="margin:0;font-size:14px;font-weight:600">Tournament / event registrations</h2></div>
+<p style="margin:0;font-size:14px;color:#6B7280">No registrations.</p>
+</div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+<div style="margin-bottom:12px"><h2 style="margin:0;font-size:14px;font-weight:600">Recent transactions</h2></div>
+<p style="margin:0;font-size:14px;color:#6B7280">No transactions.</p>
+</div>
+</div>
+</div>
+</main>
+</div>
+</section>
+
+<section style="padding:0 44px 72px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:9px">
+<span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px">T3</span>
+<span style="font:500 12px Inter,system-ui,sans-serif;color:rgba(0,0,0,.6)">/dashboard/members/migration — Member Migration</span>
+</div>
+
+<div class="cx-frame" style="width:1440px;display:flex;background:#F7F7F9;border:1px solid rgba(0,0,0,.1);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);color:#111111;font-size:14px;line-height:1.45">
+<aside style="width:248px;flex-shrink:0;background:#1F1F23;display:flex;flex-direction:column">
+<div style="padding:16px 14px;border-bottom:1px solid rgba(255,255,255,0.08)">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:3px">
+<img src="brand/icon.png" alt="" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;display:block">
+<span style="color:#fff;font-weight:600;font-size:15px;font-family:Georgia,serif">AthletixOS</span>
+</div>
+<div style="font-size:11px;color:rgba(229,231,235,0.72);padding-left:38px">owner@frogempire.com</div>
+</div>
+<nav style="flex:1;padding:8px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="layout-grid" width="18" height="18" style="opacity:.85"></i>Dashboard</div>
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;border-left:3px solid #6D5DF6;font-size:13px;font-weight:500;background:#2A2A2E;color:#fff">
+<span style="display:flex;align-items:center;gap:10px"><i data-lucide="users" width="18" height="18"></i>Members</span>
+<i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4);transform:rotate(90deg)"></i>
+</div>
+<div style="margin-left:26px;margin-top:2px;padding-left:10px;border-left:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;gap:1px">
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,0.4)">All members</div>
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid #6D5DF6;font-size:12px;font-weight:500;background:#2A2A2E;color:#fff">Migration</div>
+<div style="padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,0.4)">Approvals</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="shield" width="18" height="18" style="opacity:.85"></i>Staff</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="shopping-cart" width="18" height="18" style="opacity:.85"></i>Purchase Options</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="calendar" width="18" height="18" style="opacity:.85"></i>Classes &amp; Events</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><span style="display:flex;align-items:center;gap:10px"><i data-lucide="message-square" width="18" height="18" style="opacity:.85"></i>Communication</span><i data-lucide="chevron-right" width="14" height="14" style="color:rgba(255,255,255,0.4)"></i></div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="check-square" width="18" height="18" style="opacity:.85"></i>Attendance</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="dollar-sign" width="18" height="18" style="opacity:.85"></i>Financials</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="bar-chart-3" width="18" height="18" style="opacity:.85"></i>Reports</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="file-text" width="18" height="18" style="opacity:.85"></i>Documents</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;color:rgba(229,231,235,0.72)"><i data-lucide="settings" width="18" height="18" style="opacity:.85"></i>Settings</div>
+</nav>
+<div style="padding:10px 10px 14px;display:flex"><div style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:7px 12px;color:rgba(229,231,235,0.72);font-size:12px;border:1px solid rgba(255,255,255,0.08);border-radius:8px"><i data-lucide="moon" width="14" height="14"></i>Dark mode</div></div>
+</aside>
+
+<main style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #E5E7EB;background:#FFFFFF">
+<div style="display:inline-flex;align-items:center;gap:4px;font-size:14px;color:#6B7280"><i data-lucide="arrow-left" width="16" height="16"></i><span>Back</span></div>
+<div style="flex:1;min-width:0;max-width:576px">
+<div style="display:flex;align-items:center;gap:8px;border:1px solid #E5E7EB;border-radius:8px;padding:0 12px;height:36px">
+<i data-lucide="search" width="16" height="16" style="color:#6B7280;flex-shrink:0"></i>
+<span style="flex:1;font-size:14px;color:#6B7280">Search members, classes, events, documents…</span>
+<span style="font-size:10px;color:#6B7280;border:1px solid #E5E7EB;border-radius:4px;padding:2px 6px">Ctrl K</span>
+</div>
+</div>
+<i data-lucide="bell" width="18" height="18" style="color:#6B7280"></i>
+<div style="display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px">
+<span style="width:32px;height:32px;border-radius:999px;background:#1F1F23;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">FE</span>
+<span style="font-size:14px;font-weight:500">Frog Empire</span>
+<i data-lucide="chevron-down" width="12" height="12" style="color:#6B7280"></i>
+</div>
+</div>
+
+<div style="padding:32px;max-width:1280px">
+<div style="display:flex;align-items:center;gap:4px;border-bottom:1px solid #E5E7EB;margin-bottom:24px">
+<div style="padding:8px 12px;font-size:14px;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-1px">All members</div>
+<div style="padding:8px 12px;font-size:14px;font-weight:500;color:#6D5DF6;border-bottom:2px solid #6D5DF6;margin-bottom:-1px">Migration</div>
+<div style="padding:8px 12px;font-size:14px;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-1px">Approvals</div>
+</div>
+
+<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;font-size:14px;color:#6B7280"><span>Members</span><span>/</span><span style="color:#111111">Import / Migrate</span></div>
+<div style="margin-bottom:20px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+<div>
+<h1 style="margin:0;font-size:24px;font-weight:600">Member Migration</h1>
+<p style="margin:4px 0 0;font-size:14px;color:#6B7280;max-width:640px">Switch to AthletixOS without interrupting anyone's membership. Import your roster, send activation links, and members continue billing on their existing date.</p>
+</div>
+<div style="display:flex;gap:8px;flex-shrink:0">
+<div style="font-size:14px;padding:8px 16px;border:1px solid #E5E7EB;border-radius:8px">Match Memberships CSV</div>
+<div style="font-size:14px;padding:8px 16px;background:#6D5DF6;color:#fff;border-radius:8px">Import / Migrate Members</div>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:16px">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="width:20px;height:20px;border-radius:999px;background:#6D5DF6;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0">1</span><p style="margin:0;font-size:14px;font-weight:600">Import all your clients</p></div>
+<p style="margin:0;font-size:13px;color:#6B7280">Upload your <strong style="color:#111">full roster</strong> in one CSV — active or not. Map any columns you have: contact info, address, guardian details, and your custom fields. Everyone comes in as a Prospect and is <strong style="color:#111">never charged</strong> until they activate.</p>
+<div style="margin-top:12px;display:inline-block;font-size:14px;padding:6px 12px;background:#6D5DF6;color:#fff;border-radius:8px">Import / Migrate Members</div>
+</div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:16px">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="width:20px;height:20px;border-radius:999px;background:rgba(109,93,246,.15);color:#6D5DF6;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0">2</span><p style="margin:0;font-size:14px;font-weight:600">Match memberships (separate file)</p></div>
+<p style="margin:0;font-size:13px;color:#6B7280">If your old system exports <strong style="color:#111">clients and memberships as separate files</strong>, upload the memberships CSV here. It matches each one (by email or name) to a client from step 1 and attaches their plan, price &amp; billing date.</p>
+<div style="margin-top:12px;display:inline-block;font-size:14px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px">Match Memberships CSV</div>
+</div>
+</div>
+
+<div style="background:rgba(109,93,246,.05);border:1px solid rgba(109,93,246,.2);border-radius:12px;padding:16px;margin-bottom:24px;font-size:14px">
+<p style="margin:0 0 6px;font-weight:600">Before you switch — a few things to know</p>
+<ul style="margin:0;padding-left:20px;color:#6B7280;font-size:13px;line-height:1.7">
+<li>Don't cancel your old system until most members have activated. Recommended overlap: <strong style="color:#111">2–4 weeks</strong>.</li>
+<li>Imported members are <strong style="color:#111">never charged automatically</strong>.</li>
+<li>Members are billed only after they add a payment method and their billing date arrives.</li>
+<li>Billing continues on each member's existing date — not on import day.</li>
+</ul>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:12px;margin-bottom:24px">
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Imported</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">267</p></div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Emails sent</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">398</p></div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Invited</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">218</p></div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Profile completed</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">1</p></div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Profile completed (reviewed)</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">37</p></div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Payment req.</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">229</p></div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Needs review</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">11</p></div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280">Missing email</p><p style="margin:4px 0 0;font-size:24px;font-weight:600">0</p></div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:16px">
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #6D5DF6;background:rgba(109,93,246,.1);color:#6D5DF6">All</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">From old system</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Not invited</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Invited</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Profile completed</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Payment Required</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Profile completed (reviewed)</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Failed / Needs Review</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid rgba(109,93,246,.4);color:#6D5DF6;font-weight:500">Review duplicates</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;font-weight:500">Download migration PDF</div>
+<div style="font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;font-weight:500">Export plan CSV</div>
+<div style="margin-left:auto;width:256px;font-size:14px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;color:#6B7280">Search name, email, legacy ID…</div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-8px 0 16px">
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #1F1F23;background:#1F1F23;color:#fff">All states</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Leave alone</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Follow-up</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Needs card</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Unclassified (267)</div>
+<span style="color:#E5E7EB">|</span>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #6D5DF6;background:rgba(109,93,246,.1);color:#6D5DF6">Any readiness</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Ready</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Waiting on owner</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Waiting on client</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Hold</div>
+<div style="font-size:12px;padding:4px 12px;border-radius:999px;border:1px solid #E5E7EB;color:#6B7280">Active / leave alone</div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px">
+<div style="font-size:12px;padding:6px 12px;background:rgba(109,93,246,.5);color:#fff;border-radius:8px">Send Activation Links (0)</div>
+<div style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px">Send reminders to all pending</div>
+<div style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px">Family onboarding groups</div>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<table style="width:100%;border-collapse:collapse;font-size:14px">
+<thead>
+<tr style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;border-bottom:1px solid #E5E7EB;background:rgba(247,247,249,.4)">
+<th style="padding:10px 12px;width:32px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px"></span></th>
+<th style="padding:10px 12px;font-weight:400">Member</th>
+<th style="padding:10px 12px;font-weight:400">Membership</th>
+<th style="padding:10px 12px;font-weight:400">Next billing</th>
+<th style="padding:10px 12px;font-weight:400">State / readiness</th>
+<th style="padding:10px 12px;font-weight:400">Status</th>
+<th style="padding:10px 12px;font-weight:400">Emails</th>
+<th style="padding:10px 12px"></th>
+</tr>
+</thead>
+<tbody>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px"></span></td>
+<td style="padding:12px"><div style="font-weight:500">André Serra</div><div style="font-size:12px;color:#6B7280">luisfilipeserra@hotmail.com · minor</div></td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px">7/19/2026</td>
+<td style="padding:12px"><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#F7F7F9;color:#6B7280">Already active / leave alone</span><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(109,93,246,.1);color:#6D5DF6">Offer confirmed</span></div></td>
+<td style="padding:12px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(163,230,53,.25)">Profile completed (reviewed)</span></td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px"><div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px;color:#9CA3AF">Edit setup</span><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px;color:#9CA3AF">Resend</span><span style="font-size:12px;color:#6B7280">History</span><span style="font-size:12px;color:#6D5DF6">Billing</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px"></span></td>
+<td style="padding:12px"><div style="font-weight:500">Julian Ramirez</div><div style="font-size:12px;color:#6B7280">julianramirez1181@gmail.com · minor</div><div style="font-size:12px;color:#6B7280">from Wellness Living</div></td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(255,106,0,.2)">Waiting on owner decision</span></td>
+<td style="padding:12px"><div style="display:flex;gap:6px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(109,93,246,.1);color:#6D5DF6">Invited</span><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(163,230,53,.25)">Set up ✓</span></div></td>
+<td style="padding:12px;font-size:12px;color:#6B7280">3× · 7/12/2026</td>
+<td style="padding:12px"><div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Edit setup</span><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Resend</span><span style="font-size:12px;color:#6B7280">History</span><span style="font-size:12px;color:#6D5DF6">Billing</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px"></span></td>
+<td style="padding:12px"><div style="font-weight:500">Zion Garelick</div><div style="font-size:12px;color:#6B7280">samilynngarelick@gmail.com · minor</div><div style="font-size:12px;color:#6B7280">from Wellness Living</div></td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(255,106,0,.2)">Waiting on owner decision</span></td>
+<td style="padding:12px"><span style="font-size:12px;color:#B91C1C">Needs review</span></td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px"><div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Set up</span><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Resend</span><span style="font-size:12px;color:#6B7280">History</span><span style="font-size:12px;color:#6D5DF6">Billing</span></div></td>
+</tr>
+<tr style="border-bottom:1px solid #E5E7EB">
+<td style="padding:12px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px"></span></td>
+<td style="padding:12px"><div style="font-weight:500">Declan Grey</div><div style="font-size:12px;color:#6B7280">mjg263@cornell.edu · minor</div><div style="font-size:12px;color:#6B7280">from Wellness Living</div></td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(255,106,0,.2)">Waiting on owner decision</span></td>
+<td style="padding:12px"><div style="display:flex;gap:6px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(109,93,246,.1);color:#6D5DF6">Invited</span><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(163,230,53,.25)">Set up ✓</span></div></td>
+<td style="padding:12px;font-size:12px;color:#6B7280">3× · 7/12/2026</td>
+<td style="padding:12px"><div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Edit setup</span><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Resend</span><span style="font-size:12px;color:#6B7280">History</span><span style="font-size:12px;color:#6D5DF6">Billing</span></div></td>
+</tr>
+<tr>
+<td style="padding:12px"><span style="display:inline-block;width:14px;height:14px;border:1px solid #9CA3AF;border-radius:3px"></span></td>
+<td style="padding:12px"><div style="font-weight:500">Dillon Cahill</div><div style="font-size:12px;color:#6B7280">nothingbetta607@gmail.com · minor</div><div style="font-size:12px;color:#6B7280">from Wellness Living</div></td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px;color:#6B7280">—</td>
+<td style="padding:12px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(255,106,0,.2)">Waiting on owner decision</span></td>
+<td style="padding:12px"><div style="display:flex;gap:6px"><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(109,93,246,.1);color:#6D5DF6">Invited</span><span style="font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(163,230,53,.25)">Set up ✓</span></div></td>
+<td style="padding:12px;font-size:12px;color:#6B7280">3× · 7/12/2026</td>
+<td style="padding:12px"><div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Edit setup</span><span style="font-size:12px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px">Resend</span><span style="font-size:12px;color:#6B7280">History</span><span style="font-size:12px;color:#6D5DF6">Billing</span></div></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</main>
+</div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() { this.icons(); }
+  componentDidUpdate() { this.icons(); }
+  icons() {
+    const run = () => { if (window.lucide) window.lucide.createIcons(); };
+    run();
+    if (!window.lucide) setTimeout(run, 400);
+    setTimeout(run, 1200);
+  }
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

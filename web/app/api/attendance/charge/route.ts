@@ -168,6 +168,7 @@ export async function POST(req: Request) {
       notes: data.notes || null,
       manual: true,
       txDate: now,
+      recordedByUserId: session.user.id ?? null,
     },
   });
   if (discount) await recordDiscountUse(discount.id);

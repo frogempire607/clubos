@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.379.0/dist/umd/lucide.min.js"></script>
+<style>
+  body { margin: 0; background: #F7F7F9; color: #111111; font-family: "Inter", system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: #6D5DF6; text-decoration: none; }
+  a:hover { color: #5948E8; }
+</style>
+</helmet>
+
+<div style="display: flex; height: 100vh; background: #F7F7F9; color: #111111; font-family: 'Inter', system-ui, sans-serif;">
+
+  <aside style="width: 248px; flex-shrink: 0; display: flex; flex-direction: column; background: #1F1F23; overflow-y: auto;">
+    <div style="padding: 16px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 3px;">
+        <img src="web/public/brand/icon.png" alt="" style="width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: block;" />
+        <span style="color: #fff; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; font-family: Georgia, serif;">AthletixOS</span>
+      </div>
+      <div style="font-size: 11px; color: rgba(229,231,235,0.72); padding-left: 38px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">owner@northsideathletics.com</div>
+    </div>
+    <nav style="flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="layout-grid" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Dashboard</a>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="users" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Members</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="shield" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Staff</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="shopping-cart" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Purchase Options</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="calendar" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Classes &amp; Events</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="message-square" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Communication</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="check-square" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Attendance</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="dollar-sign" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Financials</a>
+      <a href="Reports.dc.html" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid #6D5DF6; font-size: 13px; font-weight: 500; background: #2A2A2E; color: #fff;"><i data-lucide="bar-chart-3" width="18" height="18" stroke-width="2" style="flex-shrink: 0;"></i>Reports</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="file-text" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Documents</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; color: rgba(229,231,235,0.72);"><i data-lucide="settings" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Settings</a>
+    </nav>
+    <div style="padding: 10px 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+      <button type="button" style="width: 100%; text-align: left; padding: 7px 12px; border-radius: 8px; font-size: 12px; border: none; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); display: flex; align-items: center; gap: 10px; font-family: inherit;"><i data-lucide="log-out" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Sign out</button>
+    </div>
+  </aside>
+
+  <main style="flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;">
+    <div style="position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #E5E7EB; background: #FFFFFF;">
+      <a href="Reports.dc.html" style="display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: #6B7280;"><i data-lucide="arrow-left" width="16" height="16" stroke-width="2"></i><span>Back</span></a>
+      <div style="flex: 1; min-width: 0; max-width: 576px;">
+        <div style="display: flex; align-items: center; gap: 8px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; padding: 0 12px; height: 36px;">
+          <i data-lucide="search" width="16" height="16" stroke-width="2" style="color: #6B7280; flex-shrink: 0;"></i>
+          <span style="flex: 1; font-size: 14px; color: #6B7280;">Search members, classes, events, documents…</span>
+          <kbd style="font-size: 10px; color: #6B7280; border: 1px solid #E5E7EB; border-radius: 4px; padding: 2px 6px;">Ctrl K</kbd>
+        </div>
+      </div>
+      <button type="button" style="position: relative; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: #6B7280;"><i data-lucide="bell" width="20" height="20" stroke-width="2"></i></button>
+      <button type="button" style="display: flex; align-items: center; gap: 8px; border-radius: 999px; padding: 4px 12px 4px 4px; background: none; border: none; cursor: pointer; font-family: inherit;"><span style="width: 32px; height: 32px; border-radius: 999px; background: #1F1F23; color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center;">JM</span><span style="font-size: 14px; color: #111111; font-weight: 500;">Jordan Mills</span><i data-lucide="chevron-down" width="12" height="12" stroke-width="2" style="color: #6B7280;"></i></button>
+    </div>
+
+    <div style="flex: 1; padding: 32px; max-width: 1152px; margin: 0 auto; width: 100%;">
+
+      <div style="margin-bottom: 20px;">
+        <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #6B7280; margin-bottom: 6px;">Reports · History &amp; imports</div>
+        <h1 style="font-size: 24px; font-weight: 600; color: #111111; line-height: 1.2; letter-spacing: -0.02em; margin: 0;">Import all-time member history</h1>
+        <p style="font-size: 14px; color: #6B7280; margin: 6px 0 0; max-width: 620px; text-wrap: pretty;">Nothing is written to your club until the final step. You can back out at any point, and any completed import can be rolled back for 30 days.</p>
+      </div>
+
+      <div style="display: flex; gap: 0; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 6px; margin-bottom: 24px; overflow-x: auto;">
+        <sc-for list="{{ steps }}" as="s" hint-placeholder-count="7">
+          <button type="button" onClick="{{ s.go }}" style="flex: 1; min-width: 132px; display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: none; border-radius: 8px; cursor: pointer; font-family: inherit; text-align: left; background: {{ s.bg }};">
+            <span style="width: 22px; height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; background: {{ s.dotBg }}; color: {{ s.dotFg }};">{{ s.n }}</span>
+            <span style="font-size: 12.5px; white-space: nowrap; color: {{ s.fg }}; font-weight: {{ s.fw }};">{{ s.label }}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{ is1 }}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px;">
+          <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 4px;">Upload your file</h2>
+          <p style="font-size: 13px; color: #6B7280; margin: 0 0 18px;">A CSV export from your previous software, or our template filled in. Up to 50,000 rows per file.</p>
+          <div style="border: 2px dashed #D8D5F7; border-radius: 12px; background: rgba(109,93,246,0.03); padding: 40px; text-align: center;">
+            <span style="width: 46px; height: 46px; border-radius: 12px; background: rgba(109,93,246,0.1); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px;"><i data-lucide="upload-cloud" width="22" height="22" stroke-width="2" style="color: #6D5DF6;"></i></span>
+            <p style="margin: 0; font-size: 14px; font-weight: 500; color: #111111;">Drop your CSV here, or <span style="color: #6D5DF6;">browse your files</span></p>
+            <p style="margin: 6px 0 0; font-size: 12px; color: #6B7280;">CSV · up to 20&#8202;MB</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px; border: 1px solid #E5E7EB; border-radius: 10px;">
+            <i data-lucide="file-spreadsheet" width="18" height="18" stroke-width="2" style="color: #3F6212; flex-shrink: 0;"></i>
+            <div style="flex: 1; min-width: 0;">
+              <p style="margin: 0; font-size: 13px; font-weight: 500;">wl-members-all-time.csv</p>
+              <p style="margin: 2px 0 0; font-size: 11.5px; color: #6B7280;">1,412 rows · 18 columns · 842&#8202;KB</p>
+            </div>
+            <button type="button" style="background: none; border: none; cursor: pointer; color: #6B7280; padding: 4px;"><i data-lucide="x" width="16" height="16" stroke-width="2"></i></button>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; margin: 0 0 4px;">Where is this data from?</h3>
+            <p style="font-size: 12px; color: #6B7280; margin: 0 0 12px;">Every imported record is labelled with its source so reports never confuse it with native data.</p>
+            <div style="display: flex; flex-direction: column; gap: 7px;">
+              <label style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #6D5DF6; border-radius: 9px; background: rgba(109,93,246,0.05); cursor: pointer;"><span style="width: 16px; height: 16px; border-radius: 999px; border: 5px solid #6D5DF6; flex-shrink: 0;"></span><span style="font-size: 13px; font-weight: 500;">WellnessLiving</span></label>
+              <label style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #E5E7EB; border-radius: 9px; cursor: pointer;"><span style="width: 16px; height: 16px; border-radius: 999px; border: 1.5px solid #D1D5DB; flex-shrink: 0;"></span><span style="font-size: 13px; color: #6B7280;">Jackrabbit, iClassPro, or other software</span></label>
+              <label style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #E5E7EB; border-radius: 9px; cursor: pointer;"><span style="width: 16px; height: 16px; border-radius: 999px; border: 1.5px solid #D1D5DB; flex-shrink: 0;"></span><span style="font-size: 13px; color: #6B7280;">Spreadsheet or paper records</span></label>
+            </div>
+          </div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+            <h3 style="font-size: 14px; font-weight: 600; margin: 0 0 4px;">Don't have an export yet?</h3>
+            <p style="font-size: 12px; color: #6B7280; margin: 0 0 14px;">Download the template, fill in whatever you have, and leave the rest blank. Missing fields are flagged, never invented.</p>
+            <a href="#" style="display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 13px; color: #111111;"><i data-lucide="download" width="15" height="15" stroke-width="2" style="color: #6B7280;"></i>Download member template</a>
+            <div style="margin-top: 16px; padding: 12px 14px; background: #F7F7F9; border-radius: 9px;">
+              <p style="margin: 0; font-size: 12px; color: #6B7280; line-height: 1.55;"><strong style="color: #111111; font-weight: 600;">Safe to re-upload.</strong> If you upload the same file twice, rows that were already imported are recognised by their external ID and skipped — not duplicated.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is2 }}" hint-placeholder-val="{{ false }}">
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+        <div style="padding: 20px 24px; border-bottom: 1px solid #E5E7EB;">
+          <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 4px;">Match your columns</h2>
+          <p style="font-size: 13px; color: #6B7280; margin: 0;">We matched 15 of your 18 columns automatically. Check the ones we guessed and fill in anything left.</p>
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead><tr style="background: #FAFAFB;">
+            <th style="text-align: left; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Your column</th>
+            <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Example value</th>
+            <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Imports as</th>
+            <th style="text-align: right; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Status</th>
+          </tr></thead>
+          <tbody>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">FirstName</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">Maya</td><td style="padding: 9px 12px; font-size: 13px;">First name</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">LastName</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">Fitzgerald</td><td style="padding: 9px 12px; font-size: 13px;">Last name</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">EmailAddress</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">k.fitzgerald@gmail.com</td><td style="padding: 9px 12px; font-size: 13px;">Email</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">Mobile</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">(503) 555-0142</td><td style="padding: 9px 12px; font-size: 13px;">Phone number</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">DOB</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">08/03/2014</td><td style="padding: 9px 12px; font-size: 13px;">Date of birth <span style="font-size: 11.5px; color: #6B7280;">· read as DD/MM/YYYY</span></td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(255,106,0,0.14); color: #B24700;">Check format</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">ClientSince</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">2021-09-14</td><td style="padding: 9px 12px; font-size: 13px;">Join date</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">PassStart</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">2021-09-14</td><td style="padding: 9px 12px; font-size: 13px;">Membership start date</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">PassEnd</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">2023-06-30</td><td style="padding: 9px 12px; font-size: 13px;">Membership end date</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">PassName</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">Competitive Team Unlimited</td><td style="padding: 9px 12px; font-size: 13px;">Membership type</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">Status</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">Inactive</td><td style="padding: 9px 12px; font-size: 13px;">Member status</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">ClientID</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">WL-88214</td><td style="padding: 9px 12px; font-size: 13px;">External member ID <span style="font-size: 11.5px; color: #6B7280;">· used for matching</span></td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Auto</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4; background: rgba(255,106,0,0.04);"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">RelType</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">Child</td><td style="padding: 9px 12px;"><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 5px 10px; border: 1px solid #E5E7EB; border-radius: 7px; background: #FFFFFF; color: #6B7280;">Choose a field…<i data-lucide="chevron-down" width="13" height="13" stroke-width="2"></i></span></td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(255,106,0,0.14); color: #B24700;">Unmapped</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4; background: rgba(255,106,0,0.04);"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">Notes_Internal</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">Sibling discount applied</td><td style="padding: 9px 12px;"><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 5px 10px; border: 1px solid #E5E7EB; border-radius: 7px; background: #FFFFFF; color: #6B7280;">Choose a field…<i data-lucide="chevron-down" width="13" height="13" stroke-width="2"></i></span></td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(255,106,0,0.14); color: #B24700;">Unmapped</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 9px 24px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">MarketingOptIn</td><td style="padding: 9px 12px; font-size: 12.5px; color: #6B7280;">TRUE</td><td style="padding: 9px 12px; font-size: 13px; color: #6B7280;">Don't import</td><td style="padding: 9px 24px; text-align: right;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: #F1F2F4; color: #6B7280;">Ignored</span></td></tr>
+          </tbody>
+        </table>
+        <div style="padding: 14px 24px; border-top: 1px solid #E5E7EB; background: #FCFCFD; display: flex; align-items: center; gap: 10px;">
+          <i data-lucide="info" width="15" height="15" stroke-width="2" style="color: #6B7280;"></i>
+          <p style="margin: 0; font-size: 12px; color: #6B7280;">Unmapped columns are simply not imported. Nothing is lost from your original file — you can re-run this import later with more columns mapped.</p>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is3 }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Rows in file</p><p style="font-size: 26px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums;">1,412</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Ready to import</p><p style="font-size: 26px; font-weight: 600; margin: 0; color: #3F6212; font-variant-numeric: tabular-nums;">1,338</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Need a decision</p><p style="font-size: 26px; font-weight: 600; margin: 0; color: #B24700; font-variant-numeric: tabular-nums;">37</p></div>
+          <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;"><p style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin: 0 0 6px;">Can't import</p><p style="font-size: 26px; font-weight: 600; margin: 0; color: #A32D2D; font-variant-numeric: tabular-nums;">37</p></div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 20px 24px; border-bottom: 1px solid #E5E7EB; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <div>
+              <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 4px;">37 rows can't be imported yet</h2>
+              <p style="font-size: 13px; color: #6B7280; margin: 0;">Fix them in your file and re-upload, or import the other 1,375 rows now and add these later.</p>
+            </div>
+            <a href="#" style="display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 13px; color: #111111; white-space: nowrap;"><i data-lucide="download" width="15" height="15" stroke-width="2" style="color: #6B7280;"></i>Download the 37 problem rows</a>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280; width: 80px;">Row</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Problem</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Value</th>
+              <th style="text-align: right; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Affected rows</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">14, 88, +12</td><td style="padding: 10px 12px; font-size: 13px;">Date of birth isn't a real date</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">32/14/2011</td><td style="padding: 10px 24px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">14</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">203, 341, +9</td><td style="padding: 10px 12px; font-size: 13px;">No name and no email — nothing to identify this person by</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">—</td><td style="padding: 10px 24px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">11</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">512, 610, +6</td><td style="padding: 10px 12px; font-size: 13px;">Membership ends before it starts</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">start 2022-08-01 → end 2021-06-30</td><td style="padding: 10px 24px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">8</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">778, 902, +2</td><td style="padding: 10px 12px; font-size: 13px;">Same external ID appears twice in this file</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">WL-44120</td><td style="padding: 10px 24px; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">4</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; margin: 0 0 4px;">Worth knowing, but not blocking</h3>
+          <p style="font-size: 12.5px; color: #6B7280; margin: 0 0 14px;">These rows will import. Reports will show them as incomplete rather than guessing.</p>
+          <div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Missing join date</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">412 rows</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Missing membership type</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">168 rows</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Phone number reformatted to E.164</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">1,104 rows</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Status word we don't recognise, filed as Inactive</span><span style="font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;">62 rows</span></div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is4 }}" hint-placeholder-val="{{ false }}">
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+        <div style="padding: 20px 24px; border-bottom: 1px solid #E5E7EB;">
+          <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 4px;">This is how they'll be saved</h2>
+          <p style="font-size: 13px; color: #6B7280; margin: 0;">First 6 of 1,375 rows, shown exactly as AthletixOS will store them.</p>
+        </div>
+        <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; min-width: 940px;">
+          <thead><tr style="background: #FAFAFB;">
+            <th style="text-align: left; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Name</th>
+            <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Role</th>
+            <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Email</th>
+            <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Joined</th>
+            <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Membership</th>
+            <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Status</th>
+            <th style="text-align: left; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Outcome</th>
+          </tr></thead>
+          <tbody>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px;">Maya Fitzgerald</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Athlete</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">k.fitzgerald@gmail.com</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Sep 14, 2021</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Competitive Team Unlimited</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Inactive</td><td style="padding: 10px 24px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(255,106,0,0.14); color: #B24700;">Needs review</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px;">Elena Voss</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Athlete</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">m.voss@outlook.com</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Mar 2, 2020</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Youth Rec 2x</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Inactive</td><td style="padding: 10px 24px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(109,93,246,0.12); color: #4A3BC7;">New historical record</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px;">Devon Pryor</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Athlete</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">t.pryor@gmail.com</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Jan 8, 2023</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">All-Access</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Active</td><td style="padding: 10px 24px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Matched — history added</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px;">Tara Pryor</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Parent</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">t.pryor@gmail.com</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Jan 8, 2023</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">—</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Active</td><td style="padding: 10px 24px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Matched — linked as guardian</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px;">Riley Nakamura</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Athlete</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">—</td><td style="padding: 10px 12px; font-size: 12.5px; color: #B24700;">Not provided</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Youth Rec 1x</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Inactive</td><td style="padding: 10px 24px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(255,106,0,0.14); color: #B24700;">Needs review</span></td></tr>
+            <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px;">Owen Brandt</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Athlete</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">g.brandt@yahoo.com</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Aug 19, 2019</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Ninja Rec</td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Inactive</td><td style="padding: 10px 24px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(109,93,246,0.12); color: #4A3BC7;">New historical record</span></td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div style="padding: 16px 24px; border-top: 1px solid #E5E7EB; background: #FCFCFD; display: flex; gap: 24px; flex-wrap: wrap;">
+          <span style="font-size: 12.5px; color: #6B7280;">New historical records <strong style="color: #111111; font-weight: 600; font-variant-numeric: tabular-nums;">1,247</strong></span>
+          <span style="font-size: 12.5px; color: #6B7280;">Matched to existing members <strong style="color: #111111; font-weight: 600; font-variant-numeric: tabular-nums;">91</strong></span>
+          <span style="font-size: 12.5px; color: #6B7280;">Need review <strong style="color: #B24700; font-weight: 600; font-variant-numeric: tabular-nums;">37</strong></span>
+          <span style="font-size: 12.5px; color: #6B7280;">Excluded <strong style="color: #111111; font-weight: 600; font-variant-numeric: tabular-nums;">37</strong></span>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is5 }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; align-items: flex-start; gap: 10px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px;">
+          <i data-lucide="shield-check" width="17" height="17" stroke-width="2" style="color: #3F6212; flex-shrink: 0; margin-top: 1px;"></i>
+          <p style="margin: 0; font-size: 12.5px; color: #111111;">Records are only merged automatically on a hard signal — an external ID, an exact email, or an exact phone number. <strong style="font-weight: 600;">A similar name is never enough.</strong> Everything less certain lands here for you to decide.</p>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 18px 24px; border-bottom: 1px solid #E5E7EB; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <div>
+              <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 4px;">37 rows need your decision</h2>
+              <p style="font-size: 12.5px; color: #6B7280; margin: 0;">4 shown. Anything you don't decide stays here — the rest of the import still goes through.</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" style="padding: 8px 12px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; font-size: 12.5px; cursor: pointer; font-family: inherit; color: #111111;">Keep all separate</button>
+              <button type="button" style="padding: 8px 12px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; font-size: 12.5px; cursor: pointer; font-family: inherit; color: #111111;">Ignore all</button>
+            </div>
+          </div>
+
+          <div style="padding: 18px 24px; border-bottom: 1px solid #E5E7EB;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+              <span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(255,106,0,0.14); color: #B24700;">Medium confidence</span>
+              <span style="font-size: 12px; color: #6B7280;">Matched on name + date of birth</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+              <div style="border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;">
+                <p style="margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">From your file · row 41</p>
+                <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600;">Maya Fitzgerald</p>
+                <p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.7;">Born Mar 8, 2014 · k.fitzgerald@gmail.com<br />Joined Sep 14, 2021 · Competitive Team Unlimited<br />WellnessLiving ID WL-88214</p>
+              </div>
+              <div style="border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;">
+                <p style="margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Already in AthletixOS</p>
+                <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600;">Maya Fitzgerald-Rowe</p>
+                <p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.7;">Born Mar 8, 2014 · maya.r@icloud.com<br />Joined Sep 2, 2025 · Competitive Team — Monthly<br />Guardian: Kendra Rowe</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: none; background: #6D5DF6; color: #FFFFFF; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;">Same person — add history</button>
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #111111; font-size: 13px; cursor: pointer; font-family: inherit;">Merge the two records</button>
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #111111; font-size: 13px; cursor: pointer; font-family: inherit;">Create as separate person</button>
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #111111; font-size: 13px; cursor: pointer; font-family: inherit;">Keep both, don't link</button>
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #6B7280; font-size: 13px; cursor: pointer; font-family: inherit;">Skip this row</button>
+            </div>
+          </div>
+
+          <div style="padding: 18px 24px; border-bottom: 1px solid #E5E7EB;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+              <span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,58,58,0.1); color: #A32D2D;">Low confidence</span>
+              <span style="font-size: 12px; color: #6B7280;">Phone number matches a staff record, not a member</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+              <div style="border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;">
+                <p style="margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">From your file · row 118</p>
+                <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600;">Sam Cole</p>
+                <p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.7;">(503) 555-0142 · no email<br />Joined Feb 4, 2022 · Open Gym Punch Card<br />WellnessLiving ID WL-51993</p>
+              </div>
+              <div style="border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px;">
+                <p style="margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Already in AthletixOS · staff</p>
+                <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600;">Samuel Cole</p>
+                <p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.7;">(503) 555-0142 · sam@northsideathletics.com<br />Head coach — Ninja program<br />Started Oct 2025</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: none; background: #6D5DF6; color: #FFFFFF; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;">Create as separate person</button>
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #111111; font-size: 13px; cursor: pointer; font-family: inherit;">Same person — add history</button>
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #111111; font-size: 13px; cursor: pointer; font-family: inherit;">Keep both, don't link</button>
+              <button type="button" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #6B7280; font-size: 13px; cursor: pointer; font-family: inherit;">Skip this row</button>
+            </div>
+          </div>
+
+          <div style="padding: 14px 24px; background: #FCFCFD; display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 12.5px; color: #6B7280;">2 of 37 reviewed</span>
+            <a href="#" style="font-size: 12.5px; font-weight: 500;">Show the next 10 →</a>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is6 }}" hint-placeholder-val="{{ false }}">
+      <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px;">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px;">
+          <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 4px;">Ready to import</h2>
+          <p style="font-size: 13px; color: #6B7280; margin: 0 0 18px;">This is the last step before anything is written to your club.</p>
+          <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">New historical members created</span><span style="font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;">1,247</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">History added to existing members</span><span style="font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;">91</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Records merged</span><span style="font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;">2</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Left in the review queue</span><span style="font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;">35</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F2F4;"><span style="font-size: 13px; color: #6B7280;">Excluded — couldn't be read</span><span style="font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;">37</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 10px 0;"><span style="font-size: 13px; color: #6B7280;">Everything labelled as</span><span style="font-size: 13px; font-weight: 500;">Previous software · WellnessLiving</span></div>
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="button" onClick="{{ next }}" style="padding: 11px 20px; border-radius: 9px; border: none; background: #6D5DF6; color: #FFFFFF; font-size: 14px; font-weight: 500; cursor: pointer; font-family: inherit;">Import 1,340 records</button>
+            <button type="button" onClick="{{ back }}" style="padding: 11px 18px; border-radius: 9px; border: 1px solid #E5E7EB; background: #FFFFFF; color: #111111; font-size: 14px; cursor: pointer; font-family: inherit;">Back to review</button>
+          </div>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px;">
+          <h3 style="font-size: 14px; font-weight: 600; margin: 0 0 12px;">What happens next</h3>
+          <div style="display: flex; gap: 11px; padding-bottom: 14px;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #6D5DF6; margin-top: 6px; flex-shrink: 0;"></span><p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.6;"><strong style="color: #111111; font-weight: 600;">Reports update immediately.</strong> All-time figures, lifetime value and average membership length will recalculate.</p></div>
+          <div style="display: flex; gap: 11px; padding-bottom: 14px;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #6D5DF6; margin-top: 6px; flex-shrink: 0;"></span><p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.6;"><strong style="color: #111111; font-weight: 600;">Nobody gets an email.</strong> Imported members are not notified, not invited, and not billed.</p></div>
+          <div style="display: flex; gap: 11px; padding-bottom: 14px;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #6D5DF6; margin-top: 6px; flex-shrink: 0;"></span><p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.6;"><strong style="color: #111111; font-weight: 600;">You can undo this.</strong> Roll the whole import back for 30 days. Merges are reversible; records created by the import are removed.</p></div>
+          <div style="display: flex; gap: 11px;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #6D5DF6; margin-top: 6px; flex-shrink: 0;"></span><p style="margin: 0; font-size: 12.5px; color: #6B7280; line-height: 1.6;"><strong style="color: #111111; font-weight: 600;">Everything is logged.</strong> Row by row: what was created, matched, merged, skipped or changed, and who did it.</p></div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ is7 }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px; display: flex; align-items: flex-start; gap: 16px;">
+          <span style="width: 44px; height: 44px; border-radius: 12px; background: rgba(163,230,53,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><i data-lucide="check" width="22" height="22" stroke-width="2.5" style="color: #3F6212;"></i></span>
+          <div style="flex: 1;">
+            <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 4px;">1,340 records imported</h2>
+            <p style="font-size: 13px; color: #6B7280; margin: 0 0 14px;">Completed Jul 28, 2026 at 2:47 PM by Jordan Mills · took 41 seconds · import #IMP-2026-0714</p>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <a href="Reports.dc.html" style="padding: 9px 16px; border-radius: 8px; background: #6D5DF6; color: #FFFFFF; font-size: 13px; font-weight: 500;">See updated reports</a>
+              <a href="#" style="padding: 9px 16px; border-radius: 8px; border: 1px solid #E5E7EB; color: #111111; font-size: 13px;">Finish the 35 in review</a>
+              <a href="#" style="padding: 9px 16px; border-radius: 8px; border: 1px solid #E5E7EB; color: #111111; font-size: 13px;">Download full log</a>
+              <a href="#" style="padding: 9px 16px; border-radius: 8px; border: 1px solid #E5E7EB; color: #A32D2D; font-size: 13px;">Roll back this import</a>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+          <div style="padding: 18px 24px; border-bottom: 1px solid #E5E7EB;">
+            <h3 style="font-size: 14px; font-weight: 600; margin: 0 0 4px;">Audit log</h3>
+            <p style="font-size: 12.5px; color: #6B7280; margin: 0;">Every row, every decision, kept permanently. Showing the first 6 of 1,412 entries.</p>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="background: #FAFAFB;">
+              <th style="text-align: left; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280; width: 74px;">Row</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Record</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Action</th>
+              <th style="text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Why</th>
+              <th style="text-align: left; padding: 9px 24px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280;">Decided by</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">41</td><td style="padding: 10px 12px; font-size: 13px;">Maya Fitzgerald</td><td style="padding: 10px 12px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">History added</span></td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Confirmed as Maya Fitzgerald-Rowe</td><td style="padding: 10px 24px; font-size: 12.5px; color: #6B7280;">Jordan Mills</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">42</td><td style="padding: 10px 12px; font-size: 13px;">Elena Voss</td><td style="padding: 10px 12px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(109,93,246,0.12); color: #4A3BC7;">Created</span></td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">No match found</td><td style="padding: 10px 24px; font-size: 12.5px; color: #6B7280;">System</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">43</td><td style="padding: 10px 12px; font-size: 13px;">Devon Pryor</td><td style="padding: 10px 12px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">History added</span></td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">External ID WL-33871 already linked</td><td style="padding: 10px 24px; font-size: 12.5px; color: #6B7280;">System</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">44</td><td style="padding: 10px 12px; font-size: 13px;">Tara Pryor</td><td style="padding: 10px 12px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,230,53,0.2); color: #3F6212;">Linked</span></td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Exact email match on guardian</td><td style="padding: 10px 24px; font-size: 12.5px; color: #6B7280;">System</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">118</td><td style="padding: 10px 12px; font-size: 13px;">Sam Cole</td><td style="padding: 10px 12px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(109,93,246,0.12); color: #4A3BC7;">Created separately</span></td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">Phone matched staff — rejected by owner</td><td style="padding: 10px 24px; font-size: 12.5px; color: #6B7280;">Jordan Mills</td></tr>
+              <tr style="border-top: 1px solid #F1F2F4;"><td style="padding: 10px 24px; font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums;">203</td><td style="padding: 10px 12px; font-size: 13px; color: #6B7280;">—</td><td style="padding: 10px 12px;"><span style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(163,58,58,0.1); color: #A32D2D;">Excluded</span></td><td style="padding: 10px 12px; font-size: 12.5px; color: #6B7280;">No name and no email</td><td style="padding: 10px 24px; font-size: 12.5px; color: #6B7280;">System</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      </sc-if>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 24px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
+        <button type="button" onClick="{{ back }}" style="display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; border: 1px solid #E5E7EB; border-radius: 9px; background: #FFFFFF; font-size: 13.5px; color: #111111; cursor: pointer; font-family: inherit;"><i data-lucide="arrow-left" width="15" height="15" stroke-width="2" style="color: #6B7280;"></i>{{ backLabel }}</button>
+        <span style="font-size: 12.5px; color: #6B7280;">{{ progressLabel }}</span>
+        <button type="button" onClick="{{ next }}" style="display: inline-flex; align-items: center; gap: 7px; padding: 10px 18px; border: none; border-radius: 9px; background: #6D5DF6; color: #FFFFFF; font-size: 13.5px; font-weight: 500; cursor: pointer; font-family: inherit;">{{ nextLabel }}<i data-lucide="arrow-right" width="15" height="15" stroke-width="2"></i></button>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1000},&quot;initialStep&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:1,&quot;min&quot;:1,&quot;max&quot;:7,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Wizard&quot;}}">
+const STEPS = [
+  "Upload file",
+  "Match columns",
+  "Check for problems",
+  "Preview",
+  "Review matches",
+  "Confirm",
+  "Done",
+];
+const NEXT_LABELS = [
+  "Match columns",
+  "Check for problems",
+  "Preview 1,375 rows",
+  "Review 37 matches",
+  "Review and confirm",
+  "Import 1,340 records",
+  "Back to reports",
+];
+
+class Component extends DCLogic {
+  state = { step: null };
+
+  componentDidMount() { this.icons(); }
+  componentDidUpdate() { this.icons(); }
+  icons() {
+    const run = () => { if (window.lucide) window.lucide.createIcons(); };
+    run();
+    setTimeout(run, 300);
+    setTimeout(run, 1200);
+  }
+
+  renderVals() {
+    const step = this.state.step ?? this.props.initialStep ?? 1;
+    const v = {};
+    for (let i = 1; i <= 7; i++) v["is" + i] = step === i;
+
+    v.steps = STEPS.map((label, i) => {
+      const n = i + 1;
+      const done = n < step;
+      const on = n === step;
+      return {
+        n: done ? "✓" : String(n),
+        label,
+        bg: on ? "#F7F7F9" : "transparent",
+        fg: on ? "#111111" : done ? "#6B7280" : "#9CA3AF",
+        fw: on ? 600 : 400,
+        dotBg: on ? "#6D5DF6" : done ? "#A3E635" : "#F1F2F4",
+        dotFg: on ? "#FFFFFF" : done ? "#1F1F23" : "#9CA3AF",
+        go: () => this.setState({ step: n }),
+      };
+    });
+
+    v.nextLabel = NEXT_LABELS[step - 1];
+    v.backLabel = step === 1 ? "Cancel" : "Back";
+    v.progressLabel = "Step " + step + " of 7 · " + STEPS[step - 1];
+    v.next = () => this.setState({ step: Math.min(7, step + 1) });
+    v.back = () => this.setState({ step: Math.max(1, step - 1) });
+    return v;
+  }
+}
+</script>
+</body>
+</html>

@@ -37,9 +37,15 @@ type Tx = {
   stripeFeeAmount: string | number | null; netAmount: string | number | null;
   paymentSource: string | null; reconciliationStatus: string | null;
   description: string | null; category: string | null; paymentMethod: string | null;
+  source: string | null; notes: string | null;
   manual: boolean; type: string; createdAt: string; txDate: string | null;
-  member: { firstName: string; lastName: string } | null;
+  refundedAmount: string | number | null; refundedAt: string | null;
+  refundReason: string | null; receiptUrl: string | null;
+  discountCode: string | null; discountAmount: string | number | null;
+  member: { id: string; firstName: string; lastName: string } | null;
   legalEntity: { id: string; name: string } | null;
+  recordedBy: { id: string; name: string } | null;
+  athlete: { id: string; firstName: string; lastName: string } | null;
 };
 type Expense = {
   id: string; description: string; amount: string; category: string; date: string;
@@ -80,6 +86,7 @@ const TABS = [
   { key: "donations", label: "Donations" },
   { key: "tax", label: "Tax Summary" },
   { key: "stripe", label: "Stripe" },
+  { key: "offline", label: "Cash & Offline" },
   { key: "bank", label: "Bank" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
@@ -177,7 +184,8 @@ export default function FinancialsPage() {
       {tab === "out" && <MoneyOutTab entity={entity} entities={entities} bank={bank} bankConnections={bankConnections} />}
       {tab === "donations" && <DonationsTab qs={qs} entity={entity} entities={entities} />}
       {tab === "tax" && <TaxSummaryTab qs={qs} />}
-      {tab === "stripe" && <StripeTab />}
+      {tab === "stripe" && <StripeTab qs={qs} />}
+      {tab === "offline" && <CashOfflineTab qs={qs} entities={entities} />}
       {tab === "bank" && <BankTab />}
     </div>
   );
@@ -894,20 +902,30 @@ function TaxSummaryTab({ qs }: { qs: string }) {
   );
 }
 
-/* ── Stripe ── */
-function StripeTab() {
-  const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; stripeFees: number; platformFees: number; net: number } } | null>(null);
+/* ── Stripe (paymentSource=STRIPE only — never mixes cash / offline) ── */
+function StripeTab({ qs }: { qs: string }) {
+  const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; stripeFees: number; platformFees: number; refunded: number; net: number } } | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch("/api/transactions").then((r) => (r.ok ? r.json() : null)).then((d) => { setData(d); setLoading(false); });
-  }, []);
+    setLoading(true);
+    // Server filter: paymentSource=stripe means "Stripe-source rows only".
+    // Cash/check/comp/external-reader are no longer surfaced here.
+    fetch(`/api/transactions?${qs}&paymentSource=stripe`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { setData(d); setLoading(false); });
+  }, [qs]);
   return (
     <>
+      <p className="text-xs text-text-muted mb-3">
+        Only Stripe-processed card payments. For cash, check, external-reader
+        or comp records, see the <span className="font-medium text-text-primary">Cash &amp; Offline</span> tab.
+      </p>
       {!loading && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <StatCard label="Total revenue" value={money(data?.totals.revenue || 0)} hint="All time, paid" />
-          <StatCard label="Stripe fees" value={money(data?.totals.stripeFees || 0)} hint="Exact processing fees (Stripe)" />
-          <StatCard label="Net revenue" value={money(data?.totals.net || 0)} hint="What you keep" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <StatCard label="Stripe revenue" value={money(data?.totals.revenue || 0)} hint="In the selected range" />
+          <StatCard label="Stripe fees" value={money(data?.totals.stripeFees || 0)} hint="Exact processing fees" />
+          <StatCard label="Refunded" value={money(data?.totals.refunded || 0)} hint="Recorded refunds" />
+          <StatCard label="Net" value={money(data?.totals.net || 0)} hint="Revenue − fees − refunds" />
         </div>
       )}
       <div className="bg-white rounded-xl border border-app-border overflow-hidden">
@@ -915,29 +933,263 @@ function StripeTab() {
         {loading ? (
           <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
         ) : !data?.transactions.length ? (
-          <div className="p-12 text-center text-sm text-text-muted">No transactions yet.</div>
+          <div className="p-12 text-center text-sm text-text-muted">No Stripe transactions in this period.</div>
         ) : (
-          <table className="w-full">
-            <thead className="bg-app-bg border-b border-app-border">
-              <tr><Th>Date</Th><Th>Member</Th><Th>Description</Th><Th>Status</Th><Th>Amount</Th><Th>Fee</Th></tr>
-            </thead>
-            <tbody>
-              {data.transactions.map((t) => (
-                <tr key={t.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
-                  <Td><span className="text-xs text-text-muted">{new Date(t.createdAt).toLocaleDateString()}</span></Td>
-                  <Td><span className="text-sm text-text-primary">{t.member ? `${t.member.firstName} ${t.member.lastName}` : "—"}</span></Td>
-                  <Td><span className="text-sm text-text-primary">{t.description || "Payment"}</span></Td>
-                  <Td><span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-primary">{t.status.charAt(0) + t.status.slice(1).toLowerCase()}</span></Td>
-                  <Td><span className="text-sm font-medium text-text-primary">{money(t.amount)}</span></Td>
-                  <Td><span className="text-xs text-text-muted">{t.stripeFeeAmount ? money(t.stripeFeeAmount) : "—"}</span></Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-app-bg border-b border-app-border">
+                <tr><Th>Date</Th><Th>Member</Th><Th>Description</Th><Th>Status</Th><Th>Amount</Th><Th>Fee</Th></tr>
+              </thead>
+              <tbody>
+                {data.transactions.map((t) => (
+                  <tr key={t.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                    <Td><span className="text-xs text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</span></Td>
+                    <Td><span className="text-sm text-text-primary">{t.member ? `${t.member.firstName} ${t.member.lastName}` : "—"}</span></Td>
+                    <Td><span className="text-sm text-text-primary">{t.description || "Payment"}</span></Td>
+                    <Td>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${t.refundedAt ? "bg-red-100 text-red-800" : "bg-app-bg text-text-primary"}`}>
+                        {t.refundedAt ? "Refunded" : t.status.charAt(0) + t.status.slice(1).toLowerCase()}
+                      </span>
+                    </Td>
+                    <Td><span className="text-sm font-medium text-text-primary">{money(t.amount)}</span></Td>
+                    <Td><span className="text-xs text-text-muted">{t.stripeFeeAmount ? money(t.stripeFeeAmount) : "—"}</span></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
       <ReconciliationCard />
     </>
+  );
+}
+
+/* ── Cash & Offline (every non-Stripe money record) ── */
+function CashOfflineTab({ qs, entities }: { qs: string; entities: Entity[] }) {
+  const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; refunded: number; net: number } } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "CASH" | "CHECK" | "EXTERNAL_READER" | "COMP" | "MANUAL_ADJUSTMENT">("all");
+  const [edit, setEdit] = useState<Tx | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    const src = filter === "all" ? "offline" : filter;
+    fetch(`/api/transactions?${qs}&paymentSource=${src}&limit=500`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { setData(d); setLoading(false); });
+  }, [qs, filter]);
+  useEffect(() => { load(); }, [load]);
+
+  const filters: { key: typeof filter; label: string }[] = [
+    { key: "all", label: "All offline" },
+    { key: "CASH", label: "Cash" },
+    { key: "CHECK", label: "Check" },
+    { key: "EXTERNAL_READER", label: "External reader" },
+    { key: "COMP", label: "Comp" },
+    { key: "MANUAL_ADJUSTMENT", label: "Manual" },
+  ];
+
+  return (
+    <>
+      <p className="text-xs text-text-muted mb-3">
+        Every non-Stripe payment record — cash, check, comp, or an external card
+        reader we recorded but never charged. Stripe payments are on the previous tab.
+      </p>
+      {!loading && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+          <StatCard label="Offline received" value={money(data?.totals.revenue || 0)} hint="In the selected range" />
+          <StatCard label="Refunded" value={money(data?.totals.refunded || 0)} hint="Recorded refunds/reversals" />
+          <StatCard label="Net" value={money(data?.totals.net || 0)} hint="Received minus refunded" />
+        </div>
+      )}
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-4 w-fit flex-wrap">
+        {filters.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`text-xs px-3 py-1 rounded-md transition ${
+              filter === f.key ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      {loading ? (
+        <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={5} /></div>
+      ) : !data?.transactions.length ? (
+        <div className="bg-white rounded-xl border border-app-border p-12 text-center text-sm text-text-muted">No offline payments in this period.</div>
+      ) : (
+        <div className="bg-white rounded-xl border border-app-border overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-app-bg border-b border-app-border">
+              <tr>
+                <Th>Date</Th>
+                <Th>Payer</Th>
+                <Th>Athlete</Th>
+                <Th>Item</Th>
+                <Th>Method</Th>
+                <Th>Amount</Th>
+                <Th>Recorded by</Th>
+                <Th>State</Th>
+                <Th>Receipt</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.transactions.map((t) => {
+                const isRefunded = !!t.refundedAt || Number(t.refundedAmount || 0) > 0;
+                const state = isRefunded
+                  ? { label: "Refunded", cls: "bg-red-100 text-red-800" }
+                  : t.status === "PENDING"
+                    ? { label: "Awaiting", cls: "bg-orange-accent/15 text-text-primary" }
+                    : t.status === "SUCCEEDED"
+                      ? { label: "Received", cls: "bg-lime-accent/25 text-text-primary" }
+                      : { label: t.status, cls: "bg-app-bg text-text-muted" };
+                const payer = t.member ? `${t.member.firstName} ${t.member.lastName}` : t.source || "—";
+                const athlete = t.athlete
+                  ? `${t.athlete.firstName} ${t.athlete.lastName}`
+                  : t.member
+                    ? "" /* same as payer */
+                    : "—";
+                return (
+                  <tr key={t.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
+                    <Td><span className="text-xs text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</span></Td>
+                    <Td><span className="text-sm text-text-primary">{payer}</span></Td>
+                    <Td><span className="text-xs text-text-muted">{athlete || "—"}</span></Td>
+                    <Td><span className="text-xs text-text-primary">{t.description || t.category || "—"}</span></Td>
+                    <Td><span className="text-xs text-text-muted">{t.paymentSource ?? t.paymentMethod ?? "—"}</span></Td>
+                    <Td><span className="text-sm font-medium text-text-primary">{money(t.amount)}</span></Td>
+                    <Td><span className="text-xs text-text-muted">{t.recordedBy?.name || "—"}</span></Td>
+                    <Td><span className={`text-xs px-2 py-0.5 rounded-full ${state.cls}`}>{state.label}</span></Td>
+                    <Td>
+                      {t.receiptUrl ? (
+                        <a href={t.receiptUrl} target="_blank" rel="noreferrer" className="text-xs text-brand hover:underline">View</a>
+                      ) : (
+                        <span className="text-xs text-text-muted">—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <button onClick={() => setEdit(t)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
+                        Manage
+                      </button>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {edit && (
+        <OfflineTxManageModal
+          tx={edit}
+          entities={entities}
+          onClose={() => setEdit(null)}
+          onSaved={() => { setEdit(null); load(); }}
+        />
+      )}
+    </>
+  );
+}
+
+function OfflineTxManageModal({ tx, entities, onClose, onSaved }: { tx: Tx; entities: Entity[]; onClose: () => void; onSaved: () => void }) {
+  const alreadyRefunded = !!tx.refundedAt || Number(tx.refundedAmount || 0) > 0;
+  const [markRefunded, setMarkRefunded] = useState(alreadyRefunded);
+  const [refundAmt, setRefundAmt] = useState(String(tx.refundedAmount ?? tx.amount ?? ""));
+  const [refundReason, setRefundReason] = useState(tx.refundReason || "manual");
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(tx.receiptUrl);
+  const [legalEntityId, setLegalEntityId] = useState(tx.legalEntity?.id || "");
+  const [notes, setNotes] = useState(tx.notes || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setErr("");
+    const body: Record<string, unknown> = {
+      legalEntityId: legalEntityId || null,
+      notes: notes || null,
+      receiptUrl,
+    };
+    if (markRefunded && !alreadyRefunded) {
+      body.refundedAmount = parseFloat(refundAmt) || Number(tx.amount);
+      body.refundReason = refundReason;
+    } else if (!markRefunded && alreadyRefunded) {
+      body.refundedAmount = 0;
+      body.refundedAt = null;
+      body.refundReason = null;
+    } else if (markRefunded && alreadyRefunded) {
+      body.refundedAmount = parseFloat(refundAmt) || Number(tx.refundedAmount ?? 0);
+      body.refundReason = refundReason;
+    }
+    const res = await fetch(`/api/transactions/${tx.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not save"); return; }
+    onSaved();
+  }
+
+  return (
+    <Modal title="Manage offline payment" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="bg-app-bg rounded-lg p-3 space-y-1 text-xs">
+          <div className="flex justify-between"><span className="text-text-muted">Amount</span><span className="font-medium text-text-primary">{money(tx.amount)}</span></div>
+          <div className="flex justify-between"><span className="text-text-muted">Method</span><span>{tx.paymentSource ?? tx.paymentMethod ?? "—"}</span></div>
+          <div className="flex justify-between"><span className="text-text-muted">Payer</span><span>{tx.member ? `${tx.member.firstName} ${tx.member.lastName}` : tx.source ?? "—"}</span></div>
+          {tx.recordedBy && <div className="flex justify-between"><span className="text-text-muted">Recorded by</span><span>{tx.recordedBy.name}</span></div>}
+        </div>
+        <Field label="Legal entity">
+          <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)}
+            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm">
+            <option value="">— None —</option>
+            {entities.map((en) => <option key={en.id} value={en.id}>{en.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Notes">
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
+            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+        </Field>
+        <Field label="Receipt">
+          <ReceiptUpload value={receiptUrl} onChange={setReceiptUrl} />
+        </Field>
+        <div className="border-t border-app-border pt-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={markRefunded} onChange={(e) => setMarkRefunded(e.target.checked)} />
+            <span className="text-text-primary">Mark as refunded / reversed</span>
+          </label>
+          <p className="text-[11px] text-text-muted mt-1">
+            Owner-declared flag — this does not process a Stripe refund. For Stripe
+            refunds, use the Stripe dashboard.
+          </p>
+          {markRefunded && (
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <Field label="Refund amount">
+                <input type="number" step="0.01" min={0} max={Number(tx.amount)}
+                  value={refundAmt} onChange={(e) => setRefundAmt(e.target.value)}
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm" />
+              </Field>
+              <Field label="Reason">
+                <select value={refundReason} onChange={(e) => setRefundReason(e.target.value)}
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm">
+                  <option value="manual">Manual refund</option>
+                  <option value="duplicate">Duplicate</option>
+                  <option value="chargeback">Chargeback</option>
+                  <option value="other">Other</option>
+                </select>
+              </Field>
+            </div>
+          )}
+        </div>
+        {err && <p className="text-xs text-red-600">{err}</p>}
+        <ModalActions saving={saving} label="Save" onClose={onClose} />
+      </form>
+    </Modal>
   );
 }
 

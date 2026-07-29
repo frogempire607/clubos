@@ -34,6 +34,16 @@ export async function POST(req: Request) {
     throw err;
   }
 
+  // Normalize the offline paymentSource + reconciliation so this row shows
+  // up in the Cash & Offline tab and never in the Stripe tab.
+  const paymentSource =
+    data.paymentMethod === "CASH"
+      ? "CASH"
+      : data.paymentMethod === "CHECK"
+        ? "CHECK"
+        : data.paymentMethod === "COMP"
+          ? "COMP"
+          : "MANUAL_ADJUSTMENT";
   const tx = await prisma.transaction.create({
     data: {
       clubId: session.user.clubId,
@@ -42,12 +52,15 @@ export async function POST(req: Request) {
       type: data.unpaidInvoice ? "INVOICE" : "MANUAL",
       category: data.category,
       paymentMethod: data.paymentMethod,
+      paymentSource,
+      reconciliationStatus: "OFFLINE",
       legalEntityId: data.legalEntityId || null,
       source: data.source || null,
       description: data.description || (data.unpaidInvoice ? "Manual invoice" : "Manual payment"),
       notes: data.notes || null,
       manual: true,
       txDate: data.date ? new Date(data.date) : new Date(),
+      recordedByUserId: session.user.id ?? null,
     },
   });
   return NextResponse.json(tx, { status: 201 });

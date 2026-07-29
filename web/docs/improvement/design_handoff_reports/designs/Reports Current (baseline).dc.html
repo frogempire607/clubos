@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.379.0/dist/umd/lucide.min.js"></script>
+<style>
+  body { margin: 0; background: #F7F7F9; color: #111111; font-family: "Inter", system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: #6D5DF6; text-decoration: none; }
+  a:hover { color: #5948E8; }
+</style>
+</helmet>
+
+<div style="display: flex; height: 100vh; background: #F7F7F9; color: #111111; font-family: 'Inter', system-ui, sans-serif;">
+
+  <aside style="width: 248px; flex-shrink: 0; display: flex; flex-direction: column; background: #1F1F23; overflow-y: auto;">
+    <div style="padding: 16px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 3px;">
+        <img src="web/public/brand/icon.png" alt="" style="width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: block;" />
+        <span style="color: #fff; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; font-family: Georgia, serif;">AthletixOS</span>
+      </div>
+      <div style="font-size: 11px; color: rgba(229,231,235,0.72); padding-left: 38px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">owner@northsideathletics.com</div>
+    </div>
+
+    <nav style="flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; text-decoration: none; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="layout-grid" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Dashboard</a>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="users" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Members</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="shield" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Staff</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="shopping-cart" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Purchase Options</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="calendar" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Classes &amp; Events</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <button type="button" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 8px; font-size: 13px; border: none; border-left: 3px solid transparent; cursor: pointer; font-weight: 400; background: transparent; color: rgba(229,231,235,0.72); font-family: inherit;"><span style="display: flex; align-items: center; gap: 10px;"><i data-lucide="message-square" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Communication</span><i data-lucide="chevron-right" width="14" height="14" stroke-width="2" style="color: rgba(255,255,255,0.4); flex-shrink: 0;"></i></button>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; text-decoration: none; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="check-square" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Attendance</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; text-decoration: none; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="dollar-sign" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Financials</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid #6D5DF6; font-size: 13px; text-decoration: none; font-weight: 500; background: #2A2A2E; color: #fff;"><i data-lucide="bar-chart-3" width="18" height="18" stroke-width="2" style="flex-shrink: 0;"></i>Reports</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; text-decoration: none; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="file-text" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Documents</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; border-left: 3px solid transparent; font-size: 13px; text-decoration: none; font-weight: 400; color: rgba(229,231,235,0.72);"><i data-lucide="settings" width="18" height="18" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Settings</a>
+    </nav>
+
+    <div style="padding: 10px 10px 0; display: flex;">
+      <button type="button" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 7px 12px; background: transparent; color: rgba(229,231,235,0.72); font-size: 12px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; cursor: pointer; font-family: inherit;"><i data-lucide="moon" width="14" height="14" stroke-width="2"></i>Dark mode</button>
+    </div>
+    <div style="padding: 4px 8px 0;"><a href="#" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px; border-radius: 8px; font-size: 13px; text-decoration: none; background: transparent; color: rgba(229,231,235,0.72);"><i data-lucide="user-circle-2" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>My account</a></div>
+    <div style="padding: 4px 8px 0;"><a href="#" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px; border-radius: 8px; font-size: 13px; text-decoration: none; background: transparent; color: rgba(229,231,235,0.72);"><i data-lucide="eye" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Client view</a></div>
+    <div style="padding: 10px 8px 0;"><a href="#" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px; border-radius: 8px; font-size: 13px; text-decoration: none; background: transparent; color: rgba(229,231,235,0.72);"><i data-lucide="help-circle" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Need help?</a></div>
+    <div style="padding: 10px 8px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 8px;">
+      <button type="button" style="width: 100%; text-align: left; padding: 7px 12px; border-radius: 8px; font-size: 12px; border: none; cursor: pointer; background: transparent; color: rgba(229,231,235,0.72); display: flex; align-items: center; gap: 10px; font-family: inherit;"><i data-lucide="log-out" width="16" height="16" stroke-width="2" style="flex-shrink: 0; opacity: 0.85;"></i>Sign out</button>
+    </div>
+  </aside>
+
+  <main style="flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;">
+    <div style="position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #E5E7EB; background: #FFFFFF;">
+      <button type="button" style="display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: #6B7280; background: none; border: none; cursor: pointer; font-family: inherit;"><i data-lucide="arrow-left" width="16" height="16" stroke-width="2"></i><span>Back</span></button>
+      <div style="flex: 1; min-width: 0; max-width: 576px;">
+        <div style="display: flex; align-items: center; gap: 8px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; padding: 0 12px; height: 36px;">
+          <i data-lucide="search" width="16" height="16" stroke-width="2" style="color: #6B7280; flex-shrink: 0;"></i>
+          <span style="flex: 1; font-size: 14px; color: #6B7280;">Search members, classes, events, documents…</span>
+          <kbd style="font-size: 10px; color: #6B7280; border: 1px solid #E5E7EB; border-radius: 4px; padding: 2px 6px;">Ctrl K</kbd>
+        </div>
+      </div>
+      <button type="button" style="position: relative; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: #6B7280;"><i data-lucide="bell" width="20" height="20" stroke-width="2"></i><span style="position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; background: #FF6A00;">4</span></button>
+      <button type="button" style="display: flex; align-items: center; gap: 8px; border-radius: 999px; padding: 4px 12px 4px 4px; background: none; border: none; cursor: pointer; font-family: inherit;"><span style="width: 32px; height: 32px; border-radius: 999px; background: #1F1F23; color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center;">JM</span><span style="font-size: 14px; color: #111111; font-weight: 500;">Jordan Mills</span><i data-lucide="chevron-down" width="12" height="12" stroke-width="2" style="color: #6B7280;"></i></button>
+    </div>
+
+    <div style="flex: 1; padding: 32px; max-width: 1152px; margin: 0 auto; width: 100%;">
+
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px;">
+        <div style="min-width: 0;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #111111; line-height: 1.2; letter-spacing: -0.02em; margin: 0;">Reports</h1>
+          <p style="font-size: 14px; color: #6B7280; margin: 6px 0 0; max-width: 576px;">Revenue, members, and attendance at a glance</p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px; background: #F7F7F9; border-radius: 8px; padding: 4px; flex-shrink: 0;">
+          <button type="button" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: #FFFFFF; box-shadow: 0 1px 2px rgba(17,17,17,0.08); color: #111111; font-weight: 500;">This month</button>
+          <button type="button" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: transparent; color: #6B7280;">Last month</button>
+          <button type="button" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: transparent; color: #6B7280;">Last 30 days</button>
+          <button type="button" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: transparent; color: #6B7280;">Last 90 days</button>
+          <button type="button" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: transparent; color: #6B7280;">YTD</button>
+          <button type="button" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: transparent; color: #6B7280;">Last 12 months</button>
+          <button type="button" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; background: transparent; color: #6B7280;">All time</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px;">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+          <p style="font-size: 12px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.025em; margin: 0 0 4px;">Revenue</p>
+          <p style="font-size: 24px; font-weight: 600; color: #111111; margin: 0;">$63,419</p>
+          <p style="font-size: 12px; margin: 4px 0 0; color: #15803D;">+12% vs previous</p>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+          <p style="font-size: 12px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.025em; margin: 0 0 4px;">Net (after expenses)</p>
+          <p style="font-size: 24px; font-weight: 600; color: #111111; margin: 0;">$15,326</p>
+          <p style="font-size: 12px; margin: 4px 0 0; color: #6B7280;">Expenses $48,092</p>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+          <p style="font-size: 12px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.025em; margin: 0 0 4px;">New members</p>
+          <p style="font-size: 24px; font-weight: 600; color: #111111; margin: 0;">14</p>
+          <p style="font-size: 12px; margin: 4px 0 0; color: #6B7280;">214 total</p>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+          <p style="font-size: 12px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.025em; margin: 0 0 4px;">Attendance</p>
+          <p style="font-size: 24px; font-weight: 600; color: #111111; margin: 0;">1,284</p>
+          <p style="font-size: 12px; margin: 4px 0 0; color: #6B7280;">96 drop-ins</p>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px;">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Revenue — last 12 months</h3>
+          <div style="display: flex; align-items: flex-end; gap: 8px; height: 160px; margin-top: 8px;">
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 76%;"></div><span style="font-size: 10px; color: #6B7280;">Aug 25</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 85%;"></div><span style="font-size: 10px; color: #6B7280;">Sep 25</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 89%;"></div><span style="font-size: 10px; color: #6B7280;">Oct 25</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 80%;"></div><span style="font-size: 10px; color: #6B7280;">Nov 25</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 72%;"></div><span style="font-size: 10px; color: #6B7280;">Dec 25</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 100%;"></div><span style="font-size: 10px; color: #6B7280;">Jan 26</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 93%;"></div><span style="font-size: 10px; color: #6B7280;">Feb 26</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 96%;"></div><span style="font-size: 10px; color: #6B7280;">Mar 26</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 91%;"></div><span style="font-size: 10px; color: #6B7280;">Apr 26</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 90%;"></div><span style="font-size: 10px; color: #6B7280;">May 26</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 98%;"></div><span style="font-size: 10px; color: #6B7280;">Jun 26</span></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; height: 100%; justify-content: flex-end;"><div style="width: 100%; background: #6D5DF6; border-radius: 4px 4px 0 0; height: 92%;"></div><span style="font-size: 10px; color: #6B7280;">Jul 26</span></div>
+          </div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Revenue by source</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Memberships</span><span style="font-weight: 500; color: #111111;">$46,894</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 74%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Events</span><span style="font-weight: 500; color: #111111;">$6,240</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 10%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Private lessons</span><span style="font-weight: 500; color: #111111;">$2,865</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 5%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Class drop-ins</span><span style="font-weight: 500; color: #111111;">$2,710</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 4%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Products</span><span style="font-weight: 500; color: #111111;">$985</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 2%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">One-time charges</span><span style="font-weight: 500; color: #111111;">$3,725</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 6%;"></div></div></div>
+          </div>
+          <p style="font-size: 11px; color: #6B7280; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid #E5E7EB;">Platform fees collected: $1,268</p>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px;">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Members</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Active</span><span style="font-weight: 500; color: #111111;">186</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 87%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Prospect</span><span style="font-weight: 500; color: #111111;">17</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 8%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Paused</span><span style="font-weight: 500; color: #111111;">6</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 3%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Inactive</span><span style="font-weight: 500; color: #111111;">5</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 2%;"></div></div></div>
+          </div>
+          <p style="font-size: 11px; color: #6B7280; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid #E5E7EB;">148 members are minors</p>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Subscriptions</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Active</span><span style="font-weight: 500; color: #111111;">186</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #22C55E; border-radius: 999px; width: 93%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Pending</span><span style="font-weight: 500; color: #111111;">9</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 4.5%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Past due</span><span style="font-weight: 500; color: #111111;">5</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #EF4444; border-radius: 999px; width: 2.5%;"></div></div></div>
+          </div>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Attendance</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Present</span><span style="font-weight: 500; color: #111111;">1,102</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #22C55E; border-radius: 999px; width: 86%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Drop-in</span><span style="font-weight: 500; color: #111111;">96</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 7.5%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Trial</span><span style="font-weight: 500; color: #111111;">31</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 2.4%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">Absent</span><span style="font-weight: 500; color: #111111;">55</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 4.3%;"></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px;">
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Top events by bookings</h3>
+          <ul style="list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px;">
+            <li style="display: flex; align-items: center; justify-content: space-between; font-size: 14px;"><div style="display: flex; align-items: center; gap: 8px; min-width: 0;"><span style="color: #6B7280; width: 20px;">1.</span><span style="color: #111111;">Summer Camp — Week 3</span><span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #F7F7F9; color: #6B7280;">CAMP</span></div><span style="font-weight: 600; color: #111111;">48</span></li>
+            <li style="display: flex; align-items: center; justify-content: space-between; font-size: 14px;"><div style="display: flex; align-items: center; gap: 8px; min-width: 0;"><span style="color: #6B7280; width: 20px;">2.</span><span style="color: #111111;">Regional Qualifier</span><span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #F7F7F9; color: #6B7280;">MEET</span></div><span style="font-weight: 600; color: #111111;">36</span></li>
+            <li style="display: flex; align-items: center; justify-content: space-between; font-size: 14px;"><div style="display: flex; align-items: center; gap: 8px; min-width: 0;"><span style="color: #6B7280; width: 20px;">3.</span><span style="color: #111111;">Tumbling Clinic</span><span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #F7F7F9; color: #6B7280;">CLINIC</span></div><span style="font-weight: 600; color: #111111;">29</span></li>
+            <li style="display: flex; align-items: center; justify-content: space-between; font-size: 14px;"><div style="display: flex; align-items: center; gap: 8px; min-width: 0;"><span style="color: #6B7280; width: 20px;">4.</span><span style="color: #111111;">Parents' Night Out</span><span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #F7F7F9; color: #6B7280;">EVENT</span></div><span style="font-weight: 600; color: #111111;">24</span></li>
+            <li style="display: flex; align-items: center; justify-content: space-between; font-size: 14px;"><div style="display: flex; align-items: center; gap: 8px; min-width: 0;"><span style="color: #6B7280; width: 20px;">5.</span><span style="color: #111111;">Open Gym Friday</span><span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #F7F7F9; color: #6B7280;">OPEN</span></div><span style="font-weight: 600; color: #111111;">21</span></li>
+          </ul>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 12px;">Expenses by category</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">PAYROLL</span><span style="font-weight: 500; color: #111111;">$19,480</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 100%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">RENT</span><span style="font-weight: 500; color: #111111;">$8,500</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 44%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">CONTRACTORS</span><span style="font-weight: 500; color: #111111;">$6,120</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 31%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">PROCESSING_FEES</span><span style="font-weight: 500; color: #111111;">$2,149</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 11%;"></div></div></div>
+            <div><div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 2px;"><span style="color: #6B7280;">INSURANCE</span><span style="font-weight: 500; color: #111111;">$1,940</span></div><div style="height: 6px; background: #F7F7F9; border-radius: 999px; overflow: hidden;"><div style="height: 100%; background: #6D5DF6; border-radius: 999px; width: 10%;"></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+        <h3 style="font-size: 14px; font-weight: 600; color: #111111; margin: 0 0 4px;">Export raw data</h3>
+        <p style="font-size: 12px; color: #6B7280; margin: 0 0 12px;">Download CSVs for accounting or further analysis.</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <a href="#" style="font-size: 12px; padding: 6px 12px; border: 1px solid #E5E7EB; border-radius: 8px; color: #111111;">Transactions CSV</a>
+          <a href="#" style="font-size: 12px; padding: 6px 12px; border: 1px solid #E5E7EB; border-radius: 8px; color: #111111;">Members CSV</a>
+          <a href="#" style="font-size: 12px; padding: 6px 12px; border: 1px solid #E5E7EB; border-radius: 8px; color: #111111;">Attendance CSV</a>
+          <a href="#" style="font-size: 12px; padding: 6px 12px; border: 1px solid #E5E7EB; border-radius: 8px; color: #111111;">Full financials →</a>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() { this.icons(); }
+  componentDidUpdate() { this.icons(); }
+  icons() {
+    const run = () => { if (window.lucide) window.lucide.createIcons(); };
+    run();
+    setTimeout(run, 300);
+    setTimeout(run, 1200);
+  }
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
