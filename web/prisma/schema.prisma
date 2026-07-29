@@ -200,6 +200,9 @@ model Club {
   expenseClassificationOverrides ExpenseClassificationOverride[]
   payoutMatches               PayoutMatch[]
   reportAlertSettings         ReportAlertSetting[]
+  importBatches               ImportBatch[]
+  importRows                  ImportRow[]
+  memberHistoricalRecords     MemberHistoricalRecord[]
   pendingApprovals            PendingApproval[]
   legalAcceptances            LegalAcceptance[]
   invoiceSplits               InvoiceSplit[]
@@ -795,12 +798,33 @@ model Member {
   billingAuditLogs        BillingAuditLog[]
   reactivations           MembershipReactivation[]
   EventBundlePurchase     EventBundlePurchase[]
+  historicalRecords       MemberHistoricalRecord[]
+
+  // ── Historical imports (Phase 2.5.9) ─────────────────────────────
+  // Legacy vendor id (matches EXTERNAL_ID signal in specs/04).
+  externalMemberId String?
+  // "ATHLETIXOS" for native rows; opaque source slug for imported ones.
+  sourceSystem     String?
+  // The batch that imported this member (null for native rows).
+  importBatchId    String?
+  // Never in active rosters, billing, messaging; counts only in all-time
+  // reporting.
+  isHistoricalOnly Boolean @default(false)
+  // Lowercased + trimmed email; E.164-normalized phone. Matching reads
+  // these, never the raw fields.
+  normalizedEmail  String?
+  normalizedPhone  String?
 
   @@index([clubId])
   @@index([status])
   @@index([guardianId])
   @@index([clubId, joinedAt], map: "members_clubId_joinedAt_idx")
   @@index([clubId, status], map: "members_clubId_status_idx")
+  @@index([clubId, externalMemberId], map: "members_clubId_externalMemberId_idx")
+  @@index([clubId, normalizedEmail], map: "members_clubId_normalizedEmail_idx")
+  @@index([clubId, normalizedPhone], map: "members_clubId_normalizedPhone_idx")
+  @@index([clubId, isHistoricalOnly], map: "members_clubId_isHistoricalOnly_idx")
+  @@index([importBatchId], map: "members_importBatchId_idx")
   @@map("members")
 }
 
@@ -1553,6 +1577,21 @@ model Transaction {
   // Expense.receiptUrl) + a timestamp for the last receipt-email dispatch.
   receiptUrl            String?
   receiptSentAt         DateTime?
+  // ── Historical imports (Phase 2.5.9) ─────────────────────────────
+  // Legacy vendor's transaction id. UNIQUE per (clubId, sourceSystem,
+  // externalTransactionId) — the whole idempotency story for imports.
+  externalTransactionId String?
+  externalCustomerId    String?
+  // ATHLETIXOS | PREVIOUS_SOFTWARE | MANUAL_IMPORT | STRIPE | CASH |
+  // BANK | OTHER. Distinct from `paymentSource` (which is HOW paid, not
+  // WHERE the record came from).
+  sourceSystem          String?
+  importBatchId         String?
+  isHistorical          Boolean           @default(false)
+  // Fallback dedupe key for rows without an external id:
+  // sha256(clubId + date + amount + normalizedPayerEmail + itemLabel).
+  // Unique per club.
+  dedupeHash            String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
@@ -1572,6 +1611,10 @@ model Transaction {
   @@index([recordedByUserId], map: "transactions_recordedByUserId_idx")
   @@index([clubId, status, createdAt], map: "transactions_clubId_status_createdAt_idx")
   @@index([clubId, txDate], map: "transactions_clubId_txDate_idx")
+  @@unique([clubId, sourceSystem, externalTransactionId], map: "transactions_clubId_sourceSystem_externalTransactionId_key")
+  @@unique([clubId, dedupeHash], map: "transactions_clubId_dedupeHash_key")
+  @@index([clubId, isHistorical], map: "transactions_clubId_isHistorical_idx")
+  @@index([importBatchId], map: "transactions_importBatchId_idx")
   @@map("transactions")
 }
 
@@ -1904,6 +1947,101 @@ model ReportAlertSetting {
   @@unique([clubId, kind], map: "report_alert_settings_clubId_kind_key")
   @@index([clubId], map: "report_alert_settings_clubId_idx")
   @@map("report_alert_settings")
+}
+
+// Reports Phase 2.5.9 — historical import batches.
+//
+// Every CSV upload creates one row. Drives the audit log and 30-day
+// rollback window. `sourceLabel` is the owner-typed "where are you
+// importing from?" free text — the UI reads this everywhere it would
+// otherwise print a vendor name. Never hardcode a vendor name.
+model ImportBatch {
+  id                String    @id @default(cuid())
+  clubId            String
+  kind              String    // "MEMBERS" | "TRANSACTIONS"
+  status            String    @default("DRAFT")
+  sourceLabel       String?
+  sourceSystem      String?
+  fileName          String
+  fileHash          String
+  rowCount          Int       @default(0)
+  columnMap         Json?
+  createdCount      Int       @default(0)
+  matchedCount      Int       @default(0)
+  mergedCount       Int       @default(0)
+  skippedCount      Int       @default(0)
+  errorCount        Int       @default(0)
+  reviewCount       Int       @default(0)
+  startedAt         DateTime?
+  completedAt       DateTime?
+  rolledBackAt      DateTime?
+  rollbackExpiresAt DateTime?
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  club              Club                     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  rows              ImportRow[]
+  historicalRecords MemberHistoricalRecord[]
+
+  @@index([clubId, kind, createdAt], map: "import_batches_clubId_kind_idx")
+  @@index([clubId, status], map: "import_batches_clubId_status_idx")
+  @@map("import_batches")
+}
+
+// Per-CSV-line audit row. Permanent — does NOT expire with the rollback
+// window. Filterable by outcome in the wizard step 7 log.
+model ImportRow {
+  id             String    @id @default(cuid())
+  batchId        String
+  clubId         String
+  rowNumber      Int
+  rawData        Json
+  normalizedData Json?
+  outcome        String
+  reason         String?
+  matchSignal    String?
+  confidence     String?
+  targetType     String?
+  targetId       String?
+  decidedBy      String?
+  decidedAt      DateTime?
+  errors         Json?
+  createdAt      DateTime  @default(now())
+
+  batch ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  club  Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, outcome], map: "import_rows_batchId_outcome_idx")
+  @@index([clubId, targetId], map: "import_rows_clubId_targetId_idx")
+  @@map("import_rows")
+}
+
+// Historical membership span imported from another system. Kept separate
+// from MemberSubscription so native subscription logic (billing, Stripe,
+// dunning) never touches imported rows.
+model MemberHistoricalRecord {
+  id                  String       @id @default(cuid())
+  clubId              String
+  memberId            String
+  membershipTypeLabel String?
+  startDate           DateTime?
+  endDate             DateTime?
+  status              String?
+  externalMemberId    String?
+  sourceSystem        String?
+  importBatchId       String?
+  notes               String?
+  dataCompleteness    Json         @default("{}")
+  createdAt           DateTime     @default(now())
+
+  club   Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  batch  ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+
+  @@index([memberId], map: "member_historical_records_memberId_idx")
+  @@index([clubId], map: "member_historical_records_clubId_idx")
+  @@map("member_historical_records")
 }
 
 // Reports Phase 2.5.7 — Stripe payout ↔ bank credit link. Cash flow reads
