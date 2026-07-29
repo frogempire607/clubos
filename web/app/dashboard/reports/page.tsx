@@ -8,6 +8,7 @@ import EmptyState from "@/components/EmptyState";
 import ReliabilityStrip from "@/components/reports/ReliabilityStrip";
 import RangeDropdown, { type RangeKey } from "@/components/reports/RangeDropdown";
 import SnapshotTab from "@/components/reports/SnapshotTab";
+import RevenueTab from "@/components/reports/RevenueTab";
 
 type TabKey =
   | "snapshot"
@@ -167,14 +168,14 @@ export default function ReportsPage() {
       </div>
 
       {tab === "snapshot" && <SnapshotTab range={range} customFrom={customFrom} customTo={customTo} />}
-      {tab !== "snapshot" && <TabPlaceholder tabKey={tab} />}
+      {tab === "revenue" && <RevenueTab range={range} customFrom={customFrom} customTo={customTo} />}
+      {tab !== "snapshot" && tab !== "revenue" && <TabPlaceholder tabKey={tab} />}
     </div>
   );
 }
 
-function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot"> }) {
-  const messages: Record<Exclude<TabKey, "snapshot">, { title: string; sub: string; phase: string }> = {
-    revenue: { title: "Revenue tab coming next", sub: "Mix, top items, top coaches/classes, source chips, then recurring metrics.", phase: "Phase 2.5.2" },
+function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue"> }) {
+  const messages: Record<Exclude<TabKey, "snapshot" | "revenue">, { title: string; sub: string; phase: string }> = {
     costs: { title: "Costs tab coming soon", sub: "Fixed vs variable split, top categories, top vendors, unusual increases.", phase: "Phase 2.5.3" },
     pnl: { title: "P&L with drill-through coming soon", sub: "Monthly + weekly, cash + accrual, CSV + PDF export, click any figure to drill.", phase: "Phase 2.5.4" },
     membership: { title: "Membership analytics coming soon", sub: "Movement, churn, retention, top movers.", phase: "Phase 2.5.5" },
