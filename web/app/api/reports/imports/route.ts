@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { hasReportScope } from "@/lib/reportsPermissions";
 import crypto from "crypto";
 import {
   autoMapMemberHeaders,
@@ -20,11 +21,12 @@ const MAX_ROWS = 50_000;
 
 export async function GET() {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Owner only" }, { status: 403 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "reports", "view");
   if (denied) return denied;
+  if (!hasReportScope(session, "imports")) {
+    return NextResponse.json({ error: "You don't have permission to run imports." }, { status: 403 });
+  }
 
   const batches = await prisma.importBatch.findMany({
     where: { clubId: session.user.clubId },
@@ -43,11 +45,12 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Owner only" }, { status: 403 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "reports", "view");
   if (denied) return denied;
+  if (!hasReportScope(session, "imports")) {
+    return NextResponse.json({ error: "You don't have permission to run imports." }, { status: 403 });
+  }
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");

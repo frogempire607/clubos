@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { hasReportScope } from "@/lib/reportsPermissions";
 
 // POST /api/reports/imports/[id]/review/[rowId]
 // Owner picks one of five outcomes for a review row (specs/04 §step 5).
@@ -16,11 +17,12 @@ const schema = z.object({
 export async function POST(req: Request, context: { params: Promise<{ id: string; rowId: string }> }) {
   const { id, rowId } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Owner only" }, { status: 403 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "reports", "view");
   if (denied) return denied;
+  if (!hasReportScope(session, "imports")) {
+    return NextResponse.json({ error: "You don't have permission to run imports." }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

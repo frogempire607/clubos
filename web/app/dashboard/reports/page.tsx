@@ -54,6 +54,10 @@ export default function ReportsPage() {
   const [reliability, setReliability] = useState<{ sections: unknown[]; generatedAt?: string }>({ sections: [] });
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [alertsBadge, setAlertsBadge] = useState<number | null>(null);
+  // Sub-scoped Reports permissions — from /api/me. When a staff member
+  // lacks a scope, the matching tab hides from the tab bar (spec 05 §client
+  // hides tabs; server still enforces per-endpoint).
+  const [scopes, setScopes] = useState<Record<string, boolean> | null>(null);
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
@@ -97,7 +101,58 @@ export default function ReportsPage() {
         }
       })
       .catch(() => {});
+    // Load sub-scoped Reports permissions from /api/me. When a staff
+    // member lacks a scope, the matching tab hides from the tab bar.
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        // OWNER: everything on.
+        if (d.role === "OWNER") {
+          setScopes({
+            view: true, financials: true, bank_balances: true, payroll: true,
+            owner_equity: true, vendors: true, membership: true, by_coach: true,
+            imports: true, rollback: true,
+          });
+          return;
+        }
+        const perms = (d.permissions ?? {}) as Record<string, unknown>;
+        const raw = perms.reports;
+        if (raw == null || raw === "none") { setScopes({}); return; }
+        if (typeof raw === "string") {
+          setScopes({ view: true, financials: true, vendors: true, membership: true });
+          return;
+        }
+        if (typeof raw === "object") {
+          const obj = raw as Record<string, unknown>;
+          const out: Record<string, boolean> = {};
+          for (const k of ["view", "financials", "bank_balances", "payroll", "owner_equity", "vendors", "membership", "by_coach", "imports", "rollback"]) {
+            out[k] = obj[k] === true || obj[k] === "true";
+          }
+          if (Object.values(out).some((v) => v)) out.view = true;
+          setScopes(out);
+          return;
+        }
+        setScopes({});
+      })
+      .catch(() => setScopes(null));
   }, []);
+
+  // Which tab keys is the caller allowed to see?
+  const canSeeTab = (key: TabKey): boolean => {
+    if (scopes == null) return true; // during load, show everything
+    if (!scopes.view) return false;
+    if (key === "pnl" || key === "costs" || key === "cash_flow" || key === "unit_economics") return !!scopes.financials;
+    if (key === "membership") return !!scopes.membership;
+    if (key === "imports") return !!scopes.imports;
+    return true; // snapshot, revenue always shown to reports.view
+  };
+  const visibleTabs = TABS.filter((t) => canSeeTab(t.key));
+  // If the current tab is hidden, fall back to Snapshot.
+  useEffect(() => {
+    if (scopes && !canSeeTab(tab)) setTab("snapshot");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopes, tab]);
 
   // Scroll the active tab into view on mount (mobile horizontal-scroll bar).
   useEffect(() => {
@@ -182,7 +237,7 @@ export default function ReportsPage() {
         className="bg-surface border border-app-border rounded-xl mb-5 p-1 flex gap-1 overflow-x-auto relative"
         style={{ scrollBehavior: "smooth" }}
       >
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.key}
             ref={(el) => { tabRefs.current[t.key] = el; }}

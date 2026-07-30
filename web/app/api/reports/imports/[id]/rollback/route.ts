@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { hasReportScope } from "@/lib/reportsPermissions";
 
 // POST /api/reports/imports/[id]/rollback
 // Owner-only, 30-day window. `CREATED` members without dependent activity
@@ -12,11 +13,12 @@ import { requirePermission } from "@/lib/apiGuard";
 export async function POST(_req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "OWNER") {
-    return NextResponse.json({ error: "Owner only" }, { status: 403 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "reports", "view");
   if (denied) return denied;
+  if (!hasReportScope(session, "rollback")) {
+    return NextResponse.json({ error: "You don't have permission to roll back imports." }, { status: 403 });
+  }
 
   const batch = await prisma.importBatch.findFirst({ where: { id, clubId: session.user.clubId } });
   if (!batch) return NextResponse.json({ error: "Not found" }, { status: 404 });

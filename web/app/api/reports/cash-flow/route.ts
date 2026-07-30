@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/apiGuard";
 import { getTierFeatures, tierBlockedBody, upgradeRequired } from "@/lib/tier";
 import { resolveReportsRange, serializeRange, type RangeKey } from "@/lib/reportsRange";
 import { buildCashFlow } from "@/lib/reportsCashFlow";
+import { hasReportScope } from "@/lib/reportsPermissions";
 
 // GET /api/reports/cash-flow?range=&from=&to=
 export async function GET(req: Request) {
@@ -42,6 +43,24 @@ export async function GET(req: Request) {
     clubCreatedAt: club?.createdAt ?? new Date(),
   });
 
+  if (!hasReportScope(session, "financials")) {
+    return NextResponse.json({ error: "You don't have permission to view cash flow." }, { status: 403 });
+  }
+  const canBank = hasReportScope(session, "bank_balances");
+  const canOwnerEquity = hasReportScope(session, "owner_equity");
+
   const payload = await buildCashFlow(clubId, range);
-  return NextResponse.json({ ...payload, range: serializeRange(range) });
+  const restricted: string[] = [];
+  if (!canBank) {
+    payload.beginningCash = null;
+    payload.endingCash = null;
+    restricted.push("bank_balances");
+  }
+  if (!canOwnerEquity) {
+    payload.financing = payload.financing.filter(
+      (f) => f.kind !== "OWNER_CONTRIBUTION" && f.kind !== "OWNER_DISTRIBUTION",
+    );
+    restricted.push("owner_equity");
+  }
+  return NextResponse.json({ ...payload, range: serializeRange(range), restricted });
 }
