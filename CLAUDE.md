@@ -32,3 +32,20 @@ Two gotchas that already bit us:
 
 1. When you replace an inline auth check with `requirePermission(session, …)`, TypeScript loses `session` null-narrowing → the build fails with "'session' is possibly null." Add an explicit `if (!session) return 401;` before the guard.
 2. Permission model: `StaffProfile.permissions` is a JSON blob. Keys: `members, attendance, classes, events, schedule, messages, documents, finances, reports, staff`. Levels: `none, view, send, edit, full`. **OWNER bypasses everything.** Guard server-side with `requirePermission` (`web/lib/apiGuard.ts`) or `hasPermission` (`web/lib/permissions.ts`). **Privates are gated under the `events` key**, not a "privates" key.
+
+## Database safety — non-negotiable
+
+- NEVER pass a production connection string to `--shadow-database-url`. Prisma
+  drops and recreates shadow databases by design. This wiped production on
+  2026-07-29 (recovered from a pg_dump taken minutes earlier).
+- NEVER run `prisma migrate reset` or `prisma db push --accept-data-loss`
+  against production.
+- Before any session that touches migrations, take a backup:
+  `export PATH="$(brew --prefix postgresql@17)/bin:$PATH"`
+  `pg_dump "<session pooler URI>" --no-owner --no-privileges -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql`
+- Supabase server is Postgres 17.6 — local pg_dump/psql must be 17+.
+- The direct DB host does not resolve on this network. Use the session pooler
+  (port 5432) for psql/pg_dump/migrate, transaction pooler (6543,
+  `?pgbouncer=true`) for the app.
+- Julian runs all database commands from his own terminal. The Claude Code
+  sandbox cannot reach the database.
