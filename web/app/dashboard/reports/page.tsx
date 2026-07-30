@@ -211,16 +211,17 @@ export default function ReportsPage() {
 }
 
 function TabPlaceholder({ tabKey }: { tabKey: Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl" | "membership" | "unit_economics" | "cash_flow"> }) {
-  const messages: Record<Exclude<TabKey, "snapshot" | "revenue" | "costs" | "pnl" | "membership" | "unit_economics" | "cash_flow">, { title: string; sub: string; phase: string }> = {
-    imports: { title: "Import wizard coming soon", sub: "Seven-step CSV importer for pre-AthletixOS history.", phase: "Phase 2.5.10" },
-  };
-  const m = messages[tabKey];
-  return (
-    <EmptyState
-      icon={<BarChart3 size={26} strokeWidth={1.75} />}
-      title={m.title}
-      description={`${m.sub} (${m.phase})`}
-      className="bg-surface border border-app-border rounded-xl"
-    />
-  );
+  // Only "imports" remains — every other tab is handled above.
+  if (tabKey === "imports") {
+    return (
+      <EmptyState
+        icon={<BarChart3 size={26} strokeWidth={1.75} />}
+        title="History & imports"
+        description="Bring your history over from your previous system. Nothing is written until step 6, and every import is rollback-safe for 30 days."
+        action={{ label: "Open imports →", href: "/dashboard/reports/imports" }}
+        className="bg-surface border border-app-border rounded-xl"
+      />
+    );
+  }
+  return null;
 }
