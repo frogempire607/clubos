@@ -70,6 +70,79 @@ export type CashFlowPayload = {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+export type PlaidRowLite = {
+  id: string;
+  plaidTransactionId: string;
+  plaidConnectionId: string;
+  amount: unknown; // Decimal-like
+  date: Date;
+  name: string;
+  merchantName?: string | null;
+  categoryOverride: string | null;
+  markedAsTransfer: boolean;
+  excludedFromTax?: boolean;
+  categorizedExpenseId?: string | null;
+};
+export type PayoutMatchLite = { id: string; amount: unknown; arrivalDate: Date; bankTransactionId: string | null };
+
+// Detect matched debit+credit transfer pairs across connections within
+// TRANSFER_WINDOW_DAYS. Returns the set of PlaidTransaction IDs marked as
+// transfers PLUS the accountTransfers summary. PURE — used by tests and by
+// buildCashFlow.
+export function detectTransferPairs(plaidRows: PlaidRowLite[]): {
+  transfersDetected: Set<string>;
+  accountTransfers: { count: number; amount: number };
+} {
+  const transfersDetected = new Set<string>();
+  const transferPairAmountByGroup = new Map<string, number>();
+  const rows = plaidRows.filter((r) => r.amount);
+  for (const debit of rows) {
+    if (Number(debit.amount) <= 0) continue;
+    if (debit.markedAsTransfer) transfersDetected.add(debit.id);
+    for (const credit of rows) {
+      if (credit.id === debit.id) continue;
+      if (Number(credit.amount) >= 0) continue;
+      if (credit.plaidConnectionId === debit.plaidConnectionId) continue;
+      if (Math.abs(Number(debit.amount) + Number(credit.amount)) > 0.01) continue;
+      const daysApart = Math.abs(debit.date.getTime() - credit.date.getTime()) / 86400000;
+      if (daysApart > TRANSFER_WINDOW_DAYS) continue;
+      transfersDetected.add(debit.id);
+      transfersDetected.add(credit.id);
+      const groupKey = `${Math.min(debit.date.getTime(), credit.date.getTime())}:${Number(debit.amount).toFixed(2)}`;
+      transferPairAmountByGroup.set(groupKey, Math.abs(Number(debit.amount)));
+    }
+  }
+  const totalAmount = Array.from(transferPairAmountByGroup.values()).reduce((s, v) => s + v, 0);
+  return {
+    transfersDetected,
+    accountTransfers: { count: transferPairAmountByGroup.size, amount: round2(totalAmount) },
+  };
+}
+
+// Classify a single bank row (post-transfer-detection) into operating /
+// investing / financing / excluded. PURE.
+export type CashFlowClassification =
+  | { bucket: "TRANSFER" }
+  | { bucket: "PAYOUT_MATCH" }
+  | { bucket: "FINANCING"; kind: "LOAN_PROCEEDS" | "LOAN_PAYMENT" | "OWNER_CONTRIBUTION" | "OWNER_DISTRIBUTION" }
+  | { bucket: "INVESTING" }
+  | { bucket: "OPERATING"; direction: "IN" | "OUT"; amount: number };
+
+export function classifyPlaidRow(
+  row: PlaidRowLite,
+  ctx: { transfersDetected: Set<string>; matchedBankIds: Set<string> },
+): CashFlowClassification {
+  if (ctx.transfersDetected.has(row.id) || row.markedAsTransfer) return { bucket: "TRANSFER" };
+  if (ctx.matchedBankIds.has(row.plaidTransactionId)) return { bucket: "PAYOUT_MATCH" };
+  const amt = Number(row.amount);
+  const cat = row.categoryOverride;
+  const finKind = cat && FINANCING_CATEGORIES[cat] ? FINANCING_CATEGORIES[cat] : null;
+  if (finKind) return { bucket: "FINANCING", kind: finKind };
+  if (cat && INVESTING_CATEGORIES.has(cat)) return { bucket: "INVESTING" };
+  if (!cat && Math.abs(amt) >= CAPITALIZATION_THRESHOLD && amt > 0) return { bucket: "INVESTING" };
+  return { bucket: "OPERATING", direction: amt > 0 ? "OUT" : "IN", amount: Math.abs(amt) };
+}
+
 function bankDateWhere(r: ResolvedRange) {
   if (!r.start) return {};
   return { date: { gte: r.start, lt: r.end } };
@@ -102,46 +175,14 @@ export async function buildCashFlow(clubId: string, r: ResolvedRange): Promise<C
 
   const matchedBankIds = new Set(payoutMatches.map((p) => p.bankTransactionId).filter((v): v is string => !!v));
 
-  // Transfer detection: for each connection, find matched debit/credit pairs
-  // within TRANSFER_WINDOW_DAYS.
-  const transfersDetected = new Set<string>();
-  const transferPairAmountByGroup = new Map<string, number>();
-  {
-    const byConn = new Map<string, typeof plaidRows>();
-    for (const row of plaidRows) {
-      const arr = byConn.get(row.plaidConnectionId) ?? [];
-      arr.push(row);
-      byConn.set(row.plaidConnectionId, arr);
-    }
-    // For each debit (positive amount = outflow), look for a credit
-    // (negative amount) with the same |amount| within window across
-    // ANY other connection.
-    const otherConnRows = plaidRows.filter((r) => r.amount);
-    for (const debit of otherConnRows) {
-      if (Number(debit.amount) <= 0) continue;
-      if (debit.markedAsTransfer) transfersDetected.add(debit.id);
-      for (const credit of otherConnRows) {
-        if (credit.id === debit.id) continue;
-        if (Number(credit.amount) >= 0) continue;
-        if (credit.plaidConnectionId === debit.plaidConnectionId) continue;
-        if (Math.abs(Number(debit.amount) + Number(credit.amount)) > 0.01) continue;
-        const daysApart = Math.abs(debit.date.getTime() - credit.date.getTime()) / 86400000;
-        if (daysApart > TRANSFER_WINDOW_DAYS) continue;
-        transfersDetected.add(debit.id);
-        transfersDetected.add(credit.id);
-        const groupKey = `${Math.min(debit.date.getTime(), credit.date.getTime())}:${Number(debit.amount).toFixed(2)}`;
-        transferPairAmountByGroup.set(groupKey, Math.abs(Number(debit.amount)));
-      }
-    }
-  }
+  const { transfersDetected, accountTransfers } = detectTransferPairs(plaidRows);
 
   // Excluded totals.
   const matchedPayoutTotal = payoutMatches
     .filter((p) => p.bankTransactionId != null)
     .reduce((s, p) => s + Number(p.amount), 0);
-  const accountTransferAmount = Array.from(transferPairAmountByGroup.values()).reduce((s, v) => s + v, 0);
   const excluded = {
-    accountTransfers: { count: transferPairAmountByGroup.size, amount: round2(accountTransferAmount) },
+    accountTransfers,
     matchedStripePayouts: { count: matchedBankIds.size, amount: round2(matchedPayoutTotal) },
   };
 
@@ -153,41 +194,27 @@ export async function buildCashFlow(clubId: string, r: ResolvedRange): Promise<C
   let opInflows = 0;
   let opOutflows = 0;
   for (const row of plaidRows) {
-    if (transfersDetected.has(row.id) || row.markedAsTransfer) continue;
-    if (matchedBankIds.has(row.plaidTransactionId)) continue;
+    const cls = classifyPlaidRow(row, { transfersDetected, matchedBankIds });
+    if (cls.bucket === "TRANSFER" || cls.bucket === "PAYOUT_MATCH") continue;
     const amt = Number(row.amount);
-    const cat = row.categoryOverride;
-
-    // Financing?
-    const finKind = cat && FINANCING_CATEGORIES[cat] ? FINANCING_CATEGORIES[cat] : null;
-    if (finKind) {
+    if (cls.bucket === "FINANCING") {
       const label = row.name;
-      const existing = financing.get(label) ?? { amount: 0, kind: finKind };
+      const existing = financing.get(label) ?? { amount: 0, kind: cls.kind };
       existing.amount += amt;
       financing.set(label, existing);
       continue;
     }
-
-    // Investing?
-    if (cat && INVESTING_CATEGORIES.has(cat)) {
-      const label = row.name;
-      investing.set(label, (investing.get(label) ?? 0) + amt);
-      continue;
-    }
-    // Large capital purchase without category — still investing if above
-    // capitalization threshold.
-    if (!cat && Math.abs(amt) >= CAPITALIZATION_THRESHOLD && amt > 0) {
+    if (cls.bucket === "INVESTING") {
       investing.set(row.name, (investing.get(row.name) ?? 0) + amt);
       continue;
     }
-
     // Operating.
-    if (amt > 0) {
-      opOutflows += amt;
-      cashSpent += amt;
+    if (cls.direction === "OUT") {
+      opOutflows += cls.amount;
+      cashSpent += cls.amount;
     } else {
-      opInflows += Math.abs(amt);
-      cashReceived += Math.abs(amt);
+      opInflows += cls.amount;
+      cashReceived += cls.amount;
     }
   }
 

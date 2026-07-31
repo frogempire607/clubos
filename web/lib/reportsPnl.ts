@@ -71,7 +71,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 // Build up to 6 monthly columns anchored to the range end. Includes the
 // current month even if partial. Returns oldest→newest.
-function monthlyColumns(rangeEnd: Date, tz: string): PnlColumn[] {
+export function monthlyColumns(rangeEnd: Date, tz: string): PnlColumn[] {
   const cols: PnlColumn[] = [];
   const now = rangeEnd;
   const cursor = new Date(now);
@@ -96,7 +96,7 @@ function monthlyColumns(rangeEnd: Date, tz: string): PnlColumn[] {
 }
 
 // Build weekly columns: 5 complete weeks + the current partial week if any.
-function weeklyColumns(rangeEnd: Date, tz: string): PnlColumn[] {
+export function weeklyColumns(rangeEnd: Date, tz: string): PnlColumn[] {
   const cols: PnlColumn[] = [];
   const now = rangeEnd;
   // Anchor to the current Monday.
@@ -126,56 +126,46 @@ function weeklyColumns(rangeEnd: Date, tz: string): PnlColumn[] {
 
 // ── The main compute function ──────────────────────────────────────────
 
-export async function buildPnl(
-  clubId: string,
-  r: ResolvedRange,
-  period: PnlPeriod,
+// Fixtures shape for computePnl — matches what buildPnl pulls out of Prisma.
+// Extracted so unit tests can exercise the calculation logic without a DB.
+export type PnlFixtures = {
+  txs: Array<{
+    id: string;
+    amount: unknown; // Decimal-like or number
+    refundedAmount?: unknown | null;
+    type: string | null;
+    category: string | null;
+    txDate: Date | null;
+    createdAt: Date;
+    memberId: string | null;
+    eventId?: string | null;
+    description?: string | null;
+  }>;
+  expenses: Array<{
+    id: string;
+    amount: unknown;
+    category: string | null;
+    kind: string | null;
+    date: Date;
+    description?: string;
+    vendor?: string | null;
+  }>;
+  donations: Array<{ id: string; amount: unknown; date: Date; donorName?: string | null }>;
+  allSubs: Array<{ id: string; startedAt: Date | null; endDate: Date | null; price: unknown }>;
+  payrollPerCol: number[]; // aligned by column index
+};
+
+// Pure calculation of the P&L payload from fixtures + columns + basis.
+// This is what unit tests exercise. buildPnl is a thin wrapper that fetches.
+export function computePnl(
+  columns: PnlColumn[],
   basis: PnlBasis,
-): Promise<PnlPayload> {
-  const columns = period === "monthly" ? monthlyColumns(r.end, r.timezone) : weeklyColumns(r.end, r.timezone);
-  const firstStart = columns[0].start;
-  const lastEnd = columns[columns.length - 1].end;
-
-  const [txs, expenses, donations, allSubs] = await Promise.all([
-    prisma.transaction.findMany({
-      where: {
-        clubId,
-        status: "SUCCEEDED",
-        ...EXCLUDE_VOID,
-        OR: [
-          { txDate: { not: null, gte: firstStart, lt: lastEnd } },
-          { txDate: null, createdAt: { gte: firstStart, lt: lastEnd } },
-        ],
-      },
-      select: {
-        id: true, amount: true, refundedAmount: true, type: true, category: true,
-        txDate: true, createdAt: true, memberId: true, eventId: true, description: true,
-      },
-    }),
-    prisma.expense.findMany({
-      where: { clubId, date: { gte: firstStart, lt: lastEnd } },
-      select: { id: true, amount: true, category: true, kind: true, date: true, description: true, vendor: true },
-    }),
-    prisma.donation.findMany({
-      where: { clubId, date: { gte: firstStart, lt: lastEnd } },
-      select: { id: true, amount: true, date: true, donorName: true },
-    }),
-    // Subscriptions relevant for accrual proration.
-    basis === "accrual"
-      ? prisma.memberSubscription.findMany({
-          where: { member: { clubId } },
-          select: { id: true, startedAt: true, endDate: true, price: true },
-        })
-      : Promise.resolve([]),
-  ]);
-
+  data: PnlFixtures,
+  period: PnlPeriod,
+): PnlPayload {
+  const { txs, expenses, donations, allSubs, payrollPerCol } = data;
   const cols = columns.length;
   const zeroCols = () => Array(cols).fill(0) as number[];
-
-  // Payroll per column (already respects date range).
-  const payrollPerCol = await Promise.all(
-    columns.map((c) => computePayrollTotalForRange(clubId, c.start, c.end)),
-  );
 
   // ── Income accumulator ─────────────────────────────────────────────
   const incomeLineByType = new Map<string, number[]>();
@@ -266,7 +256,7 @@ export async function buildPnl(
       drillHref: `/api/reports/pnl/drill?line=income:${type}`,
     }))
     .sort((a, b) => sumArr(b.values) - sumArr(a.values));
-  const incomeTotal = { label: "Total income", values: sumColumns(Array.from(incomeLineByType.values())) };
+  const incomeTotal = { label: "Total income", values: sumColumns(Array.from(incomeLineByType.values()), cols) };
 
   // Cost of sales = direct costs of running paid events + payroll for
   // event/private/attendance staff. Right now we don't have that split;
@@ -285,7 +275,7 @@ export async function buildPnl(
     .sort((a, b) => sumArr(b.values) - sumArr(a.values));
   const opExpenseTotal = {
     label: "Total operating expenses",
-    values: sumColumns(Array.from(costLinesByCategory.values())),
+    values: sumColumns(Array.from(costLinesByCategory.values()), cols),
   };
 
   const sections: PnlSection[] = [
@@ -377,6 +367,56 @@ export async function buildPnl(
         : null,
     warnings,
   };
+}
+
+// buildPnl fetches the fixtures from Prisma and delegates to computePnl.
+export async function buildPnl(
+  clubId: string,
+  r: ResolvedRange,
+  period: PnlPeriod,
+  basis: PnlBasis,
+): Promise<PnlPayload> {
+  const columns = period === "monthly" ? monthlyColumns(r.end, r.timezone) : weeklyColumns(r.end, r.timezone);
+  const firstStart = columns[0].start;
+  const lastEnd = columns[columns.length - 1].end;
+
+  const [txs, expenses, donations, allSubs] = await Promise.all([
+    prisma.transaction.findMany({
+      where: {
+        clubId,
+        status: "SUCCEEDED",
+        ...EXCLUDE_VOID,
+        OR: [
+          { txDate: { not: null, gte: firstStart, lt: lastEnd } },
+          { txDate: null, createdAt: { gte: firstStart, lt: lastEnd } },
+        ],
+      },
+      select: {
+        id: true, amount: true, refundedAmount: true, type: true, category: true,
+        txDate: true, createdAt: true, memberId: true, eventId: true, description: true,
+      },
+    }),
+    prisma.expense.findMany({
+      where: { clubId, date: { gte: firstStart, lt: lastEnd } },
+      select: { id: true, amount: true, category: true, kind: true, date: true, description: true, vendor: true },
+    }),
+    prisma.donation.findMany({
+      where: { clubId, date: { gte: firstStart, lt: lastEnd } },
+      select: { id: true, amount: true, date: true, donorName: true },
+    }),
+    basis === "accrual"
+      ? prisma.memberSubscription.findMany({
+          where: { member: { clubId } },
+          select: { id: true, startedAt: true, endDate: true, price: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const payrollPerCol = await Promise.all(
+    columns.map((c) => computePayrollTotalForRange(clubId, c.start, c.end)),
+  );
+
+  return computePnl(columns, basis, { txs, expenses, donations, allSubs, payrollPerCol }, period);
 }
 
 // ── Drill support ──────────────────────────────────────────────────────
@@ -474,8 +514,7 @@ function sumArr(arr: number[]): number {
   return arr.reduce((s, v) => s + v, 0);
 }
 
-function sumColumns(arrays: number[][]): number[] {
-  const cols = arrays[0]?.length ?? 0;
+function sumColumns(arrays: number[][], cols: number): number[] {
   const out = Array(cols).fill(0) as number[];
   for (const arr of arrays) {
     for (let i = 0; i < cols; i++) out[i] += arr[i] ?? 0;

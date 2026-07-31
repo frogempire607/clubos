@@ -65,7 +65,9 @@ const DEFAULT_KIND: Record<string, "FIXED" | "VARIABLE"> = {
   OTHER: "VARIABLE",
 };
 
-function resolveBehavior(
+export const COSTS_DEFAULT_KIND = DEFAULT_KIND;
+
+export function resolveBehavior(
   row: { category: string; kind: string | null },
   overrides: Map<string, "FIXED" | "VARIABLE">,
 ): "FIXED" | "VARIABLE" {
@@ -75,9 +77,24 @@ function resolveBehavior(
   return DEFAULT_KIND[row.category] ?? "VARIABLE";
 }
 
+// Unusual-increase check: current amount vs a trailing average. Trigger when
+// current ≥ 1.5× avg AND diff ≥ $250 (both must hold). PURE.
+export function isUnusualIncrease(current: number, trailingTotals: number[]): {
+  triggered: boolean;
+  average: number;
+  percentAbove: number;
+} {
+  const positives = trailingTotals.filter((v) => v > 0);
+  if (positives.length < 2) return { triggered: false, average: 0, percentAbove: 0 };
+  const avg = positives.reduce((s, v) => s + v, 0) / positives.length;
+  const triggered = current >= avg * 1.5 && current - avg >= 250;
+  const percentAbove = avg > 0 ? Math.round(((current - avg) / avg) * 1000) / 10 : 0;
+  return { triggered, average: avg, percentAbove };
+}
+
 // Trailing 3 complete periods same length as `r` — used for unusual-increase
 // detection.
-function trailingPeriods(r: ResolvedRange): Array<{ start: Date; end: Date }> {
+export function trailingPeriods(r: ResolvedRange): Array<{ start: Date; end: Date }> {
   if (!r.start) return [];
   const len = r.end.getTime() - r.start.getTime();
   const periods: Array<{ start: Date; end: Date }> = [];

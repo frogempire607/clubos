@@ -58,10 +58,85 @@ export type MembershipPayload = {
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const pctOrNull = (num: number, denom: number): number | null => {
+export const pctOrNull = (num: number, denom: number): number | null => {
   if (denom <= 0) return null;
   return Math.round((num / denom) * 1000) / 10;
 };
+
+// A single ended subscription — used by classifyChurn.
+export type EndedSubLite = {
+  memberId: string;
+  canceledAt: Date | null;
+  endDate: Date | null;
+  price?: unknown;
+};
+
+// All subs for a member — used by classifyChurn to detect a near replacement.
+export type MemberSubSpanLite = {
+  memberId: string;
+  createdAt: Date;
+  canceledAt: Date | null;
+  endDate: Date | null;
+  price?: unknown;
+};
+
+// Pure churn classification for one ended sub. Returns "churn" or
+// "plan_change" per the 14-day grace window rule in specs/03.
+// A cancel followed by a new membership within CHURN_GRACE_DAYS = plan change.
+export function classifyEndedSub(
+  ended: EndedSubLite,
+  otherSubsForMember: MemberSubSpanLite[],
+  graceDays: number = CHURN_GRACE_DAYS,
+): "churn" | "plan_change" | "skip" {
+  const endedAt = ended.canceledAt ?? ended.endDate;
+  if (!endedAt) return "skip";
+  const graceMs = graceDays * 86400000;
+  const hasNearReplacement = otherSubsForMember.some((o) => {
+    // Same sub — skip.
+    if (o.canceledAt === ended.canceledAt && o.endDate === ended.endDate) return false;
+    const oStart = o.createdAt.getTime();
+    const delta = Math.abs(oStart - endedAt.getTime());
+    return delta <= graceMs;
+  });
+  return hasNearReplacement ? "plan_change" : "churn";
+}
+
+// Aggregate churn + retention rates over a set of ended subs. PURE.
+export function computeChurnRates(
+  endedSubs: EndedSubLite[],
+  subsByMember: Map<string, MemberSubSpanLite[]>,
+  activeAtStart: number,
+  allSubsForMembers: MemberSubSpanLite[],
+): {
+  churnCount: number;
+  planChangeCount: number;
+  churnedMrr: number;
+  churnRate: number | null;
+  revenueChurnRate: number | null;
+  retentionRate: number | null;
+} {
+  let churnCount = 0;
+  let planChangeCount = 0;
+  const churnedRevenue: number[] = [];
+  for (const ended of endedSubs) {
+    const others = subsByMember.get(ended.memberId) ?? [];
+    const outcome = classifyEndedSub(ended, others);
+    if (outcome === "churn") {
+      churnCount += 1;
+      churnedRevenue.push(Number(ended.price ?? 0));
+    } else if (outcome === "plan_change") {
+      planChangeCount += 1;
+    }
+  }
+  const churnedMrr = churnedRevenue.reduce((s, v) => s + v, 0);
+  const totalActivePriceSum = allSubsForMembers.reduce((s, sub) => s + Number(sub.price ?? 0), 0);
+  const avgSubPrice = allSubsForMembers.length > 0 ? totalActivePriceSum / allSubsForMembers.length : 0;
+  const startingMrr = activeAtStart * avgSubPrice;
+  const churnRate = pctOrNull(churnCount, activeAtStart);
+  const revenueChurnRate = pctOrNull(churnedMrr, startingMrr);
+  const retentionRate = churnRate == null ? null : Math.round((100 - churnRate) * 10) / 10;
+  return { churnCount, planChangeCount, churnedMrr, churnRate, revenueChurnRate, retentionRate };
+}
 
 export async function buildMembership(
   clubId: string,
