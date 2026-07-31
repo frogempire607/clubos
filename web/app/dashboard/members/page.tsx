@@ -1011,6 +1011,32 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
                   setPreviewText(p);
                   setBlocks(b);
                 }}
+                onSendTest={async ({ subject: s, previewText: p, blocks: b }) => {
+                  // Fires POST /api/emails/test-send. That route renders through
+                  // the same emailRender pipeline the real bulk send uses and
+                  // delivers ONE copy to the caller's own account email — no
+                  // arbitrary target. EmailComposer catches thrown errors and
+                  // surfaces them in its inline "Test send failed: …" pill.
+                  const res = await fetch("/api/emails/test-send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ subject: s, previewText: p || undefined, blocks: b }),
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    throw new Error(typeof data?.error === "string" ? data.error : "Test send failed.");
+                  }
+                  // 202 SKIPPED — provider not configured in the local env.
+                  // Composer treats a thrown error as "test send failed"; use
+                  // that channel to surface the exact reason so the tester
+                  // fixes their .env instead of thinking the composer broke.
+                  if (data?.ok === false && data?.code === "SKIPPED") {
+                    throw new Error(data.hint || `Skipped (${data.skippedReason ?? "unknown"}).`);
+                  }
+                  if (typeof data?.deliveredTo === "string") {
+                    return { message: `Test email sent to ${data.deliveredTo}` };
+                  }
+                }}
               />
 
               {sendErr && (

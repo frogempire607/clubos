@@ -70,8 +70,12 @@ export interface EmailComposerProps {
   initialBlocks?: EmailBlock[];
   onChange?: (state: { subject: string; previewText: string; blocks: EmailBlock[] }) => void;
   // Called by "Send test" button. Composer stays open so the sender can
-  // iterate.
-  onSendTest?: (state: { subject: string; previewText: string; blocks: EmailBlock[] }) => Promise<void> | void;
+  // iterate. Return an optional { message } to override the default
+  // "Test email sent" toast (e.g. include the delivery address).
+  onSendTest?: (state: { subject: string; previewText: string; blocks: EmailBlock[] }) =>
+    | Promise<void | { message?: string }>
+    | void
+    | { message?: string };
 }
 
 export default function EmailComposer({
@@ -85,7 +89,7 @@ export default function EmailComposer({
   const [previewText, setPreviewText] = useState(initialPreviewText);
   const [blocks, setBlocks] = useState<EmailBlock[]>(() => initialBlocks ?? defaultBlocks());
   const [preview, setPreview] = useState<"desktop" | "mobile" | null>(null);
-  const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Bubble state to the caller on every meaningful change. Debounce lightly
   // so a fast typer doesn't flood the parent.
@@ -131,11 +135,12 @@ export default function EmailComposer({
     if (!onSendTest) return;
     setTestMsg(null);
     try {
-      await onSendTest({ subject, previewText, blocks });
-      setTestMsg("Test email sent — check your inbox.");
+      const result = await onSendTest({ subject, previewText, blocks });
+      const custom = result && typeof result === "object" ? result.message : null;
+      setTestMsg({ ok: true, text: custom || "Test email sent — check your inbox." });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setTestMsg(`Test send failed: ${msg}`);
+      setTestMsg({ ok: false, text: `Test send failed: ${msg}` });
     }
   }
 
@@ -201,8 +206,8 @@ export default function EmailComposer({
         </div>
 
         {testMsg && (
-          <div className={`mx-4 mt-3 rounded-lg px-3 py-2 text-xs ${testMsg.startsWith("Test email sent") ? "bg-lime-accent/20 text-charcoal border border-lime-accent" : "bg-red-50 text-red-700 border border-red-200"}`}>
-            {testMsg}
+          <div className={`mx-4 mt-3 rounded-lg px-3 py-2 text-xs ${testMsg.ok ? "bg-lime-accent/20 text-charcoal border border-lime-accent" : "bg-red-50 text-red-700 border border-red-200"}`}>
+            {testMsg.text}
           </div>
         )}
 
