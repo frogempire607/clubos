@@ -172,6 +172,9 @@ model Club {
   productSales                ProductSale[]
   uploadedFiles               UploadedFile[]
   emailOptOuts                EmailOptOut[]
+  emailSends                  EmailSend[]
+  emailTemplates              EmailTemplate[]
+  marketingAudiences          MarketingAudience[]
   eventRegistrations          EventRegistration[]
   eventBundles                EventBundle[]
   contractors                 Contractor[]
@@ -1456,21 +1459,60 @@ model Message {
 }
 
 model Announcement {
-  id          String    @id @default(cuid())
-  clubId      String
-  title       String
-  body        String
-  publishAt   DateTime?
-  unpublishAt DateTime?
-  channels    String    @default("")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  id                    String    @id @default(cuid())
+  clubId                String
+  title                 String
+  // Legacy plain-text body. Kept populated by the new composer as a
+  // plain-text fallback so pre-Phase-3 readers keep working. New code
+  // reads bodyJson / bodyHtml.
+  body                  String
+  publishAt             DateTime?
+  unpublishAt           DateTime?
+  channels              String    @default("")
+  // Phase 3 lifecycle. DRAFT | SCHEDULED | QUEUED | SENDING | SENT | CANCELED
+  // | APPROVAL_REQUESTED | APPROVED. Approval states present so 3.5 lands
+  // without another migration.
+  status                String    @default("DRAFT")
+  scheduledFor          DateTime?
+  sentAt                DateTime?
+  canceledAt            DateTime?
+  canceledById          String?
+  senderUserId          String?
+  approvalRequestedById String?
+  approvalRequestedAt   DateTime?
+  approvedById          String?
+  approvedAt            DateTime?
+  // Rich body storage. bodyJson is canonical (EmailBlock[]); bodyHtml is
+  // the immutable snapshot the send batch used; bodyText is the
+  // auto-derived plain-text alternative for multipart/alternative.
+  bodyJson              Json?
+  bodyHtml              String?
+  bodyText              String?
+  previewText           String?
+  // Audience. audienceId points at a saved MarketingAudience;
+  // audienceFilters is an inline audience for one-offs (snapshotted).
+  audienceId            String?
+  audienceFilters       Json?
+  // Household delivery mode (plan §3A): HOUSEHOLD | PER_MEMBER | PER_ATHLETE_PRIMARY.
+  householdMode         String    @default("HOUSEHOLD")
+  templateId            String?
+  fromName              String?
+  replyTo               String?
+  personalization       Json?
+  // Groups every EmailSend row from this announcement (same value on each
+  // child's sendBatchId). Re-send = new announcement, new batch.
+  sendBatchId           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
 
   club        Club                     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   engagements AnnouncementEngagement[]
 
   @@index([clubId])
+  @@index([clubId, status, scheduledFor])
+  @@index([sendBatchId])
+  @@index([audienceId])
   @@map("announcements")
 }
 
@@ -2938,10 +2980,158 @@ model EmailOptOut {
   id        String   @id @default(cuid())
   clubId    String
   email     String
+  // Nullable — the anti-abuse HMAC unsubscribe link doesn't require login,
+  // so plenty of rows will stay email-only.
+  userId    String?
+  // MARKETING | TRANSACTIONAL | ALL. Backfilled to MARKETING for legacy rows
+  // (the pre-Phase-3 unsubscribe flow only ever produced marketing opt-outs).
+  scope     String   @default("MARKETING")
+  // UNSUBSCRIBE_LINK | ADMIN | BOUNCE | COMPLAINT
+  source    String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@unique([clubId, email])
+  @@index([userId])
+  @@index([clubId, scope])
   @@map("email_opt_outs")
+}
+
+// Per-recipient delivery log (plan §3G). Every email dispatch — marketing,
+// transactional, template-driven, announcement blast, Members-page bulk —
+// writes one row here. Source of truth for member-profile Communications
+// tab, campaign-level results, and double-send prevention.
+//
+// dedupeKey structure (set by lib/sendClubEmail.ts):
+//   HOUSEHOLD           → lower(recipientEmail)
+//   PER_MEMBER          → lower(recipientEmail) + ':' + recipientMemberId
+//   PER_ATHLETE_PRIMARY → lower(recipientEmail) + ':' + athleteMemberId
+// The @@unique([sendBatchId, dedupeKey]) constraint (partial index, DB-side)
+// is the structural guarantee against double-sends on retry/refresh.
+model EmailSend {
+  id                String    @id @default(cuid())
+  clubId            String
+  // Origin — exactly one is set. Scalar-only so origin deletion doesn't
+  // destroy send history.
+  announcementId    String?
+  campaignId        String?
+  templateId        String?
+  // MARKETING | TRANSACTIONAL | ANNOUNCEMENT | BULK | TEMPLATE | ...
+  kind              String
+  // Delivery target. recipientEmail lower-cased at write time.
+  recipientEmail    String
+  recipientUserId   String?
+  recipientMemberId String?
+  // Immutable content snapshot AFTER personalization.
+  subject           String
+  bodyJson          Json?
+  bodyHtml          String
+  bodyText          String?
+  fromName          String?
+  fromEmail         String?
+  replyTo           String?
+  personalization   Json?
+  // Lifecycle. QUEUED | SENT | DELIVERED | BOUNCED | FAILED | SKIPPED | COMPLAINED
+  status            String    @default("QUEUED")
+  // Reason when status=SKIPPED: no-email | opted-out | invalid-address | duplicate
+  skippedReason     String?
+  providerMessageId String?
+  error             String?
+  queuedAt          DateTime  @default(now())
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  bouncedAt         DateTime?
+  // openedAt / clickedAt only populated when the provider supports it AND
+  // the recipient's client honors tracking. Null = "unknown" — the UI
+  // must never render "opened" from a null value.
+  openedAt          DateTime?
+  openCount         Int       @default(0)
+  clickedAt         DateTime?
+  clickCount        Int       @default(0)
+  // Dedup / idempotency (see header comment).
+  sendBatchId       String?
+  dedupeKey         String?
+  idempotencyKey    String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, queuedAt])
+  @@index([announcementId])
+  @@index([campaignId])
+  @@index([recipientMemberId, queuedAt])
+  @@index([recipientEmail, queuedAt])
+  @@index([status, queuedAt])
+  @@index([providerMessageId])
+  // Structural double-send guarantee. Partial unique index (only where both
+  // columns non-null) so ad-hoc / one-off sends without a batch don't
+  // collide across time. Enforced in migration SQL as a WHERE-clause
+  // unique index — Prisma cannot model partial indexes today, so this
+  // @@unique is a documentation hint only. DO NOT rely on it for insert
+  // semantics; the SQL migration is authoritative.
+  @@unique([sendBatchId, dedupeKey])
+  @@map("email_sends")
+}
+
+// Reusable email templates (plan §3C). 14 stock kinds seeded lazily on first
+// open of the templates page.
+model EmailTemplate {
+  id                     String    @id @default(cuid())
+  clubId                 String
+  // One of the 14 stock kinds from plan §3C, or 'CUSTOM'.
+  kind                   String    @default("CUSTOM")
+  name                   String
+  description            String?
+  subject                String
+  previewText            String?
+  bodyJson               Json?
+  bodyHtml               String
+  bodyText               String?
+  defaultFromName        String?
+  defaultReplyTo         String?
+  defaultPersonalization Json?
+  // true = seeded by AthletixOS on first-open (protected from destructive delete).
+  isSystem               Boolean   @default(false)
+  archivedAt             DateTime?
+  createdById            String
+  updatedById            String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, archivedAt])
+  @@index([clubId, kind])
+  @@map("email_templates")
+}
+
+// Reusable recipient groups (plan §3D). Saved audiences update automatically
+// when isDynamic=true (filters re-evaluated at send time).
+model MarketingAudience {
+  id              String    @id @default(cuid())
+  clubId          String
+  name            String
+  description     String?
+  // Canonical AudienceFilter DSL: { match: 'ALL'|'ANY', rules: [...] }.
+  filters         Json      @default("{}")
+  isDynamic       Boolean   @default(true)
+  // Only populated when isDynamic=false. JSON array of member IDs frozen
+  // at save time.
+  frozenMemberIds Json?
+  estimatedCount  Int?
+  estimatedAt     DateTime?
+  archivedAt      DateTime?
+  createdById     String
+  updatedById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, archivedAt])
+  @@index([clubId, name])
+  @@map("marketing_audiences")
 }

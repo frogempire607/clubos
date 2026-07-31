@@ -34,13 +34,19 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | M13 | `ImportBatch` + `ImportRow` + `MemberHistoricalRecord` + enums | 2.5.9 | ✅ 2026-07-29 |
 | M14 | `Member.externalMemberId, sourceSystem, importBatchId, isHistoricalOnly, normalizedEmail, normalizedPhone` | 2.5.9 | ✅ 2026-07-29 |
 | M15 | `Transaction.externalTransactionId (@@unique with sourceSystem), externalCustomerId, sourceSystem, importBatchId, isHistorical, dedupeHash` | 2.5.9 | ✅ 2026-07-29 |
-| M16 | `Import.sourceLabel` — owner-typed vendor label (rolls into M13's ImportBatch) | 2.5.9 | (in M13) |
-| M17 | `Member.reviewedAt, reviewedByUserId` — migration step 2 | 4.5.1 | ⬜ |
-| M18 | `Member.blockedReason, snoozedUntil` — Blocked state + Snooze | 4.5.1 | ⬜ |
-| M19 | `MemberInvitationDelivery` — per-send delivered/opened/bounced | 4.5.1 | ⬜ |
-| M20 | `SavedMemberView` — user filter snapshots | 4.5.2 | ⬜ |
-| M21 | `MemberGuardianUser` per-permission columns (canBook/canPay/canWaivers/canMessages) + `status` | 4.5.6 | ⬜ |
-| M22 | `MemberSubscriptionEvent` — subscription-event history (Reports 2.5.5 precision) | 4.5.10 | ⬜ |
+| M16 | `20260801000000_email_sends` — EmailSend per-recipient delivery log (dedup + provider lifecycle) | 3.1 | ⬜ written |
+| M17 | `20260801010000_email_opt_outs_scope` — EmailOptOut adds userId + scope + source | 3.1 / 3I | ⬜ written |
+| M18 | `20260801020000_announcements_lifecycle` — Announcement lifecycle + rich body + sender + scheduling + audience | 3.1 / 3B / 3H | ⬜ written |
+| M19 | `20260801030000_email_templates` — EmailTemplate model (14 stock kinds seeded lazily) | 3.2 / 3C | ⬜ written |
+| M20 | `20260801040000_marketing_audiences` — MarketingAudience (dynamic/frozen recipient groups) | 3.2 / 3D | ⬜ written |
+| M21 | `Member.reviewedAt, reviewedByUserId` — migration step 2 (renumbered from M17) | 4.5.1 | ⬜ |
+| M22 | `Member.blockedReason, snoozedUntil` — Blocked state + Snooze (renumbered from M18) | 4.5.1 | ⬜ |
+| M23 | `MemberInvitationDelivery` — per-send delivered/opened/bounced (renumbered from M19) | 4.5.1 | ⬜ |
+| M24 | `SavedMemberView` — user filter snapshots (renumbered from M20) | 4.5.2 | ⬜ |
+| M25 | `MemberGuardianUser` per-permission columns (canBook/canPay/canWaivers/canMessages) + `status` (renumbered from M21) | 4.5.6 | ⬜ |
+| M26 | `MemberSubscriptionEvent` — subscription-event history (Reports 2.5.5 precision) (renumbered from M22) | 4.5.10 | ⬜ |
+
+**Renumbering note (2026-08-01):** Phase 3 lands before Phase 4.5 and needed the next 5 M-numbers. Former M17–M22 (all unapplied) shifted to M21–M26. Nothing in production changed; only unbuilt future work was renumbered.
 
 **All migrations remaining after M8 are additive.** Nothing drops, nothing renames. Backfills are dry-run-first with per-club reports.
 
@@ -346,11 +352,11 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 |---|---|---|---|---|
 | 3.1.1 | **Sub-scope permissions** — nest under `messages` JSON: `messages.bulk`, `messages.marketing`, `messages.approve`, `messages.templates`, `messages.images`, `messages.unsubscribe`, `messages.analytics`. Legacy `messages: "send"` maps to `messages.bulk: false, messages.marketing: false, …`. `hasPermission(perms, key, level, subScope?)`. | Backend | — | ⬜ |
 | 3.1.2 | **`lib/sendClubEmail.ts`** — single entrypoint for every email send. Params: `{clubId, kind, recipientUserId?, recipientEmail, subject, bodyHtml, personalization, headers, replyTo, from, opts}`. Applies: `EmailOptOut` check (marketing kinds only), `List-Unsubscribe` header, personalization interpolation, sanitize, write `EmailSend` row, dispatch. Retro-fit every existing `sendXxx` in `lib/email.ts` to call through it. | Backend | — | ⬜ |
-| 3.1.3 | **M12** — `EmailSend` per-recipient log model. | Migration | M12 | ⬜ |
-| 3.1.4 | **M13** — `Announcement.status` enum + `bodyHtml TEXT?` + `senderUserId` + approval fields. Backfill: `publishAt < now` → `SENT`, else `DRAFT`. Legacy `body` stays populated. | Migration | M13 | ⬜ |
-| 3.1.5 | **M14** — `EmailOptOut.userId TEXT?` + `scope enum default MARKETING`. Backfill scope for every row to `MARKETING`. | Migration | M14 | ⬜ |
-| 3.1.6 | **`/api/cron/email-queue`** worker — pulls QUEUED `EmailSend` rows, dispatches via `sendClubEmail`, updates status. `CRON_SECRET`-gated. Manual "Send now" also enqueues + inline drains for immediate delivery. | Backend | — | ⬜ |
-| 3.1.7 | **M11** — `EmailImage` model **or** open-read variant of `UploadedFile` (public token URL). Pick after §2.6 Q7. | Migration | M11 | ⬜ |
+| 3.1.3 | **M16** — `EmailSend` per-recipient log model. dedupeKey column + partial unique index `(sendBatchId, dedupeKey) WHERE both NOT NULL` is the double-send guarantee. | Migration | M16 | ⬜ written |
+| 3.1.4 | **M18** — `Announcement.status` + `bodyJson` + `bodyHtml` + `senderUserId` + scheduling + audience + household mode + approval columns. Backfill: `publishAt < now OR NULL` → `SENT`, else `DRAFT` (never auto-fires a future publishAt). Legacy `body` stays populated. | Migration | M18 | ⬜ written |
+| 3.1.5 | **M17** — `EmailOptOut.userId TEXT?` + `scope enum default MARKETING` + `source`. Backfill scope for every row to `MARKETING`. | Migration | M17 | ⬜ written |
+| 3.1.6 | **`/api/cron/email-queue`** worker — pulls QUEUED `EmailSend` rows, dispatches via `sendClubEmail`, updates status. `CRON_SECRET`-gated + new Netlify scheduled function alongside `event-charges-cron.mts`. Manual "Send now" also enqueues + inline drains for immediate delivery. | Backend | — | ⬜ |
+| 3.1.7 | **Signed public image route** — `/api/public/images/[fileId]?t=<hmac>` streams existing `UploadedFile` rows when the HMAC signature validates. NEW dedicated `EMAIL_IMAGE_SECRET` env var (NOT `NEXTAUTH_SECRET`) so rotating auth secrets never breaks image URLs in already-sent emails. No expiry — historical emails must render years later. No schema change. | Backend | — | ⬜ |
 
 ### 3.2 Rich Composer + Templates + Audiences
 
@@ -358,8 +364,8 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 |---|---|---|---|---|
 | 3.2.1 | Rich text editor in `components/EmailComposer.tsx` — content blocks per plan §3B. Reuse existing tiptap or lexical (audit whichever is already in the dep set; add if none). | UI | — | ⬜ |
 | 3.2.2 | Store composer output as `bodyHtml` (sanitized) + auto-derived `bodyText` fallback. | Backend | — | ⬜ |
-| 3.2.3 | **M9** — `EmailTemplate` model. Seed 14 stock templates per plan §3C. Owner can duplicate/edit/archive. | Migration + UI | M9 | ⬜ |
-| 3.2.4 | **M10** — `MarketingAudience` (filters Json, isDynamic bool). Audience-builder UI lifts `/api/messages/audience` filter shape into a first-class control. Estimated-recipient-count updates as filters change. "Save as reusable" writes an audience row. | Migration + UI | M10 | ⬜ |
+| 3.2.3 | **M19** — `EmailTemplate` model. Lazy-seed 14 stock templates per plan §3C on first open of the templates page. Owner can duplicate/edit/archive. | Migration + UI | M19 | ⬜ written |
+| 3.2.4 | **M20** — `MarketingAudience` (filters Json, isDynamic bool, frozenMemberIds Json?). Audience-builder UI lifts `/api/messages/audience` filter shape into a first-class control. Estimated-recipient-count updates as filters change. "Save as reusable" writes an audience row. | Migration + UI | M20 | ⬜ written |
 | 3.2.5 | Personalization tokens — `{{member_first_name}}, {{guardian_first_name}}, {{membership_end_date}}, …`. Preview-as-recipient endpoint. Warn on missing values pre-send. | Backend + UI | — | ⬜ |
 
 ### 3.3 Bulk email from Members page (plan §3A)
@@ -368,7 +374,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 |---|---|---|---|---|
 | 3.3.1 | Extend `POST /api/members/bulk` with `action: "email"` — payload `{templateId? subject bodyHtml personalization audienceOverride?}`. Uses the same queue path. | Backend | — | ⬜ |
 | 3.3.2 | Members page: existing selection UI (`selectedIds`, `selectAllProspects`) — add "Email selected" primary action with pre-send count review: profiles / unique addresses / no-email skipped / duplicates / opt-outs. | UI | — | ⬜ |
-| 3.3.3 | Household delivery mode chooser (one-per-household · one-per-selected-member · one-per-athlete-primary-contact). | UI + Backend | — | ⬜ |
+| 3.3.3 | Household delivery mode chooser (default HOUSEHOLD · PER_MEMBER · PER_ATHLETE_PRIMARY). Preview must plainly state how many emails will actually send. dedupeKey per mode: HOUSEHOLD=email · PER_MEMBER=email:memberId · PER_ATHLETE_PRIMARY=email:athleteMemberId. Test: guardian with two children → 1 row in HOUSEHOLD, 2 rows in PER_MEMBER, 2 rows in PER_ATHLETE_PRIMARY. | UI + Backend | — | ⬜ |
 
 ### 3.4 Family-aware targeting (plan §3E)
 
