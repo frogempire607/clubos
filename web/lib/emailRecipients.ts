@@ -108,11 +108,7 @@ export async function resolveRecipients(args: {
   const { clubId, memberIds, mode, respectMarketingOptOut } = args;
 
   if (!memberIds.length) {
-    return {
-      send: [],
-      skipped: [],
-      counts: { selectedMembers: 0, uniqueAddresses: 0, willSendRows: 0, noEmail: 0, optedOut: 0, invalidAddress: 0, duplicateInBatch: 0 },
-    };
+    return emptyResolution(0);
   }
 
   // Pull members + guardian relationships + guardian legacy row in one round-trip.
@@ -161,6 +157,29 @@ export async function resolveRecipients(args: {
       })
     : [];
   const optOutSet = new Set(optOuts.map((o) => o.email.trim().toLowerCase()));
+
+  return resolveRecipientsPure({
+    members,
+    mode,
+    optOutSet,
+    selectedMemberCount: memberIds.length,
+  });
+}
+
+// Pure algorithm — every candidate build, opt-out check, and dedup lives here.
+// The DB-facing resolveRecipients() above is a thin adapter that fetches the
+// two datasets (members + opt-outs) and calls in. Tests (and any future
+// non-Prisma caller — e.g. a queue worker rehydrating a snapshot) drive this
+// function directly with fixtures so the recipient rules stay verifiable
+// without a database.
+export function resolveRecipientsPure(args: {
+  members: MemberForResolve[];
+  mode: HouseholdMode;
+  optOutSet: Set<string>;
+  selectedMemberCount?: number;
+}): RecipientResolution {
+  const { members, mode, optOutSet } = args;
+  const selectedMemberCount = args.selectedMemberCount ?? members.length;
 
   // Build candidates per (member, mode). Each member can produce 0, 1, or
   // more candidate rows depending on mode.
@@ -258,7 +277,7 @@ export async function resolveRecipients(args: {
     send,
     skipped,
     counts: {
-      selectedMembers: memberIds.length,
+      selectedMembers: selectedMemberCount,
       uniqueAddresses,
       willSendRows: send.length,
       noEmail,
@@ -269,9 +288,25 @@ export async function resolveRecipients(args: {
   };
 }
 
+function emptyResolution(selectedMembers: number): RecipientResolution {
+  return {
+    send: [],
+    skipped: [],
+    counts: {
+      selectedMembers,
+      uniqueAddresses: 0,
+      willSendRows: 0,
+      noEmail: 0,
+      optedOut: 0,
+      invalidAddress: 0,
+      duplicateInBatch: 0,
+    },
+  };
+}
+
 // ── Per-member candidate build ────────────────────────────────────────────
 
-type MemberForResolve = {
+export type MemberForResolve = {
   id: string;
   firstName: string;
   lastName: string;

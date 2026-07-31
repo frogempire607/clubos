@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Users, FileText } from "lucide-react";
 import StripeRequiredBanner from "@/components/StripeRequiredBanner";
@@ -9,6 +10,15 @@ import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
 import MembersTabs from "@/components/MembersTabs";
 import { SkeletonList } from "@/components/LoadingSkeleton";
+import type { EmailBlock } from "@/lib/emailBlocks";
+
+// Load the composer client-only — tiptap pulls its own ~90 KB and needs
+// browser globals. The Members page as a whole stays a simple client
+// component; only this heavy leaf is deferred.
+const EmailComposer = dynamic(() => import("@/components/EmailComposer"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-text-muted p-8 text-center">Loading composer…</div>,
+});
 import {
   DEFAULT_MEMBER_FORM_CONFIG,
   isFieldEnabled,
@@ -253,6 +263,7 @@ export default function MembersPage() {
   const [onboardingFilter, setOnboardingFilter] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMessaging, setBulkMessaging] = useState(false);
+  const [bulkEmailing, setBulkEmailing] = useState(false);
   const [formConfig, setFormConfig] = useState<MemberFormConfig>(DEFAULT_MEMBER_FORM_CONFIG);
   const [formCustomized, setFormCustomized] = useState<boolean>(false);
 
@@ -517,6 +528,12 @@ export default function MembersPage() {
             Message selected
           </button>
           <button
+            onClick={() => setBulkEmailing(true)}
+            className="text-sm px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg"
+          >
+            Email selected
+          </button>
+          <button
             onClick={bulkSendOnboarding}
             className="text-sm px-3 py-1.5 rounded-md bg-surface border border-app-border text-text-primary hover:bg-app-bg"
           >
@@ -699,6 +716,14 @@ export default function MembersPage() {
           onSent={() => { setBulkMessaging(false); setSelectedIds(new Set()); }}
         />
       )}
+
+      {bulkEmailing && (
+        <BulkEmailModal
+          memberIds={Array.from(selectedIds)}
+          onClose={() => setBulkEmailing(false)}
+          onSent={() => { setBulkEmailing(false); setSelectedIds(new Set()); }}
+        />
+      )}
     </div>
   );
 }
@@ -763,6 +788,262 @@ function BulkMessageModal({ memberIds, onClose, onSent }: { memberIds: string[];
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+type PreviewCounts = {
+  selectedMembers: number;
+  uniqueAddresses: number;
+  willSendRows: number;
+  noEmail: number;
+  optedOut: number;
+  invalidAddress: number;
+  duplicateInBatch: number;
+};
+
+type PreviewSkipRow = { memberId: string; memberName: string; reason: string; attemptedEmail: string | null };
+type PreviewRow = { memberId: string; memberName: string; recipientEmail: string; isMinor: boolean; recipientDisplayName: string | null };
+
+// Bulk Email modal (Phase 3 checkpoint D).
+//
+// Wraps the rich composer with the plan §3A pre-send review:
+//   1. Household mode picker (HOUSEHOLD / PER_MEMBER / PER_ATHLETE_PRIMARY)
+//   2. Counts + per-recipient preview from /api/members/bulk/email-preview
+//      — same code path the send uses so the counts line up.
+//   3. Composer for subject / preview / blocks.
+//   4. Confirm button explicitly says how many rows will actually send
+//      (not how many were selected).
+//   5. A stable clientKey per open modal — the server derives the
+//      sendBatchId from clubId + clientKey so retries land on the same
+//      batch and the partial unique index rejects doubles.
+function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; onClose: () => void; onSent: () => void }) {
+  const [mode, setMode] = useState<"HOUSEHOLD" | "PER_MEMBER" | "PER_ATHLETE_PRIMARY">("HOUSEHOLD");
+  const [subject, setSubject] = useState("");
+  const [previewText, setPreviewText] = useState("");
+  const [blocks, setBlocks] = useState<EmailBlock[]>([]);
+  const [previewData, setPreviewData] = useState<{ counts: PreviewCounts; preview: PreviewRow[]; skipped: PreviewSkipRow[]; truncated: { preview: boolean; skipped: boolean } } | null>(null);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState<string | null>(null);
+  const [sendResult, setSendResult] = useState<{ results: { queued: number; sent: number; skipped: number; failed: number; duplicate: number } } | null>(null);
+
+  // One idempotency key per open modal. Refreshing the page opens a new
+  // modal → new key → new batch (deliberate — the previous batch may
+  // have already sent). But a double-click on the same open confirm
+  // button uses the SAME key → sendBatchId collision → dedupe.
+  const clientKey = useMemo(
+    () => `bulk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+    [],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    setPreviewLoading(true);
+    setPreviewErr(null);
+    (async () => {
+      try {
+        const res = await fetch("/api/members/bulk/email-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ memberIds, mode }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!alive) return;
+        if (!res.ok) {
+          setPreviewErr(typeof data?.error === "string" ? data.error : "Could not build preview.");
+          setPreviewData(null);
+        } else {
+          setPreviewData(data);
+        }
+      } catch (e) {
+        if (!alive) return;
+        setPreviewErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (alive) setPreviewLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [memberIds, mode]);
+
+  async function send() {
+    setSendErr(null);
+    if (!subject.trim()) { setSendErr("Add a subject before sending."); return; }
+    if (!blocks.length) { setSendErr("Add at least one content block."); return; }
+    setSending(true);
+    try {
+      const res = await fetch("/api/members/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "email",
+          memberIds,
+          email: {
+            mode,
+            subject,
+            previewText: previewText || undefined,
+            blocks,
+            clientKey,
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSendErr(typeof data?.error === "string" ? data.error : "Send failed.");
+      } else {
+        setSendResult({ results: data.results });
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const willSendRows = previewData?.counts.willSendRows ?? 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-4xl border border-app-border max-h-[95vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between shrink-0">
+          <h2 className="text-base font-semibold text-text-primary">
+            Email {memberIds.length} member{memberIds.length === 1 ? "" : "s"}
+          </h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none" aria-label="Close">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {sendResult ? (
+            <div className="text-sm space-y-3">
+              <div className="bg-lime-accent/20 border border-lime-accent rounded-lg p-4 text-charcoal">
+                <div className="font-medium mb-2">Send complete.</div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                  <div><span className="font-semibold">{sendResult.results.sent}</span> sent</div>
+                  <div><span className="font-semibold">{sendResult.results.skipped}</span> skipped</div>
+                  <div><span className="font-semibold">{sendResult.results.duplicate}</span> duplicate</div>
+                  <div><span className="font-semibold">{sendResult.results.failed}</span> failed</div>
+                  <div><span className="font-semibold">{sendResult.results.queued}</span> processed</div>
+                </div>
+              </div>
+              <button onClick={onSent} className="w-full px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
+                Done
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Household mode */}
+              <div className="bg-app-bg border border-app-border rounded-xl p-4">
+                <label className="block text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
+                  How to send
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {(["HOUSEHOLD", "PER_MEMBER", "PER_ATHLETE_PRIMARY"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMode(m)}
+                      className={`text-left px-3 py-2 rounded-lg border ${mode === m ? "border-charcoal bg-charcoal text-white" : "border-app-border bg-surface text-text-primary hover:bg-app-bg"}`}
+                    >
+                      <div className="text-sm font-medium">
+                        {m === "HOUSEHOLD" ? "One per household" : m === "PER_MEMBER" ? "One per member" : "One per athlete's primary"}
+                      </div>
+                      <div className={`text-xs mt-0.5 ${mode === m ? "text-white/80" : "text-text-muted"}`}>
+                        {m === "HOUSEHOLD" ? "A guardian with 2 kids gets 1 email." :
+                         m === "PER_MEMBER" ? "A guardian with 2 kids gets 2 emails, one per child." :
+                         "Route to each athlete's primary contact."}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pre-send counts */}
+              <div className="bg-app-bg border border-app-border rounded-xl p-4">
+                {previewLoading ? (
+                  <div className="text-sm text-text-muted">Building preview…</div>
+                ) : previewErr ? (
+                  <div className="text-sm text-red-600">{previewErr}</div>
+                ) : previewData ? (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                      <PreviewStat label="Selected" value={previewData.counts.selectedMembers} />
+                      <PreviewStat label="Will send" value={previewData.counts.willSendRows} highlight />
+                      <PreviewStat label="Unique inboxes" value={previewData.counts.uniqueAddresses} />
+                      <PreviewStat label="Skipped" value={previewData.counts.noEmail + previewData.counts.optedOut + previewData.counts.invalidAddress + previewData.counts.duplicateInBatch} />
+                    </div>
+                    {(previewData.counts.noEmail + previewData.counts.optedOut + previewData.counts.invalidAddress + previewData.counts.duplicateInBatch) > 0 && (
+                      <div className="mt-2 text-xs text-text-muted">
+                        {previewData.counts.noEmail > 0 && <span className="mr-3">{previewData.counts.noEmail} no email</span>}
+                        {previewData.counts.optedOut > 0 && <span className="mr-3">{previewData.counts.optedOut} opted out</span>}
+                        {previewData.counts.invalidAddress > 0 && <span className="mr-3">{previewData.counts.invalidAddress} invalid</span>}
+                        {previewData.counts.duplicateInBatch > 0 && <span className="mr-3">{previewData.counts.duplicateInBatch} collapsed as household</span>}
+                      </div>
+                    )}
+                    {previewData.preview.length > 0 && (
+                      <details className="mt-3">
+                        <summary className="text-xs text-text-muted cursor-pointer hover:text-text-primary">
+                          Show recipients ({previewData.preview.length}{previewData.truncated.preview ? "+" : ""})
+                        </summary>
+                        <div className="mt-2 max-h-40 overflow-y-auto border border-app-border rounded-md bg-surface">
+                          <ul className="text-xs divide-y divide-app-border">
+                            {previewData.preview.map((r) => (
+                              <li key={r.memberId} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                                <span className="text-text-primary">{r.memberName}</span>
+                                <span className="text-text-muted truncate ml-2">
+                                  {r.recipientDisplayName ? `${r.recipientDisplayName} · ` : ""}
+                                  {r.recipientEmail}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </details>
+                    )}
+                  </>
+                ) : null}
+              </div>
+
+              {/* Composer */}
+              <EmailComposer
+                initialSubject={subject}
+                initialPreviewText={previewText}
+                onChange={({ subject: s, previewText: p, blocks: b }) => {
+                  setSubject(s);
+                  setPreviewText(p);
+                  setBlocks(b);
+                }}
+              />
+
+              {sendErr && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{sendErr}</div>
+              )}
+            </>
+          )}
+        </div>
+
+        {!sendResult && (
+          <div className="px-6 py-4 border-t border-app-border flex items-center justify-between gap-3 shrink-0">
+            <button onClick={onClose} className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
+              Cancel
+            </button>
+            <button
+              onClick={send}
+              disabled={sending || willSendRows === 0 || !subject.trim() || blocks.length === 0}
+              className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+            >
+              {sending ? "Sending…" : `Send to ${willSendRows} recipient${willSendRows === 1 ? "" : "s"}`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PreviewStat({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
+  return (
+    <div>
+      <div className={`text-2xl font-semibold ${highlight ? "text-brand" : "text-text-primary"}`}>{value}</div>
+      <div className="text-xs text-text-muted uppercase tracking-wider">{label}</div>
     </div>
   );
 }
