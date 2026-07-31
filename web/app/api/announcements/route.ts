@@ -149,7 +149,7 @@ export async function POST(req: Request) {
               <hr style="border:none;border-top:1px solid #e7e5e4;margin:24px 0"/>
               <p style="color:#a8a29e;font-size:12px;line-height:1.6">
                 Sent by ${club?.name ?? "your club"} via AthletixOS<br/>
-                AthletixOS · MC Technologies Group LLC · 981 Dryden Rd, Ithaca, NY 14850<br/>
+                AthletixOS · MC Technologies Group LLC · PO Box 11, Newfield, NY 14867<br/>
                 <a href="${unsubUrl}" style="color:#a8a29e">Unsubscribe from announcement emails</a>
               </p>
             </div>

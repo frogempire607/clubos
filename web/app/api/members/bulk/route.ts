@@ -247,11 +247,10 @@ async function handleBulkEmail(
         website: club.websiteUrl,
       },
       unsubscribeUrl,
-      // TODO: club.postalAddress isn't on Club today — we hardcode the
-      // AthletixOS entity address for CAN-SPAM until Phase 3.6 lands a
-      // per-club postal field. Every marketing footer today uses the
-      // same string.
-      postalAddress: "AthletixOS · MC Technologies Group LLC · 981 Dryden Rd, Ithaca, NY 14850",
+      // CAN-SPAM footer — AthletixOS entity postal address. Every
+      // marketing send uses the same string until Phase 3.6 adds a
+      // per-club postal field on Club.
+      postalAddress: "AthletixOS · MC Technologies Group LLC · PO Box 11, Newfield, NY 14867",
       accentColor: club.primaryColor,
     });
 
