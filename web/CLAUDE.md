@@ -1034,6 +1034,10 @@ Documented in `.env.example`. Critical for production:
 - `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_STORAGE_BUCKET` (default `uploads`) — production file storage (`lib/storage.ts`). When unset, storage falls back to local disk.
 - `UPLOADS_DIR` (optional local-dev disk fallback; defaults to `./storage/uploads`)
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE` / `EMAIL_FROM` (optional; falls back to `console.log` if `SMTP_HOST` missing). Set `EMAIL_FROM=AthletixOS <noreply@athletix-os.com>` in prod
+- `RESEND_API_KEY` (Phase 3) — when set, `lib/sendClubEmail.ts` dispatches through Resend and populates the delivery/open/click/bounce columns on `EmailSend` via the webhook. When unset, sends fall back to SMTP (no lifecycle callbacks — those columns stay null).
+- `RESEND_WEBHOOK_SECRET` (Phase 3) — signing secret for `/api/webhooks/resend`. Required when `RESEND_API_KEY` is set.
+- `EMAIL_IMAGE_SECRET` (Phase 3) — dedicated HMAC secret for signed `/api/public/images/[fileId]?t=<hmac>` URLs embedded in emails. **Never reuse `NEXTAUTH_SECRET`** for this — rotating auth secrets must not break images in years-old sent emails. No expiry on the signature by design.
+- `CRON_SECRET` (existing, Phase 3 reuses) — Netlify scheduled function `netlify/functions/email-queue-cron.mts` POSTs `/api/cron/email-queue` with `Authorization: Bearer $CRON_SECRET`.
 - `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` (optional)
 - `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` (optional) — when set, injects the cookieless Plausible analytics script
 - `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` + sample-rate/env vars (optional error tracking)
