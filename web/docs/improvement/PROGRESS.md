@@ -733,4 +733,60 @@ Each phase gets one dated entry per meaningful checkpoint below.
 
 ---
 
+## Session handoff — 2026-07-30 (end of Phase 2.5.13 session)
+
+### What's done
+
+- Phase 2.5.13 (test suite) shipped and pushed to `main` at commit `84114ba`.
+- 238-test pure-function suite in `scripts/reports-tests.ts` — no DB, no Stripe, no network. Runs via `npx tsx scripts/reports-tests.ts` and exits non-zero on any failure.
+- Six additive extractions across the reports libs so calculation cores can be unit-tested without Prisma. Zero call-site behavior changes.
+- Real bug fixed at the `sumColumns` root — every newly onboarded club with no data in range was getting `NaN` for `netProfit` and `undefined` for `grossIncome` across every column. Four permanent regression tests lock the fix.
+- `npx tsc --noEmit` clean, `npm run build` clean, `npm run lint` unchanged from HEAD (253 pre-existing warnings/errors, 0 introduced).
+
+### What's still open in Phase 2.5.13 (deferred, not blocking)
+
+**Route-level integration tests.** Every `buildXxx` function that calls Prisma is covered at its pure calculation core (`computePnl`, `detectTransferPairs`, `classifyPlaidRow`, `classifyEndedSub`, `computeChurnRates`, `computeUnitEconomicsCore`, `resolveBehavior`, `trailingPeriods`, `isUnusualIncrease`). What is NOT covered: the `buildXxx` wrappers themselves, the route handlers, and the DB queries. To close this, either:
+1. Add a lightweight Prisma mock harness (module cache swap for `@/lib/prisma`) and re-run the same tests through the `buildXxx` wrappers, or
+2. Add integration tests that hit a scratch DB and assert real payload shapes. Needs sandbox DB access (or Julian runs the test script locally with his creds).
+
+**21 DB-dependent import rules from spec 06 §Historical imports.** The pure logic is covered — matching signals (`resolveMatch`, HIGH auto-match, HIGH-vs-HIGH → REVIEW, name-only → CREATE, external-id-collision → REVIEW), normalizers, `makeDedupeHash` determinism, CSV parse, row validators. The DB-dependent rules that are NOT yet under test:
+- Idempotent members import (importing the same file twice creates no duplicates) — route-level.
+- Idempotent transactions via the `(clubId, sourceSystem, externalTransactionId)` unique constraint — Prisma P2002 path.
+- Composite fingerprint dedupe path (rows with no external tx id).
+- The five review outcomes each write the right records (MEMBER, HISTORICAL_RECORD, IMPORT_ROW, etc.).
+- Merge semantics — survivor = native, never overwrites non-empty native fields.
+- Imports trigger no email, no invite, no billing, no campaign — assertion-worthy in `commit` route.
+- Undecided rows survive commit as `PENDING_REVIEW`; the rest of the batch still commits.
+- Rollback within 30 days removes created records + detaches history + reverses merges.
+- Rollback leaves alone any created record that has since gained activity.
+- Rollback after 30 days is refused.
+- Rollback is refused for non-owners.
+- Audit log has one row per CSV line (including excluded ones).
+- `errors.csv` contains the original rows verbatim plus an error column.
+- 50,000-row file completes; 50,001-row file is rejected with a clear message.
+
+**Other DB-dependent assertions from spec 06 not yet route-tested.** Same-story: covered at calc core, needs route/integration to prove end-to-end.
+- Payroll leak — verified at the route SOURCE (grep asserts the route strips payroll when caller lacks `reports.payroll`), but not exercised through a real request.
+- Coach revenue scoping on `groupBy=coach` — server-side denial.
+- Tier gating returns `UPGRADE_REQUIRED` with the existing body shape.
+- Hidden tabs unreachable by direct URL.
+- Every reliability `href` resolves to a real route (grep-verified in the reliability module; not fetched).
+
+### What's next per PROGRESS.md ordering
+
+**Phase 2.5.12 — Mobile + responsive audit + regression pass.** DO NOT start until the user asks. Session brief explicitly held this back.
+
+### Notes for a fresh session
+
+- The extracted pure cores are the API surface for future tests. Import them from `@/lib/reports*` — every extraction is a NAMED EXPORT alongside the existing `buildXxx` function.
+- `PnlFixtures` type in `lib/reportsPnl.ts` documents exactly what `buildPnl` fetches from Prisma. Any future test that mocks Prisma for `buildPnl` should populate `{txs, expenses, donations, allSubs, payrollPerCol}` in that shape.
+- The `sumColumns(arrays, cols)` signature change is intentional — do NOT re-introduce a fallback to `arrays[0]?.length ?? 0`. The empty-input case is a real production path (any club with no data in range), and returning `[]` corrupts every downstream summary.
+- The 4 empty-section regression tests are the invariant that keeps this from regressing. They live in `scripts/reports-tests.ts` under "P&L calculations" (empty range) and "Refunds" (same-row full refund) and "Cash + offline" (comp $0) and "Partial periods" (weekly rolling avg no-NaN check).
+- Pre-existing lint debt in the reports libs — `let recognized` in `reportsPnl.ts:189`, unused `nextMonMidnight` in `reportsRange.ts:141`, unused `ALL_ON` in `reportsPermissions.ts:44`, unused `_` in `reportsRevenue.ts:354`. None introduced this session; leave for a global lint sweep unless the file is being touched.
+- Database is unreachable from the Claude Code sandbox. All migrations M1–M15 are applied to production. Do not create new migrations without owner instruction.
+- Production was wiped and restored the night of 2026-07-29. Read the "Database safety" section in root `CLAUDE.md` before running anything that could touch prod.
+- `/dashboard/financials` and `/api/financials/*` are the regression-guard surface — any change to Reports must not modify those. Snapshot test in `scripts/reports-tests.ts` asserts (a) the page file exists, (b) the 6 known route files exist, (c) the page never fetches `/api/reports/`. If any of those flip false, the Reports work has bled into Financials.
+
+---
+
 *See `ARCHITECTURE-NOTES.md` for the discovery findings that back this plan.*
