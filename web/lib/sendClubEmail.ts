@@ -28,7 +28,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { sendEmail as smtpSend, isEmailConfigured } from "@/lib/email";
-import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
+import { sanitizeEmailHtml } from "@/lib/sanitizeHtml";
 import { Resend } from "resend";
 
 export type EmailKind =
@@ -96,6 +96,15 @@ function resend(): Resend | null {
 export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClubEmailResult> {
   const recipientEmail = input.recipientEmail.trim().toLowerCase();
 
+  // Compute the effective From ONCE. Both branches (Resend + SMTP) use
+  // the same address, and the EmailSend row MUST snapshot it — otherwise
+  // Communications history has no way to show "who this came from".
+  // Previously, fromEmail on the row was `input.fromEmail ?? null` and
+  // every non-Resend caller left it null, so every row displayed as if
+  // the sender were anonymous.
+  const effectiveFromEmail = resolveFromAddress(input.fromEmail);
+  const effectiveFromName = input.fromName ?? null;
+
   // Opt-out check — marketing kinds only. TRANSACTIONAL bypasses (except
   // scope='ALL', which is the hard-stop).
   const optOut = await prisma.emailOptOut.findFirst({
@@ -104,7 +113,11 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
   });
   const isMarketingKind = MARKETING_KINDS.includes(input.kind);
   if (optOut && (optOut.scope === "ALL" || (isMarketingKind && optOut.scope === "MARKETING"))) {
-    const row = await writeEmailSend(input, recipientEmail, "SKIPPED", { skippedReason: "OPTED_OUT" });
+    const row = await writeEmailSend(input, recipientEmail, "SKIPPED", {
+      skippedReason: "OPTED_OUT",
+      effectiveFromEmail,
+      effectiveFromName,
+    });
     return { emailSendId: row.id, status: "SKIPPED", skippedReason: "OPTED_OUT" };
   }
 
@@ -114,7 +127,10 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
   // hitting the provider — exactly the guarantee we want.
   let row: { id: string };
   try {
-    row = await writeEmailSend(input, recipientEmail, "QUEUED");
+    row = await writeEmailSend(input, recipientEmail, "QUEUED", {
+      effectiveFromEmail,
+      effectiveFromName,
+    });
   } catch (err) {
     if (isUniqueViolation(err)) {
       return {
@@ -146,12 +162,17 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
   // Sanitization: bodyHtml comes from lib/emailRender.ts which already
   // sanitizes, but caller-supplied HTML (retrofits of lib/email.ts helpers)
   // may not. Cheap belt-and-suspenders.
-  const safeHtml = sanitizeRichHtml(input.bodyHtml);
+  //
+  // Use the EMAIL sanitizer, not the docs one — the docs allowlist strips
+  // <img> and <table>/<tr>/<td>, which are exactly what mjml emits. That
+  // was silently deleting the logo block and every image block on the way
+  // to the provider.
+  const safeHtml = sanitizeEmailHtml(input.bodyHtml);
 
   try {
     if (dispatcher === "resend") {
       const client = resend()!;
-      const from = buildResendFrom(input.fromName, input.fromEmail);
+      const from = formatResendFrom(effectiveFromName, effectiveFromEmail);
       const result = await client.emails.send({
         from,
         to: recipientEmail,
@@ -188,11 +209,14 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
 
     // SMTP path — reuses lib/email.ts sendEmail() so environment behavior
     // stays consistent. No lifecycle callbacks; status stops at SENT.
+    // The actual From address on the wire is derived by lib/email.ts from
+    // EMAIL_FROM; effectiveFromEmail (already stamped on the row) mirrors
+    // that same env value so the row shows what SMTP will send.
     await smtpSend({
       to: recipientEmail,
       subject: input.subject,
       html: safeHtml,
-      fromName: input.fromName ?? null,
+      fromName: effectiveFromName ?? null,
       replyTo: input.replyTo ?? null,
       listUnsubscribeUrl: isMarketingKind ? (input.listUnsubscribeUrl ?? null) : null,
     });
@@ -215,6 +239,8 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
 
 interface WriteExtras {
   skippedReason?: string;
+  effectiveFromEmail?: string | null;
+  effectiveFromName?: string | null;
 }
 
 async function writeEmailSend(
@@ -237,8 +263,12 @@ async function writeEmailSend(
       bodyJson: (input.bodyJson ?? undefined) as never,
       bodyHtml: input.bodyHtml,
       bodyText: input.bodyText ?? null,
-      fromName: input.fromName ?? null,
-      fromEmail: input.fromEmail ?? null,
+      // Snapshot the effective From at write time — Communications
+      // history has to answer "who did this come from" for years, and
+      // callers rarely pass a fromEmail explicitly (they let EMAIL_FROM
+      // env decide). Storing null here lost that answer.
+      fromName: extras.effectiveFromName ?? input.fromName ?? null,
+      fromEmail: extras.effectiveFromEmail ?? input.fromEmail ?? null,
       replyTo: input.replyTo ?? null,
       personalization: (input.personalization ?? undefined) as never,
       status,
@@ -251,15 +281,21 @@ async function writeEmailSend(
   });
 }
 
-function buildResendFrom(fromName: string | null | undefined, fromEmailOverride: string | null | undefined): string {
-  const baseAddr = fromEmailOverride
-    || (process.env.EMAIL_FROM?.match(/<([^>]+)>/)?.[1] ?? process.env.EMAIL_FROM)
-    || "noreply@athletix-os.com";
-  if (fromName) {
-    const clean = fromName.replace(/["<>]/g, "");
-    return `${clean} <${baseAddr}>`;
-  }
-  return String(baseAddr);
+// Extract the bare email address from EMAIL_FROM (which may be
+// `Name <addr>` or just `addr`), respecting a per-send override.
+function resolveFromAddress(fromEmailOverride: string | null | undefined): string {
+  if (fromEmailOverride) return fromEmailOverride;
+  const raw = process.env.EMAIL_FROM;
+  if (!raw) return "noreply@athletix-os.com";
+  const bracketed = raw.match(/<([^>]+)>/)?.[1];
+  return (bracketed ?? raw).trim();
+}
+
+// Reassemble `Name <addr>` for Resend's `from` field.
+function formatResendFrom(fromName: string | null | undefined, baseAddr: string): string {
+  if (!fromName) return baseAddr;
+  const clean = fromName.replace(/["<>]/g, "");
+  return `${clean} <${baseAddr}>`;
 }
 
 function isUniqueViolation(err: unknown): boolean {

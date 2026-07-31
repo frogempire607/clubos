@@ -43,6 +43,41 @@ const CONFIG = {
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|ftp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
 };
 
+// Email-body sanitizer. mjml compiles to a nested-table layout with img,
+// tbody, tr, td, and inline styles — the Document-body config strips all
+// of that, which drops the logo block and every image block on the floor.
+// This config allows the MJML tag/attribute surface while keeping the same
+// URL-scheme block (javascript:/vbscript:/data:) that the rich config uses.
+//
+// Safety: script/style/iframe/object/embed/link/meta/form/input remain
+// stripped because they are not on the allowlist. Every user-provided
+// string in an email body is already escapeHtml'd inside lib/emailRender
+// before it reaches mjml, so the sanitize pass here is defense-in-depth
+// against a future caller bypassing that escaping — not the primary
+// guardrail.
+const EMAIL_CONFIG = {
+  ALLOWED_TAGS: [
+    "p", "br", "hr", "div", "span",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "li",
+    "strong", "b", "em", "i", "u", "s", "sub", "sup",
+    "a",
+    "img",
+    "blockquote", "pre", "code",
+    "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+    "center",
+  ],
+  ALLOWED_ATTR: [
+    "href", "target", "rel",
+    "src", "alt", "width", "height",
+    "class", "style",
+    "colspan", "rowspan",
+    "align", "valign", "border", "cellpadding", "cellspacing", "bgcolor",
+    "aria-label", "aria-roledescription", "role",
+  ],
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|ftp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+};
+
 type Purifier = { sanitize: (html: string, cfg?: unknown) => string };
 
 let purifierLoaded = false;
@@ -78,6 +113,20 @@ export function sanitizeRichHtml(input: string | null | undefined): string {
     // a conservative strip of the dangerous bits — scripts, styles, iframes,
     // event handlers, javascript: URLs — keeping the rest of the
     // (owner/staff-authored) markup intact.
+    return fallbackStrip(input);
+  }
+}
+
+// Email-body variant. Keeps <img> + <table>/<tr>/<td> — mjml's compiled
+// layout uses both, and the doc-body sanitizer strips them. Same
+// safety-net fallback as sanitizeRichHtml.
+export function sanitizeEmailHtml(input: string | null | undefined): string {
+  if (!input) return "";
+  try {
+    const dp = loadPurifier();
+    if (!dp) return fallbackStrip(input);
+    return dp.sanitize(input, EMAIL_CONFIG);
+  } catch {
     return fallbackStrip(input);
   }
 }

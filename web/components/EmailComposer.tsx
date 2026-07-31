@@ -78,6 +78,16 @@ export interface EmailComposerProps {
     | { message?: string };
 }
 
+// What the composer needs to know about the club to warn the sender
+// that certain contact-block fields (or the logo) will render empty at
+// send time. Fetched once from /api/club/info.
+interface ClubContactInfo {
+  hasLogo: boolean;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  websiteUrl: string | null;
+}
+
 export default function EmailComposer({
   initialSubject = "",
   initialPreviewText = "",
@@ -90,6 +100,32 @@ export default function EmailComposer({
   const [blocks, setBlocks] = useState<EmailBlock[]>(() => initialBlocks ?? defaultBlocks());
   const [preview, setPreview] = useState<"desktop" | "mobile" | null>(null);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [clubInfo, setClubInfo] = useState<ClubContactInfo | null>(null);
+
+  // Fetch club contact info once so the Contact + Logo editors can warn
+  // the sender if a requested field will render empty (contactEmail null,
+  // contactPhone null, no logoUrl, etc.). Silent failure → editors just
+  // don't render the warning; the compose experience still works.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/club/info");
+        if (!res.ok) return;
+        const c = await res.json();
+        if (!alive) return;
+        setClubInfo({
+          hasLogo: Boolean(c?.logoUrl),
+          contactEmail: c?.contactEmail ?? null,
+          contactPhone: c?.contactPhone ?? null,
+          websiteUrl: c?.websiteUrl ?? null,
+        });
+      } catch {
+        // best-effort; leave clubInfo null
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   // Bubble state to the caller on every meaningful change. Debounce lightly
   // so a fast typer doesn't flood the parent.
@@ -223,6 +259,7 @@ export default function EmailComposer({
               block={block}
               first={idx === 0}
               last={idx === blocks.length - 1}
+              clubInfo={clubInfo}
               onUpdate={(patch) => updateBlock(idx, patch)}
               onRemove={() => removeBlock(idx)}
               onMove={(dir) => moveBlock(idx, dir)}
@@ -287,11 +324,12 @@ function BlockCard(props: {
   block: EmailBlock;
   first: boolean;
   last: boolean;
+  clubInfo: ClubContactInfo | null;
   onUpdate: (patch: Partial<EmailBlock>) => void;
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
 }) {
-  const { block, first, last, onUpdate, onRemove, onMove } = props;
+  const { block, first, last, clubInfo, onUpdate, onRemove, onMove } = props;
   return (
     <div className="border border-app-border rounded-lg bg-app-bg/40">
       <div className="flex items-center justify-between px-3 py-2 border-b border-app-border">
@@ -328,7 +366,7 @@ function BlockCard(props: {
         </div>
       </div>
       <div className="p-3">
-        <BlockEditor block={block} onUpdate={onUpdate} />
+        <BlockEditor block={block} clubInfo={clubInfo} onUpdate={onUpdate} />
       </div>
     </div>
   );
@@ -352,7 +390,15 @@ function blockLabel(b: EmailBlock): string {
 // Per-block editors
 // ─────────────────────────────────────────────────────────────────────────
 
-function BlockEditor({ block, onUpdate }: { block: EmailBlock; onUpdate: (p: Partial<EmailBlock>) => void }) {
+function BlockEditor({
+  block,
+  clubInfo,
+  onUpdate,
+}: {
+  block: EmailBlock;
+  clubInfo: ClubContactInfo | null;
+  onUpdate: (p: Partial<EmailBlock>) => void;
+}) {
   switch (block.type) {
     case "heading":
       return <HeadingEditor block={block} onUpdate={(p) => onUpdate(p)} />;
@@ -369,9 +415,9 @@ function BlockEditor({ block, onUpdate }: { block: EmailBlock; onUpdate: (p: Par
     case "spacer":
       return <SpacerEditor block={block} onUpdate={(p) => onUpdate(p)} />;
     case "contact":
-      return <ContactEditor block={block} onUpdate={(p) => onUpdate(p)} />;
+      return <ContactEditor block={block} clubInfo={clubInfo} onUpdate={(p) => onUpdate(p)} />;
     case "logo":
-      return <LogoEditor block={block} onUpdate={(p) => onUpdate(p)} />;
+      return <LogoEditor block={block} clubInfo={clubInfo} onUpdate={(p) => onUpdate(p)} />;
   }
 }
 
@@ -638,40 +684,111 @@ function SpacerEditor({ block, onUpdate }: { block: SpacerBlock; onUpdate: (p: P
 }
 
 const CONTACT_FIELDS = ["name", "email", "phone", "address", "website"] as const;
-function ContactEditor({ block, onUpdate }: { block: ContactBlock; onUpdate: (p: Partial<ContactBlock>) => void }) {
+function ContactEditor({
+  block,
+  clubInfo,
+  onUpdate,
+}: {
+  block: ContactBlock;
+  clubInfo: ClubContactInfo | null;
+  onUpdate: (p: Partial<ContactBlock>) => void;
+}) {
   function toggle(field: typeof CONTACT_FIELDS[number]) {
     const set = new Set(block.fields);
     if (set.has(field)) set.delete(field);
     else set.add(field);
     onUpdate({ fields: CONTACT_FIELDS.filter((f) => set.has(f)) });
   }
+
+  // A selected field renders empty at send time when the corresponding
+  // club setting is missing (contactEmail, contactPhone, websiteUrl).
+  // Renderer silently drops missing fields — that's the right behavior at
+  // send (a fake placeholder would ship an obviously-templated email) —
+  // but the sender needs to know at COMPOSE time so they can fix Settings
+  // or remove the field. `address` is always missing because the club
+  // schema has no physical-address column today.
+  function fieldStatus(f: typeof CONTACT_FIELDS[number]): "ok" | "missing" | "unsupported" {
+    if (!block.fields.includes(f)) return "ok";
+    if (!clubInfo) return "ok"; // still loading — don't flash warnings
+    switch (f) {
+      case "name":    return "ok"; // club always has a name
+      case "email":   return clubInfo.contactEmail ? "ok" : "missing";
+      case "phone":   return clubInfo.contactPhone ? "ok" : "missing";
+      case "website": return clubInfo.websiteUrl ? "ok" : "missing";
+      case "address": return "unsupported";
+    }
+  }
+
+  const missing = CONTACT_FIELDS.filter((f) => fieldStatus(f) === "missing");
+  const unsupported = CONTACT_FIELDS.filter((f) => fieldStatus(f) === "unsupported");
+
   return (
     <div className="space-y-2">
       <p className="text-xs text-text-muted">
         Pulled from your club settings at send time — never hand-typed here so the address stays correct when it changes.
       </p>
       <div className="flex flex-wrap gap-2">
-        {CONTACT_FIELDS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => toggle(f)}
-            className={`text-xs px-2 py-1 rounded-md border ${block.fields.includes(f) ? "bg-charcoal text-white border-charcoal" : "border-app-border text-text-primary hover:bg-app-bg"}`}
-          >
-            {f}
-          </button>
-        ))}
+        {CONTACT_FIELDS.map((f) => {
+          const active = block.fields.includes(f);
+          const status = fieldStatus(f);
+          const warn = active && status !== "ok";
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => toggle(f)}
+              className={`text-xs px-2 py-1 rounded-md border ${
+                active
+                  ? warn
+                    ? "bg-orange-accent/20 text-charcoal border-orange-accent"
+                    : "bg-charcoal text-white border-charcoal"
+                  : "border-app-border text-text-primary hover:bg-app-bg"
+              }`}
+            >
+              {f}
+              {warn && <span className="ml-1">(empty)</span>}
+            </button>
+          );
+        })}
       </div>
+      {(missing.length > 0 || unsupported.length > 0) && (
+        <div className="text-xs text-orange-accent bg-orange-accent/10 border border-orange-accent/30 rounded-md px-2 py-1.5 space-y-1">
+          {missing.length > 0 && (
+            <div>
+              <span className="font-medium">Not set on this club:</span> {missing.join(", ")}. These will not render — set them in <span className="underline">Settings → Club</span> or remove the field.
+            </div>
+          )}
+          {unsupported.length > 0 && (
+            <div>
+              <span className="font-medium">Address is not supported yet</span> — the club has no physical address on file. Remove this field to avoid confusion.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function LogoEditor({ block, onUpdate }: { block: LogoBlock; onUpdate: (p: Partial<LogoBlock>) => void }) {
+function LogoEditor({
+  block,
+  clubInfo,
+  onUpdate,
+}: {
+  block: LogoBlock;
+  clubInfo: ClubContactInfo | null;
+  onUpdate: (p: Partial<LogoBlock>) => void;
+}) {
+  const usingFallback = clubInfo ? !clubInfo.hasLogo : false;
   return (
     <div className="space-y-2">
       <p className="text-xs text-text-muted">
-        Renders your club logo (or the AthletixOS wordmark when unset).
+        Renders your club logo (or the AthletixOS mark when unset).
       </p>
+      {usingFallback && (
+        <div className="text-xs text-orange-accent bg-orange-accent/10 border border-orange-accent/30 rounded-md px-2 py-1.5">
+          <span className="font-medium">No club logo set</span> — this block will render the AthletixOS mark. Upload your logo in <span className="underline">Settings → Club</span>.
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <AlignPicker value={block.align ?? "left"} onChange={(align) => onUpdate({ align })} />
         <label className="text-xs text-text-muted">Height</label>

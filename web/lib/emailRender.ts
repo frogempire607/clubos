@@ -27,7 +27,7 @@
 import mjml2html from "mjml";
 import type { EmailBlock, InlineRun } from "@/lib/emailBlocks";
 import { blocksToPlainText } from "@/lib/emailBlocks";
-import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
+import { sanitizeEmailHtml } from "@/lib/sanitizeHtml";
 
 export interface EmailRenderContext {
   clubName: string;
@@ -110,7 +110,11 @@ export async function renderEmail(blocks: EmailBlock[], ctx: EmailRenderContext)
   // on its own, but the block INPUT is user-controlled (paragraph text can
   // contain literal <script> strings that mjml would emit as escaped text
   // — sanitize keeps this safe if a caller ever bypasses escapeHtml).
-  const html = sanitizeRichHtml(compiled.html);
+  //
+  // Use the EMAIL-body sanitizer, not the docs one — the docs allowlist
+  // strips <img> and <table>/<tr>/<td>, which are the entire MJML output
+  // shape. Previous sanitizeRichHtml() ate every logo and image block.
+  const html = sanitizeEmailHtml(compiled.html);
   const text = blocksToPlainText(blocks);
   return { html, text, warnings };
 }
