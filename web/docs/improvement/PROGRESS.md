@@ -352,7 +352,7 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 3.1.1 | **Sub-scope permissions** — nest under `messages` JSON: `messages.bulk`, `messages.marketing`, `messages.approve`, `messages.templates`, `messages.images`, `messages.unsubscribe`, `messages.analytics`. Legacy `messages: "send"` maps to `messages.bulk: false, messages.marketing: false, …`. `hasPermission(perms, key, level, subScope?)`. | Backend | — | ⬜ |
+| 3.1.1 | **Sub-scope permissions** — nested `messages_subScopes` object on `StaffProfile.permissions`. Scopes shipped: `bulk`, `marketing`, `templates`, `images`, `unsubscribe`, `analytics`, `approve`, `audience_all_club`. `hasMessagesSubScope()` + `requireMessagesSubScope()` guard. Coach-audience filter (`lib/coachAudience.ts`) limits staff without `audience_all_club` to members they teach. | Backend | — | 🟢 shipped 2026-08-02 (session 2 — see 3L below) |
 | 3.1.2 | **`lib/sendClubEmail.ts`** — single entrypoint for every email send. Params: `{clubId, kind, recipientUserId?, recipientEmail, subject, bodyHtml, personalization, headers, replyTo, from, opts}`. Applies: `EmailOptOut` check (marketing kinds only), `List-Unsubscribe` header, personalization interpolation, sanitize, write `EmailSend` row, dispatch. Retro-fit every existing `sendXxx` in `lib/email.ts` to call through it. | Backend | — | ⬜ |
 | 3.1.3 | **M16** — `EmailSend` per-recipient log model. dedupeKey column + partial unique index `(sendBatchId, dedupeKey) WHERE both NOT NULL` is the double-send guarantee. | Migration | M16 | ⬜ written |
 | 3.1.4 | **M18** — `Announcement.status` + `bodyJson` + `bodyHtml` + `senderUserId` + scheduling + audience + household mode + approval columns. Backfill: `publishAt < now OR NULL` → `SENT`, else `DRAFT` (never auto-fires a future publishAt). Legacy `body` stays populated. | Migration | M18 | ⬜ written |
@@ -374,9 +374,9 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 3.3.1 | Extend `POST /api/members/bulk` with `action: "email"` — payload `{templateId? subject bodyHtml personalization audienceOverride?}`. Uses the same queue path. | Backend | — | ⬜ |
-| 3.3.2 | Members page: existing selection UI (`selectedIds`, `selectAllProspects`) — add "Email selected" primary action with pre-send count review: profiles / unique addresses / no-email skipped / duplicates / opt-outs. | UI | — | ⬜ |
-| 3.3.3 | Household delivery mode chooser (default HOUSEHOLD · PER_MEMBER · PER_ATHLETE_PRIMARY). Preview must plainly state how many emails will actually send. dedupeKey per mode: HOUSEHOLD=email · PER_MEMBER=email:memberId · PER_ATHLETE_PRIMARY=email:athleteMemberId. Test: guardian with two children → 1 row in HOUSEHOLD, 2 rows in PER_MEMBER, 2 rows in PER_ATHLETE_PRIMARY. | UI + Backend | — | ⬜ |
+| 3.3.1 | `POST /api/members/bulk` (`action: "email"`) already shipped in session 1; session 2 added `personalization` payload for per-recipient interpolation, `messages.bulk` sub-scope gate, and coach-audience filter that drops requested ids the caller doesn't own. | Backend | — | 🟢 shipped 2026-08-02 (session 1 + 2) |
+| 3.3.2 | Members-page bulk composer: existing "Email selected" now feeds through the 3K preflight, exposes all 8 modes, and requires a typed `SEND N` confirmation above 50 recipients. Preview list shows per-member resolved address + display name (guardian's name for minors). | UI | — | 🟢 shipped 2026-08-02 (session 2) |
+| 3.3.3 | Household delivery mode chooser — 8 modes now (was 3). See 3.4.1. | UI + Backend | — | 🟢 shipped 2026-08-02 (session 1 backend + session 2 UI) |
 
 ### 3.4 Family-aware targeting (plan §3E)
 
@@ -384,20 +384,27 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 |---|---|---|---|---|
 | 3.4.1 | Sender picks — **8 modes**: HOUSEHOLD / PER_MEMBER / PER_ATHLETE_PRIMARY (pre-existing) + ATHLETE_ONLY / PRIMARY_GUARDIAN / ALL_GUARDIANS / PAYER / ACCOUNT_HOLDER (new in 3E). Resolver batch-loads payer users so PAYER mode isn't N+1. Dedupe-key rules extended so ALL_GUARDIANS folds correctly (one row per guardian × athlete). | Backend | — | 🟢 shipped 2026-08-02 (session 1) |
 | 3.4.2 | Minor default: guardian in HOUSEHOLD/PER_MEMBER/PER_ATHLETE_PRIMARY/PRIMARY_GUARDIAN. ATHLETE_ONLY deliberately skips minors without their own email (sender chose the mode). | Backend | — | 🟢 shipped 2026-08-02 (session 1) |
-| 3.4.3 | Composer / bulk-email review must render resolved recipient email per selected member. | UI | — | ⬜ (session 2 — bulk composer UI) |
+| 3.4.3 | Bulk composer preview lists per-member resolved recipient email + display name (guardian name for minors). Pre-send counter strip includes `outsideCoachAudience` count so a coach sees "N members hidden — you only teach some of them". | UI | — | 🟢 shipped 2026-08-02 (session 2) |
 
 ### 3.5 History, drafts, schedule, approval
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 3.5.1 | Member profile "Communications" tab renders `EmailSend` rows for this member: subject · sent · sender · address · delivery status · opened · clicked · bounced · unsubscribed · related campaign / event / membership · message preview. Resend / send-new / copy actions. Never claim "opened" when tracking is unavailable. | UI + Backend | — | ⬜ |
-| 3.5.2 | Announcement lifecycle routes (`schedule`, `send`, `cancel`, `approve`). Scheduled uses club timezone (`Club.timezone`). | Backend | — | ⬜ |
-| 3.5.3 | Idempotency-key on `send` to prevent duplicate campaigns from refresh / job restart / repeated clicks. `EmailSend @@unique([announcementId, recipient])` when announcementId is set. | Backend + Migration | index | ⬜ |
-| 3.5.4 | Approval workflow — draft → request approval → owner approves → sends. Gated on `messages.approve`. | Backend + UI | — | ⬜ |
+| 3.5.1 | **3G** — Member profile `<CommunicationsCard>` renders `EmailSend` rows: subject · sender · address · related event/membership · body preview · reader-modal with the exact `bodyHtml` the recipient got. Delivery pills computed from row state (never fabricates "opened" — nullable `openedAt` = "delivered · open tracking unavailable"). GET `/api/members/[id]/communications` + `/api/emails/sends/[id]`. Gated on `messages.analytics`. Campaign-level results at `/dashboard/communication/campaigns/[id]` via GET `/api/announcements/[id]/results` (tracking-adjusted denominators). | UI + Backend | — | 🟢 shipped 2026-08-02 (session 2) |
+| 3.5.2 | **3H** — Announcement lifecycle: `POST /api/announcements/[id]/schedule` (DRAFT→SCHEDULED, future-only), `.../send` (idempotent via `Announcement.sendBatchId` + partial unique on EmailSend), `.../cancel` (DRAFT/SCHEDULED→CANCELED). Cron sweep in `/api/cron/email-queue` picks up due SCHEDULED rows. Scheduled instants stored UTC; UI renders in club timezone. | Backend | — | 🟢 shipped 2026-08-02 (session 2) |
+| 3.5.3 | Idempotency-key on `send` — `lib/announcementDispatch.ts` claims DRAFT/SCHEDULED via conditional `updateMany` and passes `sendBatchId=ann-<id>` + per-recipient `dedupeKey` into `sendClubEmail`. M16 partial unique catches retries. | Backend | — | 🟢 shipped 2026-08-02 (session 2) |
+| 3.5.4 | Approval workflow — deferred. M18 columns (`approvalRequestedById`, `approvedById`, `approvalRequestedAt`, `approvedAt`) already present; `messages.approve` sub-scope already plumbed in 3L. UI + gate wire in a later session. | Backend + UI | — | ⚪ deferred (per session-2 brief) |
 
 ### 3.6 Unsubscribe scope, attachments, safeguards, permissions, mobile, testing
 
-Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes one task each with acceptance criteria drawn directly from the plan. Not enumerated line-by-line here — see plan for the concrete checklist.
+| # | Task | Status |
+|---|---|---|
+| **3I** unsubscribe scope + audit | Recipient picks MARKETING / ALL / Resubscribe. Every state change writes an `EmailOptOutAudit` row (source, actor, IP, UA). Public: `/api/unsubscribe` renders granular panel + preserves classic one-click. Admin: `/api/emails/opt-outs` (GET/POST/DELETE) + `/api/emails/opt-outs/history` + `/dashboard/communication/unsubscribes` searchable list with per-address history modal. Gated on `messages.unsubscribe`. | 🟢 shipped 2026-08-02 (session 2) |
+| **3K** pre-send checks + final review | `lib/emailPreflight.ts` — 10-item BLOCK/WARN/INFO checklist. `<PreflightPanel>` renders live under the composer; BLOCK issues disable Send. `<FinalReviewModal>` shows subject / sender / reply-to / mode / recipient count / skipped count / tracking notice; typed `SEND N` confirmation required above 50 recipients (`TYPED_CONFIRM_THRESHOLD`). | 🟢 shipped 2026-08-02 (session 2) |
+| **3L** sub-scope permissions + coach audience | 8 sub-scopes on `messages` (`bulk`, `marketing`, `templates`, `images`, `unsubscribe`, `analytics`, `approve`, `audience_all_club`). `requireMessagesSubScope()` guard on every wide-blast route. `lib/coachAudience.ts` restricts staff without `audience_all_club` to members enrolled in classes/events they teach; ids outside the audience are DROPPED, not hidden. Staff editor UI (`/dashboard/staff`) exposes toggles with owner-facing labels. | 🟢 shipped 2026-08-02 (session 2) |
+| 3J attachments | ⚪ deferred — image-linked flow via existing signed image route is sufficient for this cycle; real SMTP attachments = future migration. |
+| 3M mobile audit | ⚪ deferred to session 3 |
+| 3N test suite | ⚪ deferred to session 3 |
 
 ### 3.7 Phase-3 schema audit — 2026-08-02 (session 1 finding)
 
@@ -424,10 +431,11 @@ Committed on `main`; not pushed per plan.
 | Commit | Content |
 |---|---|
 | `6013094` | M22 migration file + schema.prisma additions |
-| (this range) | 3C templates (lib + 3 API routes + templates page + nav) |
-| (this range) | 3D audiences (filter DSL + evaluator + 3 API routes + audiences page) |
-| (this range) | 3E 5 new sender-target modes (+ 13 new recipient-tests) |
-| (this range) | 3F personalization (interpolation lib + preview endpoint + composer hint + bulk send wiring) |
+| `32a87da` | 3C templates (lib + 3 API routes + templates page + nav) |
+| `91b7a8d` | 3D audiences (filter DSL + evaluator + 3 API routes + audiences page) |
+| `d6567a8` | 3E 5 new sender-target modes (+ 13 new recipient-tests) |
+| `b996c78` | 3F personalization (interpolation lib + preview endpoint + composer hint + bulk send wiring) |
+| `a75a701` | PROGRESS.md update |
 
 **Verify commands** (session 1):
 - `npx tsx scripts/email-recipients-tests.ts` → 54/54 pass
@@ -435,7 +443,31 @@ Committed on `main`; not pushed per plan.
 - `npx tsc --noEmit` → clean
 - `npm run build` → clean
 
-**Waiting on operator (session-2 dependency):** apply M22 before session 2 wires the 3G Communications tab that reads the new columns.
+### 3.9 Session-2 deliverables (2026-08-02)
+
+Committed on `main`; not pushed per plan. M22 was applied by Julian
+before this session began.
+
+| Commit | Content |
+|---|---|
+| `659b55e` | **3L** — messages sub-scopes + coach-restricted audience. `lib/permissions.ts` adds `hasMessagesSubScope()` + `resolveMessagesSubScopes()` + `DEFAULT_MESSAGES_SUBSCOPES`. `lib/apiGuard.ts` adds `requireMessagesSubScope()`. New `lib/coachAudience.ts` computes members a coach can address (attendance + event bookings + registrations + private bookings) and filters requested id lists. Wired into every wide-blast route (bulk, marketing audiences, email templates). Staff editor UI exposes 8 sub-scope toggles under "Messaging — advanced". |
+| (session 2, in commit trailing 3L) | **3H** — `lib/announcementDispatch.ts` (idempotent claim + send). New routes: `POST /api/announcements/[id]/{schedule,send,cancel}`. `SendClubEmailInput` extended with M22 columns (`sentByUserId`, `relatedEventId`, `relatedMembershipId`); cron dispatch retry preserves them. `/api/cron/email-queue` sweeps due SCHEDULED announcements after draining EmailSend rows. Approval workflow deferred per brief. |
+| (session 2, in commit trailing 3H) | **3I** — `lib/optOutAudit.ts` writer. `/api/unsubscribe` renders MARKETING / ALL / Resubscribe panel; `/api/unsubscribe/apply` handles POST from the panel; classic one-click preserved. `/api/emails/opt-outs` + `/api/emails/opt-outs/history` admin API. `/dashboard/communication/unsubscribes` list with per-address history modal. Every mutation writes an `EmailOptOutAudit` row. |
+| (session 2, in commit trailing 3I) | **3G** — `/api/members/[id]/communications` + `/api/emails/sends/[id]` + `<CommunicationsCard>` on the member profile page. `/api/announcements/[id]/results` + `/dashboard/communication/campaigns/[id]` for campaign-level tallies. Never fabricates "opened" — nullable timestamps drive the UI directly. Tracking-adjusted denominators explicitly disclosed. |
+| `7691ff7` | **3K + 3.3/3.4.3** — `lib/emailPreflight.ts` 10-item BLOCK/WARN/INFO checklist. `<PreflightPanel>` above composer disables Send on BLOCK. `<FinalReviewModal>` shows subject / sender / reply-to / mode / recipient count / skipped count / tracking notice; typed `SEND N` confirmation required above `TYPED_CONFIRM_THRESHOLD=50`. 8-mode picker exposed in composer. |
+
+**Verify commands** (session 2):
+- `npx tsc --noEmit` → clean
+- `npm run build` → clean
+- `npx tsx scripts/email-recipients-tests.ts` → 54/54 pass (unchanged)
+- Route smoke via `curl` — unauth 401 on `/api/marketing-audiences`, `/api/emails/opt-outs`; `/dashboard/communication/unsubscribes` 307→`/login`
+
+**Failure-mode discipline (per session-2 brief):**
+- 292 real families — bulk send is guarded by (1) `messages.bulk` sub-scope, (2) coach-audience filter, (3) BLOCK preflight for empty/no-recipients, (4) typed `SEND N` confirmation ≥ 50 recipients. Four independent gates before a mass send commits.
+- Coach view — a coach without `audience_all_club` sees only members enrolled in classes/events they teach on the bulk preview. `outsideCoachAudience` count is surfaced so the coach knows selections were dropped.
+- 3G never claims tracked events that didn't happen — every "opened" render is derived from a non-null `openedAt`, never from status alone. Rows without a `providerMessageId` render "delivered · open tracking unavailable" (SMTP-only sends).
+
+**Waiting on session 3:** 3M mobile audit, 3N test suite, plus any polish surfaced by owner testing of session-2 features. Approval workflow (3H.4) intentionally deferred.
 
 
 **Phase 3 exit criteria (per plan §3N "Document at end of this phase"):** email provider + sending flow doc'd · schema changes listed · background jobs added · tracking limitations noted · file-upload limitations · new permissions · env vars · manual test steps · deployment order · rollback plan.
