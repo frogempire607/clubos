@@ -66,6 +66,14 @@ export interface SendClubEmailInput {
   campaignId?: string | null;
   templateId?: string | null;
 
+  // M22 (session 2) — 3G Communications-history context. sentByUserId is
+  // the actor who triggered the send (owner clicking Send, or the cron
+  // worker's null when a scheduled announcement fires). relatedEventId /
+  // relatedMembershipId let the profile tab filter by related object.
+  sentByUserId?: string | null;
+  relatedEventId?: string | null;
+  relatedMembershipId?: string | null;
+
   // Freeform personalization snapshot for 3G history.
   personalization?: unknown;
 
@@ -256,6 +264,10 @@ async function writeEmailSend(
       announcementId: input.announcementId ?? null,
       campaignId: input.campaignId ?? null,
       templateId: input.templateId ?? null,
+      // M22 columns — see SendClubEmailInput comment.
+      sentByUserId: input.sentByUserId ?? null,
+      relatedEventId: input.relatedEventId ?? null,
+      relatedMembershipId: input.relatedMembershipId ?? null,
       recipientEmail: recipientEmailLower,
       recipientUserId: input.recipientUserId ?? null,
       recipientMemberId: input.recipientMemberId ?? null,

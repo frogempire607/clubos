@@ -2,6 +2,7 @@ import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendClubEmail, type EmailKind } from "@/lib/sendClubEmail";
+import { dispatchAnnouncement } from "@/lib/announcementDispatch";
 
 // POST|GET /api/cron/email-queue
 //
@@ -85,6 +86,11 @@ async function handle(req: Request) {
       announcementId: true,
       campaignId: true,
       templateId: true,
+      // M22 — preserve the actor + related-object refs on retry so a
+      // cron-driven re-dispatch keeps 3G history attribution intact.
+      sentByUserId: true,
+      relatedEventId: true,
+      relatedMembershipId: true,
     },
   });
 
@@ -110,7 +116,52 @@ async function handle(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, drained: rows.length, tally, results });
+  // 3H — after draining the EmailSend queue, sweep any SCHEDULED
+  // announcements whose scheduledFor has passed. Cap per-tick so a
+  // 500-row backlog doesn't monopolize the 60s function budget.
+  const dueAnnouncements = await prisma.announcement.findMany({
+    where: {
+      deletedAt: null,
+      status: "SCHEDULED",
+      scheduledFor: { lte: new Date() },
+      sendBatchId: null,
+    },
+    orderBy: { scheduledFor: "asc" },
+    take: 25,
+    select: { id: true },
+  });
+
+  const announcementResults: Array<{ id: string; outcome: string; reason?: string }> = [];
+  for (const a of dueAnnouncements) {
+    try {
+      // actorUserId = null: this fire is cron-driven, not owner-driven.
+      // The stored senderUserId on the announcement (from schedule time)
+      // still identifies who set it up; sentByUserId on the EmailSend
+      // rows stays null so the profile Communications tab renders
+      // "sent by the system" rather than blaming a stale actor.
+      const result = await dispatchAnnouncement({ announcementId: a.id, actorUserId: null });
+      announcementResults.push({
+        id: a.id,
+        outcome: result.ok ? result.status.toLowerCase() : "skipped",
+        reason: result.reason,
+      });
+    } catch (err) {
+      announcementResults.push({
+        id: a.id,
+        outcome: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    drained: rows.length,
+    tally,
+    results,
+    announcementsFired: dueAnnouncements.length,
+    announcementResults,
+  });
 }
 
 // Dispatch a row that already exists — mirror the second half of
@@ -137,6 +188,9 @@ async function dispatchExistingRow(row: {
   announcementId: string | null;
   campaignId: string | null;
   templateId: string | null;
+  sentByUserId: string | null;
+  relatedEventId: string | null;
+  relatedMembershipId: string | null;
 }): Promise<{ status: "sent" | "failed" | "skipped"; error?: string }> {
   // Delete the existing row and let sendClubEmail re-insert. Because we
   // wrap in a transaction and the delete + insert use the same
@@ -169,6 +223,9 @@ async function dispatchExistingRow(row: {
       announcementId: row.announcementId,
       campaignId: row.campaignId,
       templateId: row.templateId,
+      sentByUserId: row.sentByUserId,
+      relatedEventId: row.relatedEventId,
+      relatedMembershipId: row.relatedMembershipId,
     });
     return {
       status: result.status === "SENT" ? "sent" : result.status === "FAILED" ? "failed" : "skipped",
