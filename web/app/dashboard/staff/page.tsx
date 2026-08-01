@@ -11,8 +11,24 @@ import {
   PERMISSION_CATALOG,
   DEFAULT_PERMISSIONS,
   resolvePermissions,
+  resolveMessagesSubScopes,
+  MESSAGES_SUBSCOPES,
+  type MessagesSubScope,
   type PermissionLevel,
 } from "@/lib/permissions";
+
+// Owner-facing labels for the messaging sub-scopes. Kept in sync with
+// MESSAGES_SUBSCOPES in lib/permissions.ts.
+const SUBSCOPE_LABELS: Record<MessagesSubScope, { label: string; desc: string }> = {
+  bulk:       { label: "Bulk email from the Members page", desc: "Address multiple selected members at once." },
+  marketing:  { label: "Audiences + marketing campaigns",   desc: "Build saved recipient groups and campaign metrics." },
+  templates:  { label: "Manage email templates",            desc: "Create, edit, duplicate, archive templates." },
+  images:     { label: "Upload images for email",           desc: "Attach images to the composer." },
+  unsubscribe:{ label: "Manage unsubscribe list",           desc: "See who opted out, resubscribe / block addresses." },
+  analytics:  { label: "View campaign analytics",           desc: "Open/click/delivery breakdown per send." },
+  approve:    { label: "Approve pending campaigns",         desc: "Sign off on drafts before they send." },
+  audience_all_club: { label: "Address any member",         desc: "OFF = coach can only email members in classes/events they teach (recommended for coaches)." },
+};
 
 type StaffProfile = {
   title: string | null;
@@ -486,11 +502,20 @@ function EditStaffModal({
   const [photoUrl, setPhotoUrl] = useState<string>((staff.staffProfile as any)?.photoUrl || "");
   const [showOnPortal, setShowOnPortal] = useState<boolean>(!!(staff.staffProfile as any)?.showOnPortal);
   const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>({ ...existing });
+  // 3L — sub-scope map lives alongside `permissions` under the
+  // messages_subScopes key. Split into its own state slot so the UI
+  // toggle logic is legible.
+  const [subScopes, setSubScopes] = useState<Record<MessagesSubScope, boolean>>(
+    () => resolveMessagesSubScopes(staff.staffProfile?.permissions ?? null),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   function setLevel(key: string, val: PermissionLevel) {
     setPermissions((p) => ({ ...p, [key]: val }));
+  }
+  function setSubScope(scope: MessagesSubScope, on: boolean) {
+    setSubScopes((s) => ({ ...s, [scope]: on }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -510,7 +535,13 @@ function EditStaffModal({
         publicPhone: publicPhone || null,
         photoUrl: photoUrl || null,
         showOnPortal,
-        permissions,
+        permissions: {
+          ...permissions,
+          // Fold the sub-scope map into the permissions JSON blob under
+          // messages_subScopes. Server-side resolvers read it back with
+          // hasMessagesSubScope() / resolveMessagesSubScopes().
+          messages_subScopes: subScopes,
+        },
       }),
     });
     setSaving(false);
@@ -640,6 +671,36 @@ function EditStaffModal({
               ))}
             </div>
           </div>
+
+          {/* 3L — Messaging sub-scopes. Only visible when messages is
+              enabled (level != none), because these switches only mean
+              anything on top of a base messages level. */}
+          {permissions.messages && permissions.messages !== "none" && (
+            <div className="pt-2 border-t border-app-border">
+              <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">Messaging — advanced</p>
+              <p className="text-xs text-text-muted mb-3">
+                Sub-permissions on top of the Messaging level above. Defaults are
+                safe for coaches — turn on Bulk, Marketing, or Address any member
+                only for staff who should be reaching the whole club.
+              </p>
+              <div className="space-y-2">
+                {MESSAGES_SUBSCOPES.map((s) => (
+                  <label key={s} className="flex items-start gap-2 p-2 rounded-md border border-app-border hover:bg-app-bg cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={!!subScopes[s]}
+                      onChange={(e) => setSubScope(s, e.target.checked)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm text-text-primary">{SUBSCOPE_LABELS[s].label}</span>
+                      <span className="block text-[11px] text-text-muted">{SUBSCOPE_LABELS[s].desc}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
 

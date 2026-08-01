@@ -4,7 +4,8 @@ import { randomUUID } from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
+import { filterMemberIdsByCoachAudience } from "@/lib/coachAudience";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { sendJoinInvite } from "@/lib/migrationServer";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
@@ -208,6 +209,34 @@ async function handleBulkEmail(
 
   const denied = requirePermission(session, "messages", "send");
   if (denied) return denied;
+  // 3L — messages.bulk is the gate for the Members-page bulk composer.
+  // A coach with plain messages:send can still DM one member; only staff
+  // with the bulk sub-scope can address the whole roster.
+  const bulkDenied = requireMessagesSubScope(session, "bulk");
+  if (bulkDenied) return bulkDenied;
+
+  // 3L coach-restricted audience — a coach without audience_all_club may
+  // only address members enrolled in classes/events they teach. Filter
+  // the requested id list BEFORE we build the recipient set so a
+  // fabricated memberId in the payload can't cross the coach's boundary.
+  const audienceFilter = await filterMemberIdsByCoachAudience(
+    { role: session.user.role, userId: session.user.id, clubId: session.user.clubId, permissions: session.user.permissions ?? null },
+    memberIds,
+  );
+  const scopedMemberIds = audienceFilter.allowed;
+  const droppedByAudience = audienceFilter.dropped;
+
+  if (scopedMemberIds.length === 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "OUTSIDE_COACH_AUDIENCE",
+        error: "You can only email members enrolled in a class or event you teach. None of the selected members qualified.",
+        droppedByAudience: droppedByAudience.length,
+      },
+      { status: 403 },
+    );
+  }
 
   const club = await prisma.club.findUnique({
     where: { id: session.user.clubId },
@@ -241,7 +270,7 @@ async function handleBulkEmail(
 
   const recipients = await resolveRecipients({
     clubId: club.id,
-    memberIds,
+    memberIds: scopedMemberIds,
     mode: email.mode as HouseholdMode,
     respectMarketingOptOut: true,
   });

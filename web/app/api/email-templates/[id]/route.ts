@@ -7,7 +7,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
 import { validateEmailBlocks } from "@/lib/emailBlocks";
 import { renderEmail } from "@/lib/emailRender";
 import { resolvePostalAddressLines } from "@/lib/emailPostalAddress";
@@ -39,6 +39,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "edit");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "templates");
+  if (scopeDenied) return scopeDenied;
 
   let data: z.infer<typeof patchSchema>;
   try {
@@ -111,6 +113,8 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "edit");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "templates");
+  if (scopeDenied) return scopeDenied;
 
   const existing = await prisma.emailTemplate.findFirst({
     where: { id: params.id, clubId: session.user.clubId },

@@ -1,6 +1,28 @@
 // Canonical staff permission model. One source of truth for the keys, the
 // level ordering, sensible defaults, the nav→permission map, and the
 // server-side guard. Owners always bypass every check.
+//
+// Sub-scope model (plan §3L, added session 2):
+//   The `messages` key can carry a nested object of feature-flag booleans
+//   under `messages.subScopes` so staff can have (say) messages:send but
+//   not messages.bulk. Storage: JSON blob on StaffProfile.permissions —
+//   backward compatible with the old string-only shape.
+//
+//   Example StaffProfile.permissions value:
+//     {
+//       "members": "view", "attendance": "full", ...,
+//       "messages": "send",                            // legacy string still honored
+//       "messages_subScopes": {                        // NEW
+//         "bulk": false, "marketing": false,
+//         "templates": true, "images": true,
+//         "unsubscribe": false, "analytics": false,
+//         "approve": false, "audience_all_club": false
+//       }
+//     }
+//
+//   `hasSubScope(perms, "bulk")` is the caller — level-check is separate.
+//   A coach with `messages:send` + `bulk:false` can DM one member but
+//   cannot use the Members-page bulk composer.
 
 export type PermissionLevel = "none" | "view" | "send" | "edit" | "full";
 
@@ -92,6 +114,70 @@ export function hasPermission(
 ): boolean {
   const resolved = resolvePermissions(perms);
   return RANK[resolved[key]] >= RANK[minLevel];
+}
+
+// ── Messaging sub-scopes (plan §3L) ─────────────────────────────────────
+//
+// Sub-scope IDs the codebase reads. Owners always have every sub-scope.
+// Staff sub-scope defaults align with DEFAULT_MESSAGES_SUBSCOPES below —
+// a coach with `messages:send` gets DMs + templates + images by default,
+// and MUST be opted-in to bulk/marketing/unsubscribe/analytics/approve.
+export type MessagesSubScope =
+  | "bulk"           // Send bulk email from Members page (plan §3A)
+  | "marketing"      // Manage audiences + marketing campaigns (plan §3D)
+  | "templates"      // Edit templates (plan §3C)
+  | "images"         // Upload images for email (plan §3J)
+  | "unsubscribe"    // Manage the club's opt-out list (plan §3I)
+  | "analytics"      // View campaign results + history (plan §3G)
+  | "approve"        // Approve pending campaigns for send (plan §3H)
+  | "audience_all_club"; // Send to any member (unset = "coach audience only",
+                          // enforced by lib/coachAudience.ts)
+
+export const MESSAGES_SUBSCOPES: MessagesSubScope[] = [
+  "bulk", "marketing", "templates", "images",
+  "unsubscribe", "analytics", "approve", "audience_all_club",
+];
+
+// Defaults for a new staff invite when they have messages != "none". The
+// principle: day-to-day DMs + templates + images are safe; anything with
+// blast-radius (bulk, marketing, approve) or PII surface (unsubscribe,
+// analytics) needs explicit opt-in. `audience_all_club` off = coach can
+// only email members enrolled in classes they teach (plan §3L example:
+// "a coach may email athletes assigned to their program without seeing
+// the entire club's member list or financial information").
+export const DEFAULT_MESSAGES_SUBSCOPES: Record<MessagesSubScope, boolean> = {
+  bulk: false,
+  marketing: false,
+  templates: true,
+  images: true,
+  unsubscribe: false,
+  analytics: false,
+  approve: false,
+  audience_all_club: false,
+};
+
+// True when the staff user has the messages sub-scope enabled. OWNER
+// bypass happens at the call site (see hasMessagesSubScope() below —
+// this pure predicate only inspects the permission blob).
+export function hasMessagesSubScope(
+  perms: Record<string, unknown> | null | undefined,
+  scope: MessagesSubScope,
+): boolean {
+  const obj = (perms && typeof perms === "object" ? perms : {}) as Record<string, unknown>;
+  const raw = obj["messages_subScopes"];
+  const sub = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const v = sub[scope];
+  if (typeof v === "boolean") return v;
+  return DEFAULT_MESSAGES_SUBSCOPES[scope];
+}
+
+// Resolve every sub-scope to a boolean map (for the staff editor UI).
+export function resolveMessagesSubScopes(
+  perms: Record<string, unknown> | null | undefined,
+): Record<MessagesSubScope, boolean> {
+  const out = {} as Record<MessagesSubScope, boolean>;
+  for (const s of MESSAGES_SUBSCOPES) out[s] = hasMessagesSubScope(perms, s);
+  return out;
 }
 
 // Nav / route path → required permission. ownerOnly entries are hidden from

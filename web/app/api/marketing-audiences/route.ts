@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
 import { parseAudienceFilter, evaluateAudience } from "@/lib/audienceFilters";
 
 const createSchema = z.object({
@@ -23,6 +23,8 @@ export async function GET(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "view");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "marketing");
+  if (scopeDenied) return scopeDenied;
 
   const includeArchived = new URL(req.url).searchParams.get("archived") === "1";
 
@@ -48,6 +50,8 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "edit");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "marketing");
+  if (scopeDenied) return scopeDenied;
 
   let data: z.infer<typeof createSchema>;
   try {

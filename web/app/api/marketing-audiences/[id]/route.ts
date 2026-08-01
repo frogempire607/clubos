@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
 import { parseAudienceFilter, evaluateAudience } from "@/lib/audienceFilters";
 
 const patchSchema = z.object({
@@ -22,6 +22,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "view");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "marketing");
+  if (scopeDenied) return scopeDenied;
 
   const row = await prisma.marketingAudience.findFirst({
     where: { id: params.id, clubId: session.user.clubId },
@@ -35,6 +37,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "edit");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "marketing");
+  if (scopeDenied) return scopeDenied;
 
   let data: z.infer<typeof patchSchema>;
   try {
@@ -79,6 +83,8 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "edit");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "marketing");
+  if (scopeDenied) return scopeDenied;
 
   const existing = await prisma.marketingAudience.findFirst({
     where: { id: params.id, clubId: session.user.clubId },

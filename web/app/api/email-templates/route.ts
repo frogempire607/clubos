@@ -10,7 +10,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
 import { validateEmailBlocks } from "@/lib/emailBlocks";
 import { renderEmail } from "@/lib/emailRender";
 import { STOCK_TEMPLATES } from "@/lib/emailTemplates";
@@ -74,6 +74,8 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "messages", "edit");
   if (denied) return denied;
+  const scopeDenied = requireMessagesSubScope(session, "templates");
+  if (scopeDenied) return scopeDenied;
 
   let data: z.infer<typeof createSchema>;
   try {

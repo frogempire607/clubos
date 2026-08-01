@@ -4,9 +4,17 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
-import { resolvePermissions } from "@/lib/permissions";
+import { resolvePermissions, MESSAGES_SUBSCOPES, type MessagesSubScope } from "@/lib/permissions";
 
 const permissionLevel = z.enum(["none", "view", "edit", "full", "send"]);
+
+// The permissions blob has two shapes today: canonical per-key levels
+// (strings) + `messages_subScopes` (a nested boolean map, added session 2).
+// z.record(string, level) rejected the nested object outright; a passthrough
+// with permissive types lets both survive validation. Server-side we split
+// the sub-scope map back out and preserve it on the StaffProfile.permissions
+// JSON blob so hasMessagesSubScope() reads it back.
+const permissionsSchema = z.record(z.string(), z.unknown()).optional();
 
 const updateSchema = z.object({
   // Owner can edit any User-level field except the password (passwords are
@@ -24,8 +32,36 @@ const updateSchema = z.object({
   publicPhone: z.string().optional().nullable(),
   photoUrl: z.string().optional().nullable(),
   showOnPortal: z.boolean().optional(),
-  permissions: z.record(z.string(), permissionLevel).optional(),
+  permissions: permissionsSchema,
 });
+
+// Split the loose permissions blob into (canonical levels, messages
+// sub-scope map). Both fold back together for storage; the split is
+// only here so `resolvePermissions` continues to see the per-key
+// enum shape it expects.
+function splitPermissions(raw: unknown): { base: Record<string, unknown>; subScopes: Record<MessagesSubScope, boolean> | null } {
+  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const base: Record<string, unknown> = {};
+  let subScopes: Record<MessagesSubScope, boolean> | null = null;
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === "messages_subScopes" && v && typeof v === "object") {
+      const src = v as Record<string, unknown>;
+      const out = {} as Record<MessagesSubScope, boolean>;
+      for (const s of MESSAGES_SUBSCOPES) {
+        out[s] = src[s] === true;
+      }
+      subScopes = out;
+    } else if (typeof v === "string" && ["none", "view", "edit", "full", "send"].includes(v)) {
+      base[k] = v;
+    }
+  }
+  return { base, subScopes };
+}
+function foldPermissions(raw: unknown): Record<string, unknown> {
+  const { base, subScopes } = splitPermissions(raw);
+  const resolved = resolvePermissions(base) as unknown as Record<string, unknown>;
+  return subScopes ? { ...resolved, messages_subScopes: subScopes } : resolved;
+}
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
@@ -54,7 +90,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       ...(data.publicPhone !== undefined && { publicPhone: data.publicPhone }),
       ...(data.photoUrl !== undefined && { photoUrl: data.photoUrl }),
       ...(data.showOnPortal !== undefined && { showOnPortal: data.showOnPortal }),
-      ...(data.permissions && { permissions: resolvePermissions(data.permissions) }),
+      ...(data.permissions && { permissions: foldPermissions(data.permissions) as unknown as object }),
     };
 
     if (user.staffProfile) {
@@ -64,7 +100,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         data: {
           userId: user.id,
           ...profileData,
-          permissions: resolvePermissions(data.permissions ?? null),
+          permissions: foldPermissions(data.permissions ?? null) as unknown as object,
         },
       });
     }
