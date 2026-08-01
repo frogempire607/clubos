@@ -190,6 +190,7 @@ model Club {
   productSales                ProductSale[]
   uploadedFiles               UploadedFile[]
   emailOptOuts                EmailOptOut[]
+  emailOptOutAudits           EmailOptOutAudit[]
   emailSends                  EmailSend[]
   emailTemplates              EmailTemplate[]
   marketingAudiences          MarketingAudience[]
@@ -3036,6 +3037,17 @@ model EmailSend {
   announcementId    String?
   campaignId        String?
   templateId        String?
+  // Who initiated the send. Announcement-driven sends can also derive
+  // this via Announcement.senderUserId; bulk/DM sends without an
+  // announcement rely on this column. Null for cron / provider-driven
+  // sends (bounce reprocessing, etc.).
+  sentByUserId      String?
+  // Optional context — set when the send is tied to a specific event
+  // or membership (registration confirmation, renewal reminder).
+  // Loose reference; deleting the event/membership does not destroy
+  // send history.
+  relatedEventId       String?
+  relatedMembershipId  String?
   // MARKETING | TRANSACTIONAL | ANNOUNCEMENT | BULK | TEMPLATE | ...
   kind              String
   // Delivery target. recipientEmail lower-cased at write time.
@@ -3084,6 +3096,9 @@ model EmailSend {
   @@index([recipientEmail, queuedAt])
   @@index([status, queuedAt])
   @@index([providerMessageId])
+  @@index([relatedEventId, queuedAt])
+  @@index([relatedMembershipId, queuedAt])
+  @@index([sentByUserId, queuedAt])
   // Structural double-send guarantee. Partial unique index (only where both
   // columns non-null) so ad-hoc / one-off sends without a batch don't
   // collide across time. Enforced in migration SQL as a WHERE-clause
@@ -3152,4 +3167,34 @@ model MarketingAudience {
   @@index([clubId, archivedAt])
   @@index([clubId, name])
   @@map("marketing_audiences")
+}
+
+// Append-only audit log for email unsubscribe/subscribe changes (plan
+// §3I). email_opt_outs is one row per (clubId, email); every change
+// overwrites the previous state. This table captures each transition so
+// compliance queries ("when did X unsubscribe?", "who triggered it?")
+// stay answerable.
+model EmailOptOutAudit {
+  id          String   @id @default(cuid())
+  clubId      String
+  email       String
+  userId      String?
+  // MARKETING | TRANSACTIONAL | ALL
+  scope       String
+  // SUBSCRIBE | UNSUBSCRIBE
+  action      String
+  // UNSUBSCRIBE_LINK | ADMIN | BOUNCE | COMPLAINT | IMPORT | API
+  source      String
+  actorUserId String?
+  // OWNER | STAFF | MEMBER | PROVIDER | ANONYMOUS
+  actorRole   String?
+  // Free-form provenance (IP, UA, provider message id, admin note).
+  context     Json?
+  createdAt   DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, email, createdAt])
+  @@index([clubId, createdAt])
+  @@map("email_opt_out_audits")
 }
