@@ -5,7 +5,7 @@
 // opt-out for someone else's address without the secret.
 
 import { createHmac, timingSafeEqual } from "crypto";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { getEmailBaseUrl } from "@/lib/baseUrl";
 
 function secret(): string {
   const s = process.env.NEXTAUTH_SECRET;
@@ -26,8 +26,11 @@ export function verifyUnsubscribeToken(clubId: string, email: string, token: str
   return timingSafeEqual(Buffer.from(token), Buffer.from(expected));
 }
 
+// Uses getEmailBaseUrl() (production origin) — this URL lives in emails
+// forever, must resolve from any client on any network, and must not
+// depend on the deployment / dev host that generated it.
 export function buildUnsubscribeUrl(clubId: string, email: string): string {
   const e = email.trim().toLowerCase();
   const qs = new URLSearchParams({ c: clubId, e, t: unsubscribeToken(clubId, e) });
-  return `${getAppBaseUrl()}/api/unsubscribe?${qs.toString()}`;
+  return `${getEmailBaseUrl()}/api/unsubscribe?${qs.toString()}`;
 }

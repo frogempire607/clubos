@@ -17,7 +17,7 @@
 // time than ship broken email.
 
 import { createHmac, timingSafeEqual } from "crypto";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { getEmailBaseUrl } from "@/lib/baseUrl";
 
 function secret(): string {
   const s = process.env.EMAIL_IMAGE_SECRET;
@@ -52,7 +52,10 @@ export function verifyEmailImageToken(fileId: string, token: string): boolean {
   }
 }
 
+// Uses getEmailBaseUrl() (production origin). The signed URL lives in
+// every send's stored bodyHtml forever; if it were built from the dev/
+// preview host it would 404 the moment the email left the office LAN.
 export function buildEmailImageUrl(fileId: string): string {
   const token = signEmailImageId(fileId);
-  return `${getAppBaseUrl()}/api/public/images/${encodeURIComponent(fileId)}?t=${token}`;
+  return `${getEmailBaseUrl()}/api/public/images/${encodeURIComponent(fileId)}?t=${token}`;
 }

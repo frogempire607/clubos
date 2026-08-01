@@ -71,6 +71,73 @@ export function baseUrlFromRequest(req: Request): string {
   }
 }
 
+// Base URL for absolute URLs embedded in EMAIL HTML — logos, signed image
+// sources, unsubscribe links, anything a recipient's mail client will
+// fetch after the request that created the email is long dead.
+//
+// This is DELIBERATELY DIFFERENT from getAppBaseUrl():
+//   - getAppBaseUrl() reads NEXTAUTH_URL, which in local dev is the LAN IP
+//     (so Capacitor / physical devices on the network can reach the dev
+//     server). NEXTAUTH_URL is also different on every Netlify branch
+//     deploy. Neither is reachable from a Gmail user's phone.
+//   - Emails outlive requests. A link in an email sent last week must
+//     resolve today, so the URL must always point at production.
+//
+// Fallback chain: EMAIL_BASE_URL (canonical, server-only) → NEXT_PUBLIC_SITE_URL
+// (already the production origin per CLAUDE.md) → hardcoded production
+// domain. Never NEXTAUTH_URL. Never the request host.
+const PRODUCTION_FALLBACK = "https://athletix-os.com";
+let emailBaseWarned = false;
+
+export function getEmailBaseUrl(): string {
+  const raw = process.env.EMAIL_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL;
+  if (raw) {
+    try {
+      const parsed = new URL(raw);
+      // Reject dev-only / unreachable hosts. An email containing an
+      // http://localhost:3000/... logo src is a broken image in every
+      // client that isn't the sender's own laptop.
+      const host = parsed.hostname.toLowerCase();
+      const isDevHost =
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host.endsWith(".local") ||
+        UNROUTABLE_HOSTS.has(host) ||
+        // 10.x, 172.16-31.x, 192.168.x — RFC 1918 private ranges. Common
+        // LAN IPs the user's dev machine picks up automatically.
+        /^10\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+      if (isDevHost) {
+        if (!emailBaseWarned) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[emailBase] EMAIL_BASE_URL / NEXT_PUBLIC_SITE_URL points at ` +
+              `dev host ${parsed.hostname} — emails won't resolve outside ` +
+              `your LAN. Falling back to ${PRODUCTION_FALLBACK}. Set ` +
+              `EMAIL_BASE_URL=https://athletix-os.com in .env for local ` +
+              `dev so test-sends render correctly in Gmail.`,
+          );
+          emailBaseWarned = true;
+        }
+        return PRODUCTION_FALLBACK;
+      }
+      return parsed.origin;
+    } catch {
+      if (!emailBaseWarned) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[emailBase] EMAIL_BASE_URL / NEXT_PUBLIC_SITE_URL is set but ` +
+            `does not parse as a URL (value: ${JSON.stringify(raw)}). ` +
+            `Falling back to ${PRODUCTION_FALLBACK}.`,
+        );
+        emailBaseWarned = true;
+      }
+    }
+  }
+  return PRODUCTION_FALLBACK;
+}
+
 export function getAppBaseUrl(): string {
   const raw = process.env.NEXTAUTH_URL;
   if (raw) {
