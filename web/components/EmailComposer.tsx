@@ -83,9 +83,17 @@ export interface EmailComposerProps {
 // send time. Fetched once from /api/club/info.
 interface ClubContactInfo {
   hasLogo: boolean;
+  // Resolved public-facing email/phone (publicEmail if set, else
+  // contactEmail; same for phone). Truthy when the Contact block will
+  // actually render a line for that field.
   contactEmail: string | null;
   contactPhone: string | null;
   websiteUrl: string | null;
+  // Whether the club has a complete-enough mailing address to render in
+  // the Contact block. Reads formatClubMailingAddress on the server —
+  // partial addresses count as false so the composer warning matches
+  // what the renderer does.
+  hasMailingAddress: boolean;
 }
 
 export default function EmailComposer({
@@ -114,11 +122,25 @@ export default function EmailComposer({
         if (!res.ok) return;
         const c = await res.json();
         if (!alive) return;
+        // The Contact block prefers publicEmail / publicPhone (member-
+        // facing) over contactEmail / contactPhone (admin destination).
+        // Mirror that fallback here so the composer's per-field "empty"
+        // warning matches what actually renders at send time.
+        const resolvedEmail = c?.publicEmail ?? c?.contactEmail ?? null;
+        const resolvedPhone = c?.publicPhone ?? c?.contactPhone ?? null;
+        // Address completeness gate mirrors formatClubMailingAddress:
+        // street line + city + (state OR zip). Half-filled rows count
+        // as unset so a "missing" warning fires when the renderer would
+        // silently drop the line.
+        const hasAddress = Boolean(
+          c?.mailingAddress && c?.mailingCity && (c?.mailingState || c?.mailingZip),
+        );
         setClubInfo({
           hasLogo: Boolean(c?.logoUrl),
-          contactEmail: c?.contactEmail ?? null,
-          contactPhone: c?.contactPhone ?? null,
+          contactEmail: resolvedEmail,
+          contactPhone: resolvedPhone,
           websiteUrl: c?.websiteUrl ?? null,
+          hasMailingAddress: hasAddress,
         });
       } catch {
         // best-effort; leave clubInfo null
@@ -305,7 +327,7 @@ export default function EmailComposer({
 
 function defaultBlocks(): EmailBlock[] {
   return [
-    { type: "logo", align: "left", height: 40 } as LogoBlock,
+    { type: "logo", align: "left", width: 160 } as LogoBlock,
     { type: "heading", level: 1, text: "Hi there,", align: "left" } as HeadingBlock,
     {
       type: "paragraph",
@@ -701,13 +723,11 @@ function ContactEditor({
   }
 
   // A selected field renders empty at send time when the corresponding
-  // club setting is missing (contactEmail, contactPhone, websiteUrl).
-  // Renderer silently drops missing fields — that's the right behavior at
-  // send (a fake placeholder would ship an obviously-templated email) —
-  // but the sender needs to know at COMPOSE time so they can fix Settings
-  // or remove the field. `address` is always missing because the club
-  // schema has no physical-address column today.
-  function fieldStatus(f: typeof CONTACT_FIELDS[number]): "ok" | "missing" | "unsupported" {
+  // club setting is missing. The renderer silently drops missing fields
+  // (a fake placeholder would ship an obviously-templated email) — but
+  // the sender needs to know at COMPOSE time so they can fix Settings
+  // or remove the field.
+  function fieldStatus(f: typeof CONTACT_FIELDS[number]): "ok" | "missing" {
     if (!block.fields.includes(f)) return "ok";
     if (!clubInfo) return "ok"; // still loading — don't flash warnings
     switch (f) {
@@ -715,12 +735,11 @@ function ContactEditor({
       case "email":   return clubInfo.contactEmail ? "ok" : "missing";
       case "phone":   return clubInfo.contactPhone ? "ok" : "missing";
       case "website": return clubInfo.websiteUrl ? "ok" : "missing";
-      case "address": return "unsupported";
+      case "address": return clubInfo.hasMailingAddress ? "ok" : "missing";
     }
   }
 
   const missing = CONTACT_FIELDS.filter((f) => fieldStatus(f) === "missing");
-  const unsupported = CONTACT_FIELDS.filter((f) => fieldStatus(f) === "unsupported");
 
   return (
     <div className="space-y-2">
@@ -751,18 +770,9 @@ function ContactEditor({
           );
         })}
       </div>
-      {(missing.length > 0 || unsupported.length > 0) && (
-        <div className="text-xs text-orange-accent bg-orange-accent/10 border border-orange-accent/30 rounded-md px-2 py-1.5 space-y-1">
-          {missing.length > 0 && (
-            <div>
-              <span className="font-medium">Not set on this club:</span> {missing.join(", ")}. These will not render — set them in <span className="underline">Settings → Club</span> or remove the field.
-            </div>
-          )}
-          {unsupported.length > 0 && (
-            <div>
-              <span className="font-medium">Address is not supported yet</span> — the club has no physical address on file. Remove this field to avoid confusion.
-            </div>
-          )}
+      {missing.length > 0 && (
+        <div className="text-xs text-orange-accent bg-orange-accent/10 border border-orange-accent/30 rounded-md px-2 py-1.5">
+          <span className="font-medium">Not set on this club:</span> {missing.join(", ")}. These will not render — set them in <span className="underline">Settings → Club</span> or remove the field.
         </div>
       )}
     </div>
@@ -789,19 +799,40 @@ function LogoEditor({
           <span className="font-medium">No club logo set</span> — this block will render the AthletixOS mark. Upload your logo in <span className="underline">Settings → Club</span>.
         </div>
       )}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <AlignPicker value={block.align ?? "left"} onChange={(align) => onUpdate({ align })} />
-        <label className="text-xs text-text-muted">Height</label>
+        <label className="text-xs text-text-muted">Width</label>
         <input
           type="number"
-          value={block.height ?? 40}
-          onChange={(e) => onUpdate({ height: Number(e.target.value) })}
+          value={block.width ?? ""}
+          placeholder="auto"
+          onChange={(e) => {
+            const v = e.target.value;
+            onUpdate({ width: v === "" ? undefined : Number(v) });
+          }}
+          min={40}
+          max={544}
+          className="w-20 text-xs border border-app-border rounded px-2 py-1 bg-surface"
+        />
+        <span className="text-xs text-text-muted">px</span>
+        <label className="text-xs text-text-muted ml-2">Max height</label>
+        <input
+          type="number"
+          value={block.height ?? ""}
+          placeholder="auto"
+          onChange={(e) => {
+            const v = e.target.value;
+            onUpdate({ height: v === "" ? undefined : Number(v) });
+          }}
           min={20}
-          max={120}
+          max={400}
           className="w-20 text-xs border border-app-border rounded px-2 py-1 bg-surface"
         />
         <span className="text-xs text-text-muted">px</span>
       </div>
+      <p className="text-[11px] text-text-muted">
+        Set width to size the logo — height auto-scales. Add a max height to cap tall/square logos. Aspect ratio is always preserved.
+      </p>
     </div>
   );
 }
@@ -964,7 +995,7 @@ function BlockPicker({ onAdd }: { onAdd: (b: EmailBlock) => void }) {
     { label: "Divider", icon: Minus, make: () => ({ type: "divider" }) },
     { label: "Spacer", icon: ArrowDownUp, make: () => ({ type: "spacer", height: 16 }) },
     { label: "Contact info", icon: Contact, make: () => ({ type: "contact", fields: ["name", "email", "phone"] }) },
-    { label: "Club logo", icon: LogoIcon, make: () => ({ type: "logo", align: "left", height: 40 }) },
+    { label: "Club logo", icon: LogoIcon, make: () => ({ type: "logo", align: "left", width: 160 }) },
   ];
   return (
     <div className="pt-3 border-t border-app-border">
@@ -1083,12 +1114,17 @@ function PreviewBlock({ block }: { block: EmailBlock }) {
           Contact info ({block.fields.join(", ") || "no fields selected"}) — rendered from your club settings at send time.
         </div>
       );
-    case "logo":
+    case "logo": {
+      const dims = [
+        block.width ? `w:${block.width}` : null,
+        block.height ? `h:${block.height}` : null,
+      ].filter(Boolean).join(" · ") || "auto";
       return (
         <div style={{ textAlign: align }} className="text-xs text-text-muted italic">
-          [Club logo, {block.height ?? 40}px]
+          [Club logo · {dims}px]
         </div>
       );
+    }
   }
 }
 

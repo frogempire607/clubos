@@ -15,6 +15,7 @@ import { resolveRecipients, type HouseholdMode } from "@/lib/emailRecipients";
 import { sendClubEmail } from "@/lib/sendClubEmail";
 import { buildUnsubscribeUrl } from "@/lib/unsubscribe";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
+import { resolvePostalAddressLines } from "@/lib/emailPostalAddress";
 
 // The email path can enqueue up to MAX_IDS EmailSend rows in one request
 // (each is a single insert). Actual dispatch runs inline for now (Resend
@@ -183,6 +184,9 @@ async function handleBulkEmail(
     select: {
       id: true, name: true, tier: true, timezone: true, primaryColor: true,
       contactEmail: true, contactPhone: true, websiteUrl: true, hoursOfOperation: true,
+      publicEmail: true, publicPhone: true,
+      mailingAddress: true, mailingAddress2: true, mailingCity: true,
+      mailingState: true, mailingZip: true, mailingCountry: true,
       logoUrl: true, emailFromName: true, emailReplyTo: true,
     },
   });
@@ -242,15 +246,24 @@ async function handleBulkEmail(
       clubName: club.name,
       clubLogoUrl: publicClubLogoUrl(club.id, club.logoUrl),
       clubContact: {
-        email: club.contactEmail,
-        phone: club.contactPhone,
+        // Prefer the member-facing public* values; fall back to the
+        // admin contact* so nothing regresses on the day M21 landed.
+        // renderContact handles the same fallback centrally, but
+        // passing the resolved values here keeps the contract explicit
+        // and gives the Contact block address access to mailing*.
+        email: club.publicEmail ?? club.contactEmail,
+        phone: club.publicPhone ?? club.contactPhone,
         website: club.websiteUrl,
+        address: null, // renderContact will build this from mailing* on the club
       },
+      club,
       unsubscribeUrl,
-      // CAN-SPAM footer — AthletixOS entity postal address. Every
-      // marketing send uses the same string until Phase 3.6 adds a
-      // per-club postal field on Club.
-      postalAddress: "AthletixOS · MC Technologies Group LLC · PO Box 11, Newfield, NY 14867",
+      // Club-first with AthletixOS entity fallback. Two-line USPS
+      // layout (street / city-state-zip) beats Gmail's smart-link
+      // heuristic that used to auto-link the whole comma-joined line.
+      // The completeness gate is enforced inside the helper —
+      // partial addresses fall back to the entity address.
+      postalAddress: resolvePostalAddressLines(club),
       accentColor: club.primaryColor,
     });
 

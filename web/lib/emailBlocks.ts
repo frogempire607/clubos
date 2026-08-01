@@ -94,10 +94,18 @@ export interface ContactBlock {
 
 // Renders the club logo (public URL, no session gate). Falls back to
 // AthletixOS wordmark when the club has no logo set.
+//
+// Sizing: prefer `width` — MJML preserves aspect ratio when only width is
+// set. Setting `height` alone stretches the image to the full column width
+// and forces that height (the pre-fix production squashing bug). When both
+// are set, the renderer caps by both via inline max-width / max-height so
+// the aspect ratio still holds. Legacy blocks with only `height` are
+// rendered aspect-preserving via the same CSS path.
 export interface LogoBlock {
   type: "logo";
   align?: EmailAlign;
-  height?: number; // px, defaults to 40
+  width?: number;  // px, aspect-preserving when set alone
+  height?: number; // px, aspect-preserving when set alone
 }
 
 // ── Validation ────────────────────────────────────────────────────────────

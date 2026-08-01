@@ -28,6 +28,7 @@ import mjml2html from "mjml";
 import type { EmailBlock, InlineRun } from "@/lib/emailBlocks";
 import { blocksToPlainText } from "@/lib/emailBlocks";
 import { sanitizeEmailHtml } from "@/lib/sanitizeHtml";
+import { formatClubMailingAddressLines, type PostalAddressClub } from "@/lib/emailPostalAddress";
 
 export interface EmailRenderContext {
   clubName: string;
@@ -35,13 +36,25 @@ export interface EmailRenderContext {
   clubContact?: {
     email?: string | null;
     phone?: string | null;
+    // Pre-resolved one-line address. When null, the Contact block falls
+    // back to building one from ctx.club's mailing* columns via
+    // formatClubMailingAddress. Callers who don't have the full club row
+    // handy can pass a string directly.
     address?: string | null;
     website?: string | null;
   };
+  // Optional structured club row — the Contact block reads mailing* off
+  // this to render the "address" field, and renders nothing when the
+  // address is too incomplete to display (CAN-SPAM completeness gate).
+  club?: PostalAddressClub | null;
   // Absolute URL to the recipient's one-click unsubscribe endpoint.
   unsubscribeUrl?: string | null;
-  // Physical mailing address for the CAN-SPAM footer.
-  postalAddress: string;
+  // Physical mailing address for the CAN-SPAM footer. String (legacy
+  // single-line) or array of lines — the footer renders each entry on
+  // its own line joined by <br>. Resolve via
+  // lib/emailPostalAddress.resolvePostalAddressLines(club) — the
+  // club-first helper that falls back to the AthletixOS entity address.
+  postalAddress: string | string[];
   // Colors from Club.primaryColor when set; otherwise brand default.
   accentColor?: string | null;
 }
@@ -92,7 +105,7 @@ export async function renderEmail(blocks: EmailBlock[], ctx: EmailRenderContext)
       <mj-column>
         <mj-text css-class="aox-footer aox-muted">
           Sent by ${escapeHtml(ctx.clubName)} via AthletixOS<br />
-          ${escapeHtml(ctx.postalAddress)}${ctx.unsubscribeUrl ? `<br /><a href="${escapeAttr(ctx.unsubscribeUrl)}">Unsubscribe from marketing email</a>` : ""}
+          ${(Array.isArray(ctx.postalAddress) ? ctx.postalAddress : [ctx.postalAddress]).map((l) => escapeHtml(l)).join("<br />")}${ctx.unsubscribeUrl ? `<br /><a href="${escapeAttr(ctx.unsubscribeUrl)}">Unsubscribe from marketing email</a>` : ""}
         </mj-text>
       </mj-column>
     </mj-section>
@@ -140,7 +153,7 @@ function renderBlock(b: EmailBlock, ctx: EmailRenderContext, accent: string): st
     case "contact":
       return renderContact(b.fields, ctx);
     case "logo":
-      return renderLogo(b.align, b.height, ctx);
+      return renderLogo(b.align, b.height, b.width, ctx);
   }
 }
 
@@ -173,19 +186,78 @@ function renderImage(src: string, alt: string, width: number | undefined, align:
 
 function renderContact(fields: Array<"name" | "email" | "phone" | "address" | "website">, ctx: EmailRenderContext): string {
   const lines: string[] = [];
+  // Address resolves from two sources, in order:
+  //   1. Pre-resolved ctx.clubContact.address (a caller who already has
+  //      a formatted string — keeps the caller in charge; treated as a
+  //      single line).
+  //   2. ctx.club's structured mailing* columns via formatClubMailingAddressLines
+  //      (post-M21: two-line USPS layout — street on line 1, city/state/zip
+  //      on line 2). The split defeats Gmail's smart-link that auto-turned
+  //      the single comma-joined line into a Google Maps redirect.
+  //   3. Nothing — a partial or unset address renders no address line.
+  const addressLines: string[] = ctx.clubContact?.address
+    ? [ctx.clubContact.address]
+    : (() => {
+        const l = formatClubMailingAddressLines(ctx.club ?? null);
+        return l ? [l.line1, l.line2] : [];
+      })();
+
   if (fields.includes("name")) lines.push(escapeHtml(ctx.clubName));
   if (fields.includes("email") && ctx.clubContact?.email) lines.push(`<a href="mailto:${escapeAttr(ctx.clubContact.email)}">${escapeHtml(ctx.clubContact.email)}</a>`);
   if (fields.includes("phone") && ctx.clubContact?.phone) lines.push(escapeHtml(ctx.clubContact.phone));
-  if (fields.includes("address") && ctx.clubContact?.address) lines.push(escapeHtml(ctx.clubContact.address));
+  if (fields.includes("address") && addressLines.length) {
+    for (const l of addressLines) lines.push(escapeHtml(l));
+  }
   if (fields.includes("website") && ctx.clubContact?.website) lines.push(`<a href="${escapeAttr(ctx.clubContact.website)}">${escapeHtml(ctx.clubContact.website)}</a>`);
   if (!lines.length) return "";
   return `<mj-text padding="16px 28px" color="${MUTED}" font-size="13px">${lines.join("<br />")}</mj-text>`;
 }
 
-function renderLogo(align: string | undefined, height: number | undefined, ctx: EmailRenderContext): string {
-  const h = clampInt(height ?? 40, 20, 120);
+function renderLogo(
+  align: string | undefined,
+  height: number | undefined,
+  width: number | undefined,
+  ctx: EmailRenderContext,
+): string {
   const src = ctx.clubLogoUrl || "https://athletix-os.com/brand/icon.png";
-  return `<mj-image padding="20px 28px 0 28px" src="${escapeAttr(src)}" alt="${escapeAttr(ctx.clubName)}" height="${h}px" align="${escapeAttr(align ?? "left")}" />`;
+  const alignAttr = escapeAttr(align ?? "left");
+  const altAttr = escapeAttr(ctx.clubName);
+
+  // MJML's mj-image preserves aspect ratio when only `width` is set (it
+  // auto-computes height). When only `height` is set, mj-image stretches
+  // width to the full column and forces the specified height — the bug
+  // that squashed real logos in production. So:
+  //
+  //   width only              → mj-image width=Wpx        (aspect preserved)
+  //   height only (legacy)    → raw <img> max-height + width:auto
+  //   both                    → raw <img> max-width + max-height + auto/auto
+  //   neither                 → mj-image with no dims (full column, aspect preserved)
+  //
+  // A raw <img> in mj-raw skips MJML's mso conditional wrapper. That's
+  // acceptable for a small logo — every mainstream email client (Gmail,
+  // Apple Mail, Outlook desktop 2016+) renders width:auto/height:auto
+  // correctly on <img>. mso conditional matters most for width-forcing
+  // buttons, not aspect-preserving images.
+
+  if (width && height) {
+    const w = clampInt(width, 40, 544);
+    const h = clampInt(height, 20, 400);
+    const inner = `<img src="${escapeAttr(src)}" alt="${altAttr}" style="display:inline-block;max-width:${w}px;max-height:${h}px;width:auto;height:auto;border:0;outline:none;text-decoration:none" />`;
+    return `<mj-raw><div style="padding:20px 28px 0 28px;text-align:${alignAttr}">${inner}</div></mj-raw>`;
+  }
+
+  if (width) {
+    const w = clampInt(width, 40, 544);
+    return `<mj-image padding="20px 28px 0 28px" src="${escapeAttr(src)}" alt="${altAttr}" width="${w}px" align="${alignAttr}" />`;
+  }
+
+  if (height) {
+    const h = clampInt(height, 20, 400);
+    const inner = `<img src="${escapeAttr(src)}" alt="${altAttr}" style="display:inline-block;max-width:544px;max-height:${h}px;width:auto;height:auto;border:0;outline:none;text-decoration:none" />`;
+    return `<mj-raw><div style="padding:20px 28px 0 28px;text-align:${alignAttr}">${inner}</div></mj-raw>`;
+  }
+
+  return `<mj-image padding="20px 28px 0 28px" src="${escapeAttr(src)}" alt="${altAttr}" align="${alignAttr}" />`;
 }
 
 function renderRun(r: InlineRun): string {

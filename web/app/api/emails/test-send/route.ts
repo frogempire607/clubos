@@ -8,6 +8,7 @@ import { validateEmailBlocks, blocksToPlainText } from "@/lib/emailBlocks";
 import { renderEmail } from "@/lib/emailRender";
 import { sendClubEmail } from "@/lib/sendClubEmail";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
+import { resolvePostalAddressLines } from "@/lib/emailPostalAddress";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 
 // POST /api/emails/test-send
@@ -82,6 +83,9 @@ export async function POST(req: Request) {
     select: {
       id: true, name: true, primaryColor: true, timezone: true,
       contactEmail: true, contactPhone: true, websiteUrl: true,
+      publicEmail: true, publicPhone: true,
+      mailingAddress: true, mailingAddress2: true, mailingCity: true,
+      mailingState: true, mailingZip: true, mailingCountry: true,
       logoUrl: true, emailFromName: true, emailReplyTo: true,
     },
   });
@@ -91,15 +95,19 @@ export async function POST(req: Request) {
     clubName: club.name,
     clubLogoUrl: publicClubLogoUrl(club.id, club.logoUrl),
     clubContact: {
-      email: club.contactEmail,
-      phone: club.contactPhone,
+      // Same public-first / contact-fallback as the bulk path so what an
+      // owner sees in a test send exactly matches what members receive.
+      email: club.publicEmail ?? club.contactEmail,
+      phone: club.publicPhone ?? club.contactPhone,
       website: club.websiteUrl,
+      address: null, // renderContact fills this from club mailing* below
     },
+    club,
     // A test send never gets a real unsubscribe URL — it's not marketing
     // to the caller. Omit so the marketing footer just shows the postal
     // address without a self-unsubscribe link the tester would trip on.
     unsubscribeUrl: null,
-    postalAddress: "AthletixOS · MC Technologies Group LLC · PO Box 11, Newfield, NY 14867",
+    postalAddress: resolvePostalAddressLines(club),
     accentColor: club.primaryColor,
   });
 

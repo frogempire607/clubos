@@ -68,6 +68,14 @@ export default function ClubSettingsPage() {
   const [aboutUs, setAboutUs] = useState<string>("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [publicEmail, setPublicEmail] = useState("");
+  const [publicPhone, setPublicPhone] = useState("");
+  const [mailingAddress, setMailingAddress] = useState("");
+  const [mailingAddress2, setMailingAddress2] = useState("");
+  const [mailingCity, setMailingCity] = useState("");
+  const [mailingState, setMailingState] = useState("");
+  const [mailingZip, setMailingZip] = useState("");
+  const [mailingCountry, setMailingCountry] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [socialLinks, setSocialLinks] = useState<{ label: string; url: string }[]>([]);
   const [billingVisibility, setBillingVisibility] = useState<{
@@ -100,6 +108,14 @@ export default function ClubSettingsPage() {
         setAboutUs(club.aboutUs || "");
         setContactEmail(club.contactEmail || "");
         setContactPhone(club.contactPhone || "");
+        setPublicEmail(club.publicEmail || "");
+        setPublicPhone(club.publicPhone || "");
+        setMailingAddress(club.mailingAddress || "");
+        setMailingAddress2(club.mailingAddress2 || "");
+        setMailingCity(club.mailingCity || "");
+        setMailingState(club.mailingState || "");
+        setMailingZip(club.mailingZip || "");
+        setMailingCountry(club.mailingCountry || "");
         setWebsiteUrl(club.websiteUrl || "");
         const links = Array.isArray(club.socialLinks) ? club.socialLinks : [];
         setSocialLinks(links);
@@ -135,6 +151,14 @@ export default function ClubSettingsPage() {
         aboutUs: aboutUs || null,
         contactEmail: contactEmail || null,
         contactPhone: contactPhone || null,
+        publicEmail: publicEmail || null,
+        publicPhone: publicPhone || null,
+        mailingAddress: mailingAddress || null,
+        mailingAddress2: mailingAddress2 || null,
+        mailingCity: mailingCity || null,
+        mailingState: mailingState || null,
+        mailingZip: mailingZip || null,
+        mailingCountry: mailingCountry || null,
         websiteUrl: websiteUrl || null,
         socialLinks: socialLinks.filter((l) => l.label.trim() && l.url.trim()),
         hoursOfOperation: Object.keys(hours).length > 0 ? hours : null,
@@ -321,29 +345,44 @@ export default function ClubSettingsPage() {
           </div>
         </div>
 
-        {/* Contact info */}
+        {/* Public contact — the "what members see" bucket. This is what
+            renders in email footers, the member portal, and the public
+            club page. Kept above the admin bucket so the field a member
+            eventually sees is what the owner touches first. */}
         <div className="bg-white rounded-xl border border-app-border p-6 space-y-4">
-          <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Contact</p>
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Public contact</p>
+            <p className="text-xs text-text-muted mt-1">
+              What your members see. Shown in email footers (the Contact block),
+              on the member portal, and on your public club page.
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Public email</label>
               <input
                 type="email"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
+                value={publicEmail}
+                onChange={(e) => setPublicEmail(e.target.value)}
                 placeholder="hello@yourclub.com"
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
+              <p className="text-xs text-text-muted mt-1">
+                Shown in email footers and to members. Leave blank to fall back to the admin email below.
+              </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Phone</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">Public phone</label>
               <input
                 type="tel"
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value)}
+                value={publicPhone}
+                onChange={(e) => setPublicPhone(e.target.value)}
                 placeholder="(555) 000-0000"
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
+              <p className="text-xs text-text-muted mt-1">
+                Shown to members. Leave blank to fall back to the admin phone below.
+              </p>
             </div>
           </div>
           <div>
@@ -355,6 +394,133 @@ export default function ClubSettingsPage() {
               placeholder="https://yourclub.com"
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
+          </div>
+        </div>
+
+        {/* Mailing address — required by CAN-SPAM in every marketing email.
+            When set, replaces the AthletixOS entity fallback in the footer. */}
+        <div className="bg-white rounded-xl border border-app-border p-6 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Mailing address</p>
+            <p className="text-xs text-text-muted mt-1">
+              Required in the footer of every marketing email (CAN-SPAM). When set,
+              this replaces the AthletixOS mailing address in your emails. Also renders
+              as the "address" line in the Contact block. Fill in street, city, and
+              state or ZIP — partial addresses fall back to the AthletixOS address so
+              your emails stay compliant while you finish.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Street address</label>
+            <input
+              type="text"
+              value={mailingAddress}
+              onChange={(e) => setMailingAddress(e.target.value)}
+              placeholder="123 Main Street"
+              autoComplete="address-line1"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Suite / apartment (optional)</label>
+            <input
+              type="text"
+              value={mailingAddress2}
+              onChange={(e) => setMailingAddress2(e.target.value)}
+              placeholder="Suite 4B"
+              autoComplete="address-line2"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">City</label>
+              <input
+                type="text"
+                value={mailingCity}
+                onChange={(e) => setMailingCity(e.target.value)}
+                placeholder="Ithaca"
+                autoComplete="address-level2"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">State / region</label>
+              <input
+                type="text"
+                value={mailingState}
+                onChange={(e) => setMailingState(e.target.value)}
+                placeholder="NY"
+                autoComplete="address-level1"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Postal code</label>
+              <input
+                type="text"
+                value={mailingZip}
+                onChange={(e) => setMailingZip(e.target.value)}
+                placeholder="14850"
+                autoComplete="postal-code"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">Country (optional)</label>
+            <input
+              type="text"
+              value={mailingCountry}
+              onChange={(e) => setMailingCountry(e.target.value)}
+              placeholder="Leave blank for US"
+              autoComplete="country-name"
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            />
+          </div>
+        </div>
+
+        {/* Admin contact — the "internal / where reply-to goes" bucket.
+            Members never see these unless the corresponding public field
+            above is blank. Kept below so it's clear this is the fallback,
+            not the primary. */}
+        <div className="bg-white rounded-xl border border-app-border p-6 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Admin contact — internal</p>
+            <p className="text-xs text-text-muted mt-1">
+              Not shown to members by default. The admin email is used as the
+              default <span className="font-medium">Reply-to</span> address when a member
+              replies to a club email. If a Public field above is blank, the matching
+              admin field is shown as a fallback so the Contact block still renders.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Admin email (reply-to)</label>
+              <input
+                type="email"
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+                placeholder="owner@yourclub.com"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+              <p className="text-xs text-text-muted mt-1">
+                Where replies to your emails go. Not shown to members unless the public email is blank.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Admin phone</label>
+              <input
+                type="tel"
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                placeholder="(555) 000-0000"
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+              <p className="text-xs text-text-muted mt-1">
+                Internal only. Shown to members as a fallback when the public phone is blank.
+              </p>
+            </div>
           </div>
         </div>
 
