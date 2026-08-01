@@ -59,6 +59,7 @@ import type {
   InlineRun,
   EmailAlign,
 } from "@/lib/emailBlocks";
+import { PERSONALIZATION_TOKENS, extractTokensFromBlocks } from "@/lib/emailPersonalization";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Props + top-level component
@@ -231,6 +232,11 @@ export default function EmailComposer({
           />
         </div>
       </div>
+
+      {/* Personalization tokens referenced by the body — surfaces a hint
+          for the sender that these will resolve per recipient at send
+          time. Missing values become blank (never leak {{token}}). */}
+      <PersonalizationHint subject={subject} blocks={blocks} />
 
       {/* Block list */}
       <div className="bg-surface border border-app-border rounded-xl">
@@ -1245,3 +1251,54 @@ function escapeHtml(s: string): string {
 }
 function escapeAttr(s: string): string { return escapeHtml(s); }
 function stripTags(s: string): string { return s.replace(/<[^>]*>/g, ""); }
+
+// Personalization hint — shows above the block list, lists tokens the
+// body/subject references, and flags any unknown tokens (typo guard).
+// Missing values become blank at send time; the composer's role here is
+// to make it obvious which tokens exist so senders don't ship
+// {{gaurdian_first_name}} typos to real inboxes.
+function PersonalizationHint({ subject, blocks }: { subject: string; blocks: EmailBlock[] }) {
+  const referenced = useMemo(() => {
+    const s = new Set(extractTokensFromBlocks(blocks));
+    for (const m of subject.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g)) s.add(m[1]);
+    return Array.from(s);
+  }, [subject, blocks]);
+
+  if (referenced.length === 0) {
+    return (
+      <div className="text-xs text-text-muted bg-app-bg/40 border border-app-border rounded-lg px-3 py-2">
+        Type <code className="px-1 py-0.5 bg-surface rounded font-mono text-[11px]">{"{{member_first_name}}"}</code> or any other token
+        into the subject / body to personalize per recipient — tokens resolve at send time.
+      </div>
+    );
+  }
+
+  const known = new Set<string>(PERSONALIZATION_TOKENS as unknown as string[]);
+  const typos = referenced.filter((t) => !known.has(t));
+  const valid = referenced.filter((t) => known.has(t));
+
+  return (
+    <div className={`text-xs rounded-lg px-3 py-2 border ${typos.length ? "border-orange-accent/40 bg-orange-accent/10" : "border-app-border bg-app-bg/40"}`}>
+      <div className="font-medium text-text-primary mb-1">
+        Personalization ({valid.length + typos.length} token{valid.length + typos.length === 1 ? "" : "s"})
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {valid.map((t) => (
+          <span key={t} className="px-1.5 py-0.5 rounded-md bg-surface border border-app-border font-mono text-[11px]">
+            {"{{"}{t}{"}}"}
+          </span>
+        ))}
+        {typos.map((t) => (
+          <span key={t} className="px-1.5 py-0.5 rounded-md bg-orange-accent/20 border border-orange-accent text-charcoal font-mono text-[11px]" title="Unknown token — will render blank">
+            {"{{"}{t}{"}}"} ← unknown
+          </span>
+        ))}
+      </div>
+      {typos.length > 0 && (
+        <p className="mt-1.5 text-text-muted">
+          Unknown tokens render blank in the sent email. Check spelling or remove them.
+        </p>
+      )}
+    </div>
+  );
+}

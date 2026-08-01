@@ -16,6 +16,13 @@ import { sendClubEmail } from "@/lib/sendClubEmail";
 import { buildUnsubscribeUrl } from "@/lib/unsubscribe";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { resolvePostalAddressLines } from "@/lib/emailPostalAddress";
+import {
+  extractTokensFromBlocks,
+  interpolateBlocks,
+  interpolateString,
+  resolveMemberPersonalization,
+  type PersonalizationContext,
+} from "@/lib/emailPersonalization";
 
 // The email path can enqueue up to MAX_IDS EmailSend rows in one request
 // (each is a single insert). Actual dispatch runs inline for now (Resend
@@ -53,6 +60,20 @@ const schema = z.object({
       // same key resolve to the same sendBatchId + return the same
       // response — no double-send, no double-count.
       clientKey: z.string().min(8).max(128).optional(),
+      // Personalization context (plan §3F). Owner-supplied "the event is
+      // X" / "the class is Y" values are the same for every recipient in
+      // the batch; per-member auto-resolved tokens (guardian_first_name,
+      // outstanding_balance, membership_end_date, …) fill in the rest.
+      personalization: z
+        .object({
+          eventName: z.string().max(200).nullable().optional(),
+          className: z.string().max(200).nullable().optional(),
+          coachName: z.string().max(200).nullable().optional(),
+          registrationLink: z.string().max(500).nullable().optional(),
+          paymentLink: z.string().max(500).nullable().optional(),
+          overrides: z.record(z.string().nullable()).optional(),
+        })
+        .optional(),
     })
     .optional(),
 });
@@ -246,12 +267,37 @@ async function handleBulkEmail(
   const results = { queued: 0, sent: 0, skipped: 0, failed: 0, duplicate: 0 };
   const failures: { email: string; error: string }[] = [];
 
-  // Per-recipient loop — each one owns its own render (personalization is
-  // per-recipient in a later checkpoint; today the render is identical
-  // per row but each recipient still gets a fresh unsubscribe token).
+  // Personalization (plan §3F): every recipient gets a fresh interpolate
+  // pass so a token like {{guardian_first_name}} resolves to THIS
+  // guardian, never bleeding across families. If the body has no
+  // {{tokens}}, the loop is byte-identical to the pre-3F path.
+  const referencedTokens = new Set(extractTokensFromBlocks(blocksResult.blocks));
+  for (const m of email.subject.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g)) {
+    referencedTokens.add(m[1]);
+  }
+  const bodyHasTokens = referencedTokens.size > 0;
+  const context: PersonalizationContext = email.personalization ?? {};
+
   for (const r of recipients.send) {
+    // Resolve personalization for THIS recipient's underlying member
+    // (recipientMemberId). Skip the DB round-trip when the body has no
+    // tokens at all — a subtle but real perf win on plain broadcasts.
+    let subjectForRow = email.subject;
+    let blocksForRow = blocksResult.blocks;
+    if (bodyHasTokens && r.recipientMemberId) {
+      const resolved = await resolveMemberPersonalization({
+        clubId: club.id,
+        memberId: r.recipientMemberId,
+        referencedTokens: Array.from(referencedTokens),
+        context,
+      });
+      const values = resolved.values as Record<string, string>;
+      subjectForRow = interpolateString(email.subject, values);
+      blocksForRow = interpolateBlocks(blocksResult.blocks, values);
+    }
+
     const unsubscribeUrl = buildUnsubscribeUrl(club.id, r.recipientEmail);
-    const rendered = await renderEmail(blocksResult.blocks, {
+    const rendered = await renderEmail(blocksForRow, {
       clubName: club.name,
       clubLogoUrl: publicClubLogoUrl(club.id, club.logoUrl),
       clubContact: {
@@ -276,17 +322,17 @@ async function handleBulkEmail(
       accentColor: club.primaryColor,
     });
 
-    const bodyText = rendered.text || blocksToPlainText(blocksResult.blocks);
+    const bodyText = rendered.text || blocksToPlainText(blocksForRow);
     const result = await sendClubEmail({
       clubId: club.id,
       kind: "BULK",
       recipientEmail: r.recipientEmail,
       recipientUserId: r.recipientUserId,
       recipientMemberId: r.recipientMemberId,
-      subject: email.subject,
+      subject: subjectForRow,
       bodyHtml: rendered.html,
       bodyText,
-      bodyJson: blocksResult.blocks,
+      bodyJson: blocksForRow,
       fromName,
       replyTo,
       sendBatchId,
