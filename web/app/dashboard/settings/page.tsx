@@ -119,7 +119,11 @@ type DonationLink = {
 };
 
 export default function SettingsPage() {
-  const [section, setSection] = useState<"profile" | "identity" | "plan" | "app" | "memberPortal" | "locations" | "notifications" | "security" | "legal" | "danger">("profile");
+  // Club Profile is now its own page at /dashboard/settings/club (the
+  // full editor with mailing address, public/admin contact, hours,
+  // social links, etc.). The nav item below is a Link, not an in-hub
+  // section, so we default the in-hub section to "identity" instead.
+  const [section, setSection] = useState<"identity" | "plan" | "app" | "memberPortal" | "locations" | "notifications" | "security" | "legal" | "danger">("identity");
   const [club, setClub] = useState<Club | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,8 +142,10 @@ export default function SettingsPage() {
     Promise.all([loadClub(), loadLocations()]).then(() => setLoading(false));
   }, []);
 
+  // Club Profile lives at its own route because the full editor is too
+  // big to sit inside this tabbed hub — it has three cards worth of
+  // contact/address/branding fields owners need in one place.
   const NAV = [
-    { id: "profile", label: "Club Profile" },
     { id: "identity", label: "Club Identity" },
     { id: "plan", label: "Plan & Billing" },
     { id: "app", label: "Branded App" },
@@ -170,6 +176,19 @@ export default function SettingsPage() {
         {/* Sidebar nav — collapses to horizontal scroll on mobile */}
         <div className="w-full md:w-44 flex-shrink-0">
           <nav className="space-y-0.5 sticky top-4">
+            {/* Club Profile — the primary settings destination. Lives at
+                its own route because the full editor (identity, branding,
+                public/admin contact, mailing address, hours, social
+                links) is too big to fit inside this tabbed hub. */}
+            <Link
+              href="/dashboard/settings/club"
+              className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-primary bg-app-bg hover:bg-app-bg font-medium block"
+            >
+              Club Profile →
+            </Link>
+            <div className="pt-2 pb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              System
+            </div>
             {NAV.map((n) => (
               <button
                 key={n.id}
@@ -213,7 +232,6 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          {section === "profile" && club && <ProfileSection club={club} onSaved={loadClub} />}
           {section === "identity" && <IdentitySection />}
           {section === "plan" && club && <PlanSection club={club} onSaved={loadClub} />}
           {section === "app" && club && <BrandedAppSection club={club} onSaved={loadClub} />}
@@ -225,144 +243,6 @@ export default function SettingsPage() {
           {section === "danger" && club && <DangerSection club={club} />}
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ─── Club Profile ─── */
-
-function ProfileSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
-  const [name, setName] = useState(club.name);
-  const [slug, setSlug] = useState(club.slug);
-  const [sport, setSport] = useState(club.sport || "");
-  const [tagline, setTagline] = useState(club.tagline || "");
-  const [primaryColor, setPrimaryColor] = useState(club.primaryColor || "#6D5DF6");
-  const [logoUrl, setLogoUrl] = useState(club.logoUrl || "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
-
-  // Re-hydrate inputs whenever the parent reloads the club (e.g. after Save
-  // or when the user navigates back to this tab). Without this, useState
-  // keeps its first-mount value and a saved field can look unchanged.
-  useEffect(() => {
-    setName(club.name);
-    setSlug(club.slug);
-    setSport(club.sport || "");
-    setTagline(club.tagline || "");
-    setPrimaryColor(club.primaryColor || "#6D5DF6");
-    setLogoUrl(club.logoUrl || "");
-  }, [club.id, club.name, club.slug, club.sport, club.tagline, club.primaryColor, club.logoUrl]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-    setSuccess(false);
-    const res = await fetch("/api/club/update", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        slug,
-        sport: sport || null,
-        tagline: tagline || null,
-        primaryColor,
-        logoUrl: logoUrl || null,
-      }),
-    });
-    setSaving(false);
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Save failed");
-      return;
-    }
-    setSuccess(true);
-    onSaved();
-    setTimeout(() => setSuccess(false), 2000);
-  }
-
-  return (
-    <div className="bg-white rounded-xl border border-app-border p-6">
-      <h2 className="text-base font-semibold text-text-primary mb-1">Club Profile</h2>
-      <p className="text-sm text-text-muted mb-4">
-        Basic profile info. For your About Us, cover image, hours, contact info,
-        and social links, open the{" "}
-        <Link href="/dashboard/settings/club" className="underline text-text-primary">
-          full club profile editor
-        </Link>.
-      </p>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-text-primary mb-1">Club name</label>
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} required
-            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-text-primary mb-1">Club URL</label>
-          <div className="flex items-center border border-app-border rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-stone-900">
-            <span className="px-3 py-2 bg-app-bg text-text-muted text-sm border-r border-app-border flex-shrink-0">
-              athletix-os.com/
-            </span>
-            <input type="text" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} required
-              className="flex-1 px-3 py-2 text-sm focus:outline-none" />
-          </div>
-          <p className="text-xs text-text-muted mt-1">Members use this URL to find and join your club</p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Sport</label>
-            <select value={sport} onChange={(e) => setSport(e.target.value)}
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand">
-              <option value="">Select a sport…</option>
-              {["American Football","Baseball","Basketball","Boxing","Brazilian Jiu-Jitsu","Golf","Gymnastics","Hockey","Judo","Karate","Kickboxing","Lacrosse","Mixed Martial Arts (MMA)","Muay Thai","Soccer","Softball","Swimming","Taekwondo","Tennis","Track & Field","Volleyball","Wrestling"].map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Brand color</label>
-            <div className="flex items-center gap-2">
-              <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)}
-                className="w-10 h-9 rounded border border-app-border cursor-pointer p-0.5" />
-              <input type="text" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)}
-                className="flex-1 px-3 py-2 border border-app-border rounded-lg text-sm font-mono focus:outline-none" maxLength={7} />
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-text-primary mb-1">Tagline</label>
-          <input type="text" value={tagline} onChange={(e) => setTagline(e.target.value)}
-            placeholder="Train hard, compete harder"
-            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-        </div>
-
-        <div>
-          <ImageUpload
-            label="Club logo"
-            value={logoUrl || null}
-            onChange={(v) => setLogoUrl(v || "")}
-            shape="square"
-          />
-          <p className="text-xs text-text-muted mt-1">
-            Used as your club&apos;s logo everywhere — dashboard, member portal,
-            emails, kiosk QR screen, and the branded app icon.
-          </p>
-        </div>
-
-        {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
-        {success && <div className="text-sm text-text-primary bg-lime-accent border border-lime-accent/40 rounded-lg px-3 py-2">Saved!</div>}
-
-        <div className="flex justify-end pt-2">
-          <button type="submit" disabled={saving}
-            className="px-5 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
-            {saving ? "Saving…" : "Save changes"}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }
