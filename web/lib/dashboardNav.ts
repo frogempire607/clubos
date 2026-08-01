@@ -82,6 +82,7 @@ export const NAV: NavItem[] = [
       { id: "campaigns", label: "Campaigns", href: "/dashboard/communication/campaigns" },
       { id: "templates", label: "Templates", href: "/dashboard/communication/templates" },
       { id: "audiences", label: "Audiences", href: "/dashboard/communication/audiences" },
+      { id: "unsubscribes", label: "Unsubscribes", href: "/dashboard/communication/unsubscribes" },
     ],
   },
   { id: "attendance", label: "Attendance", icon: CheckSquare, href: "/dashboard/attendance" },
