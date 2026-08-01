@@ -19,7 +19,7 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | [5](#phase-5--event-registration-confirmation) | Event Registration Confirmation | ⬜ pending |
 | [6](#phase-6--safety-data-integrity-testing) | Safety, Testing, Deployment & Final Handoff | ⬜ pending |
 
-## Full migration inventory (M1–M22)
+## Full migration inventory (M1–M28)
 
 | # | Migration | Phase | Applied? |
 |---|---|---|---|
@@ -34,19 +34,21 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | M13 | `ImportBatch` + `ImportRow` + `MemberHistoricalRecord` + enums | 2.5.9 | ✅ 2026-07-29 |
 | M14 | `Member.externalMemberId, sourceSystem, importBatchId, isHistoricalOnly, normalizedEmail, normalizedPhone` | 2.5.9 | ✅ 2026-07-29 |
 | M15 | `Transaction.externalTransactionId (@@unique with sourceSystem), externalCustomerId, sourceSystem, importBatchId, isHistorical, dedupeHash` | 2.5.9 | ✅ 2026-07-29 |
-| M16 | `20260801000000_email_sends` — EmailSend per-recipient delivery log (dedup + provider lifecycle) | 3.1 | ⬜ written |
-| M17 | `20260801010000_email_opt_outs_scope` — EmailOptOut adds userId + scope + source | 3.1 / 3I | ⬜ written |
-| M18 | `20260801020000_announcements_lifecycle` — Announcement lifecycle + rich body + sender + scheduling + audience | 3.1 / 3B / 3H | ⬜ written |
-| M19 | `20260801030000_email_templates` — EmailTemplate model (14 stock kinds seeded lazily) | 3.2 / 3C | ⬜ written |
-| M20 | `20260801040000_marketing_audiences` — MarketingAudience (dynamic/frozen recipient groups) | 3.2 / 3D | ⬜ written |
-| M21 | `Member.reviewedAt, reviewedByUserId` — migration step 2 (renumbered from M17) | 4.5.1 | ⬜ |
-| M22 | `Member.blockedReason, snoozedUntil` — Blocked state + Snooze (renumbered from M18) | 4.5.1 | ⬜ |
-| M23 | `MemberInvitationDelivery` — per-send delivered/opened/bounced (renumbered from M19) | 4.5.1 | ⬜ |
-| M24 | `SavedMemberView` — user filter snapshots (renumbered from M20) | 4.5.2 | ⬜ |
-| M25 | `MemberGuardianUser` per-permission columns (canBook/canPay/canWaivers/canMessages) + `status` (renumbered from M21) | 4.5.6 | ⬜ |
-| M26 | `MemberSubscriptionEvent` — subscription-event history (Reports 2.5.5 precision) (renumbered from M22) | 4.5.10 | ⬜ |
+| M16 | `20260801000000_email_sends` — EmailSend per-recipient delivery log (dedup + provider lifecycle) | 3.1 | ✅ applied |
+| M17 | `20260801010000_email_opt_outs_scope` — EmailOptOut adds userId + scope + source | 3.1 / 3I | ✅ applied |
+| M18 | `20260801020000_announcements_lifecycle` — Announcement lifecycle + rich body + sender + scheduling + audience | 3.1 / 3B / 3H | ✅ applied |
+| M19 | `20260801030000_email_templates` — EmailTemplate model (14 stock kinds seeded lazily) | 3.2 / 3C | ✅ applied |
+| M20 | `20260801040000_marketing_audiences` — MarketingAudience (dynamic/frozen recipient groups) | 3.2 / 3D | ✅ applied |
+| M21 | `20260801050000_club_mailing_address` — Club mailing address + publicEmail/publicPhone | 3 (email footer + Contact block) | ✅ 2026-08-01 |
+| M22 | `20260802000000_email_history_optout_audit` — EmailSend {sentByUserId, relatedEventId, relatedMembershipId} + EmailOptOutAudit table | 3G + 3I | ⬜ written (session 1) |
+| M23 | `Member.reviewedAt, reviewedByUserId` — migration step 2 (renumbered from M17) | 4.5.1 | ⬜ |
+| M24 | `Member.blockedReason, snoozedUntil` — Blocked state + Snooze (renumbered from M18) | 4.5.1 | ⬜ |
+| M25 | `MemberInvitationDelivery` — per-send delivered/opened/bounced (renumbered from M19) | 4.5.1 | ⬜ |
+| M26 | `SavedMemberView` — user filter snapshots (renumbered from M20) | 4.5.2 | ⬜ |
+| M27 | `MemberGuardianUser` per-permission columns (canBook/canPay/canWaivers/canMessages) + `status` (renumbered from M21) | 4.5.6 | ⬜ |
+| M28 | `MemberSubscriptionEvent` — subscription-event history (Reports 2.5.5 precision) (renumbered from M22) | 4.5.10 | ⬜ |
 
-**Renumbering note (2026-08-01):** Phase 3 lands before Phase 4.5 and needed the next 5 M-numbers. Former M17–M22 (all unapplied) shifted to M21–M26. Nothing in production changed; only unbuilt future work was renumbered.
+**Renumbering note (2026-08-02):** Phase 3's M21 (mailing address) and M22 (email history + audit) took the next two slots; former Phase-4.5 M21–M26 shifted to M23–M28. Nothing in production changed; only unbuilt future work was renumbered.
 
 **All migrations remaining after M8 are additive.** Nothing drops, nothing renames. Backfills are dry-run-first with per-club reports.
 
@@ -364,9 +366,9 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 |---|---|---|---|---|
 | 3.2.1 | Rich text editor in `components/EmailComposer.tsx` — content blocks per plan §3B. Reuse existing tiptap or lexical (audit whichever is already in the dep set; add if none). | UI | — | 🟢 shipped (composer + block picker + inline tiptap on paragraph/list only; images auto-signed via image-url mint) |
 | 3.2.2 | Store composer output as `bodyHtml` (sanitized) + auto-derived `bodyText` fallback. | Backend | — | 🟢 shipped in checkpoint C (bulk route calls `renderEmail(blocks)` → sanitized `bodyHtml` + `blocksToPlainText` fallback → immutable snapshot on `EmailSend`) |
-| 3.2.3 | **M19** — `EmailTemplate` model. Lazy-seed 14 stock templates per plan §3C on first open of the templates page. Owner can duplicate/edit/archive. | Migration + UI | M19 | ⬜ written |
-| 3.2.4 | **M20** — `MarketingAudience` (filters Json, isDynamic bool, frozenMemberIds Json?). Audience-builder UI lifts `/api/messages/audience` filter shape into a first-class control. Estimated-recipient-count updates as filters change. "Save as reusable" writes an audience row. | Migration + UI | M20 | ⬜ written |
-| 3.2.5 | Personalization tokens — `{{member_first_name}}, {{guardian_first_name}}, {{membership_end_date}}, …`. Preview-as-recipient endpoint. Warn on missing values pre-send. | Backend + UI | — | ⬜ |
+| 3.2.3 | **M19 + 3C** — `EmailTemplate` model + `/dashboard/communication/templates` page. 14 stock templates seeded lazily on first fetch (isSystem=true; owner archives, never hard-deletes). Every stock template ships LogoBlock header + ContactBlock footer — send-time renderers auto-swap the club's own logo + contact info. Owner can create / edit / duplicate / archive; system rows archive rather than delete. | Migration + UI | M19 | 🟢 shipped 2026-08-02 (session 1) |
+| 3.2.4 | **M20 + 3D** — `MarketingAudience` + full filter DSL (`lib/audienceFilters.ts`) + `/dashboard/communication/audiences` UI. 17 filter fields (2 marked "coming soon" until Phase-4.5 location/coach assignment lands). Dynamic/static toggle: dynamic re-evaluates at send; static freezes `frozenMemberIds`. Live count debounced at 400ms with first-10 member preview. Fail-closed on unknown fields. | Migration + UI | M20 | 🟢 shipped 2026-08-02 (session 1) |
+| 3.2.5 | **3F** — Personalization tokens (`lib/emailPersonalization.ts`). 14 tokens from plan §3F. Per-recipient interpolation in the bulk send loop; cross-family safety guaranteed (each recipient resolves its own values). Unknown tokens render blank (never leak `{{token}}`), typos flagged in the composer via `<PersonalizationHint>`. Preview-as-recipient endpoint at `/api/emails/personalization-preview` returns per-member subject/blocks + missing-token tally. 12 pure-function checks passing. | Backend + UI | — | 🟢 shipped 2026-08-02 (session 1) |
 
 ### 3.3 Bulk email from Members page (plan §3A)
 
@@ -380,9 +382,9 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 3.4.1 | Sender picks: athlete / primary guardian / all authorized guardians / payer / account holder / all linked / one per household / every selected profile. Server resolves via `guardianLinks` (reciprocal). | Backend | — | ⬜ |
-| 3.4.2 | Minor default: guardian, unless club setting overrides + permission granted. | Backend + UI | — | ⬜ |
-| 3.4.3 | UI shows resolved recipient email per selected member on the review screen. | UI | — | ⬜ |
+| 3.4.1 | Sender picks — **8 modes**: HOUSEHOLD / PER_MEMBER / PER_ATHLETE_PRIMARY (pre-existing) + ATHLETE_ONLY / PRIMARY_GUARDIAN / ALL_GUARDIANS / PAYER / ACCOUNT_HOLDER (new in 3E). Resolver batch-loads payer users so PAYER mode isn't N+1. Dedupe-key rules extended so ALL_GUARDIANS folds correctly (one row per guardian × athlete). | Backend | — | 🟢 shipped 2026-08-02 (session 1) |
+| 3.4.2 | Minor default: guardian in HOUSEHOLD/PER_MEMBER/PER_ATHLETE_PRIMARY/PRIMARY_GUARDIAN. ATHLETE_ONLY deliberately skips minors without their own email (sender chose the mode). | Backend | — | 🟢 shipped 2026-08-02 (session 1) |
+| 3.4.3 | Composer / bulk-email review must render resolved recipient email per selected member. | UI | — | ⬜ (session 2 — bulk composer UI) |
 
 ### 3.5 History, drafts, schedule, approval
 
@@ -396,6 +398,45 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 ### 3.6 Unsubscribe scope, attachments, safeguards, permissions, mobile, testing
 
 Each of the remaining plan sub-sections (3I / 3J / 3K / 3L / 3M / 3N) becomes one task each with acceptance criteria drawn directly from the plan. Not enumerated line-by-line here — see plan for the concrete checklist.
+
+### 3.7 Phase-3 schema audit — 2026-08-02 (session 1 finding)
+
+Full audit of 3C–3N schema needs completed. Bundled into **M22**
+(`20260802000000_email_history_optout_audit`) so the operator applies
+once. Everything else runs on existing schema.
+
+| Section | Needs schema? | Verdict |
+|---|---|---|
+| 3C templates | ❌ | `EmailTemplate` model already covers |
+| 3D audiences | ❌ | `MarketingAudience` model already covers |
+| 3E family-aware | ❌ | Recipient-resolver algorithm only |
+| 3F personalization | ❌ | Pure interpolation lib |
+| **3G history** | ✅ | M22: `EmailSend.sentByUserId, relatedEventId, relatedMembershipId` |
+| 3H drafts/schedule/approve | ❌ | M18 lifecycle columns already present |
+| **3I unsubscribe** | ✅ | M22: new `EmailOptOutAudit` table (append-only preference log) |
+| 3J attachments | ❌ | Treated as signed links via existing image route |
+| 3K/3L/3M/3N | ❌ | Logic / JSON perms / UI / tests only |
+
+### 3.8 Session-1 deliverables (2026-08-02)
+
+Committed on `main`; not pushed per plan.
+
+| Commit | Content |
+|---|---|
+| `6013094` | M22 migration file + schema.prisma additions |
+| (this range) | 3C templates (lib + 3 API routes + templates page + nav) |
+| (this range) | 3D audiences (filter DSL + evaluator + 3 API routes + audiences page) |
+| (this range) | 3E 5 new sender-target modes (+ 13 new recipient-tests) |
+| (this range) | 3F personalization (interpolation lib + preview endpoint + composer hint + bulk send wiring) |
+
+**Verify commands** (session 1):
+- `npx tsx scripts/email-recipients-tests.ts` → 54/54 pass
+- `npx prisma validate` → clean
+- `npx tsc --noEmit` → clean
+- `npm run build` → clean
+
+**Waiting on operator (session-2 dependency):** apply M22 before session 2 wires the 3G Communications tab that reads the new columns.
+
 
 **Phase 3 exit criteria (per plan §3N "Document at end of this phase"):** email provider + sending flow doc'd · schema changes listed · background jobs added · tracking limitations noted · file-upload limitations · new permissions · env vars · manual test steps · deployment order · rollback plan.
 
