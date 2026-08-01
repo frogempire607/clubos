@@ -34,7 +34,16 @@ const schema = z.object({
   // action=email fields
   email: z
     .object({
-      mode: z.enum(["HOUSEHOLD", "PER_MEMBER", "PER_ATHLETE_PRIMARY"]).default("HOUSEHOLD"),
+      mode: z.enum([
+        "HOUSEHOLD",
+        "PER_MEMBER",
+        "PER_ATHLETE_PRIMARY",
+        "ATHLETE_ONLY",
+        "PRIMARY_GUARDIAN",
+        "ALL_GUARDIANS",
+        "PAYER",
+        "ACCOUNT_HOLDER",
+      ]).default("HOUSEHOLD"),
       subject: z.string().min(1).max(300),
       previewText: z.string().max(200).optional().nullable(),
       blocks: z.array(z.unknown()).min(1),

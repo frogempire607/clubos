@@ -34,7 +34,34 @@
 
 import { prisma } from "@/lib/prisma";
 
-export type HouseholdMode = "HOUSEHOLD" | "PER_MEMBER" | "PER_ATHLETE_PRIMARY";
+// Recipient targeting mode (plan §3A + §3E). Named "HouseholdMode" for
+// back-compat; conceptually this is the "who receives it" axis.
+//
+// HOUSEHOLD (default)             — one email per unique household address
+// PER_MEMBER                      — one email per selected member (may repeat address)
+// PER_ATHLETE_PRIMARY             — one email per athlete's primary contact
+// ATHLETE_ONLY                    — deliver directly to the athlete's own email;
+//                                   minors without their own email are SKIPPED
+//                                   (deliberate — the sender chose "athlete only")
+// PRIMARY_GUARDIAN                — deliver to the athlete's primary guardian.
+//                                   Adults with no guardian → self.
+// ALL_GUARDIANS                   — deliver to EVERY authorized guardian of the
+//                                   member (multiple rows). Adults with no
+//                                   guardians → self.
+// PAYER                           — deliver to Member.responsiblePayerUserId's
+//                                   email (falls back to guardian, then self).
+// ACCOUNT_HOLDER                  — the User attached to the member row
+//                                   (Member.userId). Guardian-managed minors
+//                                   without their own login → guardian.
+export type HouseholdMode =
+  | "HOUSEHOLD"
+  | "PER_MEMBER"
+  | "PER_ATHLETE_PRIMARY"
+  | "ATHLETE_ONLY"
+  | "PRIMARY_GUARDIAN"
+  | "ALL_GUARDIANS"
+  | "PAYER"
+  | "ACCOUNT_HOLDER";
 
 export interface RecipientCandidate {
   memberId: string;
@@ -123,7 +150,15 @@ export async function resolveRecipients(args: {
       userId: true,
       guardianName: true,
       guardianEmail: true,
+      // 3E PAYER mode. Populated when the club has explicitly assigned a
+      // payer distinct from the account holder (see billing-admin).
+      responsiblePayerUserId: true,
       guardian: { select: { email: true, firstName: true, lastName: true } },
+      // The User row attached DIRECTLY to this member (account holder for
+      // ACCOUNT_HOLDER mode + fallback source of member email for adults).
+      user: {
+        select: { id: true, email: true, firstName: true, lastName: true, deletedAt: true },
+      },
       // guardianLinks is the AUTHORITATIVE guardian-of-this-member set
       // (MemberGuardianUser). Legacy Guardian row is a fallback.
       // NOTE: MemberGuardianUser has no isPrimary column today — the
@@ -158,10 +193,28 @@ export async function resolveRecipients(args: {
     : [];
   const optOutSet = new Set(optOuts.map((o) => o.email.trim().toLowerCase()));
 
+  // PAYER mode needs to resolve responsiblePayerUserId → email. Batch
+  // fetch across every distinct payer id so we're not N+1'ing.
+  const payerIds = Array.from(
+    new Set(
+      members
+        .map((m) => m.responsiblePayerUserId)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+  const payerUsers = payerIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: payerIds }, deletedAt: null },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      })
+    : [];
+  const payerById = new Map(payerUsers.map((u) => [u.id, u]));
+
   return resolveRecipientsPure({
     members,
     mode,
     optOutSet,
+    payerById,
     selectedMemberCount: memberIds.length,
   });
 }
@@ -176,16 +229,20 @@ export function resolveRecipientsPure(args: {
   members: MemberForResolve[];
   mode: HouseholdMode;
   optOutSet: Set<string>;
+  // Payer lookup for PAYER mode. Absent for legacy callers → PAYER mode
+  // then falls back through the normal chain (guardian → self).
+  payerById?: Map<string, { id: string; email: string; firstName: string | null; lastName: string | null }>;
   selectedMemberCount?: number;
 }): RecipientResolution {
   const { members, mode, optOutSet } = args;
+  const payerById = args.payerById ?? new Map();
   const selectedMemberCount = args.selectedMemberCount ?? members.length;
 
   // Build candidates per (member, mode). Each member can produce 0, 1, or
   // more candidate rows depending on mode.
   const candidates: RecipientCandidate[] = [];
   for (const m of members) {
-    const perMember = candidatesFor(m, mode);
+    const perMember = candidatesFor(m, mode, payerById);
     candidates.push(...perMember);
   }
 
@@ -315,6 +372,8 @@ export type MemberForResolve = {
   userId: string | null;
   guardianName: string | null;
   guardianEmail: string | null;
+  responsiblePayerUserId?: string | null;
+  user?: { id: string; email: string; firstName: string | null; lastName: string | null; deletedAt: Date | null } | null;
   guardian: { email: string; firstName: string; lastName: string } | null;
   guardianLinks: Array<{
     userId: string;
@@ -323,7 +382,17 @@ export type MemberForResolve = {
   }>;
 };
 
-function candidatesFor(m: MemberForResolve, mode: HouseholdMode): RecipientCandidate[] {
+type PayerLookup = Map<string, { id: string; email: string; firstName: string | null; lastName: string | null }>;
+
+// Small helper — pack an unauthenticated recipient contact into the
+// shape candidatesFor emits.
+interface TargetContact {
+  email: string | null;
+  userId: string | null;
+  displayName: string | null;
+}
+
+function candidatesFor(m: MemberForResolve, mode: HouseholdMode, payerById: PayerLookup): RecipientCandidate[] {
   const liveGuardianLinks = m.guardianLinks.filter((g) => g.user && !g.user.deletedAt);
   const primaryGuardian = pickPrimaryGuardian(liveGuardianLinks);
   const legacyGuardianEmail = m.guardian?.email ?? m.guardianEmail ?? null;
@@ -337,6 +406,92 @@ function candidatesFor(m: MemberForResolve, mode: HouseholdMode): RecipientCandi
     memberLastName: m.lastName,
     isMinor: m.isMinor,
   };
+
+  const primaryGuardianTarget: TargetContact | null = primaryGuardian?.user
+    ? {
+        email: primaryGuardian.user.email,
+        userId: primaryGuardian.user.id,
+        displayName: guardianDisplay(primaryGuardian.user.firstName, primaryGuardian.user.lastName),
+      }
+    : legacyGuardianEmail
+    ? { email: legacyGuardianEmail, userId: null, displayName: legacyGuardianName }
+    : null;
+
+  const selfTarget: TargetContact = {
+    email: m.email ?? m.user?.email ?? null,
+    userId: m.userId,
+    displayName: null,
+  };
+
+  // 3E — ATHLETE_ONLY: strictly the athlete's own email. Minors without
+  // their own address get SKIPPED, deliberately (sender chose the mode).
+  if (mode === "ATHLETE_ONLY") {
+    if (!selfTarget.email) {
+      return [{ ...base, deliveryEmail: null, deliveryUserId: null, deliveryDisplayName: null, athleteMemberId: m.id, skippedReason: "NO_EMAIL" }];
+    }
+    return [{ ...base, deliveryEmail: selfTarget.email, deliveryUserId: selfTarget.userId, deliveryDisplayName: selfTarget.displayName, athleteMemberId: m.id }];
+  }
+
+  // 3E — PRIMARY_GUARDIAN: send to the primary guardian; fall back to
+  // self for adults with no guardian. Minors with no guardian → skip.
+  if (mode === "PRIMARY_GUARDIAN") {
+    const t = primaryGuardianTarget ?? (m.isMinor ? null : selfTarget);
+    if (!t || !t.email) {
+      return [{ ...base, deliveryEmail: null, deliveryUserId: null, deliveryDisplayName: null, athleteMemberId: m.id, skippedReason: "NO_EMAIL" }];
+    }
+    return [{ ...base, deliveryEmail: t.email, deliveryUserId: t.userId, deliveryDisplayName: t.displayName, athleteMemberId: m.id }];
+  }
+
+  // 3E — ALL_GUARDIANS: one row per live guardian link. Adults with no
+  // guardians → self.
+  if (mode === "ALL_GUARDIANS") {
+    if (liveGuardianLinks.length === 0) {
+      if (!m.isMinor && selfTarget.email) {
+        return [{ ...base, deliveryEmail: selfTarget.email, deliveryUserId: selfTarget.userId, deliveryDisplayName: selfTarget.displayName, athleteMemberId: m.id }];
+      }
+      // Minor with no guardian links but legacy guardianEmail present →
+      // still route the legacy address so nothing is silently dropped.
+      if (legacyGuardianEmail) {
+        return [{ ...base, deliveryEmail: legacyGuardianEmail, deliveryUserId: null, deliveryDisplayName: legacyGuardianName, athleteMemberId: m.id }];
+      }
+      return [{ ...base, deliveryEmail: null, deliveryUserId: null, deliveryDisplayName: null, athleteMemberId: m.id, skippedReason: "NO_EMAIL" }];
+    }
+    return liveGuardianLinks.map((g) => ({
+      ...base,
+      deliveryEmail: g.user!.email,
+      deliveryUserId: g.user!.id,
+      deliveryDisplayName: guardianDisplay(g.user!.firstName, g.user!.lastName),
+      athleteMemberId: m.id,
+    }));
+  }
+
+  // 3E — PAYER: the responsible-payer User; fall back to primary guardian,
+  // then self. This is the "send financial reminders to whoever pays"
+  // shortcut.
+  if (mode === "PAYER") {
+    const payer = m.responsiblePayerUserId ? payerById.get(m.responsiblePayerUserId) : undefined;
+    const t: TargetContact | null = payer
+      ? { email: payer.email, userId: payer.id, displayName: guardianDisplay(payer.firstName, payer.lastName) }
+      : primaryGuardianTarget ?? (m.isMinor ? null : selfTarget);
+    if (!t || !t.email) {
+      return [{ ...base, deliveryEmail: null, deliveryUserId: null, deliveryDisplayName: null, athleteMemberId: m.id, skippedReason: "NO_EMAIL" }];
+    }
+    return [{ ...base, deliveryEmail: t.email, deliveryUserId: t.userId, deliveryDisplayName: t.displayName, athleteMemberId: m.id }];
+  }
+
+  // 3E — ACCOUNT_HOLDER: the User attached to the member row. Guardian-
+  // managed minors without a User of their own → primary guardian.
+  if (mode === "ACCOUNT_HOLDER") {
+    const holderEmail = m.user?.email ?? m.email ?? null;
+    if (m.userId && holderEmail) {
+      return [{ ...base, deliveryEmail: holderEmail, deliveryUserId: m.userId, deliveryDisplayName: m.user ? guardianDisplay(m.user.firstName, m.user.lastName) : null, athleteMemberId: m.id }];
+    }
+    // No direct account holder — fall back to primary guardian.
+    if (primaryGuardianTarget?.email) {
+      return [{ ...base, deliveryEmail: primaryGuardianTarget.email, deliveryUserId: primaryGuardianTarget.userId, deliveryDisplayName: primaryGuardianTarget.displayName, athleteMemberId: m.id }];
+    }
+    return [{ ...base, deliveryEmail: null, deliveryUserId: null, deliveryDisplayName: null, athleteMemberId: m.id, skippedReason: "NO_EMAIL" }];
+  }
 
   if (mode === "HOUSEHOLD") {
     // One row per member — but the athleteMemberId stays null for adults so
@@ -423,10 +578,25 @@ function guardianDisplay(first: string | null, last: string | null): string | nu
 function buildDedupeKey(mode: HouseholdMode, email: string, memberId: string, athleteMemberId: string | null): string {
   switch (mode) {
     case "HOUSEHOLD":
+      // Adult-only fold: for adults there's no athleteMemberId, so the
+      // key IS just the email. For minors HOUSEHOLD folds guardians of
+      // multiple children into one delivery — same key.
       return email;
     case "PER_MEMBER":
+    case "ACCOUNT_HOLDER":
+    case "PAYER":
+      // One row per selected member, even if the address collapses.
       return `${email}:${memberId}`;
     case "PER_ATHLETE_PRIMARY":
+    case "PRIMARY_GUARDIAN":
+    case "ATHLETE_ONLY":
+      // One row per athlete axis.
+      return `${email}:${athleteMemberId ?? memberId}`;
+    case "ALL_GUARDIANS":
+      // One row per (guardian address, athlete) pair. The candidate build
+      // sets deliveryUserId to the specific guardian; fold on that so
+      // two guardians of one child both receive, but a guardian of two
+      // children only receives once per child.
       return `${email}:${athleteMemberId ?? memberId}`;
   }
 }

@@ -530,6 +530,128 @@ section("Adult member — always own address regardless of mode:");
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+// 3E — Extended sender targets (plan §3E)
+// ═════════════════════════════════════════════════════════════════════════
+
+section("3E — ATHLETE_ONLY skips minors with no own email:");
+{
+  const kid = minor({
+    id: "m-kid",
+    firstName: "Kid",
+    guardianUserId: "u-gp",
+    guardianEmail: "gp@example.com",
+  });
+  const teen: MemberForResolve = {
+    ...minor({
+      id: "m-teen",
+      firstName: "Teen",
+      guardianUserId: "u-gp2",
+      guardianEmail: "gp2@example.com",
+    }),
+    email: "teen@example.com",
+  };
+  const adult1 = adult({ id: "m-a1", email: "a1@example.com" });
+
+  const res = resolveRecipientsPure({
+    members: [kid, teen, adult1],
+    mode: "ATHLETE_ONLY",
+    optOutSet: noOptOuts(),
+    selectedMemberCount: 3,
+  });
+  check("teen with own email sends", res.send.find((s) => s.memberId === "m-teen")?.recipientEmail === "teen@example.com", res.send);
+  check("adult sends to own email", res.send.find((s) => s.memberId === "m-a1")?.recipientEmail === "a1@example.com", res.send);
+  check("minor without own email is skipped NO_EMAIL", res.skipped.find((s) => s.memberId === "m-kid")?.reason === "NO_EMAIL", res.skipped);
+}
+
+section("3E — PRIMARY_GUARDIAN routes minors, self-fallback for adults:");
+{
+  const kellen = minor({
+    id: "m-kellen", firstName: "Kellen",
+    guardianUserId: "u-michael", guardianEmail: "michael@example.com",
+  });
+  const solo = adult({ id: "m-solo", email: "solo@example.com" });
+
+  const res = resolveRecipientsPure({
+    members: [kellen, solo],
+    mode: "PRIMARY_GUARDIAN",
+    optOutSet: noOptOuts(),
+    selectedMemberCount: 2,
+  });
+  check("Kellen → Michael", res.send.find((s) => s.memberId === "m-kellen")?.recipientEmail === "michael@example.com", res.send);
+  check("adult → self", res.send.find((s) => s.memberId === "m-solo")?.recipientEmail === "solo@example.com", res.send);
+}
+
+section("3E — ALL_GUARDIANS emits one row per live guardian per athlete:");
+{
+  const kellen: MemberForResolve = {
+    id: "m-kellen", firstName: "Kellen", lastName: "L",
+    email: null, isMinor: true, userId: null,
+    guardianName: null, guardianEmail: null,
+    guardian: null,
+    guardianLinks: [
+      {
+        userId: "u-michael",
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        user: { id: "u-michael", email: "michael@example.com", firstName: "M", lastName: "L", deletedAt: null },
+      },
+      {
+        userId: "u-anne",
+        createdAt: new Date("2026-01-02T00:00:00Z"),
+        user: { id: "u-anne", email: "anne@example.com", firstName: "A", lastName: "L", deletedAt: null },
+      },
+    ],
+  };
+  const res = resolveRecipientsPure({
+    members: [kellen],
+    mode: "ALL_GUARDIANS",
+    optOutSet: noOptOuts(),
+    selectedMemberCount: 1,
+  });
+  const emails = res.send.map((s) => s.recipientEmail).sort();
+  check("two guardians = two rows", res.send.length === 2, res.send);
+  check("both emails present", emails.join(",") === "anne@example.com,michael@example.com", emails);
+}
+
+section("3E — PAYER prefers responsiblePayer, falls back to guardian:");
+{
+  const kellen: MemberForResolve = {
+    ...minor({ id: "m-kellen", firstName: "Kellen", guardianUserId: "u-michael", guardianEmail: "michael@example.com" }),
+    responsiblePayerUserId: "u-anne",
+  };
+  const soloNoPayer = minor({ id: "m-solo", firstName: "Solo", guardianUserId: "u-gp", guardianEmail: "gp@example.com" });
+
+  const res = resolveRecipientsPure({
+    members: [kellen, soloNoPayer],
+    mode: "PAYER",
+    optOutSet: noOptOuts(),
+    payerById: new Map([
+      ["u-anne", { id: "u-anne", email: "anne@example.com", firstName: "Anne", lastName: "L" }],
+    ]),
+    selectedMemberCount: 2,
+  });
+  check("Kellen → Anne (declared payer)", res.send.find((s) => s.memberId === "m-kellen")?.recipientEmail === "anne@example.com", res.send);
+  check("Solo → guardian (no payer set)", res.send.find((s) => s.memberId === "m-solo")?.recipientEmail === "gp@example.com", res.send);
+}
+
+section("3E — ACCOUNT_HOLDER routes via Member.user, else primary guardian:");
+{
+  const withOwnLogin: MemberForResolve = {
+    ...adult({ id: "m-a", email: "a-own@example.com", userId: "u-a" }),
+    user: { id: "u-a", email: "a-own@example.com", firstName: "A", lastName: "L", deletedAt: null },
+  };
+  const minorNoLogin = minor({ id: "m-kid", firstName: "Kid", guardianUserId: "u-gp", guardianEmail: "gp@example.com" });
+
+  const res = resolveRecipientsPure({
+    members: [withOwnLogin, minorNoLogin],
+    mode: "ACCOUNT_HOLDER",
+    optOutSet: noOptOuts(),
+    selectedMemberCount: 2,
+  });
+  check("adult with login → own address", res.send.find((s) => s.memberId === "m-a")?.recipientEmail === "a-own@example.com", res.send);
+  check("minor without login → primary guardian", res.send.find((s) => s.memberId === "m-kid")?.recipientEmail === "gp@example.com", res.send);
+}
+
 section("Empty input:");
 
 {

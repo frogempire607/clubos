@@ -33,7 +33,16 @@ const MAX_IDS = 5000;
 
 const schema = z.object({
   memberIds: z.array(z.string().min(1)).min(1).max(MAX_IDS),
-  mode: z.enum(["HOUSEHOLD", "PER_MEMBER", "PER_ATHLETE_PRIMARY"]).default("HOUSEHOLD"),
+  mode: z.enum([
+    "HOUSEHOLD",
+    "PER_MEMBER",
+    "PER_ATHLETE_PRIMARY",
+    "ATHLETE_ONLY",
+    "PRIMARY_GUARDIAN",
+    "ALL_GUARDIANS",
+    "PAYER",
+    "ACCOUNT_HOLDER",
+  ]).default("HOUSEHOLD"),
 });
 
 export async function POST(req: Request) {
