@@ -11,6 +11,7 @@ import PageHeader from "@/components/PageHeader";
 import MembersTabs from "@/components/MembersTabs";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import type { EmailBlock } from "@/lib/emailBlocks";
+import { runPreflight, hasBlocker, issuesByLevel, TYPED_CONFIRM_THRESHOLD, type PreflightIssue } from "@/lib/emailPreflight";
 
 // Load the composer client-only — tiptap pulls its own ~90 KB and needs
 // browser globals. The Members page as a whole stays a simple client
@@ -800,7 +801,22 @@ type PreviewCounts = {
   optedOut: number;
   invalidAddress: number;
   duplicateInBatch: number;
+  outsideCoachAudience?: number;
 };
+
+// The 8 send modes from 3E. Kept in one place so the modal picker and
+// the schema stay in lockstep.
+const SEND_MODES = [
+  { id: "HOUSEHOLD",           label: "One per household",           desc: "A guardian with 2 kids gets 1 email." },
+  { id: "PER_MEMBER",          label: "One per member",              desc: "A guardian with 2 kids gets 2 emails, one per child." },
+  { id: "PER_ATHLETE_PRIMARY", label: "One per athlete's primary",   desc: "Route to each athlete's primary contact." },
+  { id: "ATHLETE_ONLY",        label: "Athletes only",               desc: "The athlete's own address; minors without email are skipped." },
+  { id: "PRIMARY_GUARDIAN",    label: "Primary guardian only",       desc: "First-linked guardian; adults fall back to self." },
+  { id: "ALL_GUARDIANS",       label: "All guardians",               desc: "Every authorized guardian gets a copy per athlete." },
+  { id: "PAYER",               label: "Payer on file",               desc: "Member.responsiblePayerUserId; falls back to guardian." },
+  { id: "ACCOUNT_HOLDER",      label: "Account holder",              desc: "Member.user; falls back to guardian for managed minors." },
+] as const;
+type SendMode = (typeof SEND_MODES)[number]["id"];
 
 type PreviewSkipRow = { memberId: string; memberName: string; reason: string; attemptedEmail: string | null };
 type PreviewRow = { memberId: string; memberName: string; recipientEmail: string; isMinor: boolean; recipientDisplayName: string | null };
@@ -818,7 +834,7 @@ type PreviewRow = { memberId: string; memberName: string; recipientEmail: string
 //      sendBatchId from clubId + clientKey so retries land on the same
 //      batch and the partial unique index rejects doubles.
 function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; onClose: () => void; onSent: () => void }) {
-  const [mode, setMode] = useState<"HOUSEHOLD" | "PER_MEMBER" | "PER_ATHLETE_PRIMARY">("HOUSEHOLD");
+  const [mode, setMode] = useState<SendMode>("HOUSEHOLD");
   const [subject, setSubject] = useState("");
   const [previewText, setPreviewText] = useState("");
   const [blocks, setBlocks] = useState<EmailBlock[]>([]);
@@ -828,6 +844,57 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<{ results: { queued: number; sent: number; skipped: number; failed: number; duplicate: number } } | null>(null);
+  // 3K — club preflight context. Fetched once per open modal, drives
+  // the "missing club contact info" / "missing address" warnings so the
+  // sender knows what the recipient's footer will actually contain.
+  const [clubCtx, setClubCtx] = useState<{
+    name: string;
+    publicEmail: string | null; contactEmail: string | null;
+    publicPhone: string | null; contactPhone: string | null;
+    mailingAddress: string | null; mailingCity: string | null;
+    mailingState: string | null; mailingZip: string | null;
+    emailFromName: string | null; emailReplyTo: string | null;
+  } | null>(null);
+  const [showFinalReview, setShowFinalReview] = useState(false);
+  const [typedConfirm, setTypedConfirm] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/club/info");
+        if (!r.ok) return;
+        const c = await r.json();
+        if (!alive) return;
+        setClubCtx({
+          name: c.name ?? "",
+          publicEmail: c.publicEmail ?? null, contactEmail: c.contactEmail ?? null,
+          publicPhone: c.publicPhone ?? null, contactPhone: c.contactPhone ?? null,
+          mailingAddress: c.mailingAddress ?? null, mailingCity: c.mailingCity ?? null,
+          mailingState: c.mailingState ?? null, mailingZip: c.mailingZip ?? null,
+          emailFromName: c.emailFromName ?? null, emailReplyTo: c.emailReplyTo ?? null,
+        });
+      } catch { /* keep null; preflight uses defensive coalesce */ }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Preflight runs on every state change. Cheap (pure fn) so no debounce.
+  const preflight: PreflightIssue[] = useMemo(() => {
+    if (!previewData || !clubCtx) return [];
+    return runPreflight({
+      subject,
+      previewText,
+      blocks,
+      counts: previewData.counts,
+      fromName: clubCtx.emailFromName ?? clubCtx.name,
+      fromEmail: null, // not surfaced in this UI; sendClubEmail resolves EMAIL_FROM
+      replyTo: clubCtx.emailReplyTo,
+      club: clubCtx,
+    });
+  }, [subject, previewText, blocks, previewData, clubCtx]);
+  const preflightBlocked = hasBlocker(preflight);
+  const requiresTypedConfirm = (previewData?.counts.willSendRows ?? 0) >= TYPED_CONFIRM_THRESHOLD;
 
   // One idempotency key per open modal. Refreshing the page opens a new
   // modal → new key → new batch (deliberate — the previous batch may
@@ -930,27 +997,21 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
             </div>
           ) : (
             <>
-              {/* Household mode */}
+              {/* How to send — 8 modes from 3E. */}
               <div className="bg-app-bg border border-app-border rounded-xl p-4">
                 <label className="block text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
                   How to send
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {(["HOUSEHOLD", "PER_MEMBER", "PER_ATHLETE_PRIMARY"] as const).map((m) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {SEND_MODES.map((m) => (
                     <button
-                      key={m}
+                      key={m.id}
                       type="button"
-                      onClick={() => setMode(m)}
-                      className={`text-left px-3 py-2 rounded-lg border ${mode === m ? "border-charcoal bg-charcoal text-white" : "border-app-border bg-surface text-text-primary hover:bg-app-bg"}`}
+                      onClick={() => setMode(m.id)}
+                      className={`text-left px-3 py-2 rounded-lg border ${mode === m.id ? "border-charcoal bg-charcoal text-white" : "border-app-border bg-surface text-text-primary hover:bg-app-bg"}`}
                     >
-                      <div className="text-sm font-medium">
-                        {m === "HOUSEHOLD" ? "One per household" : m === "PER_MEMBER" ? "One per member" : "One per athlete's primary"}
-                      </div>
-                      <div className={`text-xs mt-0.5 ${mode === m ? "text-white/80" : "text-text-muted"}`}>
-                        {m === "HOUSEHOLD" ? "A guardian with 2 kids gets 1 email." :
-                         m === "PER_MEMBER" ? "A guardian with 2 kids gets 2 emails, one per child." :
-                         "Route to each athlete's primary contact."}
-                      </div>
+                      <div className="text-sm font-medium">{m.label}</div>
+                      <div className={`text-xs mt-0.5 ${mode === m.id ? "text-white/80" : "text-text-muted"}`}>{m.desc}</div>
                     </button>
                   ))}
                 </div>
@@ -970,12 +1031,15 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
                       <PreviewStat label="Unique inboxes" value={previewData.counts.uniqueAddresses} />
                       <PreviewStat label="Skipped" value={previewData.counts.noEmail + previewData.counts.optedOut + previewData.counts.invalidAddress + previewData.counts.duplicateInBatch} />
                     </div>
-                    {(previewData.counts.noEmail + previewData.counts.optedOut + previewData.counts.invalidAddress + previewData.counts.duplicateInBatch) > 0 && (
+                    {(previewData.counts.noEmail + previewData.counts.optedOut + previewData.counts.invalidAddress + previewData.counts.duplicateInBatch + (previewData.counts.outsideCoachAudience ?? 0)) > 0 && (
                       <div className="mt-2 text-xs text-text-muted">
                         {previewData.counts.noEmail > 0 && <span className="mr-3">{previewData.counts.noEmail} no email</span>}
                         {previewData.counts.optedOut > 0 && <span className="mr-3">{previewData.counts.optedOut} opted out</span>}
                         {previewData.counts.invalidAddress > 0 && <span className="mr-3">{previewData.counts.invalidAddress} invalid</span>}
                         {previewData.counts.duplicateInBatch > 0 && <span className="mr-3">{previewData.counts.duplicateInBatch} collapsed as household</span>}
+                        {(previewData.counts.outsideCoachAudience ?? 0) > 0 && (
+                          <span className="mr-3">{previewData.counts.outsideCoachAudience} hidden (outside your audience)</span>
+                        )}
                       </div>
                     )}
                     {previewData.preview.length > 0 && (
@@ -1001,6 +1065,10 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
                   </>
                 ) : null}
               </div>
+
+              {/* 3K preflight card — block/warn/info from lib/emailPreflight
+                  runs on every edit and drives the Send button state. */}
+              <PreflightPanel issues={preflight} />
 
               {/* Composer */}
               <EmailComposer
@@ -1052,15 +1120,184 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
               Cancel
             </button>
             <button
-              onClick={send}
-              disabled={sending || willSendRows === 0 || !subject.trim() || blocks.length === 0}
+              onClick={() => {
+                // Large sends always require typed confirmation, even
+                // if there are no preflight warnings. Smaller sends
+                // still route through the review modal so the sender
+                // always sees the final "who / what / when" summary
+                // before the button commits.
+                setTypedConfirm("");
+                setShowFinalReview(true);
+              }}
+              disabled={sending || preflightBlocked || willSendRows === 0 || !subject.trim() || blocks.length === 0}
               className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
             >
-              {sending ? "Sending…" : `Send to ${willSendRows} recipient${willSendRows === 1 ? "" : "s"}`}
+              {sending ? "Sending…" : `Review & send to ${willSendRows} recipient${willSendRows === 1 ? "" : "s"}`}
             </button>
           </div>
         )}
       </div>
+
+      {showFinalReview && previewData && (
+        <FinalReviewModal
+          willSendRows={willSendRows}
+          uniqueAddresses={previewData.counts.uniqueAddresses}
+          selectedMembers={previewData.counts.selectedMembers}
+          skippedCount={
+            previewData.counts.noEmail +
+            previewData.counts.optedOut +
+            previewData.counts.invalidAddress +
+            previewData.counts.duplicateInBatch +
+            (previewData.counts.outsideCoachAudience ?? 0)
+          }
+          mode={mode}
+          subject={subject}
+          fromName={clubCtx?.emailFromName ?? clubCtx?.name ?? ""}
+          replyTo={clubCtx?.emailReplyTo ?? clubCtx?.contactEmail ?? null}
+          issues={preflight}
+          requiresTypedConfirm={requiresTypedConfirm}
+          typedValue={typedConfirm}
+          onTypedChange={setTypedConfirm}
+          onCancel={() => setShowFinalReview(false)}
+          onConfirm={async () => { setShowFinalReview(false); await send(); }}
+          sending={sending}
+          sendErr={sendErr}
+        />
+      )}
+    </div>
+  );
+}
+
+// 3K preflight results panel. Renders BLOCK / WARN / INFO lists with
+// clear visual hierarchy. BLOCK issues are the reason the Send button
+// is disabled — every issue reads as an actionable sentence.
+function PreflightPanel({ issues }: { issues: PreflightIssue[] }) {
+  if (issues.length === 0) return null;
+  const grouped = issuesByLevel(issues);
+  return (
+    <div className="bg-app-bg border border-app-border rounded-xl p-4 space-y-2">
+      <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Pre-send checks</p>
+      {grouped.BLOCK.length > 0 && (
+        <div className="space-y-1">
+          {grouped.BLOCK.map((i) => (
+            <div key={i.code} className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-1.5">
+              <span className="font-semibold">Must fix:</span> {i.message}
+            </div>
+          ))}
+        </div>
+      )}
+      {grouped.WARN.length > 0 && (
+        <div className="space-y-1">
+          {grouped.WARN.map((i) => (
+            <div key={i.code} className="text-xs text-charcoal bg-orange-accent/10 border border-orange-accent/30 rounded-md px-3 py-1.5">
+              <span className="font-semibold">Heads up:</span> {i.message}
+            </div>
+          ))}
+        </div>
+      )}
+      {grouped.INFO.length > 0 && (
+        <div className="space-y-1">
+          {grouped.INFO.map((i) => (
+            <div key={i.code} className="text-xs text-text-muted bg-surface border border-app-border rounded-md px-3 py-1.5">
+              {i.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Final-review modal — plan §3K "Final review screen shows: subject ·
+// sender · reply-to address · recipient count · excluded recipient
+// count · message preview · scheduled time · whether tracking is
+// enabled." At 50+ recipients (TYPED_CONFIRM_THRESHOLD) requires the
+// sender to type SEND N to enable the confirm button.
+function FinalReviewModal(props: {
+  willSendRows: number;
+  uniqueAddresses: number;
+  selectedMembers: number;
+  skippedCount: number;
+  mode: string;
+  subject: string;
+  fromName: string;
+  replyTo: string | null;
+  issues: PreflightIssue[];
+  requiresTypedConfirm: boolean;
+  typedValue: string;
+  onTypedChange: (v: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  sending: boolean;
+  sendErr: string | null;
+}) {
+  const expected = `SEND ${props.willSendRows}`;
+  const typedOk = !props.requiresTypedConfirm || props.typedValue.trim().toUpperCase() === expected;
+  const warns = props.issues.filter((i) => i.level === "WARN").length;
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg border border-app-border">
+        <div className="px-6 py-4 border-b border-app-border">
+          <h2 className="text-base font-semibold text-text-primary">Confirm send</h2>
+          <p className="text-xs text-text-muted mt-0.5">
+            {props.willSendRows} recipient{props.willSendRows === 1 ? "" : "s"} · from {props.uniqueAddresses} unique inbox{props.uniqueAddresses === 1 ? "" : "es"}
+          </p>
+        </div>
+        <div className="px-6 py-4 space-y-3 text-sm">
+          <ReviewRow label="Subject" value={props.subject || "(empty)"} />
+          <ReviewRow label="From" value={props.fromName || "(club default)"} />
+          <ReviewRow label="Reply-to" value={props.replyTo || "(club default)"} />
+          <ReviewRow label="Mode" value={props.mode} />
+          <ReviewRow label="Recipients" value={`${props.willSendRows} of ${props.selectedMembers} selected · ${props.skippedCount} skipped`} />
+          <ReviewRow label="Tracking" value="Delivery via Resend; open/click tracked when the recipient's client allows it." />
+          {warns > 0 && (
+            <div className="text-xs text-charcoal bg-orange-accent/10 border border-orange-accent/30 rounded-md px-3 py-2">
+              {warns} warning{warns === 1 ? "" : "s"} above — send anyway will proceed as-is.
+            </div>
+          )}
+          {props.requiresTypedConfirm && (
+            <div>
+              <label className="block text-xs font-medium text-text-muted uppercase tracking-wider mb-1">
+                Type <code className="font-mono text-text-primary bg-app-bg px-1 rounded">{expected}</code> to confirm
+              </label>
+              <input
+                autoFocus
+                type="text"
+                value={props.typedValue}
+                onChange={(e) => props.onTypedChange(e.target.value)}
+                placeholder={expected}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface font-mono"
+              />
+              <p className="text-[11px] text-text-muted mt-1">
+                Extra step above {TYPED_CONFIRM_THRESHOLD} recipients — this is a real broadcast.
+              </p>
+            </div>
+          )}
+          {props.sendErr && (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{props.sendErr}</div>
+          )}
+        </div>
+        <div className="px-6 py-4 border-t border-app-border flex items-center justify-between gap-3">
+          <button onClick={props.onCancel} disabled={props.sending} className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            onClick={props.onConfirm}
+            disabled={props.sending || !typedOk}
+            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+          >
+            {props.sending ? "Sending…" : `Send now`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[11px] text-text-muted uppercase tracking-wider">{label}</div>
+      <div className="text-sm text-text-primary break-words">{value}</div>
     </div>
   );
 }
