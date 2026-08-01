@@ -94,6 +94,24 @@ model Club {
   contactEmail             String?
   contactPhone             String?
   websiteUrl               String?
+  // Physical mailing address (M21, 2026-08-01). Structured so templates
+  // can bind {{club.city}} etc. later; renderers concatenate for the
+  // CAN-SPAM footer + the Contact block "address" line. All nullable —
+  // when unset, the marketing footer falls back to the AthletixOS entity
+  // address (see lib/emailPostalAddress.ts once wired).
+  mailingAddress           String?
+  mailingAddress2          String?
+  mailingCity              String?
+  mailingState             String?
+  mailingZip               String?
+  mailingCountry           String?
+  // Public-facing contact for members / marketing footer / Contact block
+  // (M21). Distinct from contactEmail / contactPhone above: contact* is
+  // the admin destination used as email replyTo fallback; public* is
+  // what a member sees. Renderers prefer public*, fall back to contact*
+  // when null so nothing regresses on day one.
+  publicEmail              String?
+  publicPhone              String?
   // Outgoing email identity. emailFromName is the friendly "From" name
   // members see (defaults to the club name). emailReplyTo is where member
   // replies go (defaults to contactEmail).
