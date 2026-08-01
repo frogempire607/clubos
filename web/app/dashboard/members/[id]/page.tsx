@@ -326,6 +326,12 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             </ul>
           )}
         </Card>
+
+        {/* 3G — Communications history for this member. Loads lazily
+            because it's PII surface + can be large. Gated at the API
+            level on messages.analytics; a coach without the sub-scope
+            gets a 403 and the card renders a permissive empty state. */}
+        <CommunicationsCard memberId={id} className="lg:col-span-2" />
       </div>
 
       {editingSub && (
@@ -354,6 +360,208 @@ function Card({ title, action, children, className = "" }: { title: string; acti
         {action}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ── 3G — Communications tab (per-member email history) ─────────────────
+
+interface CommSend {
+  id: string;
+  kind: string;
+  status: string;
+  subject: string;
+  recipientEmail: string;
+  fromName: string | null;
+  fromEmail: string | null;
+  sentByName: string | null;
+  relatedEventName: string | null;
+  relatedMembershipName: string | null;
+  announcementId: string | null;
+  providerMessageId: string | null;
+  trackingCapable: boolean;
+  queuedAt: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  bouncedAt: string | null;
+  openedAt: string | null;
+  openCount: number;
+  clickedAt: string | null;
+  clickCount: number;
+  skippedReason: string | null;
+  error: string | null;
+  bodyPreview: string;
+}
+
+function CommunicationsCard({ memberId, className }: { memberId: string; className?: string }) {
+  const [rows, setRows] = useState<CommSend[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [reader, setReader] = useState<CommSend | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetch(`/api/members/${memberId}/communications`)
+      .then(async (r) => {
+        if (!alive) return;
+        if (r.status === 403) {
+          setErr(null);
+          setRows([]); // hide the list rather than shout at coaches
+          return;
+        }
+        if (!r.ok) throw new Error((await r.json()).error ?? "Failed to load");
+        const data = await r.json();
+        setRows(data.sends);
+      })
+      .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [memberId]);
+
+  return (
+    <Card title="Communications" className={className}>
+      {loading ? (
+        <p className="text-sm text-text-muted">Loading…</p>
+      ) : err ? (
+        <p className="text-sm text-red-600">{err}</p>
+      ) : !rows || rows.length === 0 ? (
+        <p className="text-sm text-text-muted">No emails sent to this member yet.</p>
+      ) : (
+        <ul className="divide-y divide-app-border max-h-96 overflow-y-auto">
+          {rows.map((r) => (
+            <li key={r.id} className="py-2.5">
+              <button
+                type="button"
+                onClick={() => setReader(r)}
+                className="w-full text-left hover:bg-app-bg/50 rounded-md -mx-2 px-2 py-1.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-text-primary truncate">{r.subject || "(no subject)"}</div>
+                    <div className="text-xs text-text-muted truncate">
+                      To {r.recipientEmail}
+                      {r.sentByName && <> · by {r.sentByName}</>}
+                      {r.relatedEventName && <> · about {r.relatedEventName}</>}
+                      {r.relatedMembershipName && <> · membership {r.relatedMembershipName}</>}
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <DeliveryBadge row={r} />
+                    <div className="text-[11px] text-text-muted mt-0.5">{fmtDate(r.sentAt ?? r.queuedAt)}</div>
+                  </div>
+                </div>
+                {r.bodyPreview && (
+                  <div className="text-xs text-text-muted mt-1 line-clamp-1">{r.bodyPreview}</div>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {reader && <SendReaderModal id={reader.id} onClose={() => setReader(null)} />}
+    </Card>
+  );
+}
+
+// Never say "opened" when we can't know. Resend fires tracking pixels
+// on delivered mail; recipients whose client blocks images (Apple Mail
+// Privacy, corporate Outlook, plain-text mode) leave openedAt null
+// forever. We render:
+//   status === SENT + no delivery yet   → "Queued"     (grey)
+//   deliveredAt set + openedAt set      → "Opened N×"  (lime)
+//   deliveredAt set + tracking-capable  → "Delivered"  (blue)
+//   deliveredAt set + not tracking-capable → "Delivered · open tracking unavailable"
+//   bouncedAt                           → "Bounced"    (red)
+//   FAILED / SKIPPED                    → reason       (red / orange)
+function DeliveryBadge({ row }: { row: CommSend }) {
+  if (row.status === "FAILED") return <Pill tone="red">Failed</Pill>;
+  if (row.status === "SKIPPED") return <Pill tone="orange">Skipped · {row.skippedReason ?? "unknown"}</Pill>;
+  if (row.bouncedAt) return <Pill tone="red">Bounced</Pill>;
+  if (row.clickedAt) return <Pill tone="lime">Clicked {row.clickCount > 1 ? `${row.clickCount}×` : ""}</Pill>;
+  if (row.openedAt) return <Pill tone="lime">Opened {row.openCount > 1 ? `${row.openCount}×` : ""}</Pill>;
+  if (row.deliveredAt) {
+    return row.trackingCapable
+      ? <Pill tone="blue">Delivered · not yet opened</Pill>
+      : <Pill tone="blue">Delivered · open tracking unavailable</Pill>;
+  }
+  if (row.status === "SENT") {
+    // Provider accepted, no delivery callback yet. Resend may take a
+    // few seconds; SMTP-only sends never fire deliveredAt.
+    return row.trackingCapable
+      ? <Pill tone="grey">Sent · waiting for delivery</Pill>
+      : <Pill tone="grey">Sent · delivery tracking unavailable</Pill>;
+  }
+  return <Pill tone="grey">{row.status}</Pill>;
+}
+
+function Pill({ tone, children }: { tone: "grey" | "blue" | "lime" | "orange" | "red"; children: React.ReactNode }) {
+  const styles: Record<string, string> = {
+    grey: "bg-app-bg text-text-muted",
+    blue: "bg-brand/10 text-brand",
+    lime: "bg-lime-accent/25 text-charcoal",
+    orange: "bg-orange-accent/15 text-orange-accent",
+    red: "bg-red-50 text-red-700",
+  };
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${styles[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+function SendReaderModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const [row, setRow] = useState<null | {
+    subject: string; recipientEmail: string; fromName: string | null; fromEmail: string | null;
+    replyTo: string | null; bodyHtml: string; bodyText: string | null;
+    sentAt: string | null; deliveredAt: string | null; openedAt: string | null; clickedAt: string | null;
+    providerMessageId: string | null; status: string;
+  }>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetch(`/api/emails/sends/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive) { setRow(d); setLoading(false); } });
+    return () => { alive = false; };
+  }, [id]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between shrink-0">
+          <h2 className="text-base font-semibold text-text-primary truncate">
+            {loading ? "Loading…" : row?.subject || "(no subject)"}
+          </h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none" aria-label="Close">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-3 text-sm">
+          {!loading && row && (
+            <>
+              <div className="text-xs text-text-muted grid grid-cols-1 sm:grid-cols-2 gap-y-1">
+                <div>To: <span className="text-text-primary">{row.recipientEmail}</span></div>
+                <div>From: <span className="text-text-primary">{row.fromName ?? "—"} &lt;{row.fromEmail ?? "—"}&gt;</span></div>
+                <div>Sent: <span className="text-text-primary">{row.sentAt ? new Date(row.sentAt).toLocaleString() : "—"}</span></div>
+                <div>Delivered: <span className="text-text-primary">{row.deliveredAt ? new Date(row.deliveredAt).toLocaleString() : "—"}</span></div>
+                <div>Opened: <span className="text-text-primary">{row.openedAt ? new Date(row.openedAt).toLocaleString() : (row.providerMessageId ? "not yet" : "tracking unavailable")}</span></div>
+                <div>Provider id: <span className="font-mono text-text-primary">{row.providerMessageId ?? "—"}</span></div>
+              </div>
+              <div
+                className="border border-app-border rounded-lg overflow-hidden bg-white"
+                // The bodyHtml is the immutable snapshot delivered to the
+                // recipient. sanitizeEmailHtml already ran at send time
+                // (lib/emailRender + lib/sendClubEmail), so it's safe to
+                // render inside the dashboard. dangerouslySetInnerHTML is
+                // the right shape here — we're intentionally displaying
+                // exactly what the recipient saw.
+                dangerouslySetInnerHTML={{ __html: row.bodyHtml }}
+              />
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
