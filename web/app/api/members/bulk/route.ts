@@ -24,6 +24,7 @@ import {
   resolveMemberPersonalization,
   type PersonalizationContext,
 } from "@/lib/emailPersonalization";
+import { enqueueEmailSendRows, INLINE_DISPATCH_MAX, type EnqueueRow } from "@/lib/enqueueEmailSend";
 
 // The email path can enqueue up to MAX_IDS EmailSend rows in one request
 // (each is a single insert). Actual dispatch runs inline for now (Resend
@@ -306,6 +307,88 @@ async function handleBulkEmail(
   }
   const bodyHasTokens = referencedTokens.size > 0;
   const context: PersonalizationContext = email.personalization ?? {};
+
+  // 3M safety net for large sends: above INLINE_DISPATCH_MAX recipients
+  // we render + enqueue QUEUED rows and let the cron worker (drains
+  // every 5min, batches of 50) handle dispatch. Inline dispatch of 292
+  // recipients averaged ~117s vs Netlify's 60s ceiling — the tail
+  // silently disappears because rows past the timeout never get
+  // inserted. The enqueue path completes in ~15s for 300 rows and
+  // guarantees every recipient at least has a row.
+  const useQueueOnly = recipients.send.length > INLINE_DISPATCH_MAX;
+
+  if (useQueueOnly) {
+    // Render (per-recipient) + enqueue only. sendClubEmail's own opt-out
+    // gate ran during resolveRecipients (respectMarketingOptOut=true),
+    // so QUEUED rows shipping to the cron are already opt-out-safe.
+    const enqueueRows: EnqueueRow[] = [];
+    for (const r of recipients.send) {
+      let subjectForRow = email.subject;
+      let blocksForRow = blocksResult.blocks;
+      if (bodyHasTokens && r.recipientMemberId) {
+        const resolved = await resolveMemberPersonalization({
+          clubId: club.id,
+          memberId: r.recipientMemberId,
+          referencedTokens: Array.from(referencedTokens),
+          context,
+        });
+        const values = resolved.values as Record<string, string>;
+        subjectForRow = interpolateString(email.subject, values);
+        blocksForRow = interpolateBlocks(blocksResult.blocks, values);
+      }
+      const unsubscribeUrl = buildUnsubscribeUrl(club.id, r.recipientEmail);
+      const rendered = await renderEmail(blocksForRow, {
+        clubName: club.name,
+        clubLogoUrl: publicClubLogoUrl(club.id, club.logoUrl),
+        clubContact: {
+          email: club.publicEmail ?? club.contactEmail,
+          phone: club.publicPhone ?? club.contactPhone,
+          website: club.websiteUrl,
+          address: null,
+        },
+        club,
+        unsubscribeUrl,
+        postalAddress: resolvePostalAddressLines(club),
+        accentColor: club.primaryColor,
+      });
+      enqueueRows.push({
+        kind: "BULK",
+        recipientEmail: r.recipientEmail,
+        recipientUserId: r.recipientUserId,
+        recipientMemberId: r.recipientMemberId,
+        subject: subjectForRow,
+        bodyHtml: rendered.html,
+        bodyText: rendered.text || blocksToPlainText(blocksForRow),
+        bodyJson: blocksForRow,
+        fromName,
+        replyTo,
+        sendBatchId,
+        dedupeKey: r.dedupeKey,
+        idempotencyKey: email.clientKey,
+        sentByUserId: session.user.id,
+        listUnsubscribeUrl: unsubscribeUrl,
+      });
+    }
+    const enq = await enqueueEmailSendRows(club.id, enqueueRows);
+    return NextResponse.json({
+      ok: true,
+      sendBatchId,
+      // Naming: `queued` = rows enqueued but not yet dispatched. The UI
+      // renders "Send queued — will finish within a few minutes" in
+      // this branch. `sent` stays 0 because dispatch runs later.
+      results: {
+        queued: enq.enqueued,
+        sent: 0,
+        skipped: 0,
+        failed: enq.failed,
+        duplicate: enq.duplicate,
+      },
+      queueOnly: true,
+      skippedResolvers: recipients.skipped.slice(0, 200),
+      failures: enq.failures.slice(0, 200),
+      counts: recipients.counts,
+    });
+  }
 
   for (const r of recipients.send) {
     // Resolve personalization for THIS recipient's underlying member

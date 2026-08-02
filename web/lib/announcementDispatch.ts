@@ -24,6 +24,7 @@ import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { buildUnsubscribeUrl } from "@/lib/unsubscribe";
 import { resolvePostalAddressLines } from "@/lib/emailPostalAddress";
 import { extractTokensFromBlocks, interpolateBlocks, interpolateString, resolveMemberPersonalization } from "@/lib/emailPersonalization";
+import { enqueueEmailSendRows, INLINE_DISPATCH_MAX, type EnqueueRow } from "@/lib/enqueueEmailSend";
 
 export interface DispatchAnnouncementResult {
   ok: boolean;
@@ -179,6 +180,101 @@ export async function dispatchAnnouncement(args: {
   const bodyHasTokens = referencedTokens.size > 0;
 
   const tally = { sent: 0, failed: 0, skipped: 0, duplicate: 0 };
+
+  // 3M / 3H safety net for large audiences (same rationale as the
+  // Members-page bulk path): above INLINE_DISPATCH_MAX recipients we
+  // render + enqueue QUEUED EmailSend rows and hand dispatch to the
+  // cron worker. Without this an owner-triggered "Send now" to 292
+  // families times out mid-loop, leaves the tail silently unsent,
+  // AND leaves the Announcement stuck in SENDING because sendBatchId
+  // is set only after the loop. Below the threshold we keep the
+  // inline path so small blasts show immediate results.
+  const useQueueOnly = recipients.send.length > INLINE_DISPATCH_MAX;
+
+  if (useQueueOnly) {
+    const enqueueRows: EnqueueRow[] = [];
+    for (const r of recipients.send) {
+      let subjectForRow = subject;
+      let blocksForRow = blocksResult.blocks;
+      if (bodyHasTokens && r.recipientMemberId) {
+        const resolved = await resolveMemberPersonalization({
+          clubId: club.id,
+          memberId: r.recipientMemberId,
+          referencedTokens: Array.from(referencedTokens),
+        });
+        const values = resolved.values as Record<string, string>;
+        subjectForRow = interpolateString(subject, values);
+        blocksForRow = interpolateBlocks(blocksResult.blocks, values);
+      }
+      const unsubscribeUrl = buildUnsubscribeUrl(club.id, r.recipientEmail);
+      const rendered = await renderEmail(blocksForRow, {
+        clubName: club.name,
+        clubLogoUrl: publicClubLogoUrl(club.id, club.logoUrl),
+        clubContact: {
+          email: club.publicEmail ?? club.contactEmail,
+          phone: club.publicPhone ?? club.contactPhone,
+          website: club.websiteUrl,
+          address: null,
+        },
+        club,
+        unsubscribeUrl,
+        postalAddress: resolvePostalAddressLines(club),
+        accentColor: club.primaryColor,
+      });
+      enqueueRows.push({
+        kind: "ANNOUNCEMENT",
+        recipientEmail: r.recipientEmail,
+        recipientUserId: r.recipientUserId,
+        recipientMemberId: r.recipientMemberId,
+        subject: subjectForRow,
+        bodyHtml: rendered.html,
+        bodyText: rendered.text || blocksToPlainText(blocksForRow),
+        bodyJson: blocksForRow,
+        fromName,
+        replyTo,
+        sendBatchId,
+        dedupeKey: r.dedupeKey,
+        idempotencyKey: sendBatchId,
+        announcementId,
+        sentByUserId: actorUserId,
+        listUnsubscribeUrl: unsubscribeUrl,
+      });
+    }
+    const enq = await enqueueEmailSendRows(club.id, enqueueRows);
+    // Stamp the announcement as SENT (handoff complete) + persist the
+    // batch id so a re-fire attempt from the schedule route or a
+    // parallel cron tick sees the sendBatchId gate and refuses.
+    // Individual per-recipient state lives on EmailSend rows; the
+    // announcement-level "SENT" means "dispatch initiated".
+    await prisma.announcement.update({
+      where: { id: announcementId },
+      data: {
+        status: "SENT",
+        sentAt: new Date(),
+        sendBatchId,
+        senderUserId: actorUserId ?? announcement.senderUserId ?? undefined,
+      },
+    });
+    return {
+      ok: true,
+      announcementId,
+      sendBatchId,
+      status: "SENT",
+      counts: {
+        selectedMembers: recipients.counts.selectedMembers,
+        uniqueAddresses: recipients.counts.uniqueAddresses,
+        willSendRows: recipients.counts.willSendRows,
+        sent: 0,               // dispatch runs later
+        failed: enq.failed,
+        skipped: 0,
+        duplicate: enq.duplicate,
+        noEmail: recipients.counts.noEmail,
+        optedOut: recipients.counts.optedOut,
+        invalidAddress: recipients.counts.invalidAddress,
+        duplicateInBatch: recipients.counts.duplicateInBatch,
+      },
+    };
+  }
 
   for (const r of recipients.send) {
     let subjectForRow = subject;
