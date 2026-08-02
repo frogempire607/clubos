@@ -403,8 +403,8 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 | **3K** pre-send checks + final review | `lib/emailPreflight.ts` — 10-item BLOCK/WARN/INFO checklist. `<PreflightPanel>` renders live under the composer; BLOCK issues disable Send. `<FinalReviewModal>` shows subject / sender / reply-to / mode / recipient count / skipped count / tracking notice; typed `SEND N` confirmation required above 50 recipients (`TYPED_CONFIRM_THRESHOLD`). | 🟢 shipped 2026-08-02 (session 2) |
 | **3L** sub-scope permissions + coach audience | 8 sub-scopes on `messages` (`bulk`, `marketing`, `templates`, `images`, `unsubscribe`, `analytics`, `approve`, `audience_all_club`). `requireMessagesSubScope()` guard on every wide-blast route. `lib/coachAudience.ts` restricts staff without `audience_all_club` to members enrolled in classes/events they teach; ids outside the audience are DROPPED, not hidden. Staff editor UI (`/dashboard/staff`) exposes toggles with owner-facing labels. | 🟢 shipped 2026-08-02 (session 2) |
 | 3J attachments | ⚪ deferred — image-linked flow via existing signed image route is sufficient for this cycle; real SMTP attachments = future migration. |
-| 3M mobile audit | ⚪ deferred to session 3 |
-| 3N test suite | ⚪ deferred to session 3 |
+| **3M** mobile + composer persistence | Composer state persists to localStorage per `draftKey` — survives phone rotation + page refresh with a 30-day age-out and a Discard action. Wired into BulkEmailModal + TemplateEditor. BulkEmailModal footer wraps + respects iOS safe-area. Announcements page container / header / cards / filter chips fully responsive. Session-1/2 pages (templates, audiences, unsubscribes, campaign results, profile Communications card) already used the bottom-sheet + responsive-grid pattern — verified in the audit, no structural changes needed. | 🟢 shipped 2026-08-02 (session 3) |
+| **3N** targeted send-path tests | `scripts/send-path-tests.ts` — 35 focused checks over household/per-member dedup, missing/invalid/opted-out addresses, duplicate-send prevention (shared-guardian collapse), personalization with a missing token (no `{{token}}` leak), cross-family safety (interpolate is pure), 3K preflight blockers, `INLINE_DISPATCH_MAX` safety math. Plus the pre-existing 54 recipient tests → total 89 pass. Coverage narrowed to the send path per session-3 brief; exhaustive 3N matrix explicitly skipped. | 🟢 shipped 2026-08-02 (session 3) |
 
 ### 3.7 Phase-3 schema audit — 2026-08-02 (session 1 finding)
 
@@ -467,10 +467,35 @@ before this session began.
 - Coach view — a coach without `audience_all_club` sees only members enrolled in classes/events they teach on the bulk preview. `outsideCoachAudience` count is surfaced so the coach knows selections were dropped.
 - 3G never claims tracked events that didn't happen — every "opened" render is derived from a non-null `openedAt`, never from status alone. Rows without a `providerMessageId` render "delivered · open tracking unavailable" (SMTP-only sends).
 
-**Waiting on session 3:** 3M mobile audit, 3N test suite, plus any polish surfaced by owner testing of session-2 features. Approval workflow (3H.4) intentionally deferred.
+### 3.10 Session-3 deliverables (2026-08-02, final)
 
+Committed on `main`; not pushed per plan.
 
-**Phase 3 exit criteria (per plan §3N "Document at end of this phase"):** email provider + sending flow doc'd · schema changes listed · background jobs added · tracking limitations noted · file-upload limitations · new permissions · env vars · manual test steps · deployment order · rollback plan.
+| Commit | Content |
+|---|---|
+| (session 3, queue commit) | **Large-send safety net.** `lib/enqueueEmailSend.ts` + `INLINE_DISPATCH_MAX = 100`. Bulk route + announcement dispatch enqueue-only above 100 recipients so a 292-family blast finishes the request in ~15s instead of timing out at 60s and half-sending. Cron drains 50 QUEUED rows every 5 min. |
+| (session 3, queue commit) | **`scripts/send-path-tests.ts`** — 35 focused send-path tests (89 total across both suites). |
+| `6f60c32` | **3M + 3H UI**. Composer localStorage draft persistence (`draftKey` prop) with restored-draft banner and Discard action, wired into BulkEmailModal + TemplateEditor. Announcements page grows Send now / Cancel / View results buttons per card (session 2 shipped the API routes; owners had no UI for them). Announcements page container / header / cards / filters fully responsive. BulkEmailModal footer wraps + respects iOS safe-area. Lint fixes on session-owned surfaces. |
+| (this range) | **`docs/improvement/PHASE-3-DELIVERABLE.md`** — the plan §3N exit-criteria document. |
+
+**Verify commands** (session 3):
+- `npx tsc --noEmit` → clean
+- `npm run build` → clean
+- `npx tsx scripts/send-path-tests.ts` → 35/35 pass
+- `npx tsx scripts/email-recipients-tests.ts` → 54/54 pass
+- `npm run lint` → clean on session-owned surfaces (pre-existing warnings on 15 legacy files untouched)
+
+**Large-send verified:**
+- `INLINE_DISPATCH_MAX = 100` — inline below, enqueue-only above. Threshold picked to give ~40s headroom at 400ms/row against Netlify's 60s `maxDuration`.
+- 292-family send drains in ~6 cron ticks (~30 min worst case). Cron path pre-existed; session-3 change is the enqueue-only handoff so the request itself doesn't half-send.
+- Both the Members-page bulk path AND the announcement dispatch (`lib/announcementDispatch.ts`) route through the enqueue path above threshold. Announcement `status=SENT + sendBatchId` gets stamped at end of enqueue so a parallel cron tick can't re-fire.
+
+**Phase 3 exit criteria met** — see `docs/improvement/PHASE-3-DELIVERABLE.md` for the full plan §3N document: what changed · schema changes · background jobs · tracking limitations · file-upload limitations · new permissions · env vars · manual test steps · deployment order · rollback plan.
+
+**Deferred (intentional):**
+- Approval workflow (3H.4) — M18 columns present, `messages.approve` sub-scope plumbed, UI + gate wire in a later session.
+- SMTP attachments (3J) — link-based delivery via signed image route sufficient this cycle.
+- Exhaustive 3N test matrix — send path covered; downstream test cases (missing email addresses in the Members page filter, invalid addresses, shared guardian emails, multiple children under one parent, unique-household vs. per-athlete delivery, duplicate-send prevention, delivery failures, communication history, staff permissions, coach-restricted audiences) all have coverage above; the plan's remaining rows (image uploads, links and buttons, draft saving, scheduled sending, mobile and tablet layouts) rely on browser verification a future session or Julian's local testing will cover.
 
 ---
 
