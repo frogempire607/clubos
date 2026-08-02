@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Megaphone, Smartphone, Mail, Bell, type LucideIcon } from "lucide-react";
+import { Megaphone, Smartphone, Mail, Bell, Send, X as XIcon, BarChart3, type LucideIcon } from "lucide-react";
 import DateTimeField from "@/components/DateTimeField";
 
 type Announcement = {
@@ -12,6 +13,13 @@ type Announcement = {
   publishAt: string | null;
   unpublishAt: string | null;
   createdAt: string;
+  // 3H lifecycle fields (M18 + session 2). Older rows may have null status;
+  // we fall back to the legacy publishAt-based derivation via getStatus().
+  status?: string | null;
+  scheduledFor?: string | null;
+  sentAt?: string | null;
+  sendBatchId?: string | null;
+  canceledAt?: string | null;
   engagement?: {
     seen: number;
     opened: number;
@@ -38,9 +46,15 @@ type AnnouncementEngagement = {
   }>;
 };
 
-type Status = "LIVE" | "SCHEDULED" | "EXPIRED";
+// 3H — extended lifecycle vocabulary. DRAFT/SCHEDULED/SENDING/SENT/CANCELED
+// come from Announcement.status (M18); legacy LIVE/EXPIRED are derived
+// from publishAt/unpublishAt for rows written before M18.
+type Status = "DRAFT" | "SCHEDULED" | "SENDING" | "SENT" | "CANCELED" | "LIVE" | "EXPIRED";
 
 function getStatus(a: Announcement): Status {
+  if (a.status && ["DRAFT", "SCHEDULED", "SENDING", "SENT", "CANCELED"].includes(a.status)) {
+    return a.status as Status;
+  }
   const now = new Date();
   if (a.publishAt && new Date(a.publishAt) > now) return "SCHEDULED";
   if (a.unpublishAt && new Date(a.unpublishAt) < now) return "EXPIRED";
@@ -48,8 +62,12 @@ function getStatus(a: Announcement): Status {
 }
 
 const statusStyle: Record<Status, { bg: string; fg: string; label: string }> = {
-  LIVE:      { bg: "var(--color-success)", fg: "#1F1F23", label: "Live" },
+  DRAFT:     { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Draft" },
   SCHEDULED: { bg: "var(--color-warning)", fg: "#fff", label: "Scheduled" },
+  SENDING:   { bg: "#EDEBFF", fg: "#4F46E5", label: "Sending" },
+  SENT:      { bg: "var(--color-success)", fg: "#1F1F23", label: "Sent" },
+  CANCELED:  { bg: "#FEE2E2", fg: "#B91C1C", label: "Canceled" },
+  LIVE:      { bg: "var(--color-success)", fg: "#1F1F23", label: "Live" },
   EXPIRED:   { bg: "var(--color-bg)", fg: "var(--color-muted)", label: "Expired" },
 };
 
@@ -61,9 +79,10 @@ const CHANNELS: { id: string; label: string; Icon: LucideIcon }[] = [
 
 const FILTER_OPTIONS: Array<{ value: "ALL" | Status; label: string }> = [
   { value: "ALL",       label: "All" },
-  { value: "LIVE",      label: "Live" },
+  { value: "DRAFT",     label: "Draft" },
   { value: "SCHEDULED", label: "Scheduled" },
-  { value: "EXPIRED",   label: "Expired" },
+  { value: "SENT",      label: "Sent" },
+  { value: "CANCELED",  label: "Canceled" },
 ];
 
 export default function AnnouncementsPage() {
@@ -92,6 +111,32 @@ export default function AnnouncementsPage() {
     load();
   }
 
+  // 3H — Send now. Confirmation is intentional because this dispatches
+  // real email. The dispatch is idempotent (Announcement.sendBatchId
+  // durable mark + M16 partial unique) so a double-click cannot
+  // double-send, but confirmation prevents accidental clicks.
+  async function handleSendNow(a: Announcement) {
+    if (!confirm(`Send "${a.title}" now to every eligible recipient?\n\nThis cannot be undone once dispatched.`)) return;
+    const res = await fetch(`/api/announcements/${a.id}/send`, { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error ?? "Send failed.");
+      return;
+    }
+    load();
+  }
+
+  async function handleCancel(a: Announcement) {
+    if (!confirm(`Cancel "${a.title}"?\n\nA scheduled send that hasn't fired yet will be dropped.`)) return;
+    const res = await fetch(`/api/announcements/${a.id}/cancel`, { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error ?? "Cancel failed.");
+      return;
+    }
+    load();
+  }
+
   async function openEngagement(id: string) {
     setEngagementLoading(true);
     const res = await fetch(`/api/announcements/${id}/engagement`);
@@ -100,22 +145,24 @@ export default function AnnouncementsPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl">
+      {/* 3M — header stacks on mobile so the CTA doesn't crowd out the title. */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Announcements</h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold text-text-primary mb-1">Announcements</h1>
           <p className="text-sm text-text-muted">Broadcast messages to all members</p>
         </div>
         <button
           onClick={() => { setEditing(null); setShowModal(true); }}
-          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors"
+          className="w-full sm:w-auto px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors"
         >
           + New announcement
         </button>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit">
+      {/* 3M — filter chips scroll horizontally on mobile so the 5-item
+          set doesn't wrap and blow out the header row. */}
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit max-w-full overflow-x-auto">
         {FILTER_OPTIONS.map((f) => (
           <button
             key={f.value}
@@ -157,18 +204,24 @@ export default function AnnouncementsPage() {
             const st = getStatus(a);
             const s = statusStyle[st];
             const channelList = a.channels.split(",").map((c) => c.trim()).filter(Boolean);
+            const canSend = (st === "DRAFT" || st === "SCHEDULED") && !a.sendBatchId;
+            const canCancel = (st === "DRAFT" || st === "SCHEDULED") && !a.sendBatchId;
+            const canViewResults = a.sendBatchId != null;
             return (
-              <div key={a.id} className="bg-white rounded-xl border border-app-border p-5 hover:border-app-border transition-colors">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+              <div key={a.id} className="bg-white rounded-xl border border-app-border p-4 sm:p-5 hover:border-app-border transition-colors">
+                {/* 3M — content on top, actions below. Prevents the
+                    3-4-button action strip from crowding out the title
+                    at 375px. */}
+                <div className="flex flex-col gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-medium"
                         style={{ background: s.bg, color: s.fg }}
                       >
                         {s.label}
                       </span>
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1">
                         {CHANNELS.filter((c) => channelList.includes(c.id)).map((c) => (
                           <span key={c.id} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
                             <c.Icon className="h-3 w-3" strokeWidth={2} /> {c.label}
@@ -178,11 +231,17 @@ export default function AnnouncementsPage() {
                     </div>
                     <h3 className="text-base font-semibold text-text-primary mb-1">{a.title}</h3>
                     <p className="text-sm text-text-muted line-clamp-2">{a.body}</p>
-                    <div className="mt-2 text-xs text-text-muted flex gap-3">
-                      {a.publishAt && (
-                        <span>Publishes {new Date(a.publishAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+                    <div className="mt-2 text-xs text-text-muted flex flex-wrap gap-x-3 gap-y-1">
+                      {st === "SCHEDULED" && (a.scheduledFor || a.publishAt) && (
+                        <span>Scheduled for {new Date(a.scheduledFor ?? a.publishAt!).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                       )}
-                      {!a.publishAt && (
+                      {st === "SENT" && a.sentAt && (
+                        <span>Sent {new Date(a.sentAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+                      )}
+                      {st === "CANCELED" && a.canceledAt && (
+                        <span>Canceled {new Date(a.canceledAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+                      )}
+                      {(st === "DRAFT" || st === "LIVE" || st === "EXPIRED") && (
                         <span>Created {new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
                       )}
                       {a.engagement && (
@@ -195,7 +254,24 @@ export default function AnnouncementsPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-1 flex-shrink-0">
+                  {/* Action row wraps on mobile; primary Send actions go first. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {canSend && (
+                      <button
+                        onClick={() => handleSendNow(a)}
+                        className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-hover font-medium"
+                      >
+                        <Send className="h-3 w-3" strokeWidth={2} /> Send now
+                      </button>
+                    )}
+                    {canViewResults && (
+                      <Link
+                        href={`/dashboard/communication/campaigns/${a.id}`}
+                        className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg"
+                      >
+                        <BarChart3 className="h-3 w-3" strokeWidth={2} /> View results
+                      </Link>
+                    )}
                     <button
                       onClick={() => openEngagement(a.id)}
                       className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-muted hover:bg-app-bg transition-colors"
@@ -208,9 +284,17 @@ export default function AnnouncementsPage() {
                     >
                       Edit
                     </button>
+                    {canCancel && (
+                      <button
+                        onClick={() => handleCancel(a)}
+                        className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-muted hover:bg-app-bg"
+                      >
+                        <XIcon className="h-3 w-3" strokeWidth={2} /> Cancel
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDelete(a.id)}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors ml-auto"
                     >
                       Archive
                     </button>

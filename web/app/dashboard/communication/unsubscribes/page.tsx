@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Search, RotateCcw, X, History, Trash2 } from "lucide-react";
+import { ArrowLeft, Search, RotateCcw, X, History } from "lucide-react";
 
 interface OptOutRow {
   id: string;

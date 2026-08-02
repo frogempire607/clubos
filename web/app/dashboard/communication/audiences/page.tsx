@@ -110,7 +110,7 @@ export default function AudiencesPage() {
           <p className="text-sm text-text-muted max-w-2xl">
             Reusable recipient groups. Dynamic audiences re-evaluate at send time — a new
             member who now matches will get the message, someone who no longer matches
-            won't. Static audiences freeze the exact list when you save them.
+            won&apos;t. Static audiences freeze the exact list when you save them.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -139,7 +139,7 @@ export default function AudiencesPage() {
         <div className="text-sm text-text-muted p-8 text-center">Loading…</div>
       ) : audiences.length === 0 ? (
         <div className="text-sm text-text-muted p-8 text-center bg-surface rounded-xl border border-app-border">
-          No audiences yet. Create one to save a recipient filter you'll reuse across sends.
+          No audiences yet. Create one to save a recipient filter you&apos;ll reuse across sends.
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

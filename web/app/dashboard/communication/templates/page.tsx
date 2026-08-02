@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, Copy, Archive, ArchiveRestore, Trash2, Pencil, Save, X } from "lucide-react";
-import EmailComposer from "@/components/EmailComposer";
+import EmailComposer, { clearComposerDraft } from "@/components/EmailComposer";
 import type { EmailBlock } from "@/lib/emailBlocks";
 
 interface TemplateRow {
@@ -85,7 +85,7 @@ export default function TemplatesPage() {
           <h1 className="text-3xl font-semibold text-text-primary mb-1">Email templates</h1>
           <p className="text-sm text-text-muted">
             Reusable email starting points. Every template ships with your club logo up top and
-            contact info at the bottom — auto-inserted at send time so you don't have to keep
+            contact info at the bottom — auto-inserted at send time so you don&apos;t have to keep
             re-adding them.
           </p>
         </div>
@@ -228,6 +228,8 @@ function TemplateEditor({
         ? await fetch("/api/email-templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
         : await fetch(`/api/email-templates/${template!.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
+      // 3M — clear the persisted draft on successful save.
+      clearComposerDraft(`template:${template?.id ?? "new"}`);
       onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -299,6 +301,10 @@ function TemplateEditor({
             initialSubject={subject}
             initialPreviewText={previewText}
             initialBlocks={blocks.length ? blocks : undefined}
+            // 3M — per-template draft key. isNew uses a stable "new"
+            // token so an interrupted new-template compose survives
+            // refresh. Existing templates use their id.
+            draftKey={`template:${template?.id ?? "new"}`}
             onChange={(s) => {
               setSubject(s.subject);
               setPreviewText(s.previewText);

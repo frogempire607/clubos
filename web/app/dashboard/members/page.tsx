@@ -12,6 +12,7 @@ import MembersTabs from "@/components/MembersTabs";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import type { EmailBlock } from "@/lib/emailBlocks";
 import { runPreflight, hasBlocker, issuesByLevel, TYPED_CONFIRM_THRESHOLD, type PreflightIssue } from "@/lib/emailPreflight";
+import { clearComposerDraft } from "@/components/EmailComposer";
 
 // Load the composer client-only — tiptap pulls its own ~90 KB and needs
 // browser globals. The Members page as a whole stays a simple client
@@ -960,6 +961,10 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
         setSendErr(typeof data?.error === "string" ? data.error : "Send failed.");
       } else {
         setSendResult({ results: data.results });
+        // 3M — success clears the persisted draft so the next open of
+        // the composer starts clean. Failure keeps the draft so the
+        // sender can fix the issue without re-typing.
+        clearComposerDraft(`bulk:${clubCtx?.name ?? "default"}`);
       }
     } finally {
       setSending(false);
@@ -1074,6 +1079,12 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
               <EmailComposer
                 initialSubject={subject}
                 initialPreviewText={previewText}
+                // 3M — persist the draft so a phone rotation or refresh
+                // doesn't nuke a message the sender was mid-composing.
+                // Key is per-club so a coach at one club doesn't see an
+                // owner's draft on another. Cleared on successful send
+                // below.
+                draftKey={`bulk:${clubCtx?.name ?? "default"}`}
                 onChange={({ subject: s, previewText: p, blocks: b }) => {
                   setSubject(s);
                   setPreviewText(p);
@@ -1115,7 +1126,9 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
         </div>
 
         {!sendResult && (
-          <div className="px-6 py-4 border-t border-app-border flex items-center justify-between gap-3 shrink-0">
+          // 3M — footer wraps on mobile so the long "Review & send to
+          // 292 recipients" label doesn't push Cancel off-screen.
+          <div className="px-4 sm:px-6 py-4 border-t border-app-border flex flex-wrap items-center justify-between gap-2 shrink-0 pb-[max(env(safe-area-inset-bottom),1rem)]">
             <button onClick={onClose} className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
               Cancel
             </button>
@@ -1130,7 +1143,7 @@ function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; o
                 setShowFinalReview(true);
               }}
               disabled={sending || preflightBlocked || willSendRows === 0 || !subject.trim() || blocks.length === 0}
-              className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+              className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 flex-1 sm:flex-initial"
             >
               {sending ? "Sending…" : `Review & send to ${willSendRows} recipient${willSendRows === 1 ? "" : "s"}`}
             </button>

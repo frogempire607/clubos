@@ -642,7 +642,7 @@ function EditSubModal({ sub, onClose, onSaved }: { sub: Sub; onClose: () => void
         </div>
         <div className="p-6 space-y-4">
           <p className="text-xs text-text-muted">
-            Adjusts the AthletixOS record only. Stripe's billing cycle is unchanged — use the Stripe portal for that.
+            Adjusts the AthletixOS record only. Stripe&apos;s billing cycle is unchanged — use the Stripe portal for that.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>

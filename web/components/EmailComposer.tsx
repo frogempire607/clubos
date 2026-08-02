@@ -77,6 +77,49 @@ export interface EmailComposerProps {
     | Promise<void | { message?: string }>
     | void
     | { message?: string };
+  // 3M — When set, composer state is persisted to localStorage under this
+  // key and hydrated on mount. Survives page refresh + device rotation
+  // (which unmounts on some browsers). The caller is responsible for
+  // picking a unique key per compose surface (bulk vs template edit vs
+  // announcement compose) so drafts don't cross-pollute. clearOnSuccess()
+  // is returned via onChange callback context — the parent invokes it
+  // after a successful send so the next open starts clean.
+  draftKey?: string;
+}
+
+// 3M — localStorage draft persistence. The composer's state lives in
+// React memory only, so a device rotation that unmounts the modal (some
+// mobile browsers) or a refresh (§3M explicit callout) loses everything.
+// Draft is a JSON blob keyed on draftKey; corrupt entries are dropped
+// silently.
+interface StoredDraft {
+  subject: string;
+  previewText: string;
+  blocks: EmailBlock[];
+  savedAt: number;
+}
+function readDraft(key: string | undefined): StoredDraft | null {
+  if (!key || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(`aox:composer:${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredDraft;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.blocks)) return null;
+    // Age out drafts older than 30 days so a forgotten one doesn't
+    // resurface long after the send it was meant for.
+    if (Date.now() - (parsed.savedAt ?? 0) > 30 * 86_400_000) return null;
+    return parsed;
+  } catch { return null; }
+}
+function writeDraft(key: string | undefined, d: StoredDraft): void {
+  if (!key || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`aox:composer:${key}`, JSON.stringify(d));
+  } catch { /* quota errors etc. — never block compose */ }
+}
+export function clearComposerDraft(key: string): void {
+  if (!key || typeof window === "undefined") return;
+  try { window.localStorage.removeItem(`aox:composer:${key}`); } catch { /* ignore */ }
 }
 
 // What the composer needs to know about the club to warn the sender
@@ -103,13 +146,20 @@ export default function EmailComposer({
   initialBlocks,
   onChange,
   onSendTest,
+  draftKey,
 }: EmailComposerProps) {
-  const [subject, setSubject] = useState(initialSubject);
-  const [previewText, setPreviewText] = useState(initialPreviewText);
-  const [blocks, setBlocks] = useState<EmailBlock[]>(() => initialBlocks ?? defaultBlocks());
+  // 3M — hydrate from localStorage on mount when draftKey is set. Falls
+  // back to initial props if nothing is saved. Save happens on every
+  // meaningful change below (debounced with the onChange bubble). Never
+  // blocks initial paint — draft read is synchronous but tiny.
+  const stored = useMemo(() => readDraft(draftKey), [draftKey]);
+  const [subject, setSubject] = useState(stored?.subject ?? initialSubject);
+  const [previewText, setPreviewText] = useState(stored?.previewText ?? initialPreviewText);
+  const [blocks, setBlocks] = useState<EmailBlock[]>(() => stored?.blocks ?? initialBlocks ?? defaultBlocks());
   const [preview, setPreview] = useState<"desktop" | "mobile" | null>(null);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [clubInfo, setClubInfo] = useState<ClubContactInfo | null>(null);
+  const [draftRestored, setDraftRestored] = useState<boolean>(!!stored);
 
   // Fetch club contact info once so the Contact + Logo editors can warn
   // the sender if a requested field will render empty (contactEmail null,
@@ -158,6 +208,17 @@ export default function EmailComposer({
     return () => clearTimeout(t);
   }, [subject, previewText, blocks, onChange]);
 
+  // 3M — persist draft to localStorage on every meaningful change.
+  // Debounced so a fast typer doesn't hit storage on every keystroke.
+  // No draftKey → no persistence (opt-in per surface).
+  useEffect(() => {
+    if (!draftKey) return;
+    const t = setTimeout(() => {
+      writeDraft(draftKey, { subject, previewText, blocks, savedAt: Date.now() });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [subject, previewText, blocks, draftKey]);
+
   const updateBlock = useCallback(<T extends EmailBlock>(idx: number, patch: Partial<T>) => {
     setBlocks((prev) => {
       const next = prev.slice();
@@ -205,6 +266,30 @@ export default function EmailComposer({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* 3M draft-restored banner — shown once when the composer opens
+          with a hydrated localStorage draft. Discard removes the saved
+          copy AND resets to the composer default so a stale draft
+          doesn't come back on next open. */}
+      {draftKey && draftRestored && (
+        <div className="bg-lime-accent/15 border border-lime-accent/40 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+          <span className="text-xs text-charcoal">
+            Restored an unsent draft from this device.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              clearComposerDraft(draftKey);
+              setSubject(initialSubject);
+              setPreviewText(initialPreviewText);
+              setBlocks(initialBlocks ?? defaultBlocks());
+              setDraftRestored(false);
+            }}
+            className="text-xs font-medium text-charcoal underline underline-offset-2"
+          >
+            Discard draft
+          </button>
+        </div>
+      )}
       {/* Subject + preview text — always required, never a block. */}
       <div className="bg-surface border border-app-border rounded-xl p-4 space-y-3">
         <div>
