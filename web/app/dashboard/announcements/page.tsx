@@ -438,6 +438,7 @@ function AnnouncementModal({
   );
   const [sendNow, setSendNow]       = useState(false);
   const [saving, setSaving]         = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError]           = useState("");
 
   function toggleChannel(id: string) {
@@ -446,21 +447,24 @@ function AnnouncementModal({
     );
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(asDraft: boolean) {
     if (!title.trim() || !body.trim()) { setError("Title and body are required"); return; }
     if (channels.length === 0) { setError("Select at least one channel"); return; }
 
     setError("");
-    setSaving(true);
+    if (asDraft) setSavingDraft(true); else setSaving(true);
 
+    // "Save as draft" forces sendNow=false regardless of the checkbox
+    // state — that IS the whole point of the action, to put the message
+    // on ice without firing an email fanout. The regular Publish/Save
+    // path honors whatever the sender chose.
     const payload = {
       title,
       body,
       channels: channels.join(","),
       publishAt: publishAt || null,
       unpublishAt: unpublishAt || null,
-      sendNow,
+      sendNow: asDraft ? false : sendNow,
     };
 
     const res = isEdit
@@ -475,7 +479,7 @@ function AnnouncementModal({
           body: JSON.stringify(payload),
         });
 
-    setSaving(false);
+    if (asDraft) setSavingDraft(false); else setSaving(false);
     if (!res.ok) {
       // Surface the server's reason (tier gate, SMTP missing, validation…) —
       // the blanket message hid why a publish failed.
@@ -484,6 +488,11 @@ function AnnouncementModal({
       return;
     }
     onSaved();
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    submit(false);
   }
 
   return (
@@ -580,22 +589,47 @@ function AnnouncementModal({
             </div>
           )}
 
-          <div className="flex gap-3 pt-2">
+          {/* Footer: Cancel (close modal) · Save as draft (create/update
+              without sending) · Publish/Save (primary — respects sendNow).
+              Save as draft appears when creating OR when editing a row
+              that's currently DRAFT — for SCHEDULED/SENT/CANCELED it
+              would be misleading (the schedule would still fire, or the
+              send has already run). Owners demote a SCHEDULED row via
+              Cancel from the card actions instead. */}
+          {(() => {
+            const currentStatus = announcement?.status ?? "DRAFT";
+            const canSaveAsDraft = !isEdit || currentStatus === "DRAFT";
+            return (
+          <div className="flex flex-wrap gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg"
+              disabled={saving || savingDraft}
+              className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg disabled:opacity-50"
             >
               Cancel
             </button>
+            {canSaveAsDraft && (
+              <button
+                type="button"
+                onClick={() => submit(true)}
+                disabled={saving || savingDraft}
+                className="flex-1 sm:flex-initial px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg disabled:opacity-50"
+                title="Save without sending — reopens in the composer with content intact"
+              >
+                {savingDraft ? "Saving…" : "Save as draft"}
+              </button>
+            )}
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || savingDraft}
               className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 transition-colors"
             >
-              {saving ? "Saving…" : isEdit ? "Save changes" : "Publish"}
+              {saving ? "Saving…" : isEdit ? "Save changes" : (sendNow && channels.includes("email") ? "Publish & send email" : "Publish")}
             </button>
           </div>
+            );
+          })()}
         </form>
       </div>
     </div>
