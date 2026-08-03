@@ -1879,8 +1879,12 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
   }
 
   async function handleRemove(memberId: string) {
-    if (!confirm("Cancel this booking?")) return;
-    await fetch(`/api/events/${eventId}/bookings?memberId=${memberId}`, { method: "DELETE" });
+    if (!confirm("Remove this person from the event? This also takes them off the invoice list.")) return;
+    const res = await fetch(`/api/events/${eventId}/bookings?memberId=${memberId}`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    // They keep their spot on the billing list only when money is already
+    // committed — say so rather than leaving a silent invoice behind.
+    if (d?.registrationKept) setError(d.registrationKept);
     load();
   }
 
@@ -2053,6 +2057,31 @@ type RegistrationsData = {
   publicPrice: number | null;
 };
 
+// What the server says each registrant will ACTUALLY be charged, straight from
+// bill-registrants in preview mode. Nothing is emailed until the owner has
+// looked at this and pressed send.
+type InvoiceLine = {
+  registrationId: string;
+  name: string;
+  email: string;
+  recorded: number | null;
+  amount: number;
+  expected: number;
+  mismatch: boolean;
+  processingFee: number;
+  chargedTotal: number;
+  alreadyInvoiced: boolean;
+};
+type InvoicePreview = {
+  isVariable: boolean;
+  expected: number;
+  passProcessingFees: boolean;
+  lines: InvoiceLine[];
+  mismatched: number;
+  grandTotal: number;
+};
+type InvoiceOpts = { force?: boolean; registrationIds?: string[] };
+
 function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
   const [data, setData] = useState<RegistrationsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2061,6 +2090,10 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [recording, setRecording] = useState<string | null>(null);
+  const [preview, setPreview] = useState<InvoicePreview | null>(null);
+  const [previewOpts, setPreviewOpts] = useState<InvoiceOpts>({});
+  const [repricing, setRepricing] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -2074,13 +2107,27 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   // moment it becomes revenue and the receipt goes out — confirm the amount
   // out loud before flipping it.
   async function recordOffline(r: RegistrationRow) {
+    // The server settles the registration's OWN amountDue, so that is the
+    // figure to confirm out loud — but if it disagrees with the event's
+    // current price, say so before cash changes hands rather than after.
     const due = Number(r.amountDue ?? 0);
+    const shouldBe = expectedDue;
+    if (!(due > 0)) {
+      setErr(
+        `${r.name} has no recorded amount due. Reprice the registrations to this event's price first, then record the payment.`,
+      );
+      return;
+    }
     const method = r.status === "AWAITING_CHECK" || r.paymentMethod === "CHECK" ? "CHECK" : "CASH";
     const reference =
       method === "CHECK"
         ? window.prompt(`Check number or reference for ${r.name} (optional):`, "") ?? ""
         : "";
-    if (!window.confirm(`Record $${due.toFixed(2)} received in ${method.toLowerCase()} from ${r.name}? This sends them a receipt.`)) {
+    const warning =
+      shouldBe > 0 && Math.round(due * 100) !== Math.round(shouldBe * 100)
+        ? `\n\nHeads up: this event's price is $${shouldBe.toFixed(2)}, but this registration is recorded at $${due.toFixed(2)}. Cancel and reprice if $${due.toFixed(2)} is wrong.`
+        : "";
+    if (!window.confirm(`Record $${due.toFixed(2)} received in ${method.toLowerCase()} from ${r.name}? This sends them a receipt.${warning}`)) {
       return;
     }
     setRecording(r.id);
@@ -2098,18 +2145,42 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
     load();
   }
 
-  async function invoice(opts: { force?: boolean; registrationIds?: string[] }) {
+  // Step 1 of sending: ask the server what each registrant would be charged.
+  // Creates no Stripe session and sends no email — this is the screen that has
+  // to exist so a wrong number is caught by a human instead of 13 families.
+  async function invoice(opts: InvoiceOpts) {
+    setBilling(true);
+    setMsg("");
+    setErr("");
+    setPreview(null);
+    const res = await fetch(`/api/events/${eventId}/bill-registrants`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...opts, preview: true }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBilling(false);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not build the invoice preview."); return; }
+    setPreviewOpts(opts);
+    setPreview(d as InvoicePreview);
+  }
+
+  // Step 2: actually send what was reviewed. `confirmMismatched` is only ever
+  // true because the owner read the mismatched rows on screen first.
+  async function confirmSend() {
+    if (!preview) return;
     setBilling(true);
     setMsg("");
     setErr("");
     const res = await fetch(`/api/events/${eventId}/bill-registrants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(opts),
+      body: JSON.stringify({ ...previewOpts, confirmMismatched: preview.mismatched > 0 }),
     });
     const d = await res.json().catch(() => ({}));
     setBilling(false);
     if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not send invoices."); return; }
+    setPreview(null);
     const parts = [
       d.perHead != null
         ? `Emailed ${d.billed} payment link(s) at $${Number(d.perHead).toFixed(2)} each`
@@ -2118,6 +2189,47 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
     if (d.skipped) parts.push(`${d.skipped} already paid`);
     if (d.errors?.length) parts.push(`${d.errors.length} failed`);
     setMsg(parts.join(" · ") + ".");
+    load();
+  }
+
+  // Pull every non-committed registration onto the event's current price.
+  // Changes what a future invoice says; charges nobody.
+  async function repriceAll() {
+    if (!confirm("Update every unpaid registration to this event's current pricing? Nobody is charged — this only changes what their next invoice says.")) return;
+    setRepricing(true);
+    setMsg("");
+    setErr("");
+    const res = await fetch(`/api/events/${eventId}/reprice-registrations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apply: true }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setRepricing(false);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not reprice."); return; }
+    setPreview(null);
+    setMsg(
+      d.updated > 0
+        ? `Repriced ${d.updated} registration(s).${d.locked?.length ? ` ${d.locked.length} left alone (money already committed).` : ""}`
+        : "Everyone already matches the event's current pricing.",
+    );
+    load();
+  }
+
+  // Take someone off the billing list. The roster's "Cancel" removes a
+  // booking; this removes the registration — they are separate tables, and
+  // only this one drives invoices.
+  async function removeRegistration(r: RegistrationRow) {
+    if (!confirm(`Remove ${r.name} from this event's registration and billing list? They'll stop appearing in invoices.`)) return;
+    setRemoving(r.id);
+    setMsg("");
+    setErr("");
+    const res = await fetch(`/api/events/${eventId}/registrations/${r.id}`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    setRemoving(null);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not remove them."); return; }
+    setPreview(null);
+    setMsg(`${r.name} removed from the registration list.`);
     load();
   }
 
@@ -2131,8 +2243,16 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   // SCHEDULED registrants are excluded — their card is already committed for
   // the event date, so emailing a payment link would collect the same money
   // twice (the server refuses them too).
+  // Same resolution the server uses (lib/eventRepricing.amountToCollect), so a
+  // row can never display one number while the invoice sends another.
   const owes = (r: RegistrationRow) =>
-    Number(r.amountDue ?? 0) > 0 ? Number(r.amountDue) : (data?.publicPrice ?? 0);
+    isVariable
+      ? (data?.perHead ?? 0)
+      : Number(r.amountDue ?? 0) > 0
+        ? Number(r.amountDue)
+        : (data?.publicPrice ?? 0);
+  // What the event's CURRENT pricing says everyone should owe.
+  const expectedDue = isVariable ? (data?.perHead ?? 0) : (data?.publicPrice ?? 0);
   const collectable = (r: RegistrationRow) =>
     r.status !== "PAID" &&
     r.status !== "CANCELED" &&
@@ -2143,6 +2263,11 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   const selectableIds = (data?.registrations ?? []).filter(collectable).map((r) => r.id);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const unpaidOwing = (data?.registrations ?? []).filter(collectable).length;
+  // Rows carrying an amount the event's own pricing doesn't produce — the
+  // Frog Empire failure mode, made visible instead of silently invoiced.
+  const mismatchedRows = (data?.registrations ?? []).filter(
+    (r) => collectable(r) && expectedDue > 0 && Math.round(owes(r) * 100) !== Math.round(expectedDue * 100),
+  );
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -2195,6 +2320,125 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                       Payment required before check-in
                     </span>
                   )}
+                </div>
+              )}
+
+              {/* Stale amounts, surfaced before anything is emailed. */}
+              {mismatchedRows.length > 0 && (
+                <div className="bg-orange-accent/10 border border-orange-accent/40 rounded-lg p-4 mb-4">
+                  <p className="text-sm font-semibold text-text-primary">
+                    {mismatchedRows.length} registration{mismatchedRows.length === 1 ? "" : "s"} don&apos;t match this event&apos;s price
+                  </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    This event prices at <strong>${expectedDue.toFixed(2)}</strong>, but these rows are
+                    carrying a different amount — usually a figure recorded before the pricing changed.
+                    They will be invoiced for what they carry unless you reprice them.
+                  </p>
+                  <ul className="text-xs text-text-primary mt-2 space-y-0.5">
+                    {mismatchedRows.slice(0, 8).map((r) => (
+                      <li key={r.id}>
+                        {r.name}: <strong>${owes(r).toFixed(2)}</strong>{" "}
+                        <span className="text-text-muted">→ ${expectedDue.toFixed(2)}</span>
+                      </li>
+                    ))}
+                    {mismatchedRows.length > 8 && (
+                      <li className="text-text-muted">…and {mismatchedRows.length - 8} more</li>
+                    )}
+                  </ul>
+                  <button
+                    onClick={repriceAll}
+                    disabled={repricing}
+                    className="mt-3 text-xs px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                  >
+                    {repricing ? "Repricing…" : `Reprice all unpaid to $${expectedDue.toFixed(2)}`}
+                  </button>
+                  <p className="text-[11px] text-text-muted mt-2">
+                    Nobody is charged. Paid, scheduled, and awaiting-cash/check registrants are left alone.
+                  </p>
+                </div>
+              )}
+
+              {/* Review before sending — the exact amounts, per family. */}
+              {preview && (
+                <div className="bg-surface border-2 border-brand rounded-lg p-4 mb-4">
+                  <p className="text-sm font-semibold text-text-primary">
+                    Review before sending · {preview.lines.length} payment link{preview.lines.length === 1 ? "" : "s"}
+                  </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    Nothing has been sent yet. This is exactly what each family will be emailed and charged.
+                  </p>
+                  <div className="overflow-x-auto mt-3">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-wider text-text-muted border-b border-app-border">
+                          <th className="pb-1.5 font-medium">Registrant</th>
+                          <th className="pb-1.5 font-medium text-right">Amount</th>
+                          {preview.passProcessingFees && <th className="pb-1.5 font-medium text-right">Processing fee</th>}
+                          <th className="pb-1.5 font-medium text-right">They pay</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.lines.map((l) => (
+                          <tr key={l.registrationId} className="border-b border-app-border last:border-0">
+                            <td className="py-1.5">
+                              <span className="text-text-primary">{l.name}</span>
+                              {l.mismatch && (
+                                <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-orange-accent/20 text-text-primary">
+                                  not ${l.expected.toFixed(2)}
+                                </span>
+                              )}
+                              {l.alreadyInvoiced && (
+                                <span className="ml-1.5 text-[10px] text-text-muted">re-send</span>
+                              )}
+                            </td>
+                            <td className="py-1.5 text-right text-text-primary">${l.amount.toFixed(2)}</td>
+                            {preview.passProcessingFees && (
+                              <td className="py-1.5 text-right text-text-muted">${l.processingFee.toFixed(2)}</td>
+                            )}
+                            <td className="py-1.5 text-right text-text-primary font-medium">${l.chargedTotal.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td className="pt-2 text-text-primary font-semibold" colSpan={preview.passProcessingFees ? 3 : 2}>
+                            Total across {preview.lines.length}
+                          </td>
+                          <td className="pt-2 text-right text-text-primary font-semibold">${preview.grandTotal.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  {preview.passProcessingFees && (
+                    <p className="text-[11px] text-text-muted mt-2">
+                      The club passes processing fees, so the Stripe page totals more than the amount in the
+                      email body. Both figures are shown above.
+                    </p>
+                  )}
+                  {preview.mismatched > 0 && (
+                    <p className="text-xs text-text-primary mt-2 bg-orange-accent/10 border border-orange-accent/40 rounded px-2 py-1.5">
+                      {preview.mismatched} of these don&apos;t match the event&apos;s price of ${preview.expected.toFixed(2)}.
+                      Reprice first, or send anyway if the amounts are deliberate.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <button
+                      onClick={confirmSend}
+                      disabled={billing || preview.lines.length === 0}
+                      className="text-xs px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      {billing
+                        ? "Sending…"
+                        : `Send ${preview.lines.length} payment link${preview.lines.length === 1 ? "" : "s"} · $${preview.grandTotal.toFixed(2)}`}
+                    </button>
+                    <button
+                      onClick={() => setPreview(null)}
+                      disabled={billing}
+                      className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -2305,6 +2549,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                         {customFields.map((f) => <th key={f.id} className="pb-2 font-medium">{f.label}</th>)}
                         <th className="pb-2 font-medium">Invoice</th>
                         <th className="pb-2 font-medium">Status</th>
+                        <th className="pb-2 font-medium w-8"><span className="sr-only">Remove</span></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2414,6 +2659,18 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                                   </span>
                                 );
                               })()}
+                            </td>
+                            <td className="py-2.5 text-right">
+                              {r.status !== "CANCELED" && (
+                                <button
+                                  onClick={() => removeRegistration(r)}
+                                  disabled={removing === r.id}
+                                  title="Remove from this event's registration and billing list"
+                                  className="text-[10px] text-red-600 hover:bg-red-50 px-2 py-1 rounded disabled:opacity-50"
+                                >
+                                  {removing === r.id ? "Removing…" : "Remove"}
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );

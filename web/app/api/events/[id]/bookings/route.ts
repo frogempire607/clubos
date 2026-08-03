@@ -84,6 +84,46 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       where: { eventId_memberId: { eventId: params.id, memberId } },
     });
 
+    // ── Remove them from the BILLING list too ────────────────────────────────
+    // Bookings and EventRegistrations are separate tables: the attendee list
+    // reads bookings, the invoice list reads event_registrations. Removing a
+    // booking used to leave the registration row untouched and fully
+    // invoiceable, so kids pulled off the roster still received payment links
+    // (Frog Empire Road Trip, 2026-08-03 — 13 registrations, 2 bookings).
+    //
+    // CANCELED is the removal: bill-registrants, the capacity count, and the
+    // roster all already exclude it, and it preserves the history that a hard
+    // delete would destroy.
+    let registrationCanceled = false;
+    let registrationKept: string | null = null;
+    const reg = await prisma.eventRegistration.findFirst({
+      where: { eventId: params.id, memberId, status: { not: "CANCELED" } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (reg) {
+      // Money already committed against this registration is not ours to
+      // erase — a paid registrant needs a refund decision, and an open
+      // cash/check record needs voiding. Say so instead of silently dropping
+      // it or silently keeping it.
+      const committed =
+        reg.status === "PAID" ||
+        reg.status === "SCHEDULED" ||
+        reg.status === "AWAITING_CASH" ||
+        reg.status === "AWAITING_CHECK" ||
+        !!reg.transactionId ||
+        Number(reg.amountPaid ?? 0) > 0;
+      if (committed) {
+        registrationKept =
+          "This registrant still has money committed (paid, scheduled, or an open cash/check record). The booking was removed but they remain on the billing list — settle or refund them on the Registrations screen.";
+      } else {
+        await prisma.eventRegistration.updateMany({
+          where: { id: reg.id, clubId: session.user.clubId, status: { not: "CANCELED" } },
+          data: { status: "CANCELED" },
+        });
+        registrationCanceled = true;
+      }
+    }
+
     // Promote first waitlisted member to confirmed
     const firstWaitlisted = await prisma.booking.findFirst({
       where: { eventId: params.id, status: "WAITLISTED" },
@@ -96,7 +136,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, registrationCanceled, registrationKept });
   } catch (err) {
     console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }

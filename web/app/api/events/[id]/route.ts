@@ -5,6 +5,12 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import {
+  planReprice,
+  pricingChanged,
+  pricingLockReason,
+  variableCostTurnedOff,
+} from "@/lib/eventRepricing";
 
 const sessionSchema = z.object({
   id: z.string().optional(),
@@ -212,7 +218,50 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       }
     }
 
-    return NextResponse.json(updated);
+    // ── Pricing edits must not leave stale per-registration amounts behind ──
+    // Editing an event used to touch event columns ONLY, so registrations kept
+    // whatever amountDue they were created with. That is the Frog Empire Road
+    // Trip bug: a camp switched from a variable-cost split to a flat $450 went
+    // on invoicing $533.33 per family.
+    let repricing: ReturnType<typeof planReprice> | null = null;
+    let cleared = 0;
+    if (pricingChanged(event, updated)) {
+      const registrations = await prisma.eventRegistration.findMany({
+        where: { eventId: params.id, status: { not: "CANCELED" } },
+        orderBy: { createdAt: "asc" },
+      });
+
+      // Variable cost turned OFF: every non-committed amountDue is a per-head
+      // share of a total that no longer exists. Clearing it (rather than
+      // writing the new price over it) makes the event's own price the single
+      // source of truth again, and is the one transition safe to do without
+      // asking — the old number is provably orphaned.
+      if (variableCostTurnedOff(event, updated)) {
+        const now = new Date();
+        const clearable = registrations
+          .filter((r) => !pricingLockReason(r, now) && r.amountDue != null)
+          .map((r) => r.id);
+        if (clearable.length > 0) {
+          const res = await prisma.eventRegistration.updateMany({
+            where: { id: { in: clearable }, clubId: session.user.clubId },
+            data: { amountDue: null },
+          });
+          cleared = res.count;
+          for (const r of registrations) {
+            if (clearable.includes(r.id)) r.amountDue = null;
+          }
+        }
+      }
+
+      // Everything else (estimate adjusted, flat price changed, pricing option
+      // switched) is handed back as a PREVIEW. It is not applied silently:
+      // a fixed-price amountDue can legitimately differ per registrant
+      // (member vs non-member, staff discount), so overwriting it is the
+      // owner's call — POST /api/events/[id]/reprice-registrations.
+      repricing = planReprice(updated, registrations);
+    }
+
+    return NextResponse.json({ ...updated, repricing, amountsCleared: cleared });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });

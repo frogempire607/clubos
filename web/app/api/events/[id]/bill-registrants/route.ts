@@ -4,10 +4,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, computeProcessingFeeCents } from "@/lib/fees";
 import { sendEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicFixedPrice } from "@/lib/eventPricing";
+import { amountToCollect, expectedAmount } from "@/lib/eventRepricing";
 
 const bodySchema = z.object({
   // Re-invoice registrants who were already invoiced (still skips PAID).
@@ -15,6 +16,14 @@ const bodySchema = z.object({
   // Invoice only these registrations. When omitted, invoice every active,
   // unpaid registrant who hasn't been invoiced yet (or all of them if force).
   registrationIds: z.array(z.string()).optional(),
+  // Dry run: return exactly what each registrant would be emailed and charged,
+  // without creating a single Stripe session or sending a single email. This
+  // is what the "Review before sending" screen calls.
+  preview: z.boolean().optional().default(false),
+  // Acknowledge that some registrants will be billed an amount that differs
+  // from the event's current price (a per-registrant override, or a stale
+  // snapshot). Without it, a mismatch is a hard 409 instead of an email.
+  confirmMismatched: z.boolean().optional().default(false),
 });
 
 // POST /api/events/[id]/bill-registrants
@@ -160,6 +169,66 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     );
   }
 
+  // ── What each registrant will actually be charged, resolved ONCE ──────────
+  // Every surface (this route, the roster row, the cash-entry prompt) reads
+  // the same resolver, so the screen can't say one number while the email
+  // says another. On a fixed-price event a recorded amountDue still wins —
+  // it can legitimately be a per-registrant price — but a figure that differs
+  // from the event's own price is surfaced, not silently emailed. That silent
+  // path is what mailed five families $533.33 for a $450 camp.
+  const eventExpected = isVariable ? (perHead as number) : expectedAmount(event, activeCount);
+  const lines = targets.map((reg) => {
+    const amount = isVariable ? (perHead as number) : amountToCollect(event, reg, activeCount);
+    const feeCents = event.club.passProcessingFees
+      ? computeProcessingFeeCents(Math.round(amount * 100))
+      : 0;
+    return {
+      registrationId: reg.id,
+      name: reg.name,
+      email: reg.email,
+      status: reg.status,
+      recorded: reg.amountDue == null ? null : Number(reg.amountDue),
+      amount,
+      expected: eventExpected,
+      mismatch: Math.round(amount * 100) !== Math.round(eventExpected * 100),
+      processingFee: feeCents / 100,
+      // What the Stripe page will actually total — the club passes fees, so
+      // this is higher than the figure in the email body.
+      chargedTotal: +(amount + feeCents / 100).toFixed(2),
+      alreadyInvoiced: reg.invoiceCount > 0,
+    };
+  });
+  const mismatched = lines.filter((l) => l.mismatch);
+
+  if (body.preview) {
+    return NextResponse.json({
+      preview: true,
+      mode,
+      isVariable,
+      perHead,
+      total,
+      divisor,
+      attendees: activeCount,
+      expected: eventExpected,
+      passProcessingFees: event.club.passProcessingFees,
+      lines,
+      mismatched: mismatched.length,
+      grandTotal: +lines.reduce((s, l) => s + l.chargedTotal, 0).toFixed(2),
+    });
+  }
+
+  if (mismatched.length > 0 && !body.confirmMismatched) {
+    return NextResponse.json(
+      {
+        error: "AMOUNT_MISMATCH",
+        message: `${mismatched.length} registrant(s) would be billed an amount that doesn't match this event's price of $${eventExpected.toFixed(2)}. Review them, reprice, or confirm to send anyway.`,
+        expected: eventExpected,
+        lines: mismatched,
+      },
+      { status: 409 },
+    );
+  }
+
   const baseUrl = getAppBaseUrl();
   const splitNote = !isVariable
     ? "Event registration"
@@ -202,13 +271,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       errors.push(`${reg.name}: no email on file`);
       continue;
     }
-    // Fixed-price: what they owed at registration wins; fall back to the
-    // event's current public price for rows recorded before a price was set.
-    const amount = isVariable
-      ? (perHead as number)
-      : reg.amountDue && Number(reg.amountDue) > 0
-        ? Number(reg.amountDue)
-        : fixedPrice;
+    // Resolved above (one model for every surface) — never recomputed here,
+    // so the preview the owner approved is exactly what gets sent.
+    const amount = lines.find((l) => l.registrationId === reg.id)?.amount ?? 0;
     const amountCents = Math.round(amount * 100);
     if (amountCents <= 0) {
       errors.push(`${reg.name}: no price to collect — set a price on the event first`);
