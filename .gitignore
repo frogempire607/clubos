@@ -1,2 +1,5 @@
 .DS_Store
 graphify-out/
+
+# Local dev-server config used by the preview tooling; machine-specific.
+.claude/launch.json
