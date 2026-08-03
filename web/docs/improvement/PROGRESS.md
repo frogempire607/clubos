@@ -698,6 +698,26 @@ Committed on `main`; not pushed per plan.
 
 ## Phase 5 — Event Registration Confirmation
 
+### 5.0 Ownership boundary vs the 2026-08-03 events/billing hotfix line (recorded 2026-08-03)
+
+The Frog Empire Road Trip incident produced work that touches the same tables Phase 5 plans to touch. This records who owns what so neither side builds it twice.
+
+**Shipped OUTSIDE Phase 5 (branch `claude/frog-empire-invoice-bug-qq3q0i`, merged to `main` 2026-08-03). Phase 5 must not re-spec these:**
+
+| Item | Where it lives | Phase 5 relationship |
+|---|---|---|
+| `lib/eventRepricing.ts` — pricing resolution + reprice lock rules | shipped | Not in plan.md Phase 5 at all. Phase 5 §5.2.2's `renderableRegistrationState` should read amounts through it rather than re-deriving. |
+| Reprice preview + apply (`/api/events/[id]/reprice-registrations`) | shipped | Not in Phase 5. |
+| `bill-registrants` preview mode + `AMOUNT_MISMATCH` 409 | shipped | Phase 5 §5.0 names `bill-registrants` as the escalation lever and says do not fork it — the escalation cron calls the same route, so it inherits preview/mismatch for free. |
+| Registration removal (`DELETE /api/events/[id]/registrations/[regId]` → CANCELED) | shipped | Phase 5 §5.5.1 (capacity parity) depends on CANCELED being the removal state. Now true. |
+| `/pay/complete` — payment confirmation for events with no public slug | shipped | **Overlaps Phase 5 §5.2.3 / PROGRESS 5.2.4–5.2.5.** Phase 5 OWNS the final surface (`/e/[slug]/registered/[registrationId]`, live state, confirmation code). `/pay/complete` is the interim 404 fix and is **superseded** when 5.2.4 lands — delete it then, and repoint `bill-registrants` + `eventAutoCharge` return URLs at the Phase 5 route. |
+| Per-row cash/check settlement on the Registrations roster | shipped | Not in Phase 5. Phase 5 §5.2.5 row "Offline payment recorded" only governs the receipt email's dedupeKey. |
+| `POST …/registrations/[regId]/resend-receipt` | shipped | **Adjacent to PROGRESS 5.2.6 `resend-confirmation`** — different artifacts. Receipt = proof of payment (money). Confirmation = proof of registration (state). Phase 5 keeps 5.2.6; it must NOT absorb or replace resend-receipt. |
+
+**Phase 5 KEEPS ownership of (do not build in the hotfix line):** the server-rendered confirmation surface + confirmation code (§5.2.3), `renderableRegistrationState` (§5.2.2), the lifecycle email matrix + dedupe keys (§5.2.5), coach approval / proposed change / escalation cron (§5.3–5.6), `EventRegistration.status` as an enum (M17), the email-uniqueness constraint (M18), `Booking.bookedByUserId` (M19), and capacity parity (§5.5.1).
+
+**Open model question (owner decision pending, 2026-08-03):** whether `Booking` remains a separate table. plan.md §5.4 already declares the intended split — `Booking` = confirmed-spot/roster primitive, `EventRegistration` = the registration + money record, no Booking row until approval on approval-gated events. The hotfix line surfaced that the two tables can disagree in production. **If the owner approves collapsing them, that work belongs to Phase 5 §5.4, not to the hotfix line**, because §5.4 already owns Booking's write path and M19 already migrates the table.
+
 ### 5.1 Bug fixes (do first — no schema work)
 
 | # | Task | Class | Status |

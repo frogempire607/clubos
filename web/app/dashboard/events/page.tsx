@@ -2106,7 +2106,14 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   // Record the cash/check a registrant physically handed over. This is the
   // moment it becomes revenue and the receipt goes out — confirm the amount
   // out loud before flipping it.
-  async function recordOffline(r: RegistrationRow) {
+  // Record cash/check against the REGISTRATION — no booking involved.
+  //
+  // This used to be reachable only through the Bookings add-flow, which books
+  // money on a Transaction and never touches the registration. Staff had to
+  // remove and re-add a booking to mark someone paid, and each cycle minted a
+  // duplicate SUCCEEDED Transaction while leaving the registration still
+  // owing. Money lives on the registration; record it here.
+  async function recordOffline(r: RegistrationRow, forceMethod?: "CASH" | "CHECK") {
     // The server settles the registration's OWN amountDue, so that is the
     // figure to confirm out loud — but if it disagrees with the event's
     // current price, say so before cash changes hands rather than after.
@@ -2118,7 +2125,8 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
       );
       return;
     }
-    const method = r.status === "AWAITING_CHECK" || r.paymentMethod === "CHECK" ? "CHECK" : "CASH";
+    const method =
+      forceMethod ?? (r.status === "AWAITING_CHECK" || r.paymentMethod === "CHECK" ? "CHECK" : "CASH");
     const reference =
       method === "CHECK"
         ? window.prompt(`Check number or reference for ${r.name} (optional):`, "") ?? ""
@@ -2143,6 +2151,22 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
     if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not record the payment."); return; }
     setMsg(`Recorded $${due.toFixed(2)} from ${r.name} — receipt sent.`);
     load();
+  }
+
+  // Re-send the receipt for money already recorded. Never creates a second
+  // Transaction — the old workaround (re-record the payment) did, and
+  // double-counted the revenue.
+  async function resendReceipt(r: RegistrationRow) {
+    setRecording(r.id);
+    setMsg("");
+    setErr("");
+    const res = await fetch(`/api/events/${eventId}/registrations/${r.id}/resend-receipt`, {
+      method: "POST",
+    });
+    const d = await res.json().catch(() => ({}));
+    setRecording(null);
+    if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not resend the receipt."); return; }
+    setMsg(`Receipt for ${r.name} re-sent to ${d.to}.`);
   }
 
   // Step 1 of sending: ask the server what each registrant would be charged.
@@ -2641,16 +2665,42 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                                         {r.lastChargeError}
                                       </span>
                                     )}
-                                    {(r.status === "AWAITING_CASH" || r.status === "AWAITING_CHECK" || r.status === "PAYMENT_FAILED") &&
+                                    {/* Cash/check settlement for ANY unpaid row —
+                                        not just the ones that pre-declared an
+                                        offline method. Marking someone paid must
+                                        never require touching their booking. */}
+                                    {r.status !== "PAID" &&
+                                      r.status !== "CANCELED" &&
+                                      r.status !== "SCHEDULED" &&
                                       due > 0 && (
-                                        <button
-                                          onClick={() => recordOffline(r)}
-                                          disabled={recording === r.id}
-                                          className="block text-[10px] text-brand hover:underline mt-1 disabled:opacity-50"
-                                        >
-                                          {recording === r.id ? "Recording…" : "Record payment received"}
-                                        </button>
+                                        <span className="block text-[10px] text-text-muted mt-1">
+                                          Record payment:{" "}
+                                          <button
+                                            onClick={() => recordOffline(r, "CASH")}
+                                            disabled={recording === r.id}
+                                            className="text-brand hover:underline disabled:opacity-50"
+                                          >
+                                            {recording === r.id ? "Recording…" : "cash"}
+                                          </button>
+                                          {" · "}
+                                          <button
+                                            onClick={() => recordOffline(r, "CHECK")}
+                                            disabled={recording === r.id}
+                                            className="text-brand hover:underline disabled:opacity-50"
+                                          >
+                                            check
+                                          </button>
+                                        </span>
                                       )}
+                                    {r.status === "PAID" && (
+                                      <button
+                                        onClick={() => resendReceipt(r)}
+                                        disabled={recording === r.id}
+                                        className="block text-[10px] text-brand hover:underline mt-1 disabled:opacity-50"
+                                      >
+                                        {recording === r.id ? "Sending…" : "Resend receipt"}
+                                      </button>
+                                    )}
                                     {r.status === "PENDING_PAYMENT" && (
                                       <span className="block text-[10px] text-text-muted mt-1">
                                         Not registered until they pay
