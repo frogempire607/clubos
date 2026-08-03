@@ -50,6 +50,25 @@ Two gotchas that already bit us:
 - Julian runs all database commands from his own terminal. The Claude Code
   sandbox cannot reach the database.
 
+### Say which checkout you're working in — up front
+
+Sessions often run in a **git worktree**, not the main checkout. Migrations,
+`.env`, and `node_modules` are per-worktree, so "I applied the migration" and
+"the migration isn't there" can both be true at once — that exact confusion cost
+a round-trip on 2026-08-02.
+
+**In the first message of any session that writes a migration or a script Julian
+will run, state the absolute path and branch**, e.g.:
+
+> Working in `web/.claude/worktrees/nifty-pasteur-1ecb47` on branch
+> `claude/phase-4-account-bugs-5a03fa`. Apply from there:
+> `cd <that path>/web && npx prisma migrate deploy`
+
+Also: **`M<n>` numbers in `docs/improvement/PROGRESS.md` are a planning
+inventory, not identifiers.** Several are reserved for unbuilt work and have
+been renumbered before. Always name the migration by its **folder**
+(`20260803000000_family_accounts`) when asking for it to be applied.
+
 ### Supabase MCP is READ-ONLY
 
 The Supabase MCP connects directly to **production**. Unless Julian explicitly

@@ -1,5 +1,50 @@
 # AthletixOS Improvement — Progress & Phased Plan
 
+> ## 📍 Where this work lives
+>
+> **Worktree:** `/Users/cubano/Desktop/clubos/web/.claude/worktrees/nifty-pasteur-1ecb47`
+> **Branch:** `claude/phase-4-account-bugs-5a03fa` · not pushed
+>
+> Migrations, `.env`, and `node_modules` are per-worktree. Run everything from
+> `<worktree>/web`, e.g. `cd <worktree>/web && npx prisma migrate deploy`.
+> Name migrations by **folder**, never by `M<n>` — the M-numbers below are a
+> planning inventory that has been renumbered before.
+
+> ## 🔵 BLOCKED — waiting on Julian's login (2026-08-03)
+>
+> Two Phase 4 verification items need an authenticated browser session. I can't
+> sign in (no credentials, and entering them isn't something I do), and
+> Client-view preview returns a sanitized stub that doesn't exercise the real
+> reads — so these are genuinely blocked, not skipped.
+>
+> | # | Item | What to check |
+> |---|---|---|
+> | B1 | **Listers UI walkthrough** | Family & access card on Michael's + Cameron's profiles; "Give someone access" candidate list surfaces Michael's real account with the reason *"Matches this athlete's own email — likely the parent's address in the wrong field"*; "Family labels" reads as non-access |
+> | B2 | **4A transfer preview (GET only)** | Preview on Michael's live $530/quarter sub: eligible targets, usage snapshot, billing sentence. **Do not press confirm** — it's a live customer |
+>
+> To resume: `cd <worktree>/web && NEXTAUTH_URL=http://127.0.0.1:3000 npm run dev`,
+> open `http://127.0.0.1:3000/login`, sign in as owner, then hand back.
+> (The `NEXTAUTH_URL` override is needed because `.env.local` — a symlink to the
+> main checkout — points at `10.0.0.45:3000`, which isn't reachable from the
+> sandbox. The symlinked file was left untouched.)
+>
+> **Already verified without a session:** access preservation across all 49
+> guardian links / 40 guardians — see `scripts/verify-family-access.ts`.
+
+> ## ❓ Needs Julian's call
+>
+> Decisions taken conservatively while working unattended. None block anything;
+> each is reversible and flagged here rather than assumed silently.
+>
+> | # | Question | What I did, and why | Reverse it by |
+> |---|---|---|---|
+> | Q1 | **Two kinds of "pending" family link now exist.** A client-initiated request is a `GUARDIAN_LINK` PendingApproval (pre-existing). A staff *proposal* is a `MemberGuardianUser` row with `status='PENDING'` (new in 4C). | Kept both rather than collapsing them. They're genuinely different events — one is "a parent asked", the other is "a coach suggested" — and they need different approvers and different audit trails. The card labels them distinctly ("Requested by the family" / "Proposed by staff"). Collapsing them would have meant rewriting the working client request flow. | Drop the staff-proposal path and require `members:full` for any link, so the only pending state is the PendingApproval. |
+> | Q2 | **Who may propose vs confirm a family link?** plan.md §4C says "not every staff role should automatically be able to edit family or financial relationships" without naming levels. | `members:full` grants directly (CONFIRMED); `members:edit` may only *propose* (PENDING, needs a `members:full` confirm); below that, nothing. Financial actions stay on their own scopes — Assign Membership needs `billing.transfer_subscription`, never `members:*`. | Change the two thresholds in `lib/familyRules.ts:resolveFamilyCapabilities`. One function, no schema. |
+> | Q3 | **"Book for This Athlete" (plan.md §4C action list)** could mean a new staff booking flow inside the family card. | Made it a deep link to the existing attendance/classes surface, scoped to that athlete, gated on `attendance:edit`. Building a second booking path would duplicate business logic the repo explicitly warns against. | Replace the link with an inline booking modal if you want it in-card. |
+> | Q4 | **"Transfer Management" (plan.md §4C action list)** is not defined in the brief. | Implemented as "make this guardian primary" — the primary guardian is the one who holds parental controls, so moving it is what transferring management means in this data model. Demotes the previous primary in the same transaction. | Redefine if you meant something else (e.g. moving *all* links to a different account). |
+>
+> Nothing here touched schema, production data, or a migration.
+
 Companion to `plan.md` (the brief) and `ARCHITECTURE-NOTES.md` (the discovery findings).
 
 **Preserve existing production data.** Every migration is additive; every backfill is dry-run-first with allowlists; nothing gets renamed, dropped, or silently relabeled. Follow the two-workflow migration pattern (hand-write SQL → `migrate deploy` → Supabase MCP bookkeeping when needed).
