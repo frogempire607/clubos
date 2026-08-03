@@ -59,7 +59,7 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | [2](#phase-2--reports) | Reports — thin plan.md fixes | 🟢 done |
 | [2.5](#phase-25--reports-full-design-handoff) | Reports — full design handoff (8-tab hub, drill, imports, alerts, forecasts, PDF/CSV export) | ⬜ pending |
 | [3](#phase-3--communications--email) | Communications & Email | ⬜ pending |
-| [4](#phase-4--client--family-accounts) | Client & Family Accounts | ⬜ pending |
+| [4](#phase-4--client--family-accounts) | Client & Family Accounts | 🟡 code complete · 2 items blocked on login |
 | [4.5](#phase-45--members-full-design-handoff) | Members — full design handoff (3 tracks, list, profile, Family & access, migration redesign, mobile, source label) | ⬜ pending |
 | [5](#phase-5--event-registration-confirmation) | Event Registration Confirmation | ⬜ pending |
 | [6](#phase-6--safety-data-integrity-testing) | Safety, Testing, Deployment & Final Handoff | ⬜ pending |
@@ -548,6 +548,9 @@ Committed on `main`; not pushed per plan.
 
 ## Phase 4 — Client & Family Accounts
 
+**Deliverable:** `docs/improvement/PHASE-4-DELIVERABLE.md` — what changed, schema, backfills, permissions, tests, limitations, deployment order, rollback.
+**Discovery:** `docs/improvement/PHASE-4-DISCOVERY.md` — the production diagnosis, duplicate-login audit, typo register.
+
 ### 4A. Membership transfer to linked family (Michael → Kellen)
 
 | # | Task | Class | Migration | Status |
@@ -578,15 +581,15 @@ Committed on `main`; not pushed per plan.
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
 | 4C.1 | ✅ **DONE (schema)** — folded into **M29**; ~~M16~~ — `MemberGuardianUser.permissions Json?` (Book/Pay/Waivers/Messages) OR separate `GuardianAccess` table per §2.6 Q10. | Migration | M16 | ⬜ |
-| 4C.2 | Family & access section renders per-relationship: name · avatar · type · manages? · book? · pay? · waivers? · messages? · notifications? · status · date-linked. | UI | — | ⬜ |
-| 4C.3 | Actions: View Profile · Edit Relationship · Confirm Pending · Remove · Transfer Management · Assign Membership · Book for Athlete. Each gated by staff permission. | UI + Backend | — | ⬜ |
-| 4C.4 | Guardian-editable grid on `/member/family/[memberId]` (parent side) mirrors owner view (subject to the primary-guardian rule from CLAUDE.md). | UI | — | ⬜ |
+| 4C.2 | ✅ **DONE** — Family & access renders per-relationship: name · avatar · type · manages? · book? · pay? · waivers? · messages? · notifications? · status · date-linked. | UI | — | ⬜ |
+| 4C.3 | ✅ **DONE** — Actions: View Profile · Edit Relationship · Confirm Pending · Remove · Transfer Management · Assign Membership · Book for Athlete. Each gated by staff permission. | UI + Backend | — | ⬜ |
+| 4C.4 | 🟡 **PARTIAL** — owner-side grid done; the guardian-side mirror on `/member/family/[memberId]` still renders the legacy toggle set. Guardian-editable grid on `/member/family/[memberId]` (parent side) mirrors owner view (subject to the primary-guardian rule from CLAUDE.md). | UI | — | ⬜ |
 
 ### 4D. Testing (plan §4D)
 
 | # | Task | Class | Status |
 |---|---|---|---|
-| 4D.1 | 🟡 **PARTIAL** — `scripts/family-accounts-tests.ts` (28 pure-function tests: payer precedence, CONFIRMED-only access filter, transferable statuses, billing note, sub-scope defaults). DB-bound fixture cases still to write. Fixture-based test suite: parent+one child · parent+multi-child same email · child linked after onboarding · child linked before · membership purchased by parent + assigned to child · staff-transfer · client-transfer · relationship removed · duplicate relationship attempt · reciprocal visibility · guardian permissions · staff permissions · unused-vs-used transfer. Extend `scripts/billing-admin-tests.ts` pattern. | Testing | ⬜ |
+| 4D.1 | ✅ **DONE** — `npm run test:phase4` = 105 assertions, no DB: `family-accounts-tests.ts` (28) + `family-fixtures-tests.ts` (77 across 16 sections; §1–§14 named to match the brief, §15 the Cameron case, §16 the self-referential link). Plus `npm run verify:family-access` as a standing read-only regression tool over all 49 links. Fixture-based test suite: parent+one child · parent+multi-child same email · child linked after onboarding · child linked before · membership purchased by parent + assigned to child · staff-transfer · client-transfer · relationship removed · duplicate relationship attempt · reciprocal visibility · guardian permissions · staff permissions · unused-vs-used transfer. Extend `scripts/billing-admin-tests.ts` pattern. | Testing | ⬜ |
 
 **Note:** Phase 4B's `guardianLinks` include fix + Phase 4C's per-permission grid land here in Phase 4 for the base data model. The redesigned Family & access surface (4.5.6) reads them.
 
