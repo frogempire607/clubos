@@ -11,6 +11,7 @@ import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
 import { inviteChildLogin } from "@/lib/childLogin";
 import { ensurePrimaryGuardian } from "@/lib/guardianLink";
+import { resolveActivationAccount } from "@/lib/familyRules";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -461,13 +462,31 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // their own membership must still land on their own email), never OWNER/STAFF
   // (the privileged-collision guard below), and never when the email already
   // resolves to a live account (that account is the right answer).
+  // The decision itself is a PURE rule (lib/familyRules.resolveActivationAccount)
+  // so the exact Lister sequence is pinned by fixtures in
+  // scripts/family-fixtures-tests.ts §15 and cannot silently regress. The route
+  // only supplies the facts and acts on the answer.
   let reusedSessionAccount = false;
-  if (!user && guardianManaged) {
-    const sessionUser = await currentPortalUser(club.id);
-    if (sessionUser) {
+  let contactEmailMismatch = false;
+  {
+    const sessionUser = user ? null : await currentPortalUser(club.id);
+    const decision = resolveActivationAccount({
+      contactEmail,
+      existingUserForEmail: user
+        ? { id: user.id, role: user.role === "MEMBER" ? "MEMBER" : "OWNER", deleted: !!user.deletedAt }
+        : null,
+      guardianManaged,
+      sessionUser: sessionUser ? { id: sessionUser.id, email: sessionUser.email } : null,
+    });
+    if (decision.kind === "REUSE_SESSION_ACCOUNT" && sessionUser) {
       user = sessionUser;
       reusedSessionAccount = true;
+      contactEmailMismatch = decision.contactEmailMismatch;
     }
+    // Every other outcome (BLOCKED_PRIVILEGED_ACCOUNT / RESURRECT_DELETED /
+    // USE_EXISTING_ACCOUNT / CREATE_NEW_ACCOUNT) is already implemented by the
+    // branches below, which stay as they are — this rule exists to decide the
+    // one case that used to be wrong.
   }
   // OWNER/STAFF COLLISION GUARD. A migrated member must NEVER attach to (or
   // resurrect) a privileged OWNER/STAFF login — that links member.userId to the
@@ -592,8 +611,11 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           message:
             `Activation attached this athlete to the already signed-in account ${user!.email} ` +
             `instead of creating a new one for the guardian email on file (${member.guardianEmail}). ` +
-            `No second login was created. Confirm which address the family actually uses and ` +
-            `update the guardian email if needed.`,
+            `No second login was created.` +
+            (contactEmailMismatch
+              ? ` The two addresses DISAGREE — confirm which one the family actually uses and update` +
+                ` the guardian email, or the next auto-link will miss again.`
+              : ""),
         },
       });
     }
