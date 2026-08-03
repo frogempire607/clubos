@@ -400,6 +400,57 @@ Everything else the wide scan surfaced (different surnames from remarriage, hyph
 
 ---
 
+## 8b. Implementation — 4A + 4B (2026-08-02, later)
+
+**The migration needed no amendment.** Everything the code required was already in `20260803000000_family_accounts` as written.
+
+One thing the migration made necessary that wasn't obvious at design time: `MemberGuardianUser.clubId` is `NOT NULL`, which broke all six existing link-create sites at compile time. That's the schema doing its job — each now also stamps `source` provenance, which is what was missing when the Lister incident had to be reconstructed by hand.
+
+### Security invariant changed — read before touching guardian reads
+
+Before Phase 4: *a `MemberGuardianUser` row exists ⇔ access.*
+After Phase 4: *a row with `status='CONFIRMED'` ⇔ access.*
+
+All 30 authorization and display read sites were swept to filter with `ACTIVE_GUARDIAN_LINK` (`lib/familyAccess.ts`). Any new read that decides access must do the same, or a REVOKED guardian keeps their access. Because the column defaults to `CONFIRMED`, behavior on existing data is identical on day one — the risk is entirely in *future* reads that forget the filter.
+
+### Files
+
+| File | What |
+|---|---|
+| `lib/familyAccess.ts` | **new** — the single family vocabulary: `ACTIVE_GUARDIAN_LINK`, status/source constants, `loadFamilyForMember()`, payer precedence, the billing-note text |
+| `lib/membershipTransfer.ts` | **new** — usage snapshot, eligible targets, preview, `executeTransfer()` |
+| `lib/membershipTransferKind.ts` | **new** — `MEMBERSHIP_TRANSFER` PendingApproval kind |
+| `lib/permissions.ts` | `billing.transfer_subscription` sub-scope (nested JSON, no migration), default **off** |
+| `lib/guardianLink.ts` | `isPrimaryGuardian` reads the column; new `ensurePrimaryGuardian()` |
+| `app/api/members/[id]/guardians/route.ts` | **new** — staff GET/POST/PATCH/DELETE for guardian access |
+| `app/api/members/lookup-login/route.ts` | **new** — powers the misplaced-email warning |
+| `app/api/member-subscriptions/[id]/transfer/route.ts` | **new** — preview + execute, both actor paths |
+| `app/api/approvals/membership-transfer/route.ts` | **new** — staff decision on a client request |
+| `components/members/FamilyAccessCard.tsx` | **new** — the staff Family & access surface |
+| `components/members/TransferMembershipModal.tsx` | **new** — shared by staff and client |
+| `app/api/members/[id]/route.ts` | returns `family`; Relationships card relabelled "Family labels" |
+| `app/api/members/migration/activate/[token]/route.ts` | prefers the signed-in account (4B.7) |
+| `app/api/member/family/[memberId]/purchases/route.ts` | memberships now refuse the silent repoint |
+| `app/api/members/[id]/billing-admin/actions/route.ts` | live-Stripe 409 now points at the transfer flow |
+| `app/api/approvals/route.ts` + approvals page | `MEMBERSHIP_TRANSFER` card |
+| `app/dashboard/staff/page.tsx` | Billing — advanced toggle |
+| `app/api/me/route.ts` | now resolves sub-scopes (they were invisible to every UI gate) |
+| 30 read sites | `ACTIVE_GUARDIAN_LINK` filter |
+| `scripts/family-accounts-tests.ts` | **new** — 28 pure-function tests |
+
+### Two design calls worth flagging
+
+1. **The guardian `purchases` route no longer moves memberships.** It used to repoint `memberId` inline. Products still do; memberships 409 with a pointer to the transfer flow. Anyone using that endpoint for a membership gets an actionable error rather than a silent partial success.
+2. **`ensurePrimaryGuardian()` runs after every link creation.** A member with guardians but no primary can never have their parental controls edited — previously impossible because primary was derived, now possible because it's stored.
+
+### Verification
+
+`npx prisma validate` ✅ · `npx tsc --noEmit` ✅ (`.tsbuildinfo` deleted first) · `npm run build` ✅ · `npx tsx scripts/family-accounts-tests.ts` **28/28** ✅
+
+**No runtime or browser testing yet** — that needs the migration applied. Nothing in Phase 4 has been exercised against a real request.
+
+---
+
 ## 9. What was written this session
 
 | File | Status |

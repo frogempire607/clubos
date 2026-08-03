@@ -508,31 +508,31 @@ Committed on `main`; not pushed per plan.
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
 | 4A.1 | **M29** — `MemberSubscription.payerUserId TEXT?` + `membership_transfers` table. Reads fall back to `Member.responsiblePayerUserId` when null. | Migration | M29 | ✅ written 2026-08-02, not applied |
-| 4A.2 | `POST /api/member-subscriptions/[id]/transfer` — **two actor paths (owner-decided 2026-08-02)**: staff with the new `billing.transfer_subscription` sub-scope act directly; the **account holder** may initiate between their own linked family members but it files a `PendingApproval` (kind `MEMBERSHIP_TRANSFER`) and takes effect only on staff approval. A non-account-holder guardian cannot initiate. Preview returns a diff + usage snapshot. Confirm sets `MemberSubscription.memberId = target`, stamps `payerUserId` = account holder, writes a `MembershipTransfer` row + `BillingAuditLog`. | Backend | — | ⬜ |
+| 4A.2 | ✅ **DONE** — `POST/GET /api/member-subscriptions/[id]/transfer` — **two actor paths (owner-decided 2026-08-02)**: staff with the new `billing.transfer_subscription` sub-scope act directly; the **account holder** may initiate between their own linked family members but it files a `PendingApproval` (kind `MEMBERSHIP_TRANSFER`) and takes effect only on staff approval. A non-account-holder guardian cannot initiate. Preview returns a diff + usage snapshot. Confirm sets `MemberSubscription.memberId = target`, stamps `payerUserId` = account holder, writes a `MembershipTransfer` row + `BillingAuditLog`. | Backend | — | ⬜ |
 | 4A.2b | **Replace the live-Stripe 409** in `billing-admin/actions reassign_subscription` with the acknowledged beneficiary-only path. Stripe subscription/customer/card untouched by design; `acknowledgedBillingNote` records the exact sentence confirmed. | Backend | — | ⬜ |
-| 4A.3 | **Eligibility (owner-answered 2026-08-02): allow the transfer regardless of usage.** No "billed at least once" bar — the primary case is correcting an accidental self-purchase, which is always already billed. Surface a usage snapshot (attendance/bookings/transactions) into `MembershipTransfer.usageSnapshot` and require acknowledgement when non-empty. | Backend | — | ⬜ |
-| 4A.4 | **UI (owner)**: profile Memberships tab → per-sub "Assign to another family member" button. Opens transfer modal (current owner, eligible family members from `guardianOf` + `MemberRelationship`, explanation of what stays with payer, confirm). | UI | — | ⬜ |
-| 4A.5 | **UI (client)**: `/member/family/[memberId]` — "Move this membership" action visible to the account-holder guardian. Same eligibility rules. | UI | — | ⬜ |
+| 4A.3 | ✅ **DONE** — Eligibility (owner-answered 2026-08-02): allow the transfer regardless of usage.** No "billed at least once" bar — the primary case is correcting an accidental self-purchase, which is always already billed. Surface a usage snapshot (attendance/bookings/transactions) into `MembershipTransfer.usageSnapshot` and require acknowledgement when non-empty. | Backend | — | ⬜ |
+| 4A.4 | ✅ **DONE** — **UI (owner)**: profile Memberships tab → per-sub "Assign to another family member" button. Opens transfer modal (current owner, eligible family members from `guardianOf` + `MemberRelationship`, explanation of what stays with payer, confirm). | UI | — | ⬜ |
+| 4A.5 | ✅ **DONE** — **UI (client)**: `/member/family/[memberId]` — "Move this membership" action visible to the account-holder guardian. Same eligibility rules. | UI | — | ⬜ |
 | 4A.6 | Post-transfer state: original Transaction/receipt preserved unchanged; membership beneficiary is new athlete; payer stays the same. | Regression test | — | ⬜ |
 
 ### 4B. Same-email family onboarding (Cameron case)
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 4B.1 | **Extend `GET /api/members/[id]` include** — add `guardianLinks: { include: { user: true } }` and `user: { include: { guardianOf: { include: { member: true } } } }`. | Backend | — | ⬜ |
-| 4B.2 | **Family & access card** on `app/dashboard/members/[id]/page.tsx` — renders guardians (from `guardianLinks`), managed athletes (from `user.guardianOf`), and legacy `MemberRelationship`. Includes pending links (from `PendingApproval` kind `GUARDIAN_LINK`). | UI | — | ⬜ |
+| 4B.1 | ✅ **DONE** — **Extended `GET /api/members/[id]`** via `loadFamilyForMember()`: — add `guardianLinks: { include: { user: true } }` and `user: { include: { guardianOf: { include: { member: true } } } }`. | Backend | — | ⬜ |
+| 4B.2 | ✅ **DONE** — **Family & access card** on `app/dashboard/members/[id]/page.tsx` — renders guardians (from `guardianLinks`), managed athletes (from `user.guardianOf`), and legacy `MemberRelationship`. Includes pending links (from `PendingApproval` kind `GUARDIAN_LINK`). | UI | — | ⬜ |
 | 4B.3 | Verify member portal already renders reciprocal (`/api/member/portal:82-123`) — no change expected. | Testing | — | ⬜ |
 | 4B.4 | ~~Fix any stale-cache issue~~ — **RULED OUT by production diagnosis (2026-08-02).** Not cache, query, or authorization. Root cause: Cameron's `guardianEmail` diverged from the address Michael actually logs in with, so no auto-link path matched; migration activation then minted a **second Michael login** for that address. Staff's remedy wrote `MemberRelationship`, which grants nothing. See `PHASE-4-DISCOVERY.md` §2. | — | — | ✅ diagnosed |
-| 4B.6 | **Staff-facing guardian-link control** on the member profile — writes `MemberGuardianUser`, not `MemberRelationship`. Today the Relationships card is the only linking control staff have and it grants no access; that is what made the Cameron incident unfixable from the UI. | UI + Backend | — | ⬜ |
-| 4B.7 | **Activation must reuse an authenticated session's User** instead of minting one from `guardianEmail`. `activate/[token]/route.ts:460-478` created the duplicate Michael login while he was signed in as himself 8 minutes earlier. Also warn when an athlete's own `Member.email` resolves to an existing live login. | Backend | — | ⬜ |
-| 4B.8 | Member create/edit warning: athlete's own `email` matches an existing login that isn't a guardian → "Did you mean to set this as the guardian email?" Prevents the whole class. | UI | — | ⬜ |
+| 4B.6 | ✅ **DONE** — **Staff-facing guardian-link control** on the member profile — writes `MemberGuardianUser`, not `MemberRelationship`. Today the Relationships card is the only linking control staff have and it grants no access; that is what made the Cameron incident unfixable from the UI. | UI + Backend | — | ⬜ |
+| 4B.7 | ✅ **DONE** — **Activation reuses an authenticated session's User** instead of minting one from `guardianEmail`. `activate/[token]/route.ts:460-478` created the duplicate Michael login while he was signed in as himself 8 minutes earlier. Also warn when an athlete's own `Member.email` resolves to an existing live login. | Backend | — | ⬜ |
+| 4B.8 | ✅ **DONE** — Member create/edit warning: athlete's own `email` matches an existing login that isn't a guardian → "Did you mean to set this as the guardian email?" Prevents the whole class. | UI | — | ⬜ |
 | 4B.5 | Regression: multiple children under one guardian email each keep separate Member rows, separate memberships, separate attendance, separate waivers. | Testing | — | ⬜ |
 
 ### 4C. Relationship visibility and permissions
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 4C.1 | **M16** — `MemberGuardianUser.permissions Json?` (Book/Pay/Waivers/Messages) OR separate `GuardianAccess` table per §2.6 Q10. | Migration | M16 | ⬜ |
+| 4C.1 | ✅ **DONE (schema)** — folded into **M29**; ~~M16~~ — `MemberGuardianUser.permissions Json?` (Book/Pay/Waivers/Messages) OR separate `GuardianAccess` table per §2.6 Q10. | Migration | M16 | ⬜ |
 | 4C.2 | Family & access section renders per-relationship: name · avatar · type · manages? · book? · pay? · waivers? · messages? · notifications? · status · date-linked. | UI | — | ⬜ |
 | 4C.3 | Actions: View Profile · Edit Relationship · Confirm Pending · Remove · Transfer Management · Assign Membership · Book for Athlete. Each gated by staff permission. | UI + Backend | — | ⬜ |
 | 4C.4 | Guardian-editable grid on `/member/family/[memberId]` (parent side) mirrors owner view (subject to the primary-guardian rule from CLAUDE.md). | UI | — | ⬜ |
@@ -541,7 +541,7 @@ Committed on `main`; not pushed per plan.
 
 | # | Task | Class | Status |
 |---|---|---|---|
-| 4D.1 | Fixture-based test suite: parent+one child · parent+multi-child same email · child linked after onboarding · child linked before · membership purchased by parent + assigned to child · staff-transfer · client-transfer · relationship removed · duplicate relationship attempt · reciprocal visibility · guardian permissions · staff permissions · unused-vs-used transfer. Extend `scripts/billing-admin-tests.ts` pattern. | Testing | ⬜ |
+| 4D.1 | 🟡 **PARTIAL** — `scripts/family-accounts-tests.ts` (28 pure-function tests: payer precedence, CONFIRMED-only access filter, transferable statuses, billing note, sub-scope defaults). DB-bound fixture cases still to write. Fixture-based test suite: parent+one child · parent+multi-child same email · child linked after onboarding · child linked before · membership purchased by parent + assigned to child · staff-transfer · client-transfer · relationship removed · duplicate relationship attempt · reciprocal visibility · guardian permissions · staff permissions · unused-vs-used transfer. Extend `scripts/billing-admin-tests.ts` pattern. | Testing | ⬜ |
 
 **Note:** Phase 4B's `guardianLinks` include fix + Phase 4C's per-permission grid land here in Phase 4 for the base data model. The redesigned Family & access surface (4.5.6) reads them.
 
