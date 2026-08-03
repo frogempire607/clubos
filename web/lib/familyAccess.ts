@@ -24,6 +24,8 @@
 // has to remember the string.
 
 import type { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 
 export const GUARDIAN_LINK_STATUS = {
   CONFIRMED: "CONFIRMED",
@@ -55,6 +57,165 @@ export function activeGuardianLinkWhere<T extends Prisma.MemberGuardianUserWhere
   where: T,
 ): T & { status: string } {
   return { ...where, status: GUARDIAN_LINK_STATUS.CONFIRMED };
+}
+
+// ── The family read (Phase 4B) ───────────────────────────────────────────────
+//
+// THE CAMERON BUG, in one sentence: `GET /api/members/[id]` returned
+// MemberRelationship and the legacy Guardian's other kids, but never
+// `guardianLinks` (who can act for this member) or `user.guardianOf` (who this
+// member's login can act for). So the dashboard showed a staff-created
+// relationship — which grants nothing — and hid the actual access edges. Staff
+// could not see that Cameron WAS linked, just to a duplicate account.
+//
+// This loader returns all four in one shape so no surface has to remember to
+// ask for the third and fourth.
+
+export type FamilyGuardian = {
+  linkId: string;
+  userId: string;
+  name: string;
+  email: string | null;
+  relationship: string | null;
+  isPrimary: boolean;
+  canBook: boolean;
+  canPay: boolean;
+  canSignWaivers: boolean;
+  canReceiveEmails: boolean;
+  source: string | null;
+  linkedAt: Date;
+  /** The athlete's own member row, if this guardian is also a member here. */
+  memberId: string | null;
+};
+
+export type FamilyManagedAthlete = {
+  linkId: string;
+  memberId: string;
+  name: string;
+  isMinor: boolean;
+  status: string;
+  relationship: string | null;
+  isPrimary: boolean;
+  canBook: boolean;
+  canPay: boolean;
+  canSignWaivers: boolean;
+  canReceiveEmails: boolean;
+  linkedAt: Date;
+};
+
+export type FamilyPendingLink = {
+  approvalId: string;
+  requestingUserId: string | null;
+  requestingUserEmail: string | null;
+  relationship: string | null;
+  requestedAt: Date;
+};
+
+export type FamilyPayload = {
+  guardians: FamilyGuardian[];
+  managedAthletes: FamilyManagedAthlete[];
+  pendingGuardianRequests: FamilyPendingLink[];
+  /** True when this member has a portal login of their own. */
+  hasOwnLogin: boolean;
+};
+
+export async function loadFamilyForMember(
+  memberId: string,
+  clubId: string,
+): Promise<FamilyPayload> {
+  const member = await prisma.member.findFirst({
+    where: { id: memberId, clubId, deletedAt: null },
+    select: {
+      userId: true,
+      // Who can act FOR this member.
+      guardianLinks: {
+        where: ACTIVE_GUARDIAN_LINK,
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        select: {
+          id: true, userId: true, relationship: true, isPrimary: true,
+          canBook: true, canPay: true, canSignWaivers: true, canReceiveEmails: true,
+          source: true, createdAt: true,
+          user: {
+            select: {
+              id: true, firstName: true, lastName: true, email: true,
+              memberProfile: { select: { id: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!member) return { guardians: [], managedAthletes: [], pendingGuardianRequests: [], hasOwnLogin: false };
+
+  // Who this member's own login can act for (the reciprocal direction — the
+  // half the dashboard never loaded).
+  const managed = member.userId
+    ? await prisma.memberGuardianUser.findMany({
+        where: { ...ACTIVE_GUARDIAN_LINK, userId: member.userId, member: { clubId, deletedAt: null } },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        select: {
+          id: true, relationship: true, isPrimary: true,
+          canBook: true, canPay: true, canSignWaivers: true, canReceiveEmails: true,
+          createdAt: true,
+          member: { select: { id: true, firstName: true, lastName: true, isMinor: true, status: true } },
+        },
+      })
+    : [];
+
+  // Requests waiting on staff. Without these, a guardian who asked for access
+  // is invisible on the profile and the request silently rots in the queue.
+  const pending = await prisma.pendingApproval.findMany({
+    where: { clubId, memberId, kind: GUARDIAN_LINK_KIND, status: "PENDING" },
+    orderBy: { requestedAt: "desc" },
+    select: { id: true, payload: true, requestedAt: true },
+  });
+
+  return {
+    hasOwnLogin: !!member.userId,
+    guardians: member.guardianLinks.map((l) => ({
+      linkId: l.id,
+      userId: l.userId,
+      name: `${l.user.firstName ?? ""} ${l.user.lastName ?? ""}`.trim() || (l.user.email ?? "Unknown"),
+      email: l.user.email,
+      relationship: l.relationship,
+      isPrimary: l.isPrimary,
+      canBook: l.canBook,
+      canPay: l.canPay,
+      canSignWaivers: l.canSignWaivers,
+      canReceiveEmails: l.canReceiveEmails,
+      source: l.source,
+      linkedAt: l.createdAt,
+      memberId: l.user.memberProfile?.id ?? null,
+    })),
+    managedAthletes: managed.map((l) => ({
+      linkId: l.id,
+      memberId: l.member.id,
+      name: `${l.member.firstName} ${l.member.lastName}`.trim(),
+      isMinor: l.member.isMinor,
+      status: l.member.status,
+      relationship: l.relationship,
+      isPrimary: l.isPrimary,
+      canBook: l.canBook,
+      canPay: l.canPay,
+      canSignWaivers: l.canSignWaivers,
+      canReceiveEmails: l.canReceiveEmails,
+      linkedAt: l.createdAt,
+    })),
+    pendingGuardianRequests: pending.map((p) => {
+      const payload = (p.payload ?? {}) as {
+        requestingUserId?: string;
+        requestingUserEmail?: string;
+        relationship?: string;
+      };
+      return {
+        approvalId: p.id,
+        requestingUserId: payload.requestingUserId ?? null,
+        requestingUserEmail: payload.requestingUserEmail ?? null,
+        relationship: payload.relationship ?? null,
+        requestedAt: p.requestedAt,
+      };
+    }),
+  };
 }
 
 // ── Payer resolution (Phase 4A) ──────────────────────────────────────────────

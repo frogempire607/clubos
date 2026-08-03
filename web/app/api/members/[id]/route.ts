@@ -10,6 +10,7 @@ import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 import { validateMemberContact } from "@/lib/memberValidation";
 import { resolveIsMinor } from "@/lib/parentalConsent";
+import { loadFamilyForMember } from "@/lib/familyAccess";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -111,14 +112,26 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   // Flatten relationships into one directionless list for the UI. Types are
   // stored from the `member` side; invert the asymmetric ones when this member
   // is on the `related` side so the label reads correctly.
+  //
+  // NOTE: these are DESCRIPTIVE LABELS ONLY. A MemberRelationship grants no
+  // access whatsoever — the access edges are in `family` below. Keeping them
+  // in one payload but under clearly separate keys is deliberate: presenting
+  // MemberRelationship as if it were a family link is exactly what made the
+  // Lister case unfixable from the dashboard.
   const invert: Record<string, string> = { PARENT: "CHILD", CHILD: "PARENT" };
   const relationships = [
     ...member.relationshipsFrom.map((r) => ({ id: r.id, type: r.type, note: r.note, other: r.related })),
     ...member.relationshipsTo.map((r) => ({ id: r.id, type: invert[r.type] ?? r.type, note: r.note, other: r.member })),
   ];
+
+  // Phase 4B — the read gap. Guardians of this member, athletes this member's
+  // login manages, and guardian requests awaiting staff. None of this was
+  // returned before, so a correctly-linked child was invisible on the profile.
+  const family = await loadFamilyForMember(params.id, session.user.clubId);
+
   const { relationshipsFrom: _f, relationshipsTo: _t, club: _c, ...rest } = member;
   void _f; void _t;
-  return NextResponse.json({ ...rest, relationships, passProcessingFees: _c.passProcessingFees });
+  return NextResponse.json({ ...rest, relationships, family, passProcessingFees: _c.passProcessingFees });
 }
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {

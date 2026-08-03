@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
 import { ArrowLeft } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
 
@@ -50,6 +51,9 @@ type MemberDetail = {
   attendanceRecords: { id: string; status: string; createdAt: string; classSession: { startsAt: string; recurringClass: { name: string } | null } | null }[];
   eventRegistrations: { id: string; status: string; amountDue: string | null; amountPaid: string | null; event: { id: string; name: string; startsAt: string } | null }[];
   relationships: Relationship[];
+  // Phase 4B — the access edges the profile never loaded. `relationships`
+  // above are descriptive labels and grant nothing; `family` is the real thing.
+  family?: FamilyPayload;
   migrationStatus?: string | null;
   legacyMembershipName?: string | null;
   trialEndsAt?: string | null;
@@ -90,6 +94,19 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Granting portal access to a child is an authorization change, so the
+  // control is gated on members:full (owners bypass) rather than members:edit.
+  const [canManageAccess, setCanManageAccess] = useState(false);
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => {
+        if (!me) return;
+        setCanManageAccess(me.role === "OWNER" || me.permissions?.members === "full");
+      })
+      .catch(() => {});
+  }, []);
 
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
   if (!m) return <div className="p-8 text-center text-text-muted text-sm">Member not found.</div>;
@@ -207,13 +224,27 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           )}
         </Card>
 
-        {/* Relationships */}
+        {/* Family & access — who can actually act for this athlete */}
+        <FamilyAccessCard
+          memberId={id}
+          memberName={m.firstName}
+          family={m.family}
+          canManage={canManageAccess}
+          onChanged={load}
+        />
+
+        {/* Family labels — descriptive only, deliberately NOT presented as access */}
         <Card
-          title="Relationships"
-          action={<button onClick={() => setAddingRel(true)} className="text-xs text-brand hover:underline">+ Link member</button>}
+          title="Family labels"
+          className="lg:col-span-2"
+          action={<button onClick={() => setAddingRel(true)} className="text-xs text-brand hover:underline">+ Add label</button>}
         >
+          <p className="text-xs text-text-muted -mt-1 mb-2.5">
+            Notes about who is related to whom. These do <strong>not</strong> give anyone access —
+            to let a parent manage this athlete, use Family &amp; access above.
+          </p>
           {m.relationships.length === 0 ? (
-            <p className="text-sm text-text-muted">No linked members.</p>
+            <p className="text-sm text-text-muted">No family labels.</p>
           ) : (
             <ul className="space-y-1.5">
               {m.relationships.map((r) => (

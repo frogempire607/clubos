@@ -1364,6 +1364,32 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // ── Phase 4B.8 — catch the parent's email sitting in the athlete's field ──
+  //
+  // This is the exact data shape that broke the Lister family: the parent's
+  // real address ended up in the ATHLETE's email column while `guardianEmail`
+  // held a different, unused address. Every auto-link path matches on
+  // guardianEmail, so nothing linked — and activation later minted a SECOND
+  // account for the unused address, splitting the family across two logins.
+  //
+  // Cheap check, big payoff: if the athlete's own email already belongs to a
+  // portal account that is not this athlete's, say so before saving.
+  const [ownEmailOwner, setOwnEmailOwner] = useState<{ name: string; email: string } | null>(null);
+  useEffect(() => {
+    const value = email.trim().toLowerCase();
+    if (!isMinor || !value || value === guardianEmail.trim().toLowerCase()) {
+      setOwnEmailOwner(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const res = await fetch(`/api/members/lookup-login?email=${encodeURIComponent(value)}`);
+      if (!res.ok) { setOwnEmailOwner(null); return; }
+      const d = await res.json();
+      setOwnEmailOwner(d.user && d.user.ownMemberId !== member?.id ? d.user : null);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [email, guardianEmail, isMinor, member?.id]);
+
   // Look up siblings when guardian email changes — server matches both
   // legacy inline guardianEmail and the normalized Guardian profile email.
   useEffect(() => {
@@ -1610,6 +1636,25 @@ function MemberModal({ member, customFields, formConfig, onClose, onSaved }: { m
                 <label className="block text-xs font-medium text-text-primary mb-1">Guardian email <span className="text-red-500">*</span></label>
                 <input type="email" value={guardianEmail} onChange={(e) => setGuardianEmail(e.target.value)} required={isMinor} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" placeholder="guardian@email.com" />
                 <p className="text-xs text-text-muted mt-1">The minor&apos;s primary contact, and the email used to set up the parent&apos;s portal login.</p>
+                {ownEmailOwner && (
+                  <div className="mt-2 rounded-lg border border-orange-accent/40 bg-orange-accent/5 px-3 py-2">
+                    <p className="text-xs text-text-primary font-medium">
+                      Heads up: this athlete&apos;s own email belongs to {ownEmailOwner.name}&apos;s account.
+                    </p>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      Guardian access is matched on the <strong>guardian email</strong>, not the athlete&apos;s.
+                      If {ownEmailOwner.email} is the parent&apos;s address, put it in the guardian email field —
+                      otherwise this athlete won&apos;t appear in their portal.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setGuardianEmail(ownEmailOwner.email)}
+                      className="mt-1.5 text-xs font-medium text-brand hover:underline"
+                    >
+                      Use {ownEmailOwner.email} as the guardian email
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-text-primary mb-1">Guardian phone</label>
