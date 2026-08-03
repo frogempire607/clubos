@@ -96,9 +96,6 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
 
   useEffect(() => { load(); }, [load]);
 
-  // Granting portal access to a child is an authorization change, so the
-  // control is gated on members:full (owners bypass) rather than members:edit.
-  const [canManageAccess, setCanManageAccess] = useState(false);
   // Moving a membership between siblings is its own sub-scope, not billing:full
   // — a front-desk lead may need it without prices, cards and plans.
   const [canTransfer, setCanTransfer] = useState(false);
@@ -108,7 +105,6 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
       .then((r) => (r.ok ? r.json() : null))
       .then((me) => {
         if (!me) return;
-        setCanManageAccess(me.role === "OWNER" || me.permissions?.members === "full");
         setCanTransfer(
           me.role === "OWNER" ||
             me.permissions?.billing_subScopes?.transfer_subscription === true,
@@ -238,8 +234,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           memberId={id}
           memberName={m.firstName}
           family={m.family}
-          canManage={canManageAccess}
           onChanged={load}
+          onAssignMembership={(subId) => setTransferringSubId(subId)}
         />
 
         {/* Family labels — descriptive only, deliberately NOT presented as access */}

@@ -28,9 +28,14 @@
 
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_GUARDIAN_LINK, billingUnchangedNote, resolvePayerUserId } from "@/lib/familyAccess";
+import {
+  TRANSFERABLE_SUBSCRIPTION_STATUSES,
+  transferBlockersFor,
+  type TransferBlocker as PureTransferBlocker,
+} from "@/lib/familyRules";
 
 /** Subscription states that still represent a live membership worth moving. */
-export const TRANSFERABLE_STATUSES = ["active", "past_due", "pending"] as const;
+export const TRANSFERABLE_STATUSES = TRANSFERABLE_SUBSCRIPTION_STATUSES;
 
 export type UsageSnapshot = {
   attendanceCount: number;
@@ -42,11 +47,7 @@ export type UsageSnapshot = {
   hasUsage: boolean;
 };
 
-export type TransferBlocker =
-  | { code: "NOT_TRANSFERABLE"; message: string }
-  | { code: "TARGET_NOT_IN_FAMILY"; message: string }
-  | { code: "TARGET_HAS_MEMBERSHIP"; message: string }
-  | { code: "SAME_MEMBER"; message: string };
+export type TransferBlocker = PureTransferBlocker;
 
 export type TransferPreview = {
   subscriptionId: string;
@@ -212,38 +213,19 @@ export async function buildTransferPreview(args: {
     eligibleTargetsFor({ clubId: args.clubId, payerUserId, currentMemberId: sub.member.id }),
   ]);
 
-  const blockers: TransferBlocker[] = [];
-  if (!TRANSFERABLE_STATUSES.includes(sub.status as (typeof TRANSFERABLE_STATUSES)[number])) {
-    blockers.push({
-      code: "NOT_TRANSFERABLE",
-      message: `This membership is ${sub.status}. Only an active, past-due or pending membership can be moved.`,
-    });
-  }
+  // Eligibility is a PURE rule (lib/familyRules) so it can be tested
+  // exhaustively against fixtures without a database — see §4D.
+  const blockers = transferBlockersFor({
+    subscriptionStatus: sub.status,
+    fromMemberId: sub.member.id,
+    targetMemberId: args.targetMemberId ?? null,
+    eligibleTargets,
+  });
 
-  let to: { memberId: string; name: string } | null = null;
-  if (args.targetMemberId) {
-    if (args.targetMemberId === sub.member.id) {
-      blockers.push({ code: "SAME_MEMBER", message: "That's already who this membership is for." });
-    } else {
-      const match = eligibleTargets.find((t) => t.memberId === args.targetMemberId);
-      if (!match) {
-        blockers.push({
-          code: "TARGET_NOT_IN_FAMILY",
-          message:
-            "That athlete isn't in this payer's family. Give the payer's account access to them first, " +
-            "then move the membership.",
-        });
-      } else {
-        to = { memberId: match.memberId, name: match.name };
-        if (match.hasActiveMembership) {
-          blockers.push({
-            code: "TARGET_HAS_MEMBERSHIP",
-            message: `${match.name} already has an active membership. Moving this one would bill the family twice.`,
-          });
-        }
-      }
-    }
-  }
+  const matched = args.targetMemberId
+    ? eligibleTargets.find((t) => t.memberId === args.targetMemberId)
+    : undefined;
+  const to = matched ? { memberId: matched.memberId, name: matched.name } : null;
 
   return {
     subscriptionId: sub.id,

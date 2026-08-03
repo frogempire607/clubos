@@ -76,7 +76,11 @@ export type FamilyGuardian = {
   userId: string;
   name: string;
   email: string | null;
+  /** From the guardian's own member row, when they have one. */
+  profileImageUrl: string | null;
   relationship: string | null;
+  /** CONFIRMED grants access; PENDING is a staff proposal awaiting confirmation. */
+  status: string;
   isPrimary: boolean;
   canBook: boolean;
   canPay: boolean;
@@ -92,8 +96,14 @@ export type FamilyManagedAthlete = {
   linkId: string;
   memberId: string;
   name: string;
+  profileImageUrl: string | null;
   isMinor: boolean;
+  /** The athlete's member status (ACTIVE/PROSPECT/…), not the link status. */
   status: string;
+  /** The link's own status — CONFIRMED or PENDING. */
+  linkStatus: string;
+  /** A transferable subscription on this athlete, for "Assign Membership". */
+  transferableSubscriptionId: string | null;
   relationship: string | null;
   isPrimary: boolean;
   canBook: boolean;
@@ -128,17 +138,21 @@ export async function loadFamilyForMember(
     select: {
       userId: true,
       // Who can act FOR this member.
+      // NOT filtered to CONFIRMED here: the staff card must also show PENDING
+      // staff proposals so someone can confirm them. REVOKED stays hidden —
+      // it is history, surfaced in the member's event log, not a live row.
+      // Every CONSUMER of this payload must respect `status` (see 4C actions).
       guardianLinks: {
-        where: ACTIVE_GUARDIAN_LINK,
-        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        where: { status: { in: [GUARDIAN_LINK_STATUS.CONFIRMED, GUARDIAN_LINK_STATUS.PENDING] } },
+        orderBy: [{ status: "asc" }, { isPrimary: "desc" }, { createdAt: "asc" }],
         select: {
-          id: true, userId: true, relationship: true, isPrimary: true,
+          id: true, userId: true, relationship: true, isPrimary: true, status: true,
           canBook: true, canPay: true, canSignWaivers: true, canReceiveEmails: true,
           source: true, createdAt: true,
           user: {
             select: {
               id: true, firstName: true, lastName: true, email: true,
-              memberProfile: { select: { id: true } },
+              memberProfile: { select: { id: true, profileImageUrl: true } },
             },
           },
         },
@@ -151,13 +165,28 @@ export async function loadFamilyForMember(
   // half the dashboard never loaded).
   const managed = member.userId
     ? await prisma.memberGuardianUser.findMany({
-        where: { ...ACTIVE_GUARDIAN_LINK, userId: member.userId, member: { clubId, deletedAt: null } },
+        where: {
+          status: { in: [GUARDIAN_LINK_STATUS.CONFIRMED, GUARDIAN_LINK_STATUS.PENDING] },
+          userId: member.userId,
+          member: { clubId, deletedAt: null },
+        },
         orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
         select: {
-          id: true, relationship: true, isPrimary: true,
+          id: true, relationship: true, isPrimary: true, status: true,
           canBook: true, canPay: true, canSignWaivers: true, canReceiveEmails: true,
           createdAt: true,
-          member: { select: { id: true, firstName: true, lastName: true, isMinor: true, status: true } },
+          member: {
+            select: {
+              id: true, firstName: true, lastName: true, isMinor: true, status: true,
+              profileImageUrl: true,
+              subscriptions: {
+                where: { status: { in: ["active", "past_due", "pending"] } },
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { id: true },
+              },
+            },
+          },
         },
       })
     : [];
@@ -177,7 +206,9 @@ export async function loadFamilyForMember(
       userId: l.userId,
       name: `${l.user.firstName ?? ""} ${l.user.lastName ?? ""}`.trim() || (l.user.email ?? "Unknown"),
       email: l.user.email,
+      profileImageUrl: l.user.memberProfile?.profileImageUrl ?? null,
       relationship: l.relationship,
+      status: l.status,
       isPrimary: l.isPrimary,
       canBook: l.canBook,
       canPay: l.canPay,
@@ -191,8 +222,11 @@ export async function loadFamilyForMember(
       linkId: l.id,
       memberId: l.member.id,
       name: `${l.member.firstName} ${l.member.lastName}`.trim(),
+      profileImageUrl: l.member.profileImageUrl ?? null,
       isMinor: l.member.isMinor,
       status: l.member.status,
+      linkStatus: l.status,
+      transferableSubscriptionId: l.member.subscriptions[0]?.id ?? null,
       relationship: l.relationship,
       isPrimary: l.isPrimary,
       canBook: l.canBook,

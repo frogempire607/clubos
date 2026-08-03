@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { relationshipConflictFor } from "@/lib/familyRules";
 
 const REL_TYPES = ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "PARENT", "CHILD", "SPOUSE", "OTHER"] as const;
 
@@ -28,7 +29,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
-  if (body.relatedMemberId === id) {
+  // Direction-insensitive duplicate + self checks live in lib/familyRules so
+  // §4D can cover them without a database.
+  if (relationshipConflictFor({ memberId: id, relatedMemberId: body.relatedMemberId }, []) === "SELF") {
     return NextResponse.json({ error: "A member can't be related to themselves." }, { status: 400 });
   }
 
@@ -40,16 +43,31 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!a || !b) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
   // Reject if a link already exists in either direction.
-  const existing = await prisma.memberRelationship.findFirst({
+  const existingRows = await prisma.memberRelationship.findMany({
     where: {
+      clubId: session.user.clubId,
       OR: [
         { memberId: id, relatedMemberId: body.relatedMemberId },
         { memberId: body.relatedMemberId, relatedMemberId: id },
       ],
     },
+    select: { memberId: true, relatedMemberId: true },
   });
-  if (existing) {
-    return NextResponse.json({ error: "These members are already linked." }, { status: 409 });
+  const conflict = relationshipConflictFor(
+    { memberId: id, relatedMemberId: body.relatedMemberId },
+    existingRows,
+  );
+  if (conflict) {
+    return NextResponse.json(
+      {
+        error:
+          conflict === "REVERSE_DUPLICATE"
+            ? "These members are already linked — the label lives on the other profile and shows on both."
+            : "These members are already linked.",
+        code: conflict,
+      },
+      { status: 409 },
+    );
   }
 
   const rel = await prisma.memberRelationship.create({
