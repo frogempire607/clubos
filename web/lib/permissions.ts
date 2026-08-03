@@ -180,6 +180,46 @@ export function resolveMessagesSubScopes(
   return out;
 }
 
+// ── Billing sub-scopes (Phase 4A) ───────────────────────────────────────
+//
+// Same nested-JSON pattern as messages_subScopes above — no migration.
+//
+// `transfer_subscription` is the "assign this membership to another family
+// member" power. It is deliberately NOT folded into billing:full: moving a
+// membership between athletes is a narrow, high-trust correction (a parent
+// bought under their own profile by mistake) that a front-desk lead may need
+// without also getting the ability to change prices, cards, and plans. Off by
+// default — an owner grants it explicitly.
+export type BillingSubScope = "transfer_subscription";
+
+export const BILLING_SUBSCOPES: BillingSubScope[] = ["transfer_subscription"];
+
+export const DEFAULT_BILLING_SUBSCOPES: Record<BillingSubScope, boolean> = {
+  transfer_subscription: false,
+};
+
+// Pure predicate over the permission blob. OWNER bypass happens at the call
+// site, exactly like hasMessagesSubScope.
+export function hasBillingSubScope(
+  perms: Record<string, unknown> | null | undefined,
+  scope: BillingSubScope,
+): boolean {
+  const obj = (perms && typeof perms === "object" ? perms : {}) as Record<string, unknown>;
+  const raw = obj["billing_subScopes"];
+  const sub = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const v = sub[scope];
+  if (typeof v === "boolean") return v;
+  return DEFAULT_BILLING_SUBSCOPES[scope];
+}
+
+export function resolveBillingSubScopes(
+  perms: Record<string, unknown> | null | undefined,
+): Record<BillingSubScope, boolean> {
+  const out = {} as Record<BillingSubScope, boolean>;
+  for (const s of BILLING_SUBSCOPES) out[s] = hasBillingSubScope(perms, s);
+  return out;
+}
+
 // Nav / route path → required permission. ownerOnly entries are hidden from
 // staff entirely. Order matters: longest prefix wins (checked by caller).
 export type NavRule = { key: PermissionKey; level: PermissionLevel } | { ownerOnly: true };

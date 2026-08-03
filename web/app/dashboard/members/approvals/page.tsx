@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { UserCheck, Ban, CreditCard, ChevronDown, ChevronUp, AlertTriangle, FilePen } from "lucide-react";
+import { UserCheck, Ban, CreditCard, ChevronDown, ChevronUp, AlertTriangle, FilePen, ArrowRightLeft } from "lucide-react";
 import MembersTabs from "@/components/MembersTabs";
 import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 
@@ -42,6 +42,25 @@ type MigrationApproval = {
   paymentMethod: string | null;
   requestedBillingDate: string | null;
   requestedCancellationDate: string | null;
+};
+
+type TransferApproval = {
+  id: string;
+  kind: "MEMBERSHIP_TRANSFER";
+  memberId: string;
+  memberName: string;
+  requestedAt: string;
+  requester: Requester;
+  planName: string;
+  optionLabel: string | null;
+  fromMemberName: string;
+  toMemberId: string | null;
+  toMemberName: string | null;
+  subscriptionId: string | null;
+  isLiveStripe: boolean;
+  acknowledgedBillingNote: string | null;
+  usageSnapshot: { attendanceCount?: number; bookingCount?: number; hasUsage?: boolean } | null;
+  reason: string | null;
 };
 
 type PurchaseApproval = {
@@ -100,6 +119,7 @@ type Approval =
   | CancelApproval
   | MigrationApproval
   | PurchaseApproval
+  | TransferApproval
   | SplitApproval
   | ChangeRequestApproval;
 type CancelMode = "PERIOD_END" | "IMMEDIATE" | "IMMEDIATE_REFUND";
@@ -298,6 +318,23 @@ export default function MembersApprovalsPage() {
         .catch(() => {});
     }
   }, [approvals, setConfigured]);
+
+  async function actTransfer(a: TransferApproval, decision: "APPROVE" | "DECLINE") {
+    setBusyId(a.id);
+    setError("");
+    const res = await fetch(`/api/approvals/membership-transfer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalId: a.id, decision }),
+    });
+    setBusyId(null);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not complete that action.");
+      return;
+    }
+    load();
+  }
 
   async function actGuardian(a: GuardianApproval, decision: "APPROVE" | "DECLINE") {
     setBusyId(a.id);
@@ -833,6 +870,53 @@ export default function MembersApprovalsPage() {
                     </button>
                     <button
                       onClick={() => actSplit(a, "DECLINE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            if (a.kind === "MEMBERSHIP_TRANSFER") {
+              const usage = a.usageSnapshot;
+              return (
+                <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
+                  <div className="min-w-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                      <ArrowRightLeft size={11} /> Membership transfer
+                    </span>
+                    <p className="text-sm text-text-primary">
+                      <strong>{requesterLabel(a.requester)}</strong> asked to move{" "}
+                      <strong>{a.planName}{a.optionLabel ? ` — ${a.optionLabel}` : ""}</strong> from{" "}
+                      <strong>{a.fromMemberName}</strong> to <strong>{a.toMemberName ?? "another athlete"}</strong>.
+                    </p>
+                    {a.reason && <p className="text-xs text-text-muted mt-1 italic">“{a.reason}”</p>}
+                    {a.acknowledgedBillingNote && (
+                      <p className="text-xs text-text-muted mt-1.5 rounded-lg bg-app-bg px-2.5 py-1.5">
+                        {a.acknowledgedBillingNote}
+                      </p>
+                    )}
+                    {usage?.hasUsage && (
+                      <p className="text-xs text-orange-accent mt-1.5">
+                        Already used: {usage.attendanceCount ?? 0} attendance, {usage.bookingCount ?? 0} bookings
+                        under {a.fromMemberName}. That history stays with them.
+                      </p>
+                    )}
+                    <p className="text-xs text-text-muted mt-1">Requested {fmtDate(a.requestedAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 mt-3">
+                    <button
+                      onClick={() => actTransfer(a, "APPROVE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      {busyId === a.id ? "Working…" : "Approve transfer"}
+                    </button>
+                    <button
+                      onClick={() => actTransfer(a, "DECLINE")}
                       disabled={busyId === a.id}
                       className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
                     >

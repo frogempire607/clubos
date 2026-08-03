@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
+import TransferMembershipModal from "@/components/members/TransferMembershipModal";
 import { ArrowLeft } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
 
@@ -98,12 +99,20 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   // Granting portal access to a child is an authorization change, so the
   // control is gated on members:full (owners bypass) rather than members:edit.
   const [canManageAccess, setCanManageAccess] = useState(false);
+  // Moving a membership between siblings is its own sub-scope, not billing:full
+  // — a front-desk lead may need it without prices, cards and plans.
+  const [canTransfer, setCanTransfer] = useState(false);
+  const [transferringSubId, setTransferringSubId] = useState<string | null>(null);
   useEffect(() => {
     fetch("/api/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((me) => {
         if (!me) return;
         setCanManageAccess(me.role === "OWNER" || me.permissions?.members === "full");
+        setCanTransfer(
+          me.role === "OWNER" ||
+            me.permissions?.billing_subScopes?.transfer_subscription === true,
+        );
       })
       .catch(() => {});
   }, []);
@@ -210,14 +219,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           }
         >
           {activeSub ? (
-            <SubRow sub={activeSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(activeSub)} />
+            <SubRow sub={activeSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(activeSub)} onTransfer={canTransfer ? () => setTransferringSubId(activeSub.id) : undefined} />
           ) : pendingSub ? (
             <div className="space-y-2">
               <p className="text-xs text-text-muted">
                 Purchase in progress — <strong className="text-text-primary">not charged yet</strong>.
                 Activates when payment completes or staff approves.
               </p>
-              <SubRow sub={pendingSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(pendingSub)} />
+              <SubRow sub={pendingSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(pendingSub)} onTransfer={canTransfer ? () => setTransferringSubId(pendingSub.id) : undefined} />
             </div>
           ) : (
             <p className="text-sm text-text-muted">No active membership.</p>
@@ -280,7 +289,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           ) : (
             <div className="space-y-2">
               {[activeSub, ...pastSubs].filter(Boolean).map((s) => (
-                <SubRow key={s!.id} sub={s!} passFees={m.passProcessingFees} onEdit={() => setEditingSub(s!)} />
+                <SubRow key={s!.id} sub={s!} passFees={m.passProcessingFees} onEdit={() => setEditingSub(s!)} onTransfer={canTransfer ? () => setTransferringSubId(s!.id) : undefined} />
               ))}
             </div>
           )}
@@ -370,6 +379,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           sub={editingSub}
           onClose={() => setEditingSub(null)}
           onSaved={() => { setEditingSub(null); load(); }}
+        />
+      )}
+
+      {transferringSubId && (
+        <TransferMembershipModal
+          subscriptionId={transferringSubId}
+          onClose={() => setTransferringSubId(null)}
+          onDone={load}
         />
       )}
       {addingRel && (
@@ -597,7 +614,18 @@ function SendReaderModal({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
-function SubRow({ sub, passFees = false, onEdit }: { sub: Sub; passFees?: boolean; onEdit: () => void }) {
+function SubRow({
+  sub,
+  passFees = false,
+  onEdit,
+  onTransfer,
+}: {
+  sub: Sub;
+  passFees?: boolean;
+  onEdit: () => void;
+  /** Undefined when the viewer may not move memberships. */
+  onTransfer?: () => void;
+}) {
   // When the club passes the Stripe processing fee, a recurring paid sub is
   // actually charged base + fee — show the full equation so the number always
   // reconciles with Stripe (display only; math lives in lib/fees.ts).
@@ -619,9 +647,20 @@ function SubRow({ sub, passFees = false, onEdit }: { sub: Sub; passFees?: boolea
         </div>
         {sub.notes && <div className="text-xs text-text-muted mt-0.5 italic">{sub.notes}</div>}
       </div>
-      <button onClick={onEdit} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
-        Edit dates
-      </button>
+      <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-2 shrink-0">
+        {onTransfer && ["active", "past_due", "pending"].includes(sub.status) && (
+          <button
+            onClick={onTransfer}
+            className="text-xs text-brand hover:underline px-2 py-1 rounded whitespace-nowrap"
+            title="Move this membership to another family member — the payer doesn't change"
+          >
+            Assign to family member
+          </button>
+        )}
+        <button onClick={onEdit} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg whitespace-nowrap">
+          Edit dates
+        </button>
+      </div>
     </div>
   );
 }

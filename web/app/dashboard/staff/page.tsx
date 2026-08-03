@@ -13,6 +13,8 @@ import {
   resolvePermissions,
   resolveMessagesSubScopes,
   MESSAGES_SUBSCOPES,
+  resolveBillingSubScopes,
+  type BillingSubScope,
   type MessagesSubScope,
   type PermissionLevel,
 } from "@/lib/permissions";
@@ -508,6 +510,10 @@ function EditStaffModal({
   const [subScopes, setSubScopes] = useState<Record<MessagesSubScope, boolean>>(
     () => resolveMessagesSubScopes(staff.staffProfile?.permissions ?? null),
   );
+  // 4A — same nested-JSON pattern under billing_subScopes.
+  const [billingSubScopes, setBillingSubScopes] = useState<Record<BillingSubScope, boolean>>(
+    () => resolveBillingSubScopes(staff.staffProfile?.permissions ?? null),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -516,6 +522,9 @@ function EditStaffModal({
   }
   function setSubScope(scope: MessagesSubScope, on: boolean) {
     setSubScopes((s) => ({ ...s, [scope]: on }));
+  }
+  function setBillingSubScope(scope: BillingSubScope, on: boolean) {
+    setBillingSubScopes((s) => ({ ...s, [scope]: on }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -541,6 +550,7 @@ function EditStaffModal({
           // messages_subScopes. Server-side resolvers read it back with
           // hasMessagesSubScope() / resolveMessagesSubScopes().
           messages_subScopes: subScopes,
+          billing_subScopes: billingSubScopes,
         },
       }),
     });
@@ -699,6 +709,34 @@ function EditStaffModal({
                   </label>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Billing sub-permissions. Shown whenever the staff member has any
+              billing access — moving a membership between siblings is a narrow
+              correction a front-desk lead may need without billing:full. */}
+          {permissions.billing && permissions.billing !== "none" && (
+            <div className="pt-2 border-t border-app-border">
+              <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">Billing — advanced</p>
+              <p className="text-xs text-text-muted mb-3">
+                Extra abilities on top of the Billing level above. Off by default.
+              </p>
+              <label className="flex items-start gap-2 p-2 rounded-md border border-app-border hover:bg-app-bg cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={!!billingSubScopes.transfer_subscription}
+                  onChange={(e) => setBillingSubScope("transfer_subscription", e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm text-text-primary">Transfer subscription</span>
+                  <span className="block text-[11px] text-text-muted">
+                    Move a membership to another family member — e.g. a parent bought under their own
+                    profile by mistake. The payer, card and receipt never change. Also allows approving
+                    client transfer requests.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 

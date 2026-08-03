@@ -100,7 +100,30 @@ export async function POST(req: Request, context: { params: Promise<{ memberId: 
   if (body.type === "subscription") {
     const sub = await prisma.memberSubscription.findFirst({ where: { id: body.id, memberId } });
     if (!sub) return NextResponse.json({ error: "Purchase not found." }, { status: 404 });
-    await prisma.memberSubscription.update({ where: { id: sub.id }, data: { memberId: body.targetMemberId } });
+
+    // Phase 4A — memberships no longer move from here.
+    //
+    // This branch used to repoint MemberSubscription.memberId directly: no
+    // preview, no eligibility check, no audit row, and no awareness of Stripe.
+    // On a live subscription that silently left Stripe billing the original
+    // customer while the app showed a different athlete — the beneficiary and
+    // the money quietly disagreeing.
+    //
+    // Memberships now go through /api/member-subscriptions/[id]/transfer, which
+    // is account-holder-only, shows what happens to the payment, captures an
+    // acknowledgement, and files for staff approval instead of taking effect
+    // immediately. Product sales below are unaffected — they carry no
+    // recurring billing relationship.
+    return NextResponse.json(
+      {
+        error:
+          "Memberships are moved from the membership itself, so we can show you exactly what " +
+          "happens to the payment first. Open the membership and choose “Move this membership”.",
+        code: "USE_TRANSFER_FLOW",
+        subscriptionId: sub.id,
+      },
+      { status: 409 },
+    );
   } else {
     const sale = await prisma.productSale.findFirst({
       where: { id: body.id, memberId, clubId: session.user.clubId },
