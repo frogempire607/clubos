@@ -194,6 +194,7 @@ model Club {
   emailSends                  EmailSend[]
   emailTemplates              EmailTemplate[]
   marketingAudiences          MarketingAudience[]
+  membershipTransfers         MembershipTransfer[]
   eventRegistrations          EventRegistration[]
   eventBundles                EventBundle[]
   contractors                 Contractor[]
@@ -1027,17 +1028,26 @@ model MemberSubscription {
   startMode          String    @default("IMMEDIATE") // IMMEDIATE | SPECIFIC_DATE
   effectiveStartDate DateTime?
 
+  // Phase 4A — WHO PAYS, as distinct from `memberId` (who uses it).
+  // Null on every pre-Phase-4 row; readers fall back to
+  // Member.responsiblePayerUserId, then the member's own userId, so existing
+  // rows behave exactly as before. A transfer stamps this so "the payer stays
+  // Michael" survives moving memberId to a different athlete.
+  payerUserId String?
+
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  member     Member     @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  member     Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  membership Membership           @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  transfers  MembershipTransfer[]
 
   @@index([memberId])
   @@index([membershipId])
   @@index([status])
   @@index([endDate])
+  @@index([payerUserId])
   @@map("member_subscriptions")
 }
 
@@ -1064,18 +1074,120 @@ model Guardian {
 
 // User <-> Member link for portal access (e.g. parent user account viewing their child's member record).
 // Distinct from the Guardian profile model — this records portal access claims, not the family profile.
+//
+// SECURITY INVARIANT (Phase 4 refinement): a row with status='CONFIRMED' ⇔ this
+// user has guardian access to that member. Every consumer must filter on
+// status — a PENDING or REVOKED row grants NOTHING. Before Phase 4 the mere
+// existence of a row was the grant, so the migration backfills every existing
+// row to CONFIRMED and behavior is unchanged on day one.
+//
+// Removal is a REVOKE (status + revokedAt), never a delete, so a family access
+// change stays auditable. See lib/guardianLink.ts.
 model MemberGuardianUser {
   id           String   @id @default(cuid())
+  clubId       String
   userId       String
   memberId     String
   relationship String?
-  createdAt    DateTime @default(now())
+
+  // CONFIRMED | PENDING | REVOKED. Defaults CONFIRMED so pre-Phase-4 rows keep
+  // working; new staff-created links may start PENDING.
+  status String @default("CONFIRMED")
+
+  // Phase 4C per-relationship grid. All default true = today's unrestricted
+  // behavior, so the migration needs no backfill for them (BF-5).
+  canBook          Boolean @default(true)
+  canPay           Boolean @default(true)
+  canSignWaivers   Boolean @default(true)
+  canReceiveEmails Boolean @default(true)
+
+  // "The first guardian sets the controls." Previously DERIVED at read time
+  // from Member.guardianEmail — which is exactly the field that was wrong in
+  // the Cameron/Lister incident, so a stale contact string could silently move
+  // primary status. Now stored; the migration freezes the old derivation once.
+  isPrimary Boolean @default(false)
+
+  // How this link came to exist. Nothing recorded provenance before Phase 4,
+  // which made the Lister duplicate-account incident unreconstructable.
+  // OWNER_VOUCHED | STAFF_LINKED | SIGNUP_SWEEP | MIGRATION_ACTIVATION
+  //   | APPROVAL | CONSENT_TOKEN | BACKFILL
+  source          String?
+  createdByUserId String?
+
+  confirmedAt DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   user   User   @relation("GuardianLink", fields: [userId], references: [id], onDelete: Cascade)
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@unique([userId, memberId])
+  // The composite unique above cannot serve a memberId-first lookup ("who are
+  // this member's guardians?"), which is the read the staff Family & access
+  // card does on every profile load.
+  @@index([memberId])
+  @@index([clubId])
+  @@index([userId, status])
   @@map("member_guardian_users")
+}
+
+// Phase 4A — an executed membership beneficiary transfer.
+//
+// A transfer moves WHO USES the membership (MemberSubscription.memberId) and
+// deliberately does NOT move who pays for it. When the subscription is live in
+// Stripe, the Stripe subscription, customer and card are left untouched by
+// design — `acknowledgedBillingNote` stores the exact sentence the actor
+// confirmed, so "we knew billing stayed put" is evidence rather than folklore.
+//
+// Rows are written only when a transfer TAKES EFFECT. A client-initiated
+// request lives as a PendingApproval (kind MEMBERSHIP_TRANSFER) until staff
+// approve it, at which point one row lands here carrying both the requester
+// and the approver.
+model MembershipTransfer {
+  id             String @id @default(cuid())
+  clubId         String
+  subscriptionId String
+
+  // Plain scalars, no FK — same convention as Transaction.athleteMemberId and
+  // Member.responsiblePayerUserId. Members cascade-delete; audit history must
+  // survive them.
+  fromMemberId String
+  toMemberId   String
+
+  // Who made it take effect, and in what capacity: OWNER | STAFF | GUARDIAN.
+  performedByUserId String?
+  performedByRole   String
+
+  // Set when the transfer originated as a client request that staff approved.
+  requestedByUserId     String?
+  requestedViaApprovalId String?
+
+  reason String?
+
+  // Payer frozen at transfer time — resolved as
+  // MemberSubscription.payerUserId ?? Member.responsiblePayerUserId ?? member.userId.
+  payerUserIdAtTransfer String?
+
+  // What was live in Stripe at the moment of transfer, and confirmation that it
+  // was intentionally left alone.
+  stripeSubscriptionId    String?
+  stripeBillingUnchanged  Boolean @default(true)
+  acknowledgedBillingNote String?
+
+  // Usage snapshot surfaced to the actor before they confirmed. Shape:
+  // { attendanceCount, bookingCount, transactionCount, firstUsedAt, lastUsedAt }
+  usageSnapshot Json?
+
+  createdAt DateTime @default(now())
+
+  club         Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  subscription MemberSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([clubId])
+  @@index([toMemberId])
+  @@map("membership_transfers")
 }
 
 model Membership {

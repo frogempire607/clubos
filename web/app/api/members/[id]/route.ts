@@ -240,9 +240,14 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
           where: { userId_memberId: { userId: guardianUser.id, memberId: updated.id } },
           update: {},
           create: {
+            clubId: session.user.clubId,
             userId: guardianUser.id,
             memberId: updated.id,
             relationship: updated.guardianRelationship || null,
+            status: "CONFIRMED",
+            source: "OWNER_VOUCHED",
+            createdByUserId: session.user.id,
+            confirmedAt: new Date(),
           },
         });
       }

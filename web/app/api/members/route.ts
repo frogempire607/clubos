@@ -204,9 +204,14 @@ export async function POST(req: Request) {
           where: { userId_memberId: { userId: guardianUser.id, memberId: member.id } },
           update: {},
           create: {
+            clubId: session.user.clubId,
             userId: guardianUser.id,
             memberId: member.id,
             relationship: data.guardianRelationship || null,
+            status: "CONFIRMED",
+            source: "OWNER_VOUCHED",
+            createdByUserId: session.user.id,
+            confirmedAt: new Date(),
           },
         });
       }

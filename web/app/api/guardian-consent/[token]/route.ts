@@ -101,7 +101,15 @@ export async function POST(req: Request, { params }: { params: { token: string }
         await tx.memberGuardianUser.upsert({
           where: { userId_memberId: { userId: liveGuardian.id, memberId: child.id } },
           update: {},
-          create: { userId: liveGuardian.id, memberId: child.id, relationship: relationship || "GUARDIAN" },
+          create: {
+            clubId: club.id,
+            userId: liveGuardian.id,
+            memberId: child.id,
+            relationship: relationship || "GUARDIAN",
+            status: "CONFIRMED",
+            source: "CONSENT_TOKEN",
+            confirmedAt: new Date(),
+          },
         });
       }
     });

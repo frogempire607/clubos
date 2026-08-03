@@ -49,3 +49,24 @@ Two gotchas that already bit us:
   `?pgbouncer=true`) for the app.
 - Julian runs all database commands from his own terminal. The Claude Code
   sandbox cannot reach the database.
+
+### Supabase MCP is READ-ONLY
+
+The Supabase MCP connects directly to **production**. Unless Julian explicitly
+says otherwise **in that session**, it is for `SELECT` only.
+
+- **No DDL of any kind.** No `CREATE`/`DROP`/`ALTER` on tables, indexes, types,
+  functions, or policies.
+- **No `CREATE EXTENSION` / `DROP EXTENSION`.** If a query needs an extension
+  that isn't installed, write the logic in TypeScript instead. (This rule
+  exists because a session created `fuzzystrmatch` to use `levenshtein()`
+  during a read-only diagnosis on 2026-08-02. It was dropped immediately and
+  nothing was harmed, but it should never have been run.)
+- **No writes.** No `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `UPSERT`, or
+  `apply_migration`.
+- **Data corrections never go through MCP.** They go in a script that is
+  **dry-run by default**, requires an explicit allowlist to act, and that
+  **Julian runs from his own terminal** — e.g. `scripts/fix-family-links.ts`,
+  `scripts/fix-status-truth.ts`.
+- Reading production to diagnose real records is encouraged — that is what the
+  MCP is for. Anything that changes state is Julian's to run.

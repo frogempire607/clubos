@@ -527,9 +527,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       where: { userId_memberId: { userId: user!.id, memberId: member.id } },
       update: {},
       create: {
+        clubId: club.id,
         userId: user!.id,
         memberId: member.id,
         relationship: member.guardianRelationship || "GUARDIAN",
+        status: "CONFIRMED",
+        source: "MIGRATION_ACTIVATION",
+        confirmedAt: new Date(),
       },
     });
   }

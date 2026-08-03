@@ -48,8 +48,18 @@ export async function requestGuardianLink(args: {
   if (isOwnerVouched(child, requestingUserEmail)) {
     await prisma.memberGuardianUser.upsert({
       where: { userId_memberId: { userId: requestingUserId, memberId: child.id } },
+      // Re-requesting an access that was revoked must not silently restore it —
+      // only refresh the label. Restoring access is an explicit owner action.
       update: { relationship: relationship || null },
-      create: { userId: requestingUserId, memberId: child.id, relationship: relationship || null },
+      create: {
+        clubId: clubId,
+        userId: requestingUserId,
+        memberId: child.id,
+        relationship: relationship || null,
+        status: "CONFIRMED",
+        source: "OWNER_VOUCHED",
+        confirmedAt: new Date(),
+      },
     });
     return { status: "linked" };
   }

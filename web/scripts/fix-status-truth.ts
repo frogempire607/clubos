@@ -239,7 +239,15 @@ async function main() {
       await prisma.memberGuardianUser.upsert({
         where: { userId_memberId: { userId: a.userId, memberId: a.childId } },
         update: {},
-        create: { userId: a.userId, memberId: a.childId, relationship: "GUARDIAN" },
+        create: {
+          clubId: child.clubId,
+          userId: a.userId,
+          memberId: a.childId,
+          relationship: "GUARDIAN",
+          status: "CONFIRMED",
+          source: "BACKFILL",
+          confirmedAt: new Date(),
+        },
       });
       await prisma.member.update({ where: { id: a.childId }, data: { guardianId: guardianProfile.id } });
       await prisma.member.update({
