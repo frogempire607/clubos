@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Member } from "@prisma/client";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 /**
  * Resolves the Member record for a portal session.
@@ -85,7 +86,7 @@ export async function deleteOrphanedMemberLogins(
       select: { userId: true },
     }),
     prisma.memberGuardianUser.findMany({
-      where: { userId: { in: candidateIds }, member: { deletedAt: null } },
+      where: { ...ACTIVE_GUARDIAN_LINK, userId: { in: candidateIds }, member: { deletedAt: null } },
       select: { userId: true },
     }),
   ]);

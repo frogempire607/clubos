@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveCardSnapshot, type CardSnapshot } from "@/lib/memberCard";
 import { feeBreakdown } from "@/lib/fees";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // GET /api/member/billing
 //
@@ -92,7 +93,7 @@ export async function GET() {
       where: { id: session.user.id },
       select: {
         memberProfile: { select: memberSelect },
-        guardianOf: { select: { member: { select: memberSelect } } },
+        guardianOf: { where: ACTIVE_GUARDIAN_LINK, select: { member: { select: memberSelect } } },
       },
     }),
     prisma.club.findUnique({

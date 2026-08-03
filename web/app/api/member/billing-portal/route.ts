@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // POST /api/member/billing-portal
 //
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
     select: {
       memberProfile: { select: { id: true, stripeSetupCustomerId: true, stripeCustomerId: true } },
       guardianOf: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: { member: { select: { id: true, stripeSetupCustomerId: true, stripeCustomerId: true } } },
       },
     },

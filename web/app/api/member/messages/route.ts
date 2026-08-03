@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { memberCanMessage } from "@/lib/parentalControls";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // Read subjectMemberId off a message row without depending on the cached Prisma
 // type (the column is new; the build regenerates the client).
@@ -46,6 +47,7 @@ export async function GET() {
       lastName: true,
       memberProfile: { select: { id: true } },
       guardianOf: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: {
           member: {
             select: { id: true, firstName: true, lastName: true, user: { select: { id: true } } },

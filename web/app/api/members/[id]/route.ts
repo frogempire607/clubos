@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { upsertGuardianProfile } from "@/lib/guardian";
+import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 import { validateMemberContact } from "@/lib/memberValidation";
 import { resolveIsMinor } from "@/lib/parentalConsent";
@@ -250,6 +251,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
             confirmedAt: new Date(),
           },
         });
+        await ensurePrimaryGuardian(updated.id);
       }
     }
 

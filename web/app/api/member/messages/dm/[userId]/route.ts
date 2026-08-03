@@ -8,6 +8,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { memberCanMessage } from "@/lib/parentalControls";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 const MESSAGING_DISABLED = {
   error:
@@ -22,7 +23,7 @@ async function resolveSubjects(userId: string, clubId: string, email: string | n
     where: { id: userId },
     select: {
       memberProfile: { select: { id: true } },
-      guardianOf: { select: { member: { select: { id: true, firstName: true, lastName: true } } } },
+      guardianOf: { where: ACTIVE_GUARDIAN_LINK, select: { member: { select: { id: true, firstName: true, lastName: true } } } },
     },
   });
   let selfMemberId = me?.memberProfile?.id ?? null;

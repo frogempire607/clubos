@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // GET /api/member/privates/partner-response
 // Returns the actionable partner-lesson invites for the current account —
@@ -26,7 +27,7 @@ export async function GET() {
     : null;
 
   const guardianLinks = await prisma.memberGuardianUser.findMany({
-    where: { userId: session.user.id, member: { clubId, deletedAt: null } },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id, member: { clubId, deletedAt: null } },
     select: { memberId: true },
   });
 

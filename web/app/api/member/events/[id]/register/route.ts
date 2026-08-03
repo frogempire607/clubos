@@ -26,6 +26,7 @@ import { missingSignedEventDocs, acknowledgementDocs, documentsForEvent, EVENT_D
 import { chargeEventRegistration } from "@/lib/eventAutoCharge";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { applyProcessingFee } from "@/lib/fees";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 async function emailBookingConfirmation(args: {
   memberId: string;
@@ -91,7 +92,7 @@ async function resolveBookingMember(args: {
 }) {
   const self = await findOrAutoLinkMember(args.userId, args.clubId, args.email);
   const guardianships = await prisma.memberGuardianUser.findMany({
-    where: { userId: args.userId, member: { clubId: args.clubId } },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId: args.userId, member: { clubId: args.clubId } },
     include: { member: true },
   });
   const accessible = [

@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeEmail, normalizePhone } from "@/lib/memberValidation";
 import { isPrimaryGuardian } from "@/lib/guardianLink";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // Parent-controls API. Scoped to GUARDIAN sessions only — the parent
 // opens it for one of their linked minor children. We never let a
@@ -21,6 +22,7 @@ async function loadGuardianChild(userId: string, memberId: string, clubId: strin
     where: { id: userId },
     select: {
       guardianOf: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: {
           member: {
             select: {
@@ -71,7 +73,7 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
   // needs. `isPrimary` mirrors lib/guardianLink.isPrimaryGuardian.
   const [links, childRow] = await Promise.all([
     prisma.memberGuardianUser.findMany({
-      where: { memberId: child.id },
+      where: { ...ACTIVE_GUARDIAN_LINK, memberId: child.id },
       orderBy: { createdAt: "asc" },
       select: {
         userId: true,

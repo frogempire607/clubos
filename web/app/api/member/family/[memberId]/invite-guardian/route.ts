@@ -11,6 +11,7 @@ import { normalizeEmail } from "@/lib/memberValidation";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendClubJoinInviteEmail } from "@/lib/email";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // POST /api/member/family/[memberId]/invite-guardian
 //
@@ -38,7 +39,7 @@ export async function POST(req: Request, context: { params: Promise<{ memberId: 
   // Caller must already be a guardian of this child.
   const viewer = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { guardianOf: { select: { member: { select: { id: true, clubId: true, firstName: true } } } } },
+    select: { guardianOf: { where: ACTIVE_GUARDIAN_LINK, select: { member: { select: { id: true, clubId: true, firstName: true } } } } },
   });
   const child = viewer?.guardianOf.find((g) => g.member.id === memberId)?.member;
   if (!child || child.clubId !== session.user.clubId) {

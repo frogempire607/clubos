@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { MEMBER_APPROVAL_KINDS } from "@/lib/parentalControls";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // POST /api/member/family/approvals/[id]
 //
@@ -40,7 +41,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       // Guardian gate: only rows whose member is linked to the signed-in
       // user via MemberGuardianUser are loadable.
       member: {
-        guardianLinks: { some: { userId: session.user.id } },
+        guardianLinks: { some: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id } },
       },
     },
     select: { id: true, kind: true, memberId: true },

@@ -26,6 +26,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 export type ParentControls = {
   requirePaymentApproval?: boolean;
@@ -237,6 +238,7 @@ async function notifyGuardians(memberId: string, kind: ApprovalKind, amount: num
       firstName: true,
       lastName: true,
       guardianLinks: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: {
           user: { select: { email: true, firstName: true } },
         },

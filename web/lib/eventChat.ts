@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_REGISTRATION_STATUSES } from "@/lib/eventPayments";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // Event group chats
 // -----------------
@@ -39,7 +40,7 @@ export async function eligibleEventChatUserIds(eventId: string, clubId: string):
 
   const members = await prisma.member.findMany({
     where: { id: { in: [...memberIds] }, clubId, deletedAt: null },
-    select: { userId: true, guardianLinks: { select: { userId: true } } },
+    select: { userId: true, guardianLinks: { where: ACTIVE_GUARDIAN_LINK, select: { userId: true } } },
   });
 
   const userIds = new Set<string>();

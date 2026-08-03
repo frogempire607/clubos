@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // GET /api/member/documents?memberId=<id>
 // Returns club documents visible to the current viewer, with signature status
@@ -22,6 +23,7 @@ export async function GET(req: Request) {
       email: true,
       memberProfile: { select: { id: true, isMinor: true, firstName: true, lastName: true } },
       guardianOf: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: {
           member: { select: { id: true, firstName: true, lastName: true, isMinor: true } },
         },

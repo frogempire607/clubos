@@ -13,6 +13,7 @@ import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // POST /api/member/classes/book
 // Member-self booking for a class session. The price tier (member / non-member
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
 
     const self = await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email);
     const guardianships = await prisma.memberGuardianUser.findMany({
-      where: { userId: session.user.id, member: { clubId: session.user.clubId } },
+      where: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id, member: { clubId: session.user.clubId } },
       include: { member: true },
     });
     const accessible = [

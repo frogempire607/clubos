@@ -23,6 +23,7 @@ import { writeBillingAudit } from "@/lib/billingAudit";
 import { feeBreakdown, describeProcessingFee } from "@/lib/fees";
 import { resolveStaffDiscount } from "@/lib/staffPayments";
 import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -125,6 +126,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       membership: { select: { id: true, name: true } },
       subscriptions: { orderBy: { createdAt: "desc" } },
       guardianLinks: {
+        where: ACTIVE_GUARDIAN_LINK,
         include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
       },
     },
@@ -548,7 +550,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   const member = await prisma.member.findFirst({
     where: { id, clubId: session.user.clubId, deletedAt: null },
-    include: { guardianLinks: { select: { userId: true } } },
+    include: { guardianLinks: { where: ACTIVE_GUARDIAN_LINK, select: { userId: true } } },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

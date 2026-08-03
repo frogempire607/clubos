@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { MEMBER_APPROVAL_KINDS } from "@/lib/parentalControls";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // GET /api/member/family/approvals
 //
@@ -21,7 +22,7 @@ export async function GET() {
   const viewer = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
-      guardianOf: { select: { memberId: true } },
+      guardianOf: { where: ACTIVE_GUARDIAN_LINK, select: { memberId: true } },
     },
   });
   const childIds = (viewer?.guardianOf ?? []).map((g) => g.memberId);

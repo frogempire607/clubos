@@ -33,6 +33,7 @@
 // matches what the receipt page shows.
 
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // Recipient targeting mode (plan §3A + §3E). Named "HouseholdMode" for
 // back-compat; conceptually this is the "who receives it" axis.
@@ -166,6 +167,7 @@ export async function resolveRecipients(args: {
       // createdAt asc). Phase 4.5 (M25) adds a real status/permission
       // grid; when that lands, update pickPrimaryGuardian() to honor it.
       guardianLinks: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: {
           userId: true,
           createdAt: true,

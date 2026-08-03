@@ -32,6 +32,7 @@
 import { prisma } from "@/lib/prisma";
 import type { EmailBlock, InlineRun } from "@/lib/emailBlocks";
 import { getEmailBaseUrl } from "@/lib/baseUrl";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 export const PERSONALIZATION_TOKENS = [
   "member_first_name",
@@ -159,6 +160,7 @@ export async function resolveMemberPersonalization(args: {
       activationToken: true,
       guardianName: true, guardianEmail: true,
       guardianLinks: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: {
           userId: true,
           createdAt: true,

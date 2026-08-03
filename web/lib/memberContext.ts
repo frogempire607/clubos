@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import type { Member } from "@prisma/client";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 /**
  * Family-aware member context for the member portal.
@@ -70,7 +71,7 @@ export async function resolveFamilyContext(
 
   // Guardian-managed children — reached via MemberGuardianUser, NOT userId.
   const links = await prisma.memberGuardianUser.findMany({
-    where: { userId, member: { clubId, deletedAt: null } },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId, member: { clubId, deletedAt: null } },
     include: { member: true },
   });
   const children = links

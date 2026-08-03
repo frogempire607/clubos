@@ -2,6 +2,7 @@ import crypto from "crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { TERMS_VERSION, PRIVACY_VERSION, PARENTAL_CONSENT_VERSION } from "@/legal/versions";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 export { PARENTAL_CONSENT_VERSION } from "@/legal/versions";
 
@@ -230,7 +231,7 @@ export async function listChildrenNeedingConsent(
   db: Db = prisma,
 ): Promise<UnconsentedChild[]> {
   const links = await db.memberGuardianUser.findMany({
-    where: { userId: guardianUserId },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId: guardianUserId },
     select: {
       member: {
         select: {
