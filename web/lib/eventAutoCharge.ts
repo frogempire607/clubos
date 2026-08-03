@@ -208,7 +208,14 @@ async function recordFailure(reg: RegForCharge, error: string) {
   try {
     const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(baseCents, reg.club.passProcessingFees);
-    const returnPath = reg.event.publicSlug ? `/e/${reg.event.publicSlug}` : "/member";
+    // Same rule as bill-registrants: the public event page confirms payment
+    // when the event has one, otherwise /pay/complete does. /member was the
+    // old fallback — it resolves, but it bounces a non-member parent (most
+    // event registrants) to a login screen instead of a confirmation.
+    const returnUrl = (outcome: "paid" | "canceled") =>
+      reg.event.publicSlug
+        ? `${baseUrl}/e/${reg.event.publicSlug}?${outcome}=true`
+        : `${baseUrl}/pay/complete?reg=${encodeURIComponent(reg.id)}&status=${outcome}`;
     const checkout = await stripe.checkout.sessions.create(
       {
         mode: "payment",
@@ -224,8 +231,8 @@ async function recordFailure(reg: RegForCharge, error: string) {
           },
           ...(feeItem ? [feeItem] : []),
         ],
-        success_url: `${baseUrl}${returnPath}?paid=true`,
-        cancel_url: `${baseUrl}${returnPath}?canceled=true`,
+        success_url: returnUrl("paid"),
+        cancel_url: returnUrl("canceled"),
         payment_intent_data: {
           application_fee_amount: calculatePlatformFee(baseCents, reg.club.tier),
           metadata: { eventRegistrationId: reg.id, eventId: reg.eventId, clubId: reg.clubId },

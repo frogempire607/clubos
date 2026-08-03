@@ -230,6 +230,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const baseUrl = getAppBaseUrl();
+
+  // Where Stripe sends the payer afterwards. The public event page confirms
+  // payment properly (it renders "Payment received" on ?paid=true), so use it
+  // when the event HAS one. Events that aren't publicly listed have no slug,
+  // and `/e/${publicSlug ?? ""}` resolves to `/e/` — which matches no route
+  // and 404s a parent who just paid. Never build a URL from an empty slug:
+  // fall back to /pay/complete, which confirms against the real registration.
+  const returnUrl = (regId: string, outcome: "paid" | "canceled") =>
+    event.publicSlug
+      ? `${baseUrl}/e/${event.publicSlug}?${outcome}=true`
+      : `${baseUrl}/pay/complete?reg=${encodeURIComponent(regId)}&status=${outcome}`;
+
   const splitNote = !isVariable
     ? "Event registration"
     : itemsSum > 0
@@ -305,8 +317,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
               return fi ? [fi] : [];
             })(),
           ],
-          success_url: `${baseUrl}/e/${event.publicSlug ?? ""}?paid=true`,
-          cancel_url: `${baseUrl}/e/${event.publicSlug ?? ""}?canceled=true`,
+          success_url: returnUrl(reg.id, "paid"),
+          cancel_url: returnUrl(reg.id, "canceled"),
           payment_intent_data: {
             application_fee_amount: calculatePlatformFee(amountCents, event.club.tier),
             metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: event.clubId },
