@@ -49,6 +49,31 @@ export const EXCLUDE_VOID = { NOT: { reconciliationStatus: "VOID" } } as const;
  * (app/api/attendance/charge). CREDIT is the external-reader option: it only
  * records — AthletixOS does not charge the card — so it is UNVERIFIED.
  */
+/** Offline methods that can settle an event registration at the door. */
+export const EVENT_OFFLINE_METHODS = ["CASH", "CHECK", "TERMINAL"] as const;
+export type EventOfflineMethod = (typeof EVENT_OFFLINE_METHODS)[number];
+
+/**
+ * Classification for event at-the-door money. TERMINAL is the external card
+ * reader — AthletixOS never charged it and Stripe has nothing to confirm it
+ * against, so it is EXTERNAL_READER/UNVERIFIED, exactly like attendance's
+ * CREDIT. The Bookings at-the-door flow used to write null/null here, which
+ * let a card-reader swipe blend into verified card revenue.
+ */
+export function eventOfflineMethodClassification(method: EventOfflineMethod): {
+  paymentSource: PaymentSource;
+  reconciliationStatus: ReconciliationStatus;
+} {
+  if (method === "TERMINAL") {
+    return { paymentSource: "EXTERNAL_READER", reconciliationStatus: "UNVERIFIED" };
+  }
+  return { paymentSource: method, reconciliationStatus: "OFFLINE" };
+}
+
+export function eventOfflineMethodLabel(method: EventOfflineMethod): string {
+  return method === "CHECK" ? "Check" : method === "TERMINAL" ? "Card reader" : "Cash";
+}
+
 export function attendanceMethodClassification(method: string): {
   paymentSource: PaymentSource;
   reconciliationStatus: ReconciliationStatus;

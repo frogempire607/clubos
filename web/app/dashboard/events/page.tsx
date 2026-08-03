@@ -1879,11 +1879,13 @@ function BookingsModal({ eventId, onClose }: { eventId: string; onClose: () => v
   }
 
   async function handleRemove(memberId: string) {
-    if (!confirm("Remove this person from the event? This also takes them off the invoice list.")) return;
+    // Bookings are the roster. Cancelling one takes them off the attendee
+    // list; it does NOT touch what they owe — that's the Registrations screen.
+    if (!confirm("Cancel this booking? This removes them from the attendee roster. It does not change what they owe — use the Registrations screen to remove them from billing.")) return;
     const res = await fetch(`/api/events/${eventId}/bookings?memberId=${memberId}`, { method: "DELETE" });
     const d = await res.json().catch(() => ({}));
-    // They keep their spot on the billing list only when money is already
-    // committed — say so rather than leaving a silent invoice behind.
+    // Tell staff when the person is still on the billing list, so a removed
+    // athlete can't quietly keep receiving invoices.
     if (d?.registrationKept) setError(d.registrationKept);
     load();
   }
@@ -2094,6 +2096,10 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   const [previewOpts, setPreviewOpts] = useState<InvoiceOpts>({});
   const [repricing, setRepricing] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  // Removed registrants keep their row for history but are off the screen by
+  // default — a canceled row in the list is what made "who am I actually
+  // invoicing?" unanswerable.
+  const [showRemoved, setShowRemoved] = useState(false);
 
   function load() {
     setLoading(true);
@@ -2287,6 +2293,9 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   const selectableIds = (data?.registrations ?? []).filter(collectable).map((r) => r.id);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const unpaidOwing = (data?.registrations ?? []).filter(collectable).length;
+  const allRows = data?.registrations ?? [];
+  const removedRows = allRows.filter((r) => r.status === "CANCELED");
+  const visibleRows = showRemoved ? allRows : allRows.filter((r) => r.status !== "CANCELED");
   // Rows carrying an amount the event's own pricing doesn't produce — the
   // Frog Empire failure mode, made visible instead of silently invoiced.
   const mismatchedRows = (data?.registrations ?? []).filter(
@@ -2550,7 +2559,18 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                 </div>
               )}
 
-              {data.registrations.length === 0 ? (
+              {removedRows.length > 0 && (
+                <label className="flex items-center gap-2 mb-2 text-[11px] text-text-muted cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showRemoved}
+                    onChange={() => setShowRemoved((v) => !v)}
+                  />
+                  Show {removedRows.length} removed registrant{removedRows.length === 1 ? "" : "s"}
+                </label>
+              )}
+
+              {visibleRows.length === 0 ? (
                 <p className="text-sm text-text-muted text-center py-8">No registrations yet.</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -2577,7 +2597,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                       </tr>
                     </thead>
                     <tbody>
-                      {data.registrations.map((r) => {
+                      {visibleRows.map((r) => {
                         const selectable = collectable(r);
                         return (
                           <tr key={r.id} className="border-b border-app-border last:border-0 align-top">

@@ -9,6 +9,7 @@ import { sendEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicFixedPrice } from "@/lib/eventPricing";
 import { amountToCollect, expectedAmount } from "@/lib/eventRepricing";
+import { requirePermission } from "@/lib/apiGuard";
 
 const bodySchema = z.object({
   // Re-invoice registrants who were already invoiced (still skips PAID).
@@ -45,9 +46,12 @@ const bodySchema = z.object({
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // This emails a live payment link to every family on the event. "Is staff"
+  // was a looser bar than removing a single registrant (events:edit) — match
+  // it. Owners bypass as always.
+  const denied = requirePermission(session, "events", "edit");
+  if (denied) return denied;
 
   let body: z.infer<typeof bodySchema>;
   try {

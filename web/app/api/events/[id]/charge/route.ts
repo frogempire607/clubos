@@ -9,6 +9,7 @@ import { sendBookingConfirmationEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
+import { settleEventRegistrationOffline } from "@/lib/eventOfflinePayments";
 
 const schema = z.object({
   memberId: z.string(),
@@ -220,9 +221,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const quote = quoted.quote;
     const discountLabel = discountAppliedLabel(discount);
 
-    // ── Cash / in-person terminal: confirm the booking and log a manual
-    // transaction in Financials. No Stripe charge. Mirrors the manual-payment
-    // route's transaction shape so it shows up alongside other Cash/Manual money.
+    // ── Cash / in-person terminal at the door ────────────────────────────────
+    // Event money is recorded against a REGISTRATION, never as a free-floating
+    // Transaction. This branch used to create a Booking plus its own SUCCEEDED
+    // Transaction that no registration knew about, so the registration still
+    // read "owes" and the only way to mark someone paid was to remove and
+    // re-add their booking — minting a duplicate Transaction every cycle
+    // (Frog Empire Road Trip: four $450 rows for two athletes, both still
+    // unpaid on paper). Now it ensures a registration exists and settles it
+    // through the ONE shared offline path, which also tags paymentSource and
+    // reconciliationStatus correctly — a card-reader swipe is
+    // EXTERNAL_READER/UNVERIFIED and must never blend into verified card
+    // revenue.
     if (paymentMethod === "CASH" || paymentMethod === "TERMINAL") {
       const existing = await prisma.booking.findUnique({
         where: { eventId_memberId: { eventId: event.id, memberId } },
@@ -232,30 +242,70 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const status =
         event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
       const amount = quote.finalPrice;
-      const methodLabel = paymentMethod === "CASH" ? "cash" : "in-person terminal";
 
-      await prisma.$transaction([
-        prisma.booking.create({ data: { eventId: event.id, memberId, status } }),
-        prisma.transaction.create({
+      // Find or create the registration this money belongs to. A member who
+      // was already registered (and owes) settles that row rather than
+      // spawning a second one.
+      let reg = await prisma.eventRegistration.findFirst({
+        where: { eventId: event.id, memberId, status: { not: "CANCELED" } },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, status: true },
+      });
+      if (reg?.status === "PAID") {
+        return NextResponse.json(
+          { error: "This member's registration is already paid — resend their receipt instead." },
+          { status: 409 },
+        );
+      }
+      if (!reg) {
+        reg = await prisma.eventRegistration.create({
           data: {
-            clubId: club.id,
-            amount,
-            status: "SUCCEEDED",
-            type: "MANUAL",
             eventId: event.id,
-            category: "event_booking",
-            paymentMethod, // "CASH" | "TERMINAL"
-            discountCode: discount?.code ?? null,
-            discountAmount: discount ? quote.discountAmount : null,
-            legalEntityId: club.defaultLegalEntityId || null,
-            source: `${member.firstName} ${member.lastName}`.trim() || null,
-            description: `${event.name} — ${priceLabel} price (${methodLabel})${discountLabel ? ` — ${discountLabel}` : ""}`,
-            manual: true,
-            txDate: new Date(),
+            clubId: club.id,
+            memberId,
+            name: `${member.firstName} ${member.lastName}`.trim(),
+            email: member.email ?? member.guardianEmail ?? "",
+            status: "REGISTERED",
+            amountDue: amount,
           },
-        }),
-      ]);
-      if (discount) await recordDiscountUse(discount.id);
+          select: { id: true, status: true },
+        });
+      } else {
+        // Settle at the price quoted at the door (discount included).
+        await prisma.eventRegistration.update({
+          where: { id: reg.id },
+          data: { amountDue: amount },
+        });
+      }
+
+      const settled = await settleEventRegistrationOffline({
+        clubId: club.id,
+        registrationId: reg.id,
+        method: paymentMethod,
+        actorUserId: session.user.id ?? null,
+        // The receipt from the settle path is the payment receipt; the booking
+        // confirmation below carries the event details.
+        skipReceipt: true,
+      });
+      if (!settled.ok) {
+        return NextResponse.json({ error: settled.error }, { status: settled.status });
+      }
+
+      await prisma.booking.create({ data: { eventId: event.id, memberId, status } });
+
+      // Discount identity lives on the settled Transaction so receipts and
+      // reports still say which discount applied.
+      if (discount) {
+        await prisma.transaction.update({
+          where: { id: settled.transactionId },
+          data: {
+            discountCode: discount.code,
+            discountAmount: quote.discountAmount,
+            description: `${event.name} — ${priceLabel} price (${paymentMethod === "CASH" ? "cash" : "in-person terminal"})${discountLabel ? ` — ${discountLabel}` : ""}`,
+          },
+        });
+        await recordDiscountUse(discount.id);
+      }
 
       if (status === "CONFIRMED") {
         const to = member.isMinor
@@ -276,7 +326,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         }
       }
 
-      return NextResponse.json({ recordedManually: true, paymentMethod, status, amount });
+      return NextResponse.json({
+        recordedManually: true,
+        paymentMethod,
+        status,
+        amount,
+        registrationId: reg.id,
+        transactionId: settled.transactionId,
+      });
     }
 
     if (quote.finalPrice <= 0) {

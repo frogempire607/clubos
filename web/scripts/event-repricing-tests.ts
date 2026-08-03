@@ -26,6 +26,12 @@ import {
   type PricingRegistration,
 } from "../lib/eventRepricing";
 import { CHECKOUT_HOLD_MS } from "../lib/eventPayments";
+import {
+  eventOfflineMethodClassification,
+  eventOfflineMethodLabel,
+  EVENT_OFFLINE_METHODS,
+  EXCLUDE_VOID,
+} from "../lib/paymentSources";
 
 let pass = 0;
 let fail = 0;
@@ -223,6 +229,48 @@ console.log("\n— pricing-change detection (what triggers the preview) —");
   check(
     "string vs number decimals are the same price (Prisma returns strings)",
     !pricingChanged({ ...FIXED_CAMP, memberPrice: "450.00" }, { ...FIXED_CAMP, memberPrice: 450 }),
+  );
+}
+
+console.log("\n— at-the-door money is classified, never null —");
+{
+  // The Bookings at-the-door flow wrote paymentSource=null and
+  // reconciliationStatus=null, so a card-reader swipe counted as clean revenue
+  // and a VOID filter had nothing to bite on. Every method now classifies.
+  const cash = eventOfflineMethodClassification("CASH");
+  check("cash → CASH/OFFLINE", cash.paymentSource === "CASH" && cash.reconciliationStatus === "OFFLINE", cash);
+  const cheque = eventOfflineMethodClassification("CHECK");
+  check("check → CHECK/OFFLINE", cheque.paymentSource === "CHECK" && cheque.reconciliationStatus === "OFFLINE", cheque);
+
+  // The one that matters: an external reader is NOT a Stripe card payment.
+  const terminal = eventOfflineMethodClassification("TERMINAL");
+  check(
+    "card reader → EXTERNAL_READER/UNVERIFIED (never verified card revenue)",
+    terminal.paymentSource === "EXTERNAL_READER" && terminal.reconciliationStatus === "UNVERIFIED",
+    terminal,
+  );
+  check("card reader is never marked STRIPE", terminal.paymentSource !== "STRIPE");
+  check("card reader is never marked VERIFIED", terminal.reconciliationStatus !== "VERIFIED");
+
+  check(
+    "every offline method produces a non-null classification",
+    EVENT_OFFLINE_METHODS.every((m) => {
+      const c = eventOfflineMethodClassification(m);
+      return !!c.paymentSource && !!c.reconciliationStatus;
+    }),
+  );
+  check(
+    "labels are distinct and human",
+    new Set(EVENT_OFFLINE_METHODS.map(eventOfflineMethodLabel)).size === EVENT_OFFLINE_METHODS.length,
+  );
+  check("card reader label says reader, not card", eventOfflineMethodLabel("TERMINAL") === "Card reader");
+
+  // VOID is the only reconciliation status revenue aggregates drop — the
+  // duplicate-Transaction cleanup relies on it.
+  check("EXCLUDE_VOID filters exactly VOID", JSON.stringify(EXCLUDE_VOID) === '{"NOT":{"reconciliationStatus":"VOID"}}');
+  check(
+    "no offline method classifies as VOID (voiding is a human decision)",
+    EVENT_OFFLINE_METHODS.every((m) => eventOfflineMethodClassification(m).reconciliationStatus !== "VOID"),
   );
 }
 

@@ -84,45 +84,29 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       where: { eventId_memberId: { eventId: params.id, memberId } },
     });
 
-    // ── Remove them from the BILLING list too ────────────────────────────────
-    // Bookings and EventRegistrations are separate tables: the attendee list
-    // reads bookings, the invoice list reads event_registrations. Removing a
-    // booking used to leave the registration row untouched and fully
-    // invoiceable, so kids pulled off the roster still received payment links
-    // (Frog Empire Road Trip, 2026-08-03 — 13 registrations, 2 bookings).
+    // ── Booking is the ROSTER, not the billing record ───────────────────────
+    // Removing a booking removes attendance and nothing else. It deliberately
+    // does NOT cancel the registration.
     //
-    // CANCELED is the removal: bill-registrants, the capacity count, and the
-    // roster all already exclude it, and it preserves the history that a hard
-    // delete would destroy.
-    let registrationCanceled = false;
-    let registrationKept: string | null = null;
+    // An earlier version of this route did cascade to CANCELED, on the theory
+    // that removing someone should remove them from both lists. That was
+    // wrong: the at-the-door cash flow forced staff to remove and re-add a
+    // booking, so the cascade destroyed the billing rows of two athletes who
+    // had actually paid (Frog Empire Road Trip, 2026-08-03). Truth flows one
+    // way only — canceling a REGISTRATION removes the booking too
+    // (DELETE /api/events/[id]/registrations/[regId]); removing a booking
+    // never touches the registration.
+    //
+    // Still surfaced so the roster can tell staff the person is on the billing
+    // list, rather than leaving a silent invoice behind.
     const reg = await prisma.eventRegistration.findFirst({
       where: { eventId: params.id, memberId, status: { not: "CANCELED" } },
-      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, amountDue: true, name: true },
     });
-    if (reg) {
-      // Money already committed against this registration is not ours to
-      // erase — a paid registrant needs a refund decision, and an open
-      // cash/check record needs voiding. Say so instead of silently dropping
-      // it or silently keeping it.
-      const committed =
-        reg.status === "PAID" ||
-        reg.status === "SCHEDULED" ||
-        reg.status === "AWAITING_CASH" ||
-        reg.status === "AWAITING_CHECK" ||
-        !!reg.transactionId ||
-        Number(reg.amountPaid ?? 0) > 0;
-      if (committed) {
-        registrationKept =
-          "This registrant still has money committed (paid, scheduled, or an open cash/check record). The booking was removed but they remain on the billing list — settle or refund them on the Registrations screen.";
-      } else {
-        await prisma.eventRegistration.updateMany({
-          where: { id: reg.id, clubId: session.user.clubId, status: { not: "CANCELED" } },
-          data: { status: "CANCELED" },
-        });
-        registrationCanceled = true;
-      }
-    }
+    const registrationKept =
+      reg && Number(reg.amountDue ?? 0) > 0 && reg.status !== "PAID"
+        ? `${reg.name} is still on this event's billing list owing $${Number(reg.amountDue).toFixed(2)}. Remove them from the Registrations screen if they're not coming.`
+        : null;
 
     // Promote first waitlisted member to confirmed
     const firstWaitlisted = await prisma.booking.findFirst({
@@ -136,7 +120,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       });
     }
 
-    return NextResponse.json({ ok: true, registrationCanceled, registrationKept });
+    return NextResponse.json({ ok: true, registrationKept });
   } catch (err) {
     console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
