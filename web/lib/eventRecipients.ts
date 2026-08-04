@@ -16,12 +16,23 @@
 // preview and the actual send can never disagree, and both agree with how
 // every other club email is addressed.
 //
-// Precedence, deliberately: the registration's OWN address wins when it has
-// one. It is what the registrant typed (public signups), it is where any
-// prior invoice for this registration already went, and silently redirecting
-// a family's mail to a different address because our household model prefers
-// the guardian would be a worse bug than the one this fixes. The family
-// resolver fills the gap ONLY when the snapshot is empty.
+// Precedence (owner decision, 2026-08-04):
+//
+//   MINOR    → ALWAYS the guardian, even when the member record carries the
+//              athlete's own address. A bill must reach whoever manages the
+//              account. Maximus Alexander's record has maximus8910@icloud.com
+//              and his invoice belongs with Adam Alexander; Drayke Ulrich's
+//              belongs with Christina Ulrich, not dtulrich6@gmail.com. The
+//              registration snapshot is only a fallback for a minor with no
+//              guardian on file at all.
+//   ADULT    → ALWAYS themselves. The guardian rule must not follow a member
+//              who manages their own account.
+//   NO MEMBER→ the registration snapshot is the only address that exists
+//              (public/walk-up registrants).
+//
+// This replaced an earlier "snapshot always wins" rule. That rule kept mail
+// flowing to the address a prior invoice used, but it meant a minor with a
+// personal email on file was billed directly — which is what the owner hit.
 
 import { resolveRecipients } from "@/lib/emailRecipients";
 
@@ -56,12 +67,12 @@ function plausible(email: string | null | undefined): string | null {
 /**
  * Resolve delivery addresses for a batch of registrations in ONE round-trip.
  *
- * Uses PER_ATHLETE_PRIMARY: one address per athlete, routed to that athlete's
- * primary guardian when they're a minor, to themselves when they're an adult.
- * That is exactly the shape of a per-registrant invoice — every other mode
- * either collapses siblings into one send (HOUSEHOLD) or fans out to every
- * guardian (ALL_GUARDIANS), neither of which is what a per-registration
- * payment link wants.
+ * Uses BILLING_CONTACT: one address per athlete, routed to the guardian who
+ * manages the money when they're a minor (canPay preferred, then the family's
+ * designated primary, then first-linked), to themselves when they're an adult.
+ * Every other mode either collapses siblings into one send (HOUSEHOLD) or
+ * fans out to every guardian (ALL_GUARDIANS) — two payment links for one
+ * registration invites two payments and a refund.
  *
  * Transactional: `respectMarketingOptOut` is false. A parent who opted out of
  * marketing still gets the bill for a camp they signed their kid up for.
@@ -72,16 +83,18 @@ export async function resolveRegistrationRecipients(
 ): Promise<Map<string, RegistrationRecipient>> {
   const out = new Map<string, RegistrationRecipient>();
 
-  // Only rows whose snapshot is unusable need the family lookup.
-  const needsLookup = registrations.filter((r) => !plausible(r.email) && r.memberId);
-  const memberIds = [...new Set(needsLookup.map((r) => r.memberId as string))];
+  // EVERY member-linked registration is resolved through the family model —
+  // not just the ones with a blank snapshot. The snapshot can be the athlete's
+  // own address, and for a minor that is precisely the address a bill must
+  // not go to.
+  const memberIds = [...new Set(registrations.map((r) => r.memberId).filter(Boolean) as string[])];
 
   const byMember = new Map<string, { email: string; displayName: string | null }>();
   if (memberIds.length > 0) {
     const resolution = await resolveRecipients({
       clubId,
       memberIds,
-      mode: "PER_ATHLETE_PRIMARY",
+      mode: "BILLING_CONTACT",
       respectMarketingOptOut: false,
     });
     for (const r of resolution.send) {
@@ -93,19 +106,8 @@ export async function resolveRegistrationRecipients(
   }
 
   for (const reg of registrations) {
-    const own = plausible(reg.email);
-    if (own) {
-      out.set(reg.id, {
-        registrationId: reg.id,
-        email: own,
-        source: "REGISTRATION",
-        displayName: null,
-        reason: null,
-        fixMemberId: reg.memberId ?? null,
-      });
-      continue;
-    }
-
+    // The family model wins for anyone with a member record: it routes a
+    // minor to their guardian and an adult to themselves.
     const family = reg.memberId ? byMember.get(reg.memberId) : undefined;
     if (family) {
       out.set(reg.id, {
@@ -113,6 +115,21 @@ export async function resolveRegistrationRecipients(
         email: family.email,
         source: "MEMBER_FAMILY",
         displayName: family.displayName,
+        reason: null,
+        fixMemberId: reg.memberId ?? null,
+      });
+      continue;
+    }
+
+    // No member record (public/walk-up), or a member the family model can't
+    // route — the address captured at registration is all there is.
+    const own = plausible(reg.email);
+    if (own) {
+      out.set(reg.id, {
+        registrationId: reg.id,
+        email: own,
+        source: "REGISTRATION",
+        displayName: null,
         reason: null,
         fixMemberId: reg.memberId ?? null,
       });

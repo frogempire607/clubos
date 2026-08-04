@@ -54,6 +54,15 @@ import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 // ACCOUNT_HOLDER                  — the User attached to the member row
 //                                   (Member.userId). Guardian-managed minors
 //                                   without their own login → guardian.
+// BILLING_CONTACT                 — deliver to whoever manages the money for
+//                                   this athlete: for a MINOR always a
+//                                   guardian (canPay preferred, then the
+//                                   family's primary), never the child's own
+//                                   address; for an ADULT always themselves.
+//                                   Use for invoices and payment links — a
+//                                   bill must reach whoever manages the
+//                                   account, not the 12-year-old who owns the
+//                                   iCloud address on the member record.
 export type HouseholdMode =
   | "HOUSEHOLD"
   | "PER_MEMBER"
@@ -62,7 +71,8 @@ export type HouseholdMode =
   | "PRIMARY_GUARDIAN"
   | "ALL_GUARDIANS"
   | "PAYER"
-  | "ACCOUNT_HOLDER";
+  | "ACCOUNT_HOLDER"
+  | "BILLING_CONTACT";
 
 export interface RecipientCandidate {
   memberId: string;
@@ -163,14 +173,16 @@ export async function resolveRecipients(args: {
       // guardianLinks is the AUTHORITATIVE guardian-of-this-member set
       // (MemberGuardianUser). Legacy Guardian row is a fallback.
       // NOTE: MemberGuardianUser has no isPrimary column today — the
-      // "primary" concept is derived (first-linked wins, deterministic by
-      // createdAt asc). Phase 4.5 (M25) adds a real status/permission
-      // grid; when that lands, update pickPrimaryGuardian() to honor it.
+      // "primary" is now a REAL column (Phase 4) — pickPrimaryGuardian
+      // honors isPrimary first and keeps first-linked (createdAt asc) as the
+      // deterministic tiebreak for families where nobody is flagged.
       guardianLinks: {
         where: ACTIVE_GUARDIAN_LINK,
         select: {
           userId: true,
           createdAt: true,
+          isPrimary: true,
+          canPay: true,
           user: {
             select: {
               id: true,
@@ -380,6 +392,9 @@ export type MemberForResolve = {
   guardianLinks: Array<{
     userId: string;
     createdAt: Date;
+    // Phase 4 columns — honored by pickPrimaryGuardian / pickBillingGuardian.
+    isPrimary?: boolean | null;
+    canPay?: boolean | null;
     user: { id: string; email: string; firstName: string | null; lastName: string | null; deletedAt: Date | null } | null;
   }>;
 };
@@ -546,6 +561,29 @@ function candidatesFor(m: MemberForResolve, mode: HouseholdMode, payerById: Paye
     return [{ ...base, deliveryEmail: m.email, deliveryUserId: m.userId, deliveryDisplayName: null, athleteMemberId: m.id }];
   }
 
+  // 3E — BILLING_CONTACT: the money contact for this athlete.
+  //
+  // A minor NEVER receives their own bill here, even when the member record
+  // carries their personal address. Maximus Alexander's record has
+  // maximus8910@icloud.com; his invoice belongs with Adam Alexander. Adults
+  // are always billed at their own address — the guardian rule must not
+  // follow an adult who manages their own account.
+  if (mode === "BILLING_CONTACT") {
+    if (m.isMinor) {
+      const billing = pickBillingGuardian(liveGuardianLinks);
+      const target = billing?.user
+        ? { email: billing.user.email, userId: billing.user.id, name: guardianDisplay(billing.user.firstName, billing.user.lastName) }
+        : legacyGuardianEmail
+          ? { email: legacyGuardianEmail, userId: null, name: legacyGuardianName }
+          : null;
+      if (!target) {
+        return [{ ...base, deliveryEmail: null, deliveryUserId: null, deliveryDisplayName: null, athleteMemberId: m.id, skippedReason: "NO_EMAIL" }];
+      }
+      return [{ ...base, deliveryEmail: target.email, deliveryUserId: target.userId, deliveryDisplayName: target.name, athleteMemberId: m.id }];
+    }
+    return [{ ...base, deliveryEmail: m.email ?? m.user?.email ?? null, deliveryUserId: m.userId, deliveryDisplayName: null, athleteMemberId: m.id, ...(m.email || m.user?.email ? {} : { skippedReason: "NO_EMAIL" as const }) }];
+  }
+
   // PER_ATHLETE_PRIMARY
   // Same as PER_MEMBER — one row per athlete's primary contact — but the
   // key semantics call out the intent: even for adults, dedupe axis is the
@@ -564,12 +602,29 @@ function candidatesFor(m: MemberForResolve, mode: HouseholdMode, payerById: Paye
 }
 
 function pickPrimaryGuardian<
-  T extends { createdAt: Date },
+  T extends { createdAt: Date; isPrimary?: boolean | null },
 >(links: T[]): T | null {
   if (!links.length) return null;
-  // Deterministic: first-linked wins (already orderBy createdAt asc).
-  // Phase 4.5 (M25) will add a real per-link status/flag we can honor here.
-  return links[0];
+  // Phase 4 gave MemberGuardianUser a real isPrimary flag. Honor it — a
+  // family that has explicitly named its primary contact must not be
+  // second-guessed by link order. First-linked stays the deterministic
+  // tiebreak when nobody is flagged (links arrive orderBy createdAt asc).
+  return links.find((l) => l.isPrimary) ?? links[0];
+}
+
+/**
+ * Who should receive a BILL for this athlete. Prefers a guardian authorized to
+ * pay, then the family's designated primary, then first-linked. A guardian
+ * with canPay=false can still be a valid contact, so they remain the fallback
+ * rather than being dropped — a bill nobody receives is worse than a bill sent
+ * to the only adult on file.
+ */
+function pickBillingGuardian<
+  T extends { createdAt: Date; isPrimary?: boolean | null; canPay?: boolean | null },
+>(links: T[]): T | null {
+  if (!links.length) return null;
+  const payers = links.filter((l) => l.canPay);
+  return pickPrimaryGuardian(payers.length ? payers : links);
 }
 
 function guardianDisplay(first: string | null, last: string | null): string | null {
@@ -592,7 +647,10 @@ function buildDedupeKey(mode: HouseholdMode, email: string, memberId: string, at
     case "PER_ATHLETE_PRIMARY":
     case "PRIMARY_GUARDIAN":
     case "ATHLETE_ONLY":
-      // One row per athlete axis.
+    case "BILLING_CONTACT":
+      // One row per athlete axis. Two siblings billed to the same guardian
+      // produce TWO rows — they're separate registrations owing separate
+      // money, so folding them would drop one family's bill.
       return `${email}:${athleteMemberId ?? memberId}`;
     case "ALL_GUARDIANS":
       // One row per (guardian address, athlete) pair. The candidate build

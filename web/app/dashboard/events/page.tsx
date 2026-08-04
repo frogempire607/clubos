@@ -2701,8 +2701,13 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                                   {r.recipient.source === "MEMBER_FAMILY" && (
                                     <p className="text-[10px] text-text-muted">
                                       {r.recipient.displayName
-                                        ? `${r.recipient.displayName} · from member record`
-                                        : "guardian · from member record"}
+                                        ? `${r.recipient.displayName} · billing contact`
+                                        : "billing contact · from member record"}
+                                    </p>
+                                  )}
+                                  {r.recipient.source === "REGISTRATION" && r.member && (
+                                    <p className="text-[10px] text-text-muted">
+                                      given at registration
                                     </p>
                                   )}
                                 </>

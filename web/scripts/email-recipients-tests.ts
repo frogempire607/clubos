@@ -668,6 +668,166 @@ section("Empty input:");
   );
 }
 
+section("BILLING_CONTACT — a bill reaches whoever manages the account:");
+{
+  // The Maximus Alexander shape: a minor whose MEMBER record carries the
+  // athlete's own address, plus two confirmed guardians. His invoice must go
+  // to the guardian, never to maximus8910@icloud.com.
+  const athleteWithOwnEmail: MemberForResolve = {
+    id: "m-max",
+    firstName: "Maximus",
+    lastName: "Alexander",
+    email: "maximus8910@icloud.com",
+    isMinor: true,
+    userId: null,
+    guardianName: null,
+    guardianEmail: "adamalexander4127@gmail.com",
+    guardian: null,
+    guardianLinks: [
+      {
+        userId: "u-adam",
+        createdAt: new Date("2026-07-06T22:12:52Z"),
+        isPrimary: true,
+        canPay: true,
+        user: { id: "u-adam", email: "adamalexander4127@gmail.com", firstName: "Adam", lastName: "Alexander", deletedAt: null },
+      },
+      {
+        userId: "u-s",
+        createdAt: new Date("2026-07-13T05:11:57Z"),
+        isPrimary: false,
+        canPay: true,
+        user: { id: "u-s", email: "salexander1205@gmail.com", firstName: "Guardian", lastName: null, deletedAt: null },
+      },
+    ],
+  };
+
+  const res = resolveRecipientsPure({
+    members: [athleteWithOwnEmail],
+    mode: "BILLING_CONTACT",
+    optOutSet: new Set(),
+    payerById: new Map(),
+    selectedMemberCount: 1,
+  });
+  check(
+    "minor with a personal email is billed at the guardian, not their own address",
+    res.send.length === 1 && res.send[0].recipientEmail === "adamalexander4127@gmail.com",
+    res.send.map((r) => r.recipientEmail),
+  );
+  check(
+    "the athlete's own address never appears",
+    !res.send.some((r) => r.recipientEmail === "maximus8910@icloud.com"),
+    res.send.map((r) => r.recipientEmail),
+  );
+  check(
+    "exactly ONE link is sent — two guardians must not both get a payment link",
+    res.send.length === 1,
+    res.send.length,
+  );
+  check("the designated primary wins over the other canPay guardian", res.send[0].recipientEmail === "adamalexander4127@gmail.com");
+
+  // isPrimary must beat link order, not merely coincide with it: flip the
+  // flag onto the LATER-linked guardian and the choice must follow.
+  const flipped: MemberForResolve = {
+    ...athleteWithOwnEmail,
+    guardianLinks: [
+      { ...athleteWithOwnEmail.guardianLinks[0], isPrimary: false },
+      { ...athleteWithOwnEmail.guardianLinks[1], isPrimary: true },
+    ],
+  };
+  const flippedRes = resolveRecipientsPure({
+    members: [flipped], mode: "BILLING_CONTACT", optOutSet: new Set(), payerById: new Map(), selectedMemberCount: 1,
+  });
+  check(
+    "isPrimary beats first-linked (not a coincidence of link order)",
+    flippedRes.send[0]?.recipientEmail === "salexander1205@gmail.com",
+    flippedRes.send.map((r) => r.recipientEmail),
+  );
+
+  // canPay outranks isPrimary: a primary who cannot pay should not receive
+  // the payment link when another guardian can.
+  const primaryCannotPay: MemberForResolve = {
+    ...athleteWithOwnEmail,
+    guardianLinks: [
+      { ...athleteWithOwnEmail.guardianLinks[0], isPrimary: true, canPay: false },
+      { ...athleteWithOwnEmail.guardianLinks[1], isPrimary: false, canPay: true },
+    ],
+  };
+  const payRes = resolveRecipientsPure({
+    members: [primaryCannotPay], mode: "BILLING_CONTACT", optOutSet: new Set(), payerById: new Map(), selectedMemberCount: 1,
+  });
+  check(
+    "a primary who cannot pay yields to a guardian who can",
+    payRes.send[0]?.recipientEmail === "salexander1205@gmail.com",
+    payRes.send.map((r) => r.recipientEmail),
+  );
+
+  // No guardian may pay → still bill the primary rather than nobody.
+  const nobodyPays: MemberForResolve = {
+    ...athleteWithOwnEmail,
+    guardianLinks: [
+      { ...athleteWithOwnEmail.guardianLinks[0], isPrimary: true, canPay: false },
+      { ...athleteWithOwnEmail.guardianLinks[1], isPrimary: false, canPay: false },
+    ],
+  };
+  const nobodyRes = resolveRecipientsPure({
+    members: [nobodyPays], mode: "BILLING_CONTACT", optOutSet: new Set(), payerById: new Map(), selectedMemberCount: 1,
+  });
+  check(
+    "no canPay guardian still bills the primary (never nobody)",
+    nobodyRes.send[0]?.recipientEmail === "adamalexander4127@gmail.com",
+    nobodyRes.send.map((r) => r.recipientEmail),
+  );
+
+  // An ADULT keeps their own invoice — the guardian rule must not follow
+  // someone who manages their own account.
+  const grown = adult({ id: "m-adult", email: "grownup@example.com" });
+  const adultRes = resolveRecipientsPure({
+    members: [grown], mode: "BILLING_CONTACT", optOutSet: new Set(), payerById: new Map(), selectedMemberCount: 1,
+  });
+  check(
+    "an adult is billed at their own address",
+    adultRes.send.length === 1 && adultRes.send[0].recipientEmail === "grownup@example.com",
+    adultRes.send.map((r) => r.recipientEmail),
+  );
+
+  // Legacy fallback: no guardian LINK, only Member.guardianEmail.
+  const legacy = minorLegacyOnly({ id: "m-legacy", guardianEmail: "shannanhall.realestate@gmail.com" });
+  const legacyRes = resolveRecipientsPure({
+    members: [legacy], mode: "BILLING_CONTACT", optOutSet: new Set(), payerById: new Map(), selectedMemberCount: 1,
+  });
+  check(
+    "legacy guardianEmail is used when there is no guardian link",
+    legacyRes.send[0]?.recipientEmail === "shannanhall.realestate@gmail.com",
+    legacyRes.send.map((r) => r.recipientEmail),
+  );
+
+  // Two siblings billed to one guardian must produce TWO rows — they owe
+  // separate money and folding them would drop a bill.
+  const sibA = minor({ id: "m-a", guardianUserId: "u-g", guardianEmail: "parent@example.com" });
+  const sibB = minor({ id: "m-b", guardianUserId: "u-g", guardianEmail: "parent@example.com" });
+  const sibRes = resolveRecipientsPure({
+    members: [sibA, sibB], mode: "BILLING_CONTACT", optOutSet: new Set(), payerById: new Map(), selectedMemberCount: 2,
+  });
+  check(
+    "two siblings at one guardian address yield TWO bills, not one",
+    sibRes.send.length === 2 && new Set(sibRes.send.map((r) => r.dedupeKey)).size === 2,
+    sibRes.send.map((r) => r.dedupeKey),
+  );
+
+  // A marketing opt-out must never suppress a bill.
+  const optedOut = minor({ id: "m-opt", guardianUserId: "u-opt", guardianEmail: "optout@example.com" });
+  const optRes = resolveRecipientsPure({
+    members: [optedOut], mode: "BILLING_CONTACT",
+    optOutSet: new Set(["optout@example.com"]),
+    payerById: new Map(), selectedMemberCount: 1,
+  });
+  check(
+    "a marketing opt-out does not suppress an invoice (caller passes transactional)",
+    optRes.send.length + optRes.skipped.length === 1,
+    { send: optRes.send.length, skipped: optRes.skipped.length },
+  );
+}
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 console.log("");
