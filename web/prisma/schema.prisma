@@ -237,6 +237,9 @@ model Club {
   EventCompAssignment         EventCompAssignment[]
   EventDocumentLink           EventDocumentLink[]
   EventBundlePurchase         EventBundlePurchase[]
+  memberInvitationDeliveries  MemberInvitationDelivery[]
+  savedMemberViews            SavedMemberView[]
+  memberSubscriptionEvents    MemberSubscriptionEvent[]
 
   @@index([slug])
   @@map("clubs")
@@ -484,6 +487,7 @@ model User {
   parentalConsentsAsChild    ParentalConsent[]            @relation("ChildConsent")
   EventCompAssignment        EventCompAssignment[]
   actionItemSnoozes          ActionItemSnooze[]
+  savedMemberViews           SavedMemberView[]
 
   @@unique([clubId, email])
   @@index([clubId])
@@ -838,9 +842,31 @@ model Member {
   normalizedEmail  String?
   normalizedPhone  String?
 
+  // ── Members experience redesign (Phase 4.5.1) ────────────────────────
+  // Migration step 2, "Information reviewed". Before this, the roster
+  // INFERRED review from a NOTE MemberMigrationEvent — a side effect of
+  // someone having edited the row, not a record that anyone reviewed it.
+  // Two staff could disagree about whether a person had been reviewed.
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  // Why this person stops consuming invitation sends. TEXT, not an enum,
+  // matching migrationStatus / approvalStatus / paymentSetupStatus — the
+  // list grows as real delivery failures are observed.
+  //   EMAIL_BOUNCED | EMAIL_MISSING | REPEATED_NO_OPEN | SETUP_FAILED
+  //   | CONFLICTING_DATA | MANUAL
+  blockedReason    String?
+  // "Snooze 7 days" on the next-action banner. While now() < snoozedUntil the
+  // member drops out of "Needs you". Never affects billing, access or
+  // migration progress — a staff view preference with an expiry.
+  snoozedUntil     DateTime?
+
+  invitationDeliveries MemberInvitationDelivery[]
+
   @@index([clubId])
   @@index([status])
   @@index([guardianId])
+  @@index([clubId, migrationStatus], map: "members_clubId_migrationStatus_idx")
+  @@index([clubId, deletedAt], map: "members_clubId_deletedAt_idx")
   @@index([clubId, joinedAt], map: "members_clubId_joinedAt_idx")
   @@index([clubId, status], map: "members_clubId_status_idx")
   @@index([clubId, externalMemberId], map: "members_clubId_externalMemberId_idx")
@@ -1042,6 +1068,7 @@ model MemberSubscription {
   member     Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
   membership Membership           @relation(fields: [membershipId], references: [id], onDelete: Cascade)
   transfers  MembershipTransfer[]
+  events     MemberSubscriptionEvent[]
 
   @@index([memberId])
   @@index([membershipId])
@@ -1188,6 +1215,149 @@ model MembershipTransfer {
   @@index([clubId])
   @@index([toMemberId])
   @@map("membership_transfers")
+}
+
+// Phase 4.5.1 — one row per invitation SEND.
+//
+// Member.activationEmailSentAt + activationEmailSendCount give a timestamp and
+// a counter. That cannot answer the two questions the redesign puts on screen —
+// "3 sends, never opened" (which drives the Blocked state) and "sent to which
+// address, when" (the next-action banner's evidence) — and it cannot separate
+// "we sent it and it bounced" from "we sent it and they ignored it". Those need
+// opposite actions: fix the address, versus nudge the person.
+//
+// The Member counters are NOT retired; they stay the cheap read for the list.
+// This table is the detail behind them.
+model MemberInvitationDelivery {
+  id       String @id @default(cuid())
+  clubId   String
+  memberId String
+
+  // The address at the moment of sending, frozen on purpose: editing a member's
+  // email later must not rewrite the history of where invitations actually went.
+  sentToEmail String
+  // SELF | GUARDIAN — a minor's invitation goes to the guardian, and the banner
+  // copy differs ("<Name>'s guardian").
+  recipientKind String @default("SELF")
+
+  sentAt       DateTime  @default(now())
+  deliveredAt  DateTime?
+  openedAt     DateTime?
+  bouncedAt    DateTime?
+  bounceReason String?
+
+  sentByUserId String?
+  // STAFF | BULK | SYSTEM | MEMBER_REQUEST
+  trigger      String  @default("STAFF")
+
+  // Mirrors email_sends (M16). RESEND when the Resend API dispatched it, SMTP
+  // otherwise — SMTP gives no lifecycle callbacks, so on that path
+  // deliveredAt/openedAt/bouncedAt stay null and the UI must say "sent" rather
+  // than claim a delivery it cannot observe.
+  provider          String?
+  providerMessageId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, sentAt])
+  @@index([clubId, sentAt])
+  @@map("member_invitation_deliveries")
+}
+
+// Phase 4.5.2 — "Save as view" on the members list.
+//
+// Per-user, not per-club: two staff working the same roster want different
+// saved slices, and one must not be able to delete the other's.
+model SavedMemberView {
+  id     String @id @default(cuid())
+  clubId String
+  userId String
+  name   String
+
+  // The whole filter state, stored as the URL carries it. JSON rather than
+  // columns because 4.5.2's Filters panel is explicitly open-ended — every
+  // added filter would otherwise be a migration.
+  filters Json    @default("{}")
+  sort    String?
+
+  // MEMBERS | MIGRATION — the migration queue reuses this with a different
+  // filter vocabulary.
+  scope String @default("MEMBERS")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope, name])
+  @@index([userId, scope])
+  @@index([clubId])
+  @@map("saved_member_views")
+}
+
+// Phase 4.5.10 — append-only subscription history. THIS is what unblocks
+// Reports.
+//
+// Phase 2.5.5 computes churn from the CURRENT state of member_subscriptions,
+// which cannot distinguish a cancel that is really a plan change (not churn),
+// a cancel followed by a new subscription 9 days later (not churn — the 14-day
+// grace), and a genuine loss (churn). So every rate it returns carries
+// reliability: "ESTIMATED". This log makes those three distinguishable and lets
+// the Membership tab flip to "COMPLETE".
+//
+// Sidecar by design: no column is added to MemberSubscription, so no existing
+// billing read changes behavior when this lands.
+model MemberSubscriptionEvent {
+  id     String @id @default(cuid())
+  clubId String
+
+  memberSubscriptionId String
+  // Denormalized so churn can group by member without a join, and so the row
+  // still names the right athlete after a Phase 4A transfer moves the
+  // subscription's memberId. History must not be retroactively rewritten.
+  memberId String
+
+  // CREATED | ACTIVATED | PAUSED | RESUMED | CANCELED | EXPIRED
+  //   | PLAN_CHANGED | REACTIVATED
+  kind String
+
+  // PLAN_CHANGED populates all four; CREATED/ACTIVATED the "to" side;
+  // CANCELED/EXPIRED the "from" side.
+  fromPlan   String?
+  toPlan     String?
+  fromAmount Decimal? @db.Decimal(10, 2)
+  toAmount   Decimal? @db.Decimal(10, 2)
+
+  // When the transition HAPPENED — not when the row was written. A Stripe
+  // webhook can arrive late, and the backfill synthesizes history from
+  // createdAt/canceledAt. Every churn window reads this, never createdAt.
+  at DateTime @default(now())
+
+  actorUserId String?
+  // STRIPE_WEBHOOK | OWNER_ACTION | GUARDIAN_ACTION | MEMBER_ACTION | SYSTEM
+  // SYSTEM covers the backfill and the expiry sweep — Reports must be able to
+  // exclude synthesized history from "what changed this month".
+  source String @default("SYSTEM")
+
+  // Provenance for reconstructing an incident: Stripe event id, the script run
+  // that wrote it, the route that triggered it.
+  detail Json?
+
+  createdAt DateTime @default(now())
+
+  club         Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  subscription MemberSubscription @relation(fields: [memberSubscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, at])
+  @@index([memberSubscriptionId, at])
+  @@index([memberId, at])
+  @@index([clubId, kind, at])
+  @@map("member_subscription_events")
 }
 
 model Membership {
