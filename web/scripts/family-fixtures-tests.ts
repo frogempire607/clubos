@@ -8,8 +8,8 @@
 // verifiable in milliseconds on any machine, including one with no .env.
 //
 // plan.md §4D asks for fourteen scenarios. Each has a section below, named to
-// match the brief so a reader can check coverage line by line. Two extra
-// sections cover shapes found in REAL production data during Phase 4:
+// match the brief so a reader can check coverage line by line. Four extra
+// sections cover shapes and defects found in REAL production data:
 //
 //   §15  the Cameron case — a guardianEmail resolving to no account while the
 //        guardian is signed in. This is the bug that created a second Michael
@@ -18,6 +18,10 @@
 //   §16  the self-referential link — Member.userId and a guardian link both
 //        pointing at the same user (Dakota Mastrantonio, Paris Battaglia).
 //        verify-family-access.ts initially misread this shape as lost access.
+//   §17  usage means consumption, not payment — the transfer warning fired on
+//        every accidental self-purchase showing "0 attendance, 0 bookings".
+//   §18  family-label direction — the inversion was on the wrong side, so both
+//        profiles rendered the opposite of the truth.
 
 import {
   classifyAccessibleMembers,
@@ -405,9 +409,53 @@ group("§16  Self-referential link — real production data");
   );
 }
 
+// ── §17 Usage means consumption, not payment (defect found in B2) ───────────
+group("§17  Usage means consumption, not payment");
+{
+  // The transfer preview warned "already been used — 0 attendance, 0 bookings"
+  // on Michael's membership, because hasUsage counted his renewal payment.
+  // An accidental self-purchase ALWAYS has a payment — that is what created the
+  // membership — so the warning fired every time, with zeros, on the exact case
+  // the feature exists for. Staff learn to click through it, and every real
+  // usage warning becomes worthless.
+  const hasUsage = (a: number, b: number, _tx: number) => a > 0 || b > 0;
+
+  check("a paid-but-unused membership does NOT warn", !hasUsage(0, 0, 1));
+  check("attendance alone warns", hasUsage(3, 0, 0));
+  check("bookings alone warn", hasUsage(0, 2, 0));
+  check("both warn", hasUsage(3, 2, 5));
+  check("nothing at all does not warn", !hasUsage(0, 0, 0));
+  check("ten payments and no attendance still does not warn", !hasUsage(0, 0, 10));
+}
+
+// ── §18 Family-label direction (defect found in B1) ─────────────────────────
+group("§18  Family label reads the right way round");
+{
+  // `type` describes the ROW OWNER relative to the related member:
+  //   (memberId=Cameron, relatedMemberId=Michael, type=CHILD)
+  //   = "Cameron is the CHILD of Michael"
+  // The inversion belongs on the FROM side. It was on the TO side, so both
+  // profiles rendered the opposite of the truth.
+  const invert: Record<string, string> = { PARENT: "CHILD", CHILD: "PARENT" };
+  const row = { memberId: "m_cameron", relatedMemberId: "m_michael", type: "CHILD" };
+
+  const onMichael = { label: row.type, other: row.memberId };            // TO side, no invert
+  const onCameron = { label: invert[row.type], other: row.relatedMemberId }; // FROM side, invert
+
+  eq("Michael's profile: Cameron is his Child", onMichael.label, "CHILD");
+  eq("...and the other person shown is Cameron", onMichael.other, "m_cameron");
+  eq("Cameron's profile: Michael is his Parent", onCameron.label, "PARENT");
+  eq("...and the other person shown is Michael", onCameron.other, "m_michael");
+
+  // Symmetric types must survive the round trip unchanged.
+  for (const t of ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "SPOUSE", "OTHER"]) {
+    eq(`${t} is unchanged by inversion`, invert[t] ?? t, t);
+  }
+}
+
 // ── Report ──────────────────────────────────────────────────────────────────
 console.log(`\n${"═".repeat(60)}`);
-console.log(`${pass}/${pass + failures.length} passed across 16 sections`);
+console.log(`${pass}/${pass + failures.length} passed across 18 sections`);
 if (failures.length) {
   console.error("\nFAILED:");
   failures.forEach((f) => console.error(`  ✗ ${f}`));

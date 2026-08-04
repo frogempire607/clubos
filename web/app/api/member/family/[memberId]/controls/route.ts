@@ -71,29 +71,50 @@ export async function GET(_req: Request, context: { params: Promise<{ memberId: 
   // read-only: the viewer is already an authorized guardian of the child, so
   // seeing who else co-manages them is exactly what the Co-Guardians card
   // needs. `isPrimary` mirrors lib/guardianLink.isPrimaryGuardian.
-  const [links, childRow] = await Promise.all([
-    prisma.memberGuardianUser.findMany({
-      where: { ...ACTIVE_GUARDIAN_LINK, memberId: child.id },
-      orderBy: { createdAt: "asc" },
-      select: {
-        userId: true,
-        relationship: true,
-        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+  const links = await prisma.memberGuardianUser.findMany({
+    where: { ...ACTIVE_GUARDIAN_LINK, memberId: child.id },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      userId: true,
+      relationship: true,
+      isPrimary: true,
+      canBook: true,
+      canPay: true,
+      canSignWaivers: true,
+      canReceiveEmails: true,
+      createdAt: true,
+      user: {
+        select: {
+          id: true, firstName: true, lastName: true, email: true,
+          memberProfile: { select: { profileImageUrl: true } },
+        },
       },
-    }),
-    prisma.member.findUnique({ where: { id: child.id }, select: { guardianEmail: true } }),
-  ]);
-  // Mirror lib/guardianLink.isPrimaryGuardian exactly — it's an OR: the
-  // guardianEmail-matching user AND the earliest-linked user each count as
-  // primary, so the badge never disagrees with who can actually save.
-  const primaryEmail = childRow?.guardianEmail?.trim().toLowerCase() ?? null;
-  const guardians = links.map((l, i) => ({
+    },
+  });
+
+  // 4C.4 — parents now see the SAME four permissions, with the SAME words, as
+  // staff see on the dashboard. Two vocabularies for one concept is exactly the
+  // drift that let the Lister family break: staff and parent each believed a
+  // different control governed access.
+  //
+  // `isPrimary` is READ FROM THE COLUMN. It used to be re-derived here from
+  // guardianEmail + link order — a second implementation of a rule that now
+  // lives in the database, and one keyed on the very field that was wrong for
+  // Cameron. The badge and the save-gate can no longer disagree.
+  const guardians = links.map((l) => ({
+    linkId: l.id,
     userId: l.userId,
     name: `${l.user.firstName} ${l.user.lastName}`.trim(),
+    profileImageUrl: l.user.memberProfile?.profileImageUrl ?? null,
     relationship: l.relationship,
-    isPrimary:
-      (primaryEmail != null && l.user.email?.trim().toLowerCase() === primaryEmail) || i === 0,
+    isPrimary: l.isPrimary,
     isYou: l.userId === session.user.id,
+    linkedAt: l.createdAt,
+    canBook: l.canBook,
+    canPay: l.canPay,
+    canSignWaivers: l.canSignWaivers,
+    canReceiveEmails: l.canReceiveEmails,
   }));
 
   return NextResponse.json({
@@ -146,6 +167,17 @@ const patchSchema = z.object({
       phone:       z.string().trim().nullable().optional(),
     })
     .optional(),
+  // 4C.4 — the primary guardian may adjust what each CO-guardian can do for
+  // this athlete. Same four flags, same words, as the staff grid.
+  guardianAccess: z
+    .object({
+      linkId:           z.string().min(1),
+      canBook:          z.boolean().optional(),
+      canPay:           z.boolean().optional(),
+      canSignWaivers:   z.boolean().optional(),
+      canReceiveEmails: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 // PATCH /api/member/family/[memberId]/controls
@@ -174,6 +206,52 @@ export async function PATCH(req: Request, context: { params: Promise<{ memberId:
 
   try {
     const data = patchSchema.parse(await req.json());
+
+    // ── Co-guardian permissions ──────────────────────────────────────────────
+    // Only the primary guardian reaches here (gate above). Two further rules:
+    // the link must belong to THIS child, and nobody may edit their own row —
+    // otherwise a co-guardian promoted to primary could quietly grant
+    // themselves back anything the previous primary removed.
+    if (data.guardianAccess) {
+      const ga = data.guardianAccess;
+      const target = await prisma.memberGuardianUser.findFirst({
+        where: { id: ga.linkId, memberId: child.id, ...ACTIVE_GUARDIAN_LINK },
+        select: { id: true, userId: true, isPrimary: true },
+      });
+      if (!target) {
+        return NextResponse.json({ error: "That guardian isn't linked to this athlete." }, { status: 404 });
+      }
+      if (target.userId === session.user.id) {
+        return NextResponse.json(
+          { error: "You can't change your own access. Ask the club if it needs to change." },
+          { status: 403 },
+        );
+      }
+      await prisma.memberGuardianUser.update({
+        where: { id: target.id },
+        data: {
+          ...(ga.canBook !== undefined ? { canBook: ga.canBook } : {}),
+          ...(ga.canPay !== undefined ? { canPay: ga.canPay } : {}),
+          ...(ga.canSignWaivers !== undefined ? { canSignWaivers: ga.canSignWaivers } : {}),
+          ...(ga.canReceiveEmails !== undefined ? { canReceiveEmails: ga.canReceiveEmails } : {}),
+        },
+      });
+      // Staff must be able to see a parent changing another parent's access.
+      await prisma.memberMigrationEvent.create({
+        data: {
+          clubId: session.user.clubId,
+          memberId: child.id,
+          type: "NOTE",
+          actorUserId: session.user.id,
+          message:
+            `Primary guardian updated co-guardian access for link ${target.id}: ` +
+            Object.entries(ga)
+              .filter(([k]) => k !== "linkId")
+              .map(([k, v]) => `${k}=${v}`)
+              .join(", ") + ".",
+        },
+      });
+    }
 
     const update: Prisma.MemberUncheckedUpdateInput = {};
     if (data.birthdayLocked !== undefined) {

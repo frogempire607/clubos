@@ -40,10 +40,20 @@ export const TRANSFERABLE_STATUSES = TRANSFERABLE_SUBSCRIPTION_STATUSES;
 export type UsageSnapshot = {
   attendanceCount: number;
   bookingCount: number;
+  /** Payments under this membership. Recorded, but NEVER counted as usage. */
   transactionCount: number;
   firstUsedAt: string | null;
   lastUsedAt: string | null;
-  /** True when anything at all has happened under this membership. */
+  /**
+   * True when the membership has actually been CONSUMED — attendance or
+   * bookings. Deliberately excludes payments.
+   *
+   * It used to include transactions, which made the warning fire on every
+   * accidental self-purchase (they always have a payment — that's what created
+   * the membership) while displaying "0 attendance, 0 bookings". A warning that
+   * always fires with zeros is one staff learn to click through, which makes
+   * every REAL usage warning worthless.
+   */
   hasUsage: boolean;
 };
 
@@ -115,7 +125,8 @@ export async function usageSnapshotFor(subscriptionId: string): Promise<UsageSna
     transactionCount: transactions,
     firstUsedAt: first?.createdAt.toISOString() ?? null,
     lastUsedAt: last?.createdAt.toISOString() ?? null,
-    hasUsage: attendance > 0 || bookings > 0 || transactions > 0,
+    // Payments are NOT usage — see the type doc above.
+    hasUsage: attendance > 0 || bookings > 0,
   };
 }
 

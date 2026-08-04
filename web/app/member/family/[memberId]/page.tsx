@@ -214,6 +214,32 @@ export default function FamilyControlsPage() {
   }
 
   // Invite a co-guardian (#8b) — owner approves before access is granted.
+  // 4C.4 — the primary guardian adjusts what a CO-guardian can do. Same four
+  // flags, same words, as the club's staff grid. The server re-checks that the
+  // caller is primary and that nobody edits their own row.
+  const [savingAccess, setSavingAccess] = useState(false);
+  async function setGuardianAccess(linkId: string, key: string, next: boolean) {
+    setSavingAccess(true);
+    try {
+      const res = await fetch(`/api/member/family/${params.memberId}/controls`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guardianAccess: { linkId, [key]: next } }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(typeof d.error === "string" ? d.error : "Could not update that.");
+        return;
+      }
+      // Re-read so the grid reflects what the server actually stored, rather
+      // than assuming the write landed as sent.
+      const fresh = await fetch(`/api/member/family/${params.memberId}/controls`);
+      if (fresh.ok) setData(await fresh.json());
+    } finally {
+      setSavingAccess(false);
+    }
+  }
+
   async function inviteGuardian(e: React.FormEvent) {
     e.preventDefault();
     setInvitingGuardian(true);
@@ -376,7 +402,7 @@ export default function FamilyControlsPage() {
         {/* Permissions at a glance — one line, mobile only (the toggle grid
             below is the desktop glance). */}
         <div className="pcard p-4 mb-4 md:hidden">
-          <p className="text-[13px] font-semibold text-stone-900 mb-2">Permissions at a glance</p>
+          <p className="text-[13px] font-semibold text-stone-900 mb-2">What {first} can do — at a glance</p>
           {summaryChips}
         </div>
 
@@ -385,8 +411,8 @@ export default function FamilyControlsPage() {
           <div className="space-y-4 min-w-0">
             <form onSubmit={save} className="pcard p-4">
               <div className="flex items-center justify-between gap-3 mb-3">
-                <h2 className="text-sm font-semibold text-stone-900">Permissions</h2>
-                <span className="text-xs text-stone-400">Applies to {first}&apos;s own portal actions</span>
+                <h2 className="text-sm font-semibold text-stone-900">What {first} can do</h2>
+                <span className="text-xs text-stone-400">{first}&apos;s own portal actions</span>
               </div>
               <PermissionToggleGrid>
                 <ToggleRow
@@ -582,9 +608,15 @@ export default function FamilyControlsPage() {
             <div className="pcard p-4">
               <div className="flex items-center justify-between gap-3 mb-1">
                 <h2 className="text-sm font-semibold text-stone-900">Co-Guardians</h2>
-                <span className="text-xs text-stone-400">Who can manage {first}</span>
+                <span className="text-xs text-stone-400">What each grown-up can do for {first}</span>
               </div>
-              <GuardianList guardians={guardians} />
+              <GuardianList
+                guardians={guardians}
+                childName={first}
+                canEditAccess={!readOnly}
+                busy={savingAccess}
+                onToggle={setGuardianAccess}
+              />
               {/* Invite a co-parent — owner approves before access is granted. */}
               <form onSubmit={inviteGuardian} className="mt-2 pt-2 border-t border-stone-100 space-y-2">
                 <div className="flex gap-2">

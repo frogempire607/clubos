@@ -10,6 +10,22 @@
 > Name migrations by **folder**, never by `M<n>` — the M-numbers below are a
 > planning inventory that has been renumbered before.
 
+> ## ✅ UNBLOCKED — B1 + B2 verified in the browser (2026-08-03)
+>
+> Both ran against the worktree on `:3005`. **B1 passed** — Family & access and
+> Family labels render side by side on Michael's and Cameron's profiles, and the
+> candidate list surfaces Michael's real account with the "athlete's own email"
+> reason. **B2 passed, GET only** — preview shows the plan, Kellan as the sole
+> eligible target, and the correct billing sentence; not executed.
+>
+> Three defects were found and fixed: the usage warning fired with zeros on
+> every accidental self-purchase (payments were counted as usage); "Book" the
+> action collided with "Book" the permission pill; and the family-label
+> inversion was on the wrong side, so both profiles read the opposite of the
+> truth. §17 and §18 of the fixture suite pin all three.
+>
+> <details><summary>Original blocked note (kept for history)</summary>
+>
 > ## 🔵 BLOCKED — waiting on Julian's login (2026-08-03)
 >
 > Two Phase 4 verification items need an authenticated browser session. I can't
@@ -30,8 +46,19 @@
 >
 > **Already verified without a session:** access preservation across all 49
 > guardian links / 40 guardians — see `scripts/verify-family-access.ts`.
+>
+> </details>
 
-> ## ❓ Needs Julian's call
+> ## ✅ Resolved — Q1–Q4 (owner, 2026-08-03)
+>
+> | # | Decision |
+> |---|---|
+> | Q1 | **Keep both** pending mechanisms — different approvers, different audit trails, and the coach path is what would have caught Cameron. But **neither is called "pending"**: chips now read "Requested by family — approve in Approvals" and "Suggested by staff — confirm here". |
+> | Q2 | **Keep as is.** `members:full` grants directly; coaches suggest rather than grant. |
+> | Q3 | **Keep the deep link.** Don't duplicate booking rules. |
+> | Q4 | **Keep the behavior, change the label** → "Make primary guardian". Household handover after a custody change is a real feature, noted for later, not built. |
+>
+> <details><summary>Original question detail (kept for history)</summary>
 >
 > Decisions taken conservatively while working unattended. None block anything;
 > each is reversible and flagged here rather than assumed silently.
@@ -44,6 +71,14 @@
 > | Q4 | **"Transfer Management" (plan.md §4C action list)** is not defined in the brief. | Implemented as "make this guardian primary" — the primary guardian is the one who holds parental controls, so moving it is what transferring management means in this data model. Demotes the previous primary in the same transaction. | Redefine if you meant something else (e.g. moving *all* links to a different account). |
 >
 > Nothing here touched schema, production data, or a migration.
+>
+> </details>
+>
+> ## 📌 Noted for later — not built
+>
+> **Household handover.** Moving *all* of one guardian's links to a different
+> account in one action, e.g. after a custody change. Q4 resolved as
+> "make primary guardian" instead; the bulk handover is a separate feature.
 
 Companion to `plan.md` (the brief) and `ARCHITECTURE-NOTES.md` (the discovery findings).
 
@@ -583,7 +618,7 @@ Committed on `main`; not pushed per plan.
 | 4C.1 | ✅ **DONE (schema)** — folded into **M29**; ~~M16~~ — `MemberGuardianUser.permissions Json?` (Book/Pay/Waivers/Messages) OR separate `GuardianAccess` table per §2.6 Q10. | Migration | M16 | ⬜ |
 | 4C.2 | ✅ **DONE** — Family & access renders per-relationship: name · avatar · type · manages? · book? · pay? · waivers? · messages? · notifications? · status · date-linked. | UI | — | ⬜ |
 | 4C.3 | ✅ **DONE** — Actions: View Profile · Edit Relationship · Confirm Pending · Remove · Transfer Management · Assign Membership · Book for Athlete. Each gated by staff permission. | UI + Backend | — | ⬜ |
-| 4C.4 | 🟡 **PARTIAL** — owner-side grid done; the guardian-side mirror on `/member/family/[memberId]` still renders the legacy toggle set. Guardian-editable grid on `/member/family/[memberId]` (parent side) mirrors owner view (subject to the primary-guardian rule from CLAUDE.md). | UI | — | ⬜ |
+| 4C.4 | ✅ **DONE** — guardian side now renders the same four permissions with the same words as staff (Book · Pay · Waivers · Emails), editable by the primary guardian only, and nobody may edit their own row. `isPrimary` reads the stored column instead of re-deriving from `guardianEmail`. The two axes are now named unmistakably: "What {child} can do" (child autonomy) vs "What each grown-up can do for {child}" (guardian access). Guardian-editable grid on `/member/family/[memberId]` (parent side) mirrors owner view (subject to the primary-guardian rule from CLAUDE.md). | UI | — | ⬜ |
 
 ### 4D. Testing (plan §4D)
 

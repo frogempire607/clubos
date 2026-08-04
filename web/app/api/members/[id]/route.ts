@@ -118,10 +118,22 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   // in one payload but under clearly separate keys is deliberate: presenting
   // MemberRelationship as if it were a family link is exactly what made the
   // Lister case unfixable from the dashboard.
+  // `type` describes the ROW OWNER's role relative to the related member:
+  // (memberId=Cameron, relatedMemberId=Michael, type=CHILD) means
+  // "Cameron is the CHILD of Michael".
+  //
+  // So the inversion belongs on the FROM side, not the TO side — it was
+  // backwards, and rendered "Michael Lister — Child" on Cameron's profile and
+  // "Cameron Lister — Parent" on Michael's. Both read as the opposite of the
+  // truth. Fixed on READ only: the stored rows are internally consistent and
+  // need no migration (2 rows exist club-wide, both CHILD).
+  //
+  //   viewing Michael (he is `related`)  → other = Cameron, label = CHILD
+  //   viewing Cameron (he is `member`)   → other = Michael, label = PARENT
   const invert: Record<string, string> = { PARENT: "CHILD", CHILD: "PARENT" };
   const relationships = [
-    ...member.relationshipsFrom.map((r) => ({ id: r.id, type: r.type, note: r.note, other: r.related })),
-    ...member.relationshipsTo.map((r) => ({ id: r.id, type: invert[r.type] ?? r.type, note: r.note, other: r.member })),
+    ...member.relationshipsFrom.map((r) => ({ id: r.id, type: invert[r.type] ?? r.type, note: r.note, other: r.related })),
+    ...member.relationshipsTo.map((r) => ({ id: r.id, type: r.type, note: r.note, other: r.member })),
   ];
 
   // Phase 4B — the read gap. Guardians of this member, athletes this member's

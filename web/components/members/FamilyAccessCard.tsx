@@ -412,8 +412,8 @@ export default function FamilyAccessCard({
                       </button>
                     )}
                     {canManage && !pending && !g.isPrimary && (
-                      <button disabled={busy} onClick={() => call("PATCH", { linkId: g.linkId, makePrimary: true })} className="text-xs text-text-muted hover:text-text-primary disabled:opacity-50" title="Move parental controls to this guardian">
-                        Transfer management
+                      <button disabled={busy} onClick={() => call("PATCH", { linkId: g.linkId, makePrimary: true })} className="text-xs text-text-muted hover:text-text-primary disabled:opacity-50" title="Parental controls move to this guardian">
+                        Make primary guardian
                       </button>
                     )}
                     {canManage && (
@@ -479,7 +479,7 @@ export default function FamilyAccessCard({
                     <div className="shrink-0 flex flex-wrap justify-end gap-x-2.5 gap-y-1">
                       {caps?.canBookForAthlete && (
                         <Link href={`/dashboard/attendance?memberId=${m.memberId}`} className="text-xs text-text-muted hover:text-text-primary inline-flex items-center gap-1">
-                          <CalendarPlus className="h-3 w-3" strokeWidth={2} /> Book
+                          <CalendarPlus className="h-3 w-3" strokeWidth={2} /> Book a class
                         </Link>
                       )}
                       {caps?.canTransferMembership && m.transferableSubscriptionId && onAssignMembership && (
