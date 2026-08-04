@@ -10,6 +10,7 @@ import {
   AWAITING_OFFLINE_STATUSES,
 } from "@/lib/eventPayments";
 import { publicFixedPrice } from "@/lib/eventPricing";
+import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 
 // The lazy charge sweep below talks to Stripe, so this GET can outlive the
 // default serverless limit. It stays deliberately small (see the sweep call) —
@@ -59,11 +60,30 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   // open or by /api/cron/event-charges.
   await runDueEventCharges({ clubId: session.user.clubId, eventId: event.id, limit: 3 });
 
-  const registrations = await prisma.eventRegistration.findMany({
+  const rows = await prisma.eventRegistration.findMany({
     where: { eventId: event.id },
     orderBy: { createdAt: "asc" },
-    include: { member: { select: { id: true, firstName: true, lastName: true } } },
+    include: {
+      member: {
+        // isMinor + guardianName drive the roster's inline "add an email"
+        // repair: a minor's address belongs on the guardian fields, and the
+        // member PATCH rejects a guardian email with no guardian name.
+        select: { id: true, firstName: true, lastName: true, isMinor: true, guardianName: true },
+      },
+    },
   });
+
+  // Where each invoice would ACTUALLY go. EventRegistration.email is a
+  // snapshot from row-creation time and is empty for any minor without a
+  // personal address — rendering it raw showed a blank Contact cell for
+  // families who all have deliverable guardian addresses, and staff read that
+  // as "no email on file". Resolved through the Phase 3E family model so the
+  // roster preview and the send agree.
+  const recipients = await resolveRegistrationRecipients(session.user.clubId, rows);
+  const registrations = rows.map((r) => ({
+    ...r,
+    recipient: recipients.get(r.id) ?? null,
+  }));
 
   // An abandoned card checkout (PENDING_PAYMENT) is not a registration —
   // it holds no spot and owes nothing until the client completes it.

@@ -2011,13 +2011,24 @@ type RegistrationRow = {
   invoiceCount: number;
   formResponses: Record<string, string | boolean>;
   createdAt: string;
-  member: { id: string; firstName: string; lastName: string } | null;
+  member: { id: string; firstName: string; lastName: string; isMinor?: boolean; guardianName?: string | null } | null;
   paymentMethod: string | null;
   scheduledChargeAt: string | null;
   lastChargeError: string | null;
   paidAt: string | null;
   paidVia: string | null;
   checkReference: string | null;
+  // Where an invoice for this row would actually be sent, resolved server-side
+  // through the shared family model. Never trust `email` for display — it's a
+  // snapshot from row-creation and is blank for minors without their own
+  // address.
+  recipient: {
+    email: string | null;
+    source: "REGISTRATION" | "MEMBER_FAMILY" | null;
+    displayName: string | null;
+    reason: string | null;
+    fixMemberId: string | null;
+  } | null;
 };
 type RegFormField = { id: string; label: string };
 
@@ -2065,7 +2076,10 @@ type RegistrationsData = {
 type InvoiceLine = {
   registrationId: string;
   name: string;
-  email: string;
+  email: string | null;
+  emailSource: "REGISTRATION" | "MEMBER_FAMILY" | null;
+  emailDisplayName: string | null;
+  emailReason: string | null;
   recorded: number | null;
   amount: number;
   expected: number;
@@ -2100,6 +2114,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   // default — a canceled row in the list is what made "who am I actually
   // invoicing?" unanswerable.
   const [showRemoved, setShowRemoved] = useState(false);
+  const [fixingEmail, setFixingEmail] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -2156,6 +2171,56 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
     setRecording(null);
     if (!res.ok) { setErr(typeof d.error === "string" ? d.error : "Could not record the payment."); return; }
     setMsg(`Recorded $${due.toFixed(2)} from ${r.name} — receipt sent.`);
+    load();
+  }
+
+  // Fix a missing address without leaving the roster. Writes the guardian
+  // email on the member record (the club's one contact model), so it fixes
+  // every future send for that family, not just this invoice.
+  async function addRecipientEmail(r: RegistrationRow) {
+    const memberId = r.recipient?.fixMemberId;
+    if (!memberId) return;
+    const entered = window.prompt(
+      `Email address for ${r.name} (a parent/guardian address is fine — it's where their invoice and receipt will go):`,
+      "",
+    );
+    const email = (entered ?? "").trim();
+    if (!email) return;
+    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email)) {
+      setErr(`"${email}" doesn't look like an email address.`);
+      return;
+    }
+    // A minor's address lives on the guardian fields; an adult's on their own.
+    // The member PATCH refuses a guardian email with no guardian name, so ask
+    // for it rather than inventing one.
+    const isMinor = r.member?.isMinor !== false;
+    const payload: Record<string, string> = isMinor ? { guardianEmail: email } : { email };
+    if (isMinor && !r.member?.guardianName) {
+      const who = window.prompt(`Parent/guardian name for ${r.name}:`, "");
+      const name = (who ?? "").trim();
+      if (!name) {
+        setErr(`A parent/guardian name is required to save an email for ${r.name}.`);
+        return;
+      }
+      payload.guardianName = name;
+    }
+
+    setFixingEmail(r.id);
+    setMsg("");
+    setErr("");
+    const res = await fetch(`/api/members/${memberId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    setFixingEmail(null);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setErr(typeof d.error === "string" ? d.error : "Could not save that email.");
+      return;
+    }
+    setPreview(null);
+    setMsg(`Saved ${email} for ${r.name}. Their invoice will go there.`);
     load();
   }
 
@@ -2415,6 +2480,15 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                           <tr key={l.registrationId} className="border-b border-app-border last:border-0">
                             <td className="py-1.5">
                               <span className="text-text-primary">{l.name}</span>
+                              {l.email ? (
+                                <span className="block text-[10px] text-text-muted break-all">
+                                  → {l.email}
+                                </span>
+                              ) : (
+                                <span className="block text-[10px] text-orange-700">
+                                  {l.emailReason ?? "No email on file"} — will be skipped
+                                </span>
+                              )}
                               {l.mismatch && (
                                 <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-orange-accent/20 text-text-primary">
                                   not ${l.expected.toFixed(2)}
@@ -2618,8 +2692,37 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                               {r.member && <p className="text-[10px] text-brand">Member</p>}
                             </td>
                             <td className="py-2.5 text-text-muted text-xs">
-                              <p>{r.email}</p>
-                              {r.phone && <p>{r.phone}</p>}
+                              {r.recipient?.email ? (
+                                <>
+                                  <p className="text-[10px] text-text-muted">
+                                    {r.invoiceCount > 0 ? "Sent to" : "Will send to"}
+                                  </p>
+                                  <p className="text-text-primary break-all">{r.recipient.email}</p>
+                                  {r.recipient.source === "MEMBER_FAMILY" && (
+                                    <p className="text-[10px] text-text-muted">
+                                      {r.recipient.displayName
+                                        ? `${r.recipient.displayName} · from member record`
+                                        : "guardian · from member record"}
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-orange-700">
+                                    {r.recipient?.reason ?? "No email on file"}
+                                  </p>
+                                  {r.recipient?.fixMemberId && (
+                                    <button
+                                      onClick={() => addRecipientEmail(r)}
+                                      disabled={fixingEmail === r.id}
+                                      className="text-[10px] text-brand hover:underline disabled:opacity-50"
+                                    >
+                                      {fixingEmail === r.id ? "Saving…" : "Add an email"}
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              {r.phone && <p className="mt-1">{r.phone}</p>}
                             </td>
                             {customFields.map((f) => (
                               <td key={f.id} className="py-2.5 text-text-primary text-xs">

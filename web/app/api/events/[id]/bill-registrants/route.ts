@@ -10,6 +10,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicFixedPrice } from "@/lib/eventPricing";
 import { amountToCollect, expectedAmount } from "@/lib/eventRepricing";
 import { requirePermission } from "@/lib/apiGuard";
+import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 
 const bodySchema = z.object({
   // Re-invoice registrants who were already invoiced (still skips PAID).
@@ -180,8 +181,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // it can legitimately be a per-registrant price — but a figure that differs
   // from the event's own price is surfaced, not silently emailed. That silent
   // path is what mailed five families $533.33 for a $450 camp.
+  // Where each link actually goes. This used to read `reg.email` directly and
+  // refuse the row when it was blank — which is every minor with no personal
+  // address, whose guardian email was on the member record the whole time.
+  const recipients = await resolveRegistrationRecipients(event.clubId, targets);
+
   const eventExpected = isVariable ? (perHead as number) : expectedAmount(event, activeCount);
   const lines = targets.map((reg) => {
+    const recipient = recipients.get(reg.id) ?? null;
     const amount = isVariable ? (perHead as number) : amountToCollect(event, reg, activeCount);
     const feeCents = event.club.passProcessingFees
       ? computeProcessingFeeCents(Math.round(amount * 100))
@@ -189,7 +196,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return {
       registrationId: reg.id,
       name: reg.name,
-      email: reg.email,
+      email: recipient?.email ?? null,
+      emailSource: recipient?.source ?? null,
+      emailDisplayName: recipient?.displayName ?? null,
+      emailReason: recipient?.reason ?? null,
       status: reg.status,
       recorded: reg.amountDue == null ? null : Number(reg.amountDue),
       amount,
@@ -283,8 +293,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       skipped++;
       continue;
     }
-    if (!reg.email) {
-      errors.push(`${reg.name}: no email on file`);
+    const recipientEmail = recipients.get(reg.id)?.email ?? null;
+    if (!recipientEmail) {
+      errors.push(`${reg.name}: ${recipients.get(reg.id)?.reason ?? "no email on file"}`);
       continue;
     }
     // Resolved above (one model for every surface) — never recomputed here,
@@ -299,7 +310,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const checkout = await stripe.checkout.sessions.create(
         {
           mode: "payment",
-          customer_email: reg.email,
+          customer_email: recipientEmail,
           line_items: [
             {
               quantity: 1,
@@ -345,7 +356,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
       try {
         await sendEmail({
-          to: reg.email,
+          to: recipientEmail,
           subject: `Payment due for ${event.name}`,
           html: `
             <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto">
@@ -364,7 +375,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
       billed++;
     } catch (e) {
-      errors.push(`${reg.email}: ${String(e)}`);
+      errors.push(`${reg.name} (${recipientEmail}): ${String(e)}`);
     }
   }
 
