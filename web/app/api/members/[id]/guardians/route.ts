@@ -288,7 +288,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       pending: grant === GUARDIAN_LINK_STATUS.PENDING,
       message:
         grant === GUARDIAN_LINK_STATUS.PENDING
-          ? `Proposed. ${who} gets no access until someone with full member permissions confirms it.`
+          ? `Suggested. ${who} gets no access until someone with full member permissions confirms it.`
           : `${who} can now manage this athlete.`,
     },
     { status: 201 },

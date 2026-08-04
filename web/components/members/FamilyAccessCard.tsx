@@ -11,7 +11,11 @@
 // The vocabulary is deliberate and never blurred:
 //   "Can sign in and manage" → a guardian link. Real access.
 //   "Family label"           → a MemberRelationship. Says nothing about access.
-//   "Proposed"               → a PENDING link. Grants NOTHING until confirmed.
+//   "Suggested by staff"     → a PENDING link. Grants NOTHING until confirmed.
+//
+// Neither pending state is ever labelled just "pending" (owner call, 2026-08-03):
+// a family request and a staff suggestion resolve in different places, so each
+// chip says who asked AND where it gets resolved.
 //
 // Every action is gated by server-resolved `capabilities`, never by a
 // client-side guess, so the UI can't offer something the API would refuse.
@@ -138,8 +142,11 @@ function PermPills({ row }: { row: Record<string, unknown> }) {
 function StatusChip({ status }: { status: string }) {
   if (status === "PENDING") {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-orange-accent/15 text-orange-accent font-medium">
-        <Clock className="h-2.5 w-2.5" strokeWidth={2.5} /> Proposed — no access yet
+      <span
+        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-orange-accent/15 text-orange-accent font-medium"
+        title="A staff member suggested this link. It grants nothing until someone with full member permissions confirms it here."
+      >
+        <Clock className="h-2.5 w-2.5" strokeWidth={2.5} /> Suggested by staff — confirm here
       </span>
     );
   }
@@ -217,7 +224,7 @@ export default function FamilyAccessCard({
 
   async function revoke(linkId: string, name: string, pending: boolean) {
     const msg = pending
-      ? `Withdraw the proposal to give ${name} access to ${memberName}?`
+      ? `Withdraw the suggestion to give ${name} access to ${memberName}?`
       : `Remove ${name}'s access to ${memberName}?\n\nThey will no longer be able to book, pay, sign, or see this athlete. The record of the link is kept so the change stays auditable.`;
     if (!confirm(msg)) return;
     await call("DELETE", undefined, `?linkId=${linkId}`);
@@ -244,7 +251,7 @@ export default function FamilyAccessCard({
             className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-brand hover:underline"
           >
             <UserPlus className="h-3.5 w-3.5" strokeWidth={2} />
-            {caps?.canGrantLink ? "Give someone access" : "Propose access"}
+            {caps?.canGrantLink ? "Give someone access" : "Suggest access"}
           </button>
         )}
       </div>
@@ -267,8 +274,8 @@ export default function FamilyAccessCard({
 
           {!caps?.canGrantLink && (
             <p className="text-[11px] text-orange-accent mb-2">
-              Your access lets you propose a link. It grants nothing until someone with full member
-              permissions confirms it.
+              Your access lets you suggest a link. It grants nothing until someone with full member
+              permissions confirms it here.
             </p>
           )}
 
@@ -319,7 +326,7 @@ export default function FamilyAccessCard({
                     onClick={() => call("POST", { userId: c.userId, relationship: relationship || null }).then((ok) => ok && setAdding(false))}
                     className="shrink-0 text-xs px-2 py-1 rounded-md bg-charcoal text-white hover:bg-charcoal-hover disabled:opacity-50"
                   >
-                    {caps?.canGrantLink ? "Give access" : "Propose"}
+                    {caps?.canGrantLink ? "Give access" : "Suggest"}
                   </button>
                 </li>
               ))}
@@ -333,7 +340,7 @@ export default function FamilyAccessCard({
         <div className="mb-4 rounded-lg border border-orange-accent/40 bg-orange-accent/5 p-3">
           <p className="text-xs font-medium text-text-primary flex items-center gap-1.5 mb-1.5">
             <Clock className="h-3.5 w-3.5 text-orange-accent" strokeWidth={2} />
-            Requested by the family — waiting for approval
+            Requested by family — approve in Approvals
           </p>
           <ul className="space-y-1">
             {requests.map((p) => (
@@ -359,7 +366,7 @@ export default function FamilyAccessCard({
             <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-orange-accent" strokeWidth={2} />
             <span>
               Nobody can manage this athlete yet. A family label below is <strong>not</strong> access — if a
-              parent should see this athlete in their portal, use &ldquo;{caps?.canGrantLink ? "Give someone access" : "Propose access"}&rdquo;.
+              parent should see this athlete in their portal, use &ldquo;{caps?.canGrantLink ? "Give someone access" : "Suggest access"}&rdquo;.
             </span>
           </p>
         </div>
