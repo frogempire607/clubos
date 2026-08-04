@@ -5,9 +5,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
+import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { validateMemberContact } from "@/lib/memberValidation";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -48,7 +50,7 @@ export async function GET(req: Request) {
       // Cheap existence probe: one linked guardian portal user is enough for
       // the roster's "Profile completed" derivation (minors whose guardian
       // registered count as completed even without their own login).
-      guardianLinks: { select: { id: true }, take: 1 },
+      guardianLinks: { where: ACTIVE_GUARDIAN_LINK, select: { id: true }, take: 1 },
     },
   });
 
@@ -204,11 +206,17 @@ export async function POST(req: Request) {
           where: { userId_memberId: { userId: guardianUser.id, memberId: member.id } },
           update: {},
           create: {
+            clubId: session.user.clubId,
             userId: guardianUser.id,
             memberId: member.id,
             relationship: data.guardianRelationship || null,
+            status: "CONFIRMED",
+            source: "OWNER_VOUCHED",
+            createdByUserId: session.user.id,
+            confirmedAt: new Date(),
           },
         });
+        await ensurePrimaryGuardian(member.id);
       }
     }
 

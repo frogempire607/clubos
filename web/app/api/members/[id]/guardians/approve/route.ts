@@ -118,7 +118,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       prisma.memberGuardianUser.upsert({
         where: { userId_memberId: { userId: payload.requestingUserId, memberId: id } },
         update: { relationship: payload.relationship ?? null },
-        create: { userId: payload.requestingUserId, memberId: id, relationship: payload.relationship ?? null },
+        create: {
+          clubId: session!.user.clubId,
+          userId: payload.requestingUserId,
+          memberId: id,
+          relationship: payload.relationship ?? null,
+          status: "CONFIRMED",
+          source: "APPROVAL",
+          createdByUserId: session!.user.id,
+          confirmedAt: new Date(),
+        },
       }),
       prisma.pendingApproval.update({
         where: { id: approval.id },

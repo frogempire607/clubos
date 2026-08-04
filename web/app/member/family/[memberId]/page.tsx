@@ -17,6 +17,7 @@ import AthleteRail, { useAthleteProfiles } from "@/components/member/AthleteRail
 import PermissionToggleGrid, { ToggleRow } from "@/components/member/PermissionToggleGrid";
 import GuardianList, { type GuardianEntry } from "@/components/member/GuardianList";
 import InvoiceSplit from "@/components/member/InvoiceSplit";
+import TransferMembershipModal from "@/components/members/TransferMembershipModal";
 
 type Controls = {
   requirePaymentApproval?: boolean;
@@ -75,6 +76,7 @@ export default function FamilyControlsPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
   const [moveTo, setMoveTo] = useState<Record<string, string>>({});
+  const [transferringSubId, setTransferringSubId] = useState<string | null>(null);
   const [movingKey, setMovingKey] = useState<string | null>(null);
   const [purchaseMsg, setPurchaseMsg] = useState("");
   // Athlete details (#12) — parent edits name/DOB/contact.
@@ -212,6 +214,32 @@ export default function FamilyControlsPage() {
   }
 
   // Invite a co-guardian (#8b) — owner approves before access is granted.
+  // 4C.4 — the primary guardian adjusts what a CO-guardian can do. Same four
+  // flags, same words, as the club's staff grid. The server re-checks that the
+  // caller is primary and that nobody edits their own row.
+  const [savingAccess, setSavingAccess] = useState(false);
+  async function setGuardianAccess(linkId: string, key: string, next: boolean) {
+    setSavingAccess(true);
+    try {
+      const res = await fetch(`/api/member/family/${params.memberId}/controls`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guardianAccess: { linkId, [key]: next } }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(typeof d.error === "string" ? d.error : "Could not update that.");
+        return;
+      }
+      // Re-read so the grid reflects what the server actually stored, rather
+      // than assuming the write landed as sent.
+      const fresh = await fetch(`/api/member/family/${params.memberId}/controls`);
+      if (fresh.ok) setData(await fresh.json());
+    } finally {
+      setSavingAccess(false);
+    }
+  }
+
   async function inviteGuardian(e: React.FormEvent) {
     e.preventDefault();
     setInvitingGuardian(true);
@@ -374,7 +402,7 @@ export default function FamilyControlsPage() {
         {/* Permissions at a glance — one line, mobile only (the toggle grid
             below is the desktop glance). */}
         <div className="pcard p-4 mb-4 md:hidden">
-          <p className="text-[13px] font-semibold text-stone-900 mb-2">Permissions at a glance</p>
+          <p className="text-[13px] font-semibold text-stone-900 mb-2">What {first} can do — at a glance</p>
           {summaryChips}
         </div>
 
@@ -383,8 +411,8 @@ export default function FamilyControlsPage() {
           <div className="space-y-4 min-w-0">
             <form onSubmit={save} className="pcard p-4">
               <div className="flex items-center justify-between gap-3 mb-3">
-                <h2 className="text-sm font-semibold text-stone-900">Permissions</h2>
-                <span className="text-xs text-stone-400">Applies to {first}&apos;s own portal actions</span>
+                <h2 className="text-sm font-semibold text-stone-900">What {first} can do</h2>
+                <span className="text-xs text-stone-400">{first}&apos;s own portal actions</span>
               </div>
               <PermissionToggleGrid>
                 <ToggleRow
@@ -580,9 +608,15 @@ export default function FamilyControlsPage() {
             <div className="pcard p-4">
               <div className="flex items-center justify-between gap-3 mb-1">
                 <h2 className="text-sm font-semibold text-stone-900">Co-Guardians</h2>
-                <span className="text-xs text-stone-400">Who can manage {first}</span>
+                <span className="text-xs text-stone-400">What each grown-up can do for {first}</span>
               </div>
-              <GuardianList guardians={guardians} />
+              <GuardianList
+                guardians={guardians}
+                childName={first}
+                canEditAccess={!readOnly}
+                busy={savingAccess}
+                onToggle={setGuardianAccess}
+              />
               {/* Invite a co-parent — owner approves before access is granted. */}
               <form onSubmit={inviteGuardian} className="mt-2 pt-2 border-t border-stone-100 space-y-2">
                 <div className="flex gap-2">
@@ -732,6 +766,7 @@ export default function FamilyControlsPage() {
               >
                 <p className="text-xs text-stone-500 mb-3">
                   Bought something under the wrong athlete? Move it to the right profile.
+                  Moving a membership doesn&apos;t change who pays — and the club confirms it first.
                 </p>
                 <div className="space-y-2">
                   {purchases.map((p) => {
@@ -742,24 +777,42 @@ export default function FamilyControlsPage() {
                           <p className="text-sm text-stone-800 truncate">{p.label}</p>
                           <p className="text-[11px] text-stone-400">{p.type === "subscription" ? "Membership" : "Product"} · {p.status}</p>
                         </div>
-                        <select
-                          value={moveTo[key] ?? ""}
-                          onChange={(e) => setMoveTo((s) => ({ ...s, [key]: e.target.value }))}
-                          className="text-sm px-2 py-1.5 border border-stone-300 rounded-lg"
-                        >
-                          <option value="">Move to…</option>
-                          {targets.map((t) => (
-                            <option key={t.id} value={t.id}>{t.firstName} {t.lastName}{t.kind === "self" ? " (you)" : ""}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => reassign(p)}
-                          disabled={!moveTo[key] || movingKey === key}
-                          className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-40 whitespace-nowrap"
-                        >
-                          {movingKey === key ? "Moving…" : "Move"}
-                        </button>
+                        {/* Memberships go through the transfer flow: it shows
+                            what happens to the payment, takes an explicit
+                            acknowledgement, and files for club approval instead
+                            of silently repointing a live Stripe subscription.
+                            Products keep the simple inline move — no recurring
+                            billing relationship to get wrong. */}
+                        {p.type === "subscription" ? (
+                          <button
+                            type="button"
+                            onClick={() => setTransferringSubId(p.id)}
+                            className="text-xs px-3 py-1.5 rounded-lg bg-stone-900 text-white hover:bg-stone-800 whitespace-nowrap"
+                          >
+                            Move this membership
+                          </button>
+                        ) : (
+                          <>
+                            <select
+                              value={moveTo[key] ?? ""}
+                              onChange={(e) => setMoveTo((s) => ({ ...s, [key]: e.target.value }))}
+                              className="text-sm px-2 py-1.5 border border-stone-300 rounded-lg"
+                            >
+                              <option value="">Move to…</option>
+                              {targets.map((t) => (
+                                <option key={t.id} value={t.id}>{t.firstName} {t.lastName}{t.kind === "self" ? " (you)" : ""}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => reassign(p)}
+                              disabled={!moveTo[key] || movingKey === key}
+                              className="text-xs px-3 py-1.5 border border-stone-300 rounded-lg text-stone-700 hover:bg-stone-50 disabled:opacity-40 whitespace-nowrap"
+                            >
+                              {movingKey === key ? "Moving…" : "Move"}
+                            </button>
+                          </>
+                        )}
                       </div>
                     );
                   })}
@@ -774,6 +827,19 @@ export default function FamilyControlsPage() {
           </div>
         </div>
       </div>
+
+      {transferringSubId && (
+        <TransferMembershipModal
+          subscriptionId={transferringSubId}
+          onClose={() => setTransferringSubId(null)}
+          onDone={() => {
+            setTransferringSubId(null);
+            fetch(`/api/member/family/${params.memberId}/purchases`)
+              .then((r) => (r.ok ? r.json() : { purchases: [], targets: [] }))
+              .then((d) => { setPurchases(d.purchases || []); setTargets(d.targets || []); });
+          }}
+        />
+      )}
     </div>
   );
 }

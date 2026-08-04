@@ -49,3 +49,43 @@ Two gotchas that already bit us:
   `?pgbouncer=true`) for the app.
 - Julian runs all database commands from his own terminal. The Claude Code
   sandbox cannot reach the database.
+
+### Say which checkout you're working in — up front
+
+Sessions often run in a **git worktree**, not the main checkout. Migrations,
+`.env`, and `node_modules` are per-worktree, so "I applied the migration" and
+"the migration isn't there" can both be true at once — that exact confusion cost
+a round-trip on 2026-08-02.
+
+**In the first message of any session that writes a migration or a script Julian
+will run, state the absolute path and branch**, e.g.:
+
+> Working in `web/.claude/worktrees/nifty-pasteur-1ecb47` on branch
+> `claude/phase-4-account-bugs-5a03fa`. Apply from there:
+> `cd <that path>/web && npx prisma migrate deploy`
+
+Also: **`M<n>` numbers in `docs/improvement/PROGRESS.md` are a planning
+inventory, not identifiers.** Several are reserved for unbuilt work and have
+been renumbered before. Always name the migration by its **folder**
+(`20260803000000_family_accounts`) when asking for it to be applied.
+
+### Supabase MCP is READ-ONLY
+
+The Supabase MCP connects directly to **production**. Unless Julian explicitly
+says otherwise **in that session**, it is for `SELECT` only.
+
+- **No DDL of any kind.** No `CREATE`/`DROP`/`ALTER` on tables, indexes, types,
+  functions, or policies.
+- **No `CREATE EXTENSION` / `DROP EXTENSION`.** If a query needs an extension
+  that isn't installed, write the logic in TypeScript instead. (This rule
+  exists because a session created `fuzzystrmatch` to use `levenshtein()`
+  during a read-only diagnosis on 2026-08-02. It was dropped immediately and
+  nothing was harmed, but it should never have been run.)
+- **No writes.** No `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `UPSERT`, or
+  `apply_migration`.
+- **Data corrections never go through MCP.** They go in a script that is
+  **dry-run by default**, requires an explicit allowlist to act, and that
+  **Julian runs from his own terminal** — e.g. `scripts/fix-family-links.ts`,
+  `scripts/fix-status-truth.ts`.
+- Reading production to diagnose real records is encouraged — that is what the
+  MCP is for. Anything that changes state is Julian's to run.

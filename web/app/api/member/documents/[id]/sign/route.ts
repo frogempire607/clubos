@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { isValidSignatureDataUrl } from "@/lib/signature";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 const schema = z.object({
   memberId: z.string().optional(),
@@ -47,7 +48,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       firstName: true,
       lastName: true,
       memberProfile: { select: { id: true, isMinor: true } },
-      guardianOf: { select: { member: { select: { id: true, isMinor: true } } } },
+      guardianOf: { where: ACTIVE_GUARDIAN_LINK, select: { member: { select: { id: true, isMinor: true } } } },
     },
   });
   if (!viewer) return NextResponse.json({ error: "Not found" }, { status: 404 });

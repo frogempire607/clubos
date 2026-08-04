@@ -12,6 +12,7 @@ import { sendPaymentReceiptEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import type Stripe from "stripe";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // Attendance "Charge saved card" — a REAL Stripe charge on the club's
 // connected account against the family's saved payment method.
@@ -94,6 +95,7 @@ export async function GET(req: Request) {
       stripeSetupPaymentMethodId: true,
       stripeCustomerId: true,
       guardianLinks: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: {
           user: { select: { id: true, firstName: true, lastName: true, email: true } },
           relationship: true,

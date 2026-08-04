@@ -8,6 +8,7 @@ import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { readPreviewCookie, canStartPreview } from "@/lib/preview";
 import { trialCoversClass } from "@/lib/freeTrial";
 import { wallClockNowUTC } from "@/lib/datetime";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
@@ -30,6 +31,7 @@ async function resolveMemberContext(userId: string, clubId: string, requestedMem
       email: true,
       memberProfile: { select: { id: true, firstName: true, lastName: true, status: true, trialEndsAt: true } },
       guardianOf: {
+        where: ACTIVE_GUARDIAN_LINK,
         select: { member: { select: { id: true, firstName: true, lastName: true, status: true, trialEndsAt: true } } },
       },
     },

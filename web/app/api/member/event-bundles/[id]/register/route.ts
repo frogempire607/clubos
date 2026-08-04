@@ -18,6 +18,7 @@ import {
   chargeBundlePurchaseSavedCard,
 } from "@/lib/bundlePurchases";
 import { documentsForEvent, EVENT_DOC_REQUIREMENT_LABELS } from "@/lib/eventDocuments";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 const schema = z.object({
   memberId: z.string().optional(),
@@ -29,7 +30,7 @@ const schema = z.object({
 async function resolveMember(userId: string, clubId: string, email: string, requestedMemberId?: string) {
   const self = await findOrAutoLinkMember(userId, clubId, email);
   const guardianships = await prisma.memberGuardianUser.findMany({
-    where: { userId, member: { clubId } },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId, member: { clubId } },
     include: { member: true },
   });
   const accessible = [...(self ? [self] : []), ...guardianships.map((g) => g.member)];

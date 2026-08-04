@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, hasBillingSubScope } from "@/lib/permissions";
+import { MEMBERSHIP_TRANSFER_KIND } from "@/lib/membershipTransferKind";
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 import {
   MEMBERSHIP_CANCEL_KIND,
@@ -37,6 +38,17 @@ type Payload = {
   responderUserId?: string;
   proposerPercent?: number;
   responderPercent?: number;
+  // MEMBERSHIP_TRANSFER (Phase 4A)
+  planName?: string;
+  fromMemberId?: string;
+  fromMemberName?: string;
+  toMemberId?: string;
+  toMemberName?: string | null;
+  isLiveStripe?: boolean;
+  acknowledgedBillingNote?: string | null;
+  usageSnapshot?: unknown;
+  requestedByUserId?: string;
+  payerUserIdAtRequest?: string | null;
 };
 
 export async function GET() {
@@ -57,6 +69,12 @@ export async function GET() {
   }
   if (isOwner || hasPermission(perms, "finances", "view")) {
     kinds.push(MEMBERSHIP_CANCEL_KIND, MEMBERSHIP_PURCHASE_KIND, PRIVATE_PACKAGE_PURCHASE_KIND);
+  }
+  // A client-requested membership transfer is reviewed by whoever may perform
+  // one, so it rides the same gate as the action itself rather than a broader
+  // finances:view — see /api/member-subscriptions/[id]/transfer.
+  if (isOwner || hasBillingSubScope(perms, "transfer_subscription")) {
+    kinds.push(MEMBERSHIP_TRANSFER_KIND);
   }
   if (kinds.length === 0) return NextResponse.json({ approvals: [] });
 
@@ -195,6 +213,26 @@ export async function GET() {
         paymentMethod: p.paymentMethod ?? null,
         amount: r.amount != null ? Number(r.amount) : null,
         discountCode: p.discountCode ?? null,
+      };
+    }
+    if (r.kind === MEMBERSHIP_TRANSFER_KIND) {
+      return {
+        id: r.id,
+        kind: r.kind,
+        memberId: r.memberId,
+        memberName,
+        requestedAt: r.requestedAt,
+        requester,
+        planName: p.planName ?? "Membership",
+        optionLabel: p.optionLabel ?? null,
+        fromMemberName: p.fromMemberName ?? memberName,
+        toMemberId: p.toMemberId ?? null,
+        toMemberName: p.toMemberName ?? null,
+        subscriptionId: p.subscriptionId ?? null,
+        isLiveStripe: !!p.isLiveStripe,
+        acknowledgedBillingNote: p.acknowledgedBillingNote ?? null,
+        usageSnapshot: p.usageSnapshot ?? null,
+        reason: p.reason ?? null,
       };
     }
     // MEMBERSHIP_CANCEL

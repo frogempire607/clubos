@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // POST /api/member/privates/partner-response/[partnerId]
 // The invited MEMBER partner (or one of their linked guardians) confirms or
@@ -20,7 +21,7 @@ export async function POST(req: Request, context: { params: Promise<{ partnerId:
   const partner = await prisma.privateBookingPartner.findFirst({
     where: { id: params.partnerId, clubId, kind: "MEMBER" },
     include: {
-      member: { include: { guardianLinks: { select: { userId: true } } } },
+      member: { include: { guardianLinks: { where: ACTIVE_GUARDIAN_LINK, select: { userId: true } } } },
     },
   });
   if (!partner || !partner.member) {
@@ -84,7 +85,7 @@ export async function GET() {
 
   // Also include partners pointing at any member I'm a guardian for.
   const guardianFor = await prisma.memberGuardianUser.findMany({
-    where: { userId: session.user.id },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id },
     select: { memberId: true },
   });
   const memberIds = [caller.id, ...guardianFor.map((g) => g.memberId)];

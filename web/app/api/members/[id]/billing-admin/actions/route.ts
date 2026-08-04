@@ -105,10 +105,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
   }
   if (sub.stripeSubscriptionId) {
+    // Phase 4A replaced the old blanket 409 here.
+    //
+    // This action still refuses live Stripe subs, but the reason changed: it is
+    // no longer "you can't do this", it is "there is a purpose-built flow that
+    // does it safely". This endpoint's reassign is a bare FK repoint with no
+    // preview, no eligibility check, no usage snapshot, and no record of what
+    // the actor understood about the money — fine for a MANUAL/pending row,
+    // unacceptable for one Stripe is actively charging.
+    //
+    // The transfer endpoint moves the beneficiary while deliberately leaving
+    // the Stripe subscription, customer and card alone, and stores the exact
+    // sentence the actor confirmed. Telling staff to cancel and re-create (the
+    // old advice) would have ended the billing relationship and destroyed the
+    // original receipt.
     return NextResponse.json(
       {
         error:
-          "This subscription is live in Stripe and can't be reassigned in place. Cancel it through Stripe (or contact support) and set the correct athlete up fresh — reassigning a live charge silently is unsafe.",
+          "This membership is live in Stripe. Use “Assign to another family member” on the " +
+          "membership instead — it moves the athlete while leaving the payment, card and receipt " +
+          "exactly as they are.",
+        code: "USE_TRANSFER_FLOW",
+        transferUrl: `/api/member-subscriptions/${sub.id}/transfer`,
       },
       { status: 409 },
     );

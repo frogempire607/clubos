@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 type MemberMessageTarget = {
   recipientIds: string[];
@@ -17,7 +18,7 @@ export async function getMemberMessageTargets(memberId: string, clubId: string):
     include: {
       user: { select: { id: true } },
       guardian: { select: { userId: true, email: true } },
-      guardianLinks: { select: { userId: true } },
+      guardianLinks: { where: ACTIVE_GUARDIAN_LINK, select: { userId: true } },
     },
   });
 

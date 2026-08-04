@@ -1,8 +1,13 @@
 // Shared authorization for "a User wants guardian access to a Member".
 //
-// SECURITY INVARIANT (relied on by ~10 downstream consumers):
-//   a MemberGuardianUser row exists  ⇔  this user has active guardian access
-//   to that member (bookings, documents, messages, billing, parental controls).
+// SECURITY INVARIANT (relied on by ~30 downstream consumers):
+//   a MemberGuardianUser row with status='CONFIRMED'  ⇔  this user has active
+//   guardian access to that member (bookings, documents, messages, billing,
+//   parental controls).
+//
+// Phase 4 added the status qualifier — a PENDING row is a request and a REVOKED
+// row is a removal we kept for the audit trail, and NEITHER grants anything.
+// Read paths must filter with ACTIVE_GUARDIAN_LINK from lib/familyAccess.
 //
 // Therefore we must NEVER create that row unless access is actually
 // authorized. The only self-service auto-link we allow is when the club
@@ -13,6 +18,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_GUARDIAN_LINK, GUARDIAN_LINK_SOURCE } from "@/lib/familyAccess";
 
 // PendingApproval.kind for an owner-reviewed guardian-link request. Kept
 // distinct from the member-side ApprovalKind values (CLASS_BOOK, …) so it
@@ -48,9 +54,20 @@ export async function requestGuardianLink(args: {
   if (isOwnerVouched(child, requestingUserEmail)) {
     await prisma.memberGuardianUser.upsert({
       where: { userId_memberId: { userId: requestingUserId, memberId: child.id } },
+      // Re-requesting an access that was revoked must not silently restore it —
+      // only refresh the label. Restoring access is an explicit owner action.
       update: { relationship: relationship || null },
-      create: { userId: requestingUserId, memberId: child.id, relationship: relationship || null },
+      create: {
+        clubId: clubId,
+        userId: requestingUserId,
+        memberId: child.id,
+        relationship: relationship || null,
+        status: "CONFIRMED",
+        source: GUARDIAN_LINK_SOURCE.OWNER_VOUCHED,
+        confirmedAt: new Date(),
+      },
     });
+    await ensurePrimaryGuardian(child.id);
     return { status: "linked" };
   }
 
@@ -83,29 +100,56 @@ export async function requestGuardianLink(args: {
   return { status: "pending" };
 }
 
-// ── Primary guardian ─────────────────────────────────────────────────────────
-// "The first guardian sets the controls." The PRIMARY guardian for a member is:
-//   1. the user whose email matches the member's official guardianEmail
-//      (the contact the club has on file), else
-//   2. the earliest MemberGuardianUser link for that member.
-// Co-guardians (later links) get full portal access — schedule, bookings,
-// documents, billing — but cannot change parental controls or invite further
-// guardians. Derived at read time; no schema change.
-export async function isPrimaryGuardian(userId: string, memberId: string): Promise<boolean> {
-  const [user, member] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
-    prisma.member.findUnique({ where: { id: memberId }, select: { guardianEmail: true } }),
-  ]);
-  if (!user) return false;
-  if (
-    member?.guardianEmail &&
-    user.email &&
-    member.guardianEmail.trim().toLowerCase() === user.email.trim().toLowerCase()
-  ) {
-    return true;
-  }
+// A member must always have exactly one primary guardian once anyone is linked,
+// otherwise nobody can edit that child's parental controls. Call after creating
+// a link: promotes the earliest CONFIRMED link when no primary exists yet.
+// No-op when a primary is already set, so it never steals the role.
+export async function ensurePrimaryGuardian(memberId: string): Promise<void> {
+  const existing = await prisma.memberGuardianUser.findFirst({
+    where: { memberId, isPrimary: true, ...ACTIVE_GUARDIAN_LINK },
+    select: { id: true },
+  });
+  if (existing) return;
+
   const earliest = await prisma.memberGuardianUser.findFirst({
-    where: { memberId },
+    where: { memberId, ...ACTIVE_GUARDIAN_LINK },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (earliest) {
+    await prisma.memberGuardianUser.update({
+      where: { id: earliest.id },
+      data: { isPrimary: true },
+    });
+  }
+}
+
+// ── Primary guardian ─────────────────────────────────────────────────────────
+// "The first guardian sets the controls." Co-guardians get full portal access —
+// schedule, bookings, documents, billing — but cannot change parental controls
+// or invite further guardians.
+//
+// This used to be DERIVED on every read: match Member.guardianEmail against the
+// user's login email, else fall back to the earliest link. That derivation is
+// what the Lister incident exposed — `guardianEmail` is a free-text contact
+// string that can point at an address the parent never uses, so primary status
+// could silently sit with the wrong account (or nobody). Phase 4 stores it on
+// MemberGuardianUser.isPrimary; migration 20260803000000_family_accounts froze
+// the old derivation into the column once, so no existing family changed hands.
+//
+// One source of truth now: the column. If a member somehow has no primary (only
+// possible for links created outside the normal paths), fall back to the
+// earliest CONFIRMED link rather than returning false for everyone — a family
+// with no primary guardian can otherwise never edit its own controls.
+export async function isPrimaryGuardian(userId: string, memberId: string): Promise<boolean> {
+  const primary = await prisma.memberGuardianUser.findFirst({
+    where: { memberId, isPrimary: true, ...ACTIVE_GUARDIAN_LINK },
+    select: { userId: true },
+  });
+  if (primary) return primary.userId === userId;
+
+  const earliest = await prisma.memberGuardianUser.findFirst({
+    where: { memberId, ...ACTIVE_GUARDIAN_LINK },
     orderBy: { createdAt: "asc" },
     select: { userId: true },
   });

@@ -4,12 +4,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { inviteChildLogin } from "@/lib/childLogin";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // Confirm the signed-in user is the guardian of `memberId` and load the fields
 // the child-login flow needs. Mirrors /controls' loadGuardianChild gate.
 async function loadGuardianChild(userId: string, memberId: string, clubId: string) {
   const link = await prisma.memberGuardianUser.findFirst({
-    where: { userId, memberId, member: { clubId, deletedAt: null } },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId, memberId, member: { clubId, deletedAt: null } },
     select: {
       member: {
         select: {

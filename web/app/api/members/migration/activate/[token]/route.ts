@@ -10,8 +10,36 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
 import { inviteChildLogin } from "@/lib/childLogin";
+import { ensurePrimaryGuardian } from "@/lib/guardianLink";
+import { resolveActivationAccount } from "@/lib/familyRules";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
-// NO AUTH — token-gated public activation endpoint.
+// NO AUTH — token-gated public activation endpoint. The token alone authorizes
+// activation; a session, when one happens to exist, is only ever used to
+// IDENTIFY an already-known guardian (see Phase 4B.7 below), never to grant.
+
+/**
+ * The signed-in portal account for this club, if there is one.
+ *
+ * Returns null for anonymous visitors (the normal case — activation links are
+ * usually opened from email) and for OWNER/STAFF sessions, which must never be
+ * attached to a member or minor. Any failure resolving the session returns null
+ * so activation keeps working exactly as it does today.
+ */
+async function currentPortalUser(clubId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) return null;
+    if (session.user.clubId !== clubId) return null;
+    if (session.user.role !== "MEMBER") return null;
+    return await prisma.user.findFirst({
+      where: { id: session.user.id, clubId, role: "MEMBER", deletedAt: null },
+    });
+  } catch {
+    return null;
+  }
+}
 
 type EditableFields = {
   phone: boolean; email: boolean; billingDateRequest: boolean; notes: boolean;
@@ -413,6 +441,53 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   let user = await prisma.user.findUnique({
     where: { clubId_email: { clubId: club.id, email: contactEmail } },
   });
+
+  // ── Phase 4B.7 — never mint a second account for someone already signed in ──
+  //
+  // THE LISTER BUG. This route resolved the guardian purely from the child's
+  // `guardianEmail` string. Michael Lister was signed in as himself
+  // (karen.mikelister@gmail.com) and opened his son Cameron's activation link;
+  // Cameron's record carried a different, unused address in `guardianEmail`, so
+  // the lookup above found nothing and the branch below CREATED A SECOND
+  // "Michael" account for that address — 8 minutes after his real login. The
+  // family was then split across two logins and one son became invisible in
+  // the portal.
+  //
+  // A live session is far stronger evidence of who this human is than a contact
+  // string typed into a spreadsheet by previous software. When the person
+  // activating a guardian-managed minor is already authenticated as a MEMBER of
+  // this club, attach the child to THAT account.
+  //
+  // Deliberately narrow: guardian-managed minors only (an adult activating
+  // their own membership must still land on their own email), never OWNER/STAFF
+  // (the privileged-collision guard below), and never when the email already
+  // resolves to a live account (that account is the right answer).
+  // The decision itself is a PURE rule (lib/familyRules.resolveActivationAccount)
+  // so the exact Lister sequence is pinned by fixtures in
+  // scripts/family-fixtures-tests.ts §15 and cannot silently regress. The route
+  // only supplies the facts and acts on the answer.
+  let reusedSessionAccount = false;
+  let contactEmailMismatch = false;
+  {
+    const sessionUser = user ? null : await currentPortalUser(club.id);
+    const decision = resolveActivationAccount({
+      contactEmail,
+      existingUserForEmail: user
+        ? { id: user.id, role: user.role === "MEMBER" ? "MEMBER" : "OWNER", deleted: !!user.deletedAt }
+        : null,
+      guardianManaged,
+      sessionUser: sessionUser ? { id: sessionUser.id, email: sessionUser.email } : null,
+    });
+    if (decision.kind === "REUSE_SESSION_ACCOUNT" && sessionUser) {
+      user = sessionUser;
+      reusedSessionAccount = true;
+      contactEmailMismatch = decision.contactEmailMismatch;
+    }
+    // Every other outcome (BLOCKED_PRIVILEGED_ACCOUNT / RESURRECT_DELETED /
+    // USE_EXISTING_ACCOUNT / CREATE_NEW_ACCOUNT) is already implemented by the
+    // branches below, which stay as they are — this rule exists to decide the
+    // one case that used to be wrong.
+  }
   // OWNER/STAFF COLLISION GUARD. A migrated member must NEVER attach to (or
   // resurrect) a privileged OWNER/STAFF login — that links member.userId to the
   // owner and the owner ends up "logged in as" the member (the John Doe bug).
@@ -523,15 +598,41 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // is what makes the minor show up under the guardian's account.
   async function linkGuardianIfManaged() {
     if (!guardianManaged) return;
+    if (reusedSessionAccount) {
+      // Record that we attached to an existing signed-in account rather than
+      // creating one, and that the contact string disagreed — that mismatch is
+      // the thing staff need to see and correct on the profile.
+      await prisma.memberMigrationEvent.create({
+        data: {
+          clubId: club.id,
+          memberId: member.id,
+          type: "NOTE",
+          actorUserId: user!.id,
+          message:
+            `Activation attached this athlete to the already signed-in account ${user!.email} ` +
+            `instead of creating a new one for the guardian email on file (${member.guardianEmail}). ` +
+            `No second login was created.` +
+            (contactEmailMismatch
+              ? ` The two addresses DISAGREE — confirm which one the family actually uses and update` +
+                ` the guardian email, or the next auto-link will miss again.`
+              : ""),
+        },
+      });
+    }
     await prisma.memberGuardianUser.upsert({
       where: { userId_memberId: { userId: user!.id, memberId: member.id } },
-      update: {},
+      update: { status: "CONFIRMED", revokedAt: null, confirmedAt: new Date() },
       create: {
+        clubId: club.id,
         userId: user!.id,
         memberId: member.id,
         relationship: member.guardianRelationship || "GUARDIAN",
+        status: "CONFIRMED",
+        source: "MIGRATION_ACTIVATION",
+        confirmedAt: new Date(),
       },
     });
+    await ensurePrimaryGuardian(member.id);
   }
 
   // #7: free-join (non-member). Create + link the portal account, mark

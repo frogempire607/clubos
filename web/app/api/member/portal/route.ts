@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { PREVIEW_COOKIE, readPreviewCookie, canStartPreview } from "@/lib/preview";
 import { wallClockNowUTC } from "@/lib/datetime";
+import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 async function fetchUser(userId: string, clubTimezone: string | null) {
   // Class registrations live in AttendanceRecord, not Booking, so we pull
@@ -76,12 +77,14 @@ async function fetchUser(userId: string, clubTimezone: string | null) {
             take: 20,
           },
           guardianLinks: {
+            where: ACTIVE_GUARDIAN_LINK,
             include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
           },
           guardian: true,
         },
       },
       guardianOf: {
+        where: ACTIVE_GUARDIAN_LINK,
         include: {
           member: {
             include: {
@@ -95,6 +98,7 @@ async function fetchUser(userId: string, clubTimezone: string | null) {
               // avatars on the Account page. The viewer is one of these
               // guardians, so this is data about their own family.
               guardianLinks: {
+                where: ACTIVE_GUARDIAN_LINK,
                 orderBy: { createdAt: "asc" },
                 select: {
                   userId: true,

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
+import TransferMembershipModal from "@/components/members/TransferMembershipModal";
 import { ArrowLeft } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
 
@@ -50,6 +52,9 @@ type MemberDetail = {
   attendanceRecords: { id: string; status: string; createdAt: string; classSession: { startsAt: string; recurringClass: { name: string } | null } | null }[];
   eventRegistrations: { id: string; status: string; amountDue: string | null; amountPaid: string | null; event: { id: string; name: string; startsAt: string } | null }[];
   relationships: Relationship[];
+  // Phase 4B — the access edges the profile never loaded. `relationships`
+  // above are descriptive labels and grant nothing; `family` is the real thing.
+  family?: FamilyPayload;
   migrationStatus?: string | null;
   legacyMembershipName?: string | null;
   trialEndsAt?: string | null;
@@ -90,6 +95,23 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Moving a membership between siblings is its own sub-scope, not billing:full
+  // — a front-desk lead may need it without prices, cards and plans.
+  const [canTransfer, setCanTransfer] = useState(false);
+  const [transferringSubId, setTransferringSubId] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => {
+        if (!me) return;
+        setCanTransfer(
+          me.role === "OWNER" ||
+            me.permissions?.billing_subScopes?.transfer_subscription === true,
+        );
+      })
+      .catch(() => {});
+  }, []);
 
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
   if (!m) return <div className="p-8 text-center text-text-muted text-sm">Member not found.</div>;
@@ -193,27 +215,41 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           }
         >
           {activeSub ? (
-            <SubRow sub={activeSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(activeSub)} />
+            <SubRow sub={activeSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(activeSub)} onTransfer={canTransfer ? () => setTransferringSubId(activeSub.id) : undefined} />
           ) : pendingSub ? (
             <div className="space-y-2">
               <p className="text-xs text-text-muted">
                 Purchase in progress — <strong className="text-text-primary">not charged yet</strong>.
                 Activates when payment completes or staff approves.
               </p>
-              <SubRow sub={pendingSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(pendingSub)} />
+              <SubRow sub={pendingSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(pendingSub)} onTransfer={canTransfer ? () => setTransferringSubId(pendingSub.id) : undefined} />
             </div>
           ) : (
             <p className="text-sm text-text-muted">No active membership.</p>
           )}
         </Card>
 
-        {/* Relationships */}
+        {/* Family & access — who can actually act for this athlete */}
+        <FamilyAccessCard
+          memberId={id}
+          memberName={m.firstName}
+          family={m.family}
+          onChanged={load}
+          onAssignMembership={(subId) => setTransferringSubId(subId)}
+        />
+
+        {/* Family labels — descriptive only, deliberately NOT presented as access */}
         <Card
-          title="Relationships"
-          action={<button onClick={() => setAddingRel(true)} className="text-xs text-brand hover:underline">+ Link member</button>}
+          title="Family labels"
+          className="lg:col-span-2"
+          action={<button onClick={() => setAddingRel(true)} className="text-xs text-brand hover:underline">+ Add label</button>}
         >
+          <p className="text-xs text-text-muted -mt-1 mb-2.5">
+            Notes about who is related to whom. These do <strong>not</strong> give anyone access —
+            to let a parent manage this athlete, use Family &amp; access above.
+          </p>
           {m.relationships.length === 0 ? (
-            <p className="text-sm text-text-muted">No linked members.</p>
+            <p className="text-sm text-text-muted">No family labels.</p>
           ) : (
             <ul className="space-y-1.5">
               {m.relationships.map((r) => (
@@ -249,7 +285,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           ) : (
             <div className="space-y-2">
               {[activeSub, ...pastSubs].filter(Boolean).map((s) => (
-                <SubRow key={s!.id} sub={s!} passFees={m.passProcessingFees} onEdit={() => setEditingSub(s!)} />
+                <SubRow key={s!.id} sub={s!} passFees={m.passProcessingFees} onEdit={() => setEditingSub(s!)} onTransfer={canTransfer ? () => setTransferringSubId(s!.id) : undefined} />
               ))}
             </div>
           )}
@@ -339,6 +375,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           sub={editingSub}
           onClose={() => setEditingSub(null)}
           onSaved={() => { setEditingSub(null); load(); }}
+        />
+      )}
+
+      {transferringSubId && (
+        <TransferMembershipModal
+          subscriptionId={transferringSubId}
+          onClose={() => setTransferringSubId(null)}
+          onDone={load}
         />
       )}
       {addingRel && (
@@ -566,7 +610,18 @@ function SendReaderModal({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
-function SubRow({ sub, passFees = false, onEdit }: { sub: Sub; passFees?: boolean; onEdit: () => void }) {
+function SubRow({
+  sub,
+  passFees = false,
+  onEdit,
+  onTransfer,
+}: {
+  sub: Sub;
+  passFees?: boolean;
+  onEdit: () => void;
+  /** Undefined when the viewer may not move memberships. */
+  onTransfer?: () => void;
+}) {
   // When the club passes the Stripe processing fee, a recurring paid sub is
   // actually charged base + fee — show the full equation so the number always
   // reconciles with Stripe (display only; math lives in lib/fees.ts).
@@ -588,9 +643,20 @@ function SubRow({ sub, passFees = false, onEdit }: { sub: Sub; passFees?: boolea
         </div>
         {sub.notes && <div className="text-xs text-text-muted mt-0.5 italic">{sub.notes}</div>}
       </div>
-      <button onClick={onEdit} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
-        Edit dates
-      </button>
+      <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-2 shrink-0">
+        {onTransfer && ["active", "past_due", "pending"].includes(sub.status) && (
+          <button
+            onClick={onTransfer}
+            className="text-xs text-brand hover:underline px-2 py-1 rounded whitespace-nowrap"
+            title="Move this membership to another family member — the payer doesn't change"
+          >
+            Assign to family member
+          </button>
+        )}
+        <button onClick={onEdit} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg whitespace-nowrap">
+          Edit dates
+        </button>
+      </div>
     </div>
   );
 }
