@@ -1,5 +1,48 @@
 # AthletixOS Improvement — Progress & Phased Plan
 
+> ## ⏭️ APPLY THIS MIGRATION — Phase 4.5, written 2026-08-04, NOT applied
+>
+> **Working checkout:** `/home/user/clubos` (the main checkout, not a worktree),
+> branch `claude/plan-md-housekeeping-8pw61h`. Everything below runs from
+> `<checkout>/web`.
+>
+> **Folder: `20260804000000_members_experience`** — the whole of Phase 4.5 in one
+> migration. Additive only; every column is nullable or defaulted, so applying it
+> changes nothing until the code reads it. Sorts after
+> `20260803000000_family_accounts`.
+>
+> ```bash
+> # 0. Back up first — non-negotiable, this touches `members`
+> export PATH="$(brew --prefix postgresql@17)/bin:$PATH"
+> pg_dump "<session pooler URI>" --no-owner --no-privileges \
+>   -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql
+>
+> # 1. Confirm what is pending — expect exactly one, members_experience
+> cd <checkout>/web && npx prisma migrate status
+>
+> # 2. Apply (NOT `migrate dev` — the shadow DB is blocked by the pooler)
+> npx prisma migrate deploy
+>
+> # 3. Regenerate the client and re-verify
+> npx prisma generate && npx tsc --noEmit && npm run build
+>
+> # 4. Backfills — DRY RUN FIRST, read the output before applying
+> npx tsx scripts/members-experience-backfill.ts
+> npx tsx scripts/members-experience-backfill.ts --apply --clubs=<clubId>
+>
+> # 5. Tests still green
+> npm run test:phase45
+> ```
+>
+> **What the backfill does:** BF-A promotes the inferred "information reviewed"
+> signal to a real column, only where a NOTE migration event carries an actor.
+> BF-B synthesizes subscription history so Reports can stop saying `ESTIMATED`.
+> It is idempotent and refuses `--apply` without a `--clubs` allowlist.
+>
+> **Reverse SQL** is in the migration's footer. Dropping the three new tables
+> destroys invitation-delivery and subscription-event history, which is not
+> reconstructable from anything else — hence step 0.
+
 > ## 📍 Where this work lives
 >
 > **Phase 4 is merged.** `claude/phase-4-account-bugs-5a03fa` landed on `main` at
@@ -128,12 +171,13 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | M20 | `20260801040000_marketing_audiences` — MarketingAudience (dynamic/frozen recipient groups) | 3.2 / 3D | ✅ applied |
 | M21 | `20260801050000_club_mailing_address` — Club mailing address + publicEmail/publicPhone | 3 (email footer + Contact block) | ✅ 2026-08-01 |
 | M22 | `20260802000000_email_history_optout_audit` — EmailSend {sentByUserId, relatedEventId, relatedMembershipId} + EmailOptOutAudit table | 3G + 3I | ⬜ written (session 1) |
-| M23 | `Member.reviewedAt, reviewedByUserId` — migration step 2 (renumbered from M17) | 4.5.1 | ⬜ |
-| M24 | `Member.blockedReason, snoozedUntil` — Blocked state + Snooze (renumbered from M18) | 4.5.1 | ⬜ |
-| M25 | `MemberInvitationDelivery` — per-send delivered/opened/bounced (renumbered from M19) | 4.5.1 | ⬜ |
-| M26 | `SavedMemberView` — user filter snapshots (renumbered from M20) | 4.5.2 | ⬜ |
-| M27 | `MemberGuardianUser` per-permission columns (canBook/canPay/canWaivers/canMessages) + `status` (renumbered from M21) | 4.5.6 | ➡️ **folded into M29** — do NOT re-migrate `member_guardian_users` |
-| M28 | `MemberSubscriptionEvent` — subscription-event history (Reports 2.5.5 precision) (renumbered from M22) | 4.5.10 | ⬜ |
+| M23 | `Member.reviewedAt, reviewedByUserId` — migration step 2 (renumbered from M17) | 4.5.1 | ➡️ **folded into M30** |
+| M24 | `Member.blockedReason, snoozedUntil` — Blocked state + Snooze (renumbered from M18) | 4.5.1 | ➡️ **folded into M30** |
+| M25 | `MemberInvitationDelivery` — per-send delivered/opened/bounced (renumbered from M19) | 4.5.1 | ➡️ **folded into M30** |
+| M26 | `SavedMemberView` — user filter snapshots (renumbered from M20) | 4.5.2 | ➡️ **folded into M30** |
+| M27 | `MemberGuardianUser` per-permission columns (canBook/canPay/canWaivers/canMessages) + `status` (renumbered from M21) | 4.5.6 | ➡️ **folded into M29** — do NOT re-migrate `member_guardian_users`. Shipped names are `canSignWaivers`/`canReceiveEmails`, not the plan's `canWaivers`/`canMessages`. |
+| M28 | `MemberSubscriptionEvent` — subscription-event history (Reports 2.5.5 precision) (renumbered from M22) | 4.5.10 | ➡️ **folded into M30** |
+| **M30** | `20260804000000_members_experience` — **all of Phase 4.5 in one migration** (absorbs M23–M26 + M28). `members.reviewedAt/reviewedByUserId/blockedReason/snoozedUntil` + 3 indexes; new `member_invitation_deliveries`, `saved_member_views`, `member_subscription_events`. Deliberately does NOT contain `ImportBatch.sourceLabel` (live since 2.5.9) or the `member_guardian_users` columns (live since M29). | 4.5.1 + 4.5.2 + 4.5.10 | ⬜ **written 2026-08-04, NOT applied** — apply commands at the top of this file |
 | **M29** | `20260803000000_family_accounts` — **all of Phase 4 in one migration.** `member_guardian_users` {clubId, status, isPrimary, canBook/canPay/canSignWaivers/canReceiveEmails, source, createdByUserId, confirmedAt, revokedAt, updatedAt} + 3 indexes; `member_subscriptions.payerUserId` + index; new `membership_transfers` table | 4A + 4B + 4C (absorbs M27) | ✅ applied — `PHASE-4-DELIVERABLE.md` §7 opens with "Migration is already applied" |
 
 **Renumbering note (2026-08-02):** Phase 3's M21 (mailing address) and M22 (email history + audit) took the next two slots; former Phase-4.5 M21–M26 shifted to M23–M28. Nothing in production changed; only unbuilt future work was renumbered.
@@ -658,20 +702,76 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 **Owner-approved adjustment (2026-07-29):** every 4.5.x sub-phase has explicit mobile acceptance criteria. Sub-phase 4.5.9 remains the cross-cutting audit + Capacitor shell regression, not the first attention to mobile.
 
-**Dependency reminder:** 4.5.10's `MemberSubscriptionEvent` (M22) closes Phase 2.5.5's ESTIMATED churn caveat. Reports Membership tab flips to COMPLETE reliability after 4.5.10 backfill.
+**Dependency reminder:** 4.5.10's `MemberSubscriptionEvent` closes Phase 2.5.5's ESTIMATED churn caveat. Reports Membership tab flips to COMPLETE reliability after the 4.5.10 backfill.
+
+---
+
+### Session 1 — 2026-08-04 · what shipped, what is blocked
+
+**Migration `20260804000000_members_experience` is WRITTEN, NOT APPLIED.** Apply commands are at the top of this file.
+
+#### Shipped and green (no migration needed)
+
+| Piece | Where | Notes |
+|---|---|---|
+| Status model + `nextAction` resolver | `lib/memberTracks.ts` | PURE — no Prisma import. Three tracks, 7-step meter with whose-turn, one resolver shared by row / banner / mobile card. Source-label resolution that degrades instead of naming a vendor. |
+| Prisma-facing serializer | `lib/memberDisplay.ts` | `serializeMemberForList` + `MEMBER_TRACK_SELECT` + segment counts. **Written and type-checked, deliberately NOT wired** — see blocked list. |
+| 4.5.11 fixtures | `scripts/member-tracks-tests.ts` | 146 assertions, no DB. `npm run test:member-tracks`. |
+| 4.5.11 grep guards | `scripts/members-grep-guards.ts` | `npm run test:members-guards`. Vendor-literal guard is a HARD FAIL and is green. Deprecated-vocabulary guard is a ratchet at baseline 8. |
+| Track components | `components/members/MemberTracks.tsx` | Role chips, membership pill, account-setup cell, 7-segment meter, vertical timeline, whose-turn pill, next-action button + banner, avatar. |
+| Semantic tokens | `app/globals.css` | The handoff's "New semantic pairs" table as `@theme` entries. |
+| Backfills | `scripts/members-experience-backfill.ts` | Dry-run default; `--apply` refuses to run without `--clubs`. |
+| **Vendor name removed from the UI** | `app/dashboard/members/migration/page.tsx` | The import wizard's "Previous software" field shipped `placeholder="e.g. Jackrabbit, Mindbody, spreadsheet"` — two real products named in the UI of a third, in a `.tsx`, which is exactly what 4.5.10 forbids. Now a neutral placeholder plus a line explaining how the value is used. Guard 1 fails the build if it comes back. |
+
+**A real bug the fixtures caught on first run.** `derivedBlockedReason()` put a red *"Blocked · no email on file"* dot on any imported member with no email — **including members who had already finished setup**, typically a minor onboarded entirely through a guardian's address. Blocking someone for lacking an invite address *after* they have used the invitation is precisely the wrong-but-defensible label this phase exists to kill. Fixed with `hasStartedSetup()`; three regression assertions pin it.
+
+#### ⛔ Blocked on `20260804000000_members_experience`
+
+Everything here is written against `schema.prisma` and type-checks clean. None of it can execute until the migration is applied, because the columns do not exist in the database yet.
+
+| # | Blocked item | Why | First thing to do after apply |
+|---|---|---|---|
+| B-1 | **Wiring `MEMBER_TRACK_SELECT` into `GET /api/members`** | The select names `reviewedAt`, `reviewedByUserId`, `blockedReason`, `snoozedUntil`. Handing it to Prisma before apply throws and takes the members list down. | Swap the select in `/api/members` + `/api/members/[id]`, return `{ tracks, nextAction }` per row. |
+| B-2 | **Server-side paging, search and segment counts (4.5.2)** | Depends on B-1, and on the two new indexes for acceptable performance at 5,000 members. | Add `?page&pageSize&search&filter&sort`; counts from the query, never the page. |
+| B-3 | **Migration meter step 2, "Information reviewed"** | Needs `members.reviewedAt`. Until then the meter honestly reads step 1 for every unreviewed import — no fabrication, but no step 2 either. | Run BF-A, then surface `Mark reviewed` in the queue's bulk bar. |
+| B-4 | **Blocked state from real delivery data (4.5.1, 4.5.10)** | Needs `member_invitation_deliveries`. Today `derivedBlockedReason` falls back to `Member.activationEmailSendCount`, which cannot tell a bounce from an ignore — and those need opposite actions. | Write a delivery row per send in `lib/migrationServer.ts`; add the Resend webhook branch. |
+| B-5 | **Snooze 7 days (4.5.3 banner, 4.5.7 queue)** | Needs `members.snoozedUntil`. The resolver already honours it; nothing can set it. | `PATCH /api/members/[id]/snooze`, gated on `members:edit`. |
+| B-6 | **Save as view (4.5.2)** | Needs `saved_member_views`. | `GET/POST/DELETE /api/members/views`. |
+| B-7 | **Reports churn `ESTIMATED` → `COMPLETE` (4.5.10)** | Needs `member_subscription_events` **and** BF-B to have run for that club. Creating the table empty is not enough — an empty log would read as "nothing ever happened". | Run BF-B, write events from every `MemberSubscription` mutation, then flip `reliability` in `lib/reportsMembership.ts`. |
+
+#### 🙋 Needs Julian's call
+
+Conservative option taken in every case so the session could keep moving. None of these block applying the migration.
+
+| # | Decision | What I did, and why |
+|---|---|---|
+| J-1 | **`sourceLabel` could not go in the migration** | The session brief asked for the migration to include 4.5.10's `sourceLabel`. It already exists — `import_batches."sourceLabel"`, shipped 2026-07-29 in `20260731030000_historical_imports`, already written by the 2.5.10 wizard and read by `/api/reports/imports`. Adding it again is a no-op at best. **I left it out and documented the omission at length in the migration header** so a later session doesn't "fix" it. 4.5.10's source-label work is render-side only. |
+| J-2 | **`blockedReason` is TEXT, not a Postgres enum** | plan.md 4.5.1 says enum. Every other lifecycle field on `members` is TEXT with a documented value set (`migrationStatus`, `approvalStatus`, `paymentSetupStatus`), and a TEXT column can gain a value without a migration — which matters because the blocked-reason list will grow as real delivery failures are observed. Say the word and it becomes an enum. |
+| J-3 | **Track 3 has a 7th state the spec doesn't list** | The spec names six. I added `PROFILE_INCOMPLETE` for manually-added members, because the README separately says to retire "Un-invited" for exactly that group — and they cannot be `NOT_INVITED`, since nobody ever intended to invite a walk-in added at practice. |
+| J-4 | **`legacySource` as the source-label fallback** | Members imported by the *older* CSV migration tool have no `ImportBatch`, so their only label is `Member.legacySource`. That field is also owner-typed, just from a different flow, so I treat it as a legitimate second choice rather than a guess. If you'd rather those members read "your previous system", drop the fallback in `resolveSourceLabel`. |
+| J-5 | **Confirm/assign membership gated on `billing:full`, not `members:edit`** | Confirming a membership is what starts charging a family. plan.md 4.5.1 doesn't say which key. I used `billing`, consistent with the 2026-07-10 rule that a coach with `members:edit` must not be able to start billing. |
+| J-6 | **A snoozed member who is BLOCKED still surfaces** | Snooze hides someone who is merely slow. A bouncing address keeps consuming invitation sends, so hiding it costs real money and real time. Asserted in the fixtures. |
+| J-7 | **Deprecation guard is a ratchet, not a hard fail** | `migrationGroup` / `migrationFinalAction` / `readiness*` are still on screen in 2 files; removing them is 4.5.2 and 4.5.7 work. A test that's known-red the day it's written gets ignored within a week, so the guard fails only if the count *grows*. Baseline 8, must reach 0 for the phase exit criteria. |
+| J-8 | **Semantic tokens are fixed light-mode values** | They're tints whose job is to read as a temperature (waiting / broken / settled); routing them through the dark-mode overrides collapses three meanings into one grey. Dark-theme audit deferred to 4.5.9. |
+| J-9 | **plan.md 4.5.6 names columns that don't exist** | It says `canWaivers` / `canMessages`. The shipped columns from Phase 4 are `canSignWaivers` / `canReceiveEmails`. Shipped names win; I did not add a second pair. plan.md is now wrong here and should be corrected when 4.5.6 is built. |
+| J-10 | **Still open from the handoff's own list** | `1c` tabs vs `1d` scroll+rail (plan defaults to tabs, I built nothing that forecloses either); the four person-type labels; whether "Prospect" gets renamed now that it strictly means never-a-member; default staff permissions vs owner-only. |
+
+---
 
 ### 4.5.1 Status model + `nextAction` resolver
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 4.5.1.1 | `lib/memberDisplay.ts serializeMemberForList(member)` returning `{ tracks: {role, membership, accountSetup}, nextAction: {label, kind, permission}, ... }`. | Backend | — | ⬜ |
-| 4.5.1.2 | `nextAction(member)` — **one function** used by row action + banner + mobile card. | Backend | — | ⬜ |
-| 4.5.1.3 | Server-side derivation in `GET /api/members`, `GET /api/members/[id]`, `GET /api/members/migration`. | Backend | — | ⬜ |
-| 4.5.1.4 | Retire "Un-invited" for manual-add + "Profile completed (reviewed)" everywhere. Deprecate `displayStatusOf` / `onboardingStatusOf`. | Backend | — | ⬜ |
-| 4.5.1.5 | **M17** — `Member.reviewedAt DateTime?` + `Member.reviewedByUserId String?`. Backfill from setupComplete/setupBy/setupAt where present. | Migration + Backfill | M17 + BF-4 | ⬜ |
-| 4.5.1.6 | **M18** — `Member.blockedReason` enum + `Member.snoozedUntil DateTime?`. | Migration | M18 | ⬜ |
-| 4.5.1.7 | **M19** — `MemberInvitationDelivery` model (per-send delivered/opened/bounced). | Migration | M19 | ⬜ |
-| 4.5.1.8 | Migration-meter derivation: `Step N of 7` + whose-turn label + segment color per state. | Backend | — | ⬜ |
+| 4.5.1.1 | `lib/memberDisplay.ts serializeMemberForList(member)` returning `{ tracks: {role, membership, accountSetup}, nextAction: {label, kind, permission}, ... }`. | Backend | — | 🟢 written + type-checked 2026-08-04. **Not wired** — its select names the new columns (B-1). |
+| 4.5.1.2 | `nextAction(member)` — **one function** used by row action + banner + mobile card. | Backend | — | 🟢 `lib/memberTracks.ts`. 12 canonical states pinned; §9 of the fixtures asserts row/banner/mobile agree. |
+| 4.5.1.3 | Server-side derivation in `GET /api/members`, `GET /api/members/[id]`, `GET /api/members/migration`. | Backend | — | ⛔ **B-1** — blocked on M30. |
+| 4.5.1.4 | Retire "Un-invited" for manual-add + "Profile completed (reviewed)" everywhere. Deprecate `displayStatusOf` / `onboardingStatusOf`. | Backend | — | 🟡 the new vocabulary is written and §5 of the fixtures asserts neither label can be produced. The old functions still exist in `app/dashboard/members/page.tsx` and die with 4.5.2's rewrite. |
+| 4.5.1.5 | `Member.reviewedAt` + `reviewedByUserId`. Backfill from the attributable NOTE migration event. | Migration + Backfill | M30 + BF-A | ⬜ written, not applied |
+| 4.5.1.6 | `Member.blockedReason` + `snoozedUntil`. | Migration | M30 | ⬜ written, not applied. TEXT not enum — see J-2. |
+| 4.5.1.7 | `MemberInvitationDelivery` (per-send delivered/opened/bounced). | Migration | M30 | ⬜ written, not applied |
+| 4.5.1.8 | Migration-meter derivation: `Step N of 7` + whose-turn label + segment color per state. | Backend | — | 🟢 `migrationMeterFor()`. Ordinal backfill included, so a member activated before `reviewedAt` existed renders no hole mid-meter. |
+| 4.5.1.9 | Presentational kit for the three tracks + meter + next action. | UI | — | 🟢 `components/members/MemberTracks.tsx` |
+| 4.5.1.10 | Fixtures for every rule above. | Testing | — | 🟢 `npm run test:member-tracks` — 146 assertions |
 
 ### 4.5.2 Members list
 
@@ -930,6 +1030,8 @@ Every migration ships with a matching reverse SQL kept in the commit body. Featu
 ## Progress log
 
 Each phase gets one dated entry per meaningful checkpoint below.
+
+- 2026-08-04 — **Phase 4.5 session 1: one migration written (NOT applied) and the status-model spine built.** `prisma/migrations/20260804000000_members_experience` carries every schema need across 4.5.1–4.5.11 in one folder: `members.reviewedAt/reviewedByUserId/blockedReason/snoozedUntil`, new `member_invitation_deliveries` (one row per SEND — the existing timestamp+counter cannot tell a bounce from an ignore, and those need opposite actions), `saved_member_views`, `member_subscription_events` (the sidecar that lets Reports churn stop saying ESTIMATED), plus three indexes for server-side paging and the funnel's seven per-load counts. Additive only, reverse SQL in the footer, no RLS policies (matching every table added since `20260702000000_enable_rls`). **Two things the plan lists as 4.5 migrations were deliberately omitted because they are already in production** — `ImportBatch.sourceLabel` (2.5.9) and the `member_guardian_users` permission columns (M29, which absorbed M27) — and the migration header documents both omissions at length so a later session doesn't "fix" them. Built on top: `lib/memberTracks.ts` (PURE, no Prisma — three tracks, the 7-step meter with whose-turn, and `nextAction()` as ONE resolver shared by row, banner and mobile card), `lib/memberDisplay.ts` (the Prisma-facing serializer — complete and type-checked but deliberately NOT wired, since its select names columns that don't exist yet), `components/members/MemberTracks.tsx` (the presentational kit), the handoff's semantic token pairs in `app/globals.css`, and `scripts/members-experience-backfill.ts` (dry-run default, `--apply` refuses without a `--clubs` allowlist). Tests: `npm run test:phase45` — 146 fixture assertions plus two grep guards. **The fixtures caught a real bug on first run**: `derivedBlockedReason()` put a red "Blocked · no email on file" dot on imported members who had *already finished setup*, typically a minor onboarded entirely through a guardian's address — blocking someone for lacking an invite address after they have used the invitation is exactly the wrong-but-defensible label this phase exists to kill; fixed with `hasStartedSetup()` and pinned by three regression assertions. **The vendor-literal guard also found a live violation**: the import wizard's "Previous software" field shipped `placeholder="e.g. Jackrabbit, Mindbody, spreadsheet"` — two real products named in the UI of a third, in a `.tsx` — now replaced with a neutral placeholder. `tsc --noEmit` and `npm run build` clean throughout. Ten decisions taken conservatively and logged under "Needs Julian's call" in the Phase 4.5 section; seven items logged as blocked on the migration with the first step for each after apply.
 
 - 2026-08-04 — **Docs housekeeping (no code).** `plan.md` §4 Implementation Order now reflects reality: Phases 2.5, 3 and 4 marked ✅ Done, remaining work is 4.5, 5, 6 (there is no Phase 4.6 anywhere in this plan — noted in the table so it stops being asked). Phase 2.5's one carve-out — 2.5.12, the mobile/responsive audit the owner deliberately held back — is called out under the table so "Done" isn't read as covering it. `plan.md` §5.12 rewritten from eight open questions into **eight recorded decisions**, each carrying the owner's answer inline; a future session must not re-ask them. §5.6.7's cron gate got a pointer to the §5.12 item-5 timezone decision so the two can't drift. New `plan.md` §4a-i closes the imports/`sourceLabel` shared-migration plan (see the entry below). Here in `PROGRESS.md`: phase index updated for 2.5/3/4, M29 corrected to applied, Phase 4 section statuses synced to the ✅ DONE markers already in the task text, a "Phase 4 closed" note added naming the four rows still genuinely open and the one unrun operator script, and the two 2026-08-04 invoice/roster commits recorded on the §5.0 ownership-boundary table. Per-task checkboxes inside 2.5.x, 3.x and 4.5.x were **not** swept — marking those done would be asserting verification this session didn't do.
 
