@@ -112,6 +112,52 @@
   --color-app-border: var(--color-border);
   --color-text-primary: var(--color-text);
   --color-text-muted: var(--color-muted);
+
+  /* ── Phase 4.5 semantic pairs (Members experience redesign) ─────────────
+     Introduced by the design handoff's "New semantic pairs" table so the
+     members surfaces stop sprinkling raw hex. Each is a background/foreground
+     PAIR — use them together or the contrast guarantee is gone.
+
+     These are deliberately fixed light-mode values rather than var() indirections
+     onto the theme tokens: they are tints whose whole job is to read as a
+     specific temperature (waiting / broken / settled), and routing them through
+     the dark-mode overrides would collapse three distinct meanings into the
+     same grey. Auditing them for the dashboard's dark theme is a 4.5.9 item —
+     see "Needs Julian's call" in PROGRESS.md. */
+
+  /* Waiting on someone — the next-action banner, "waiting on you" pills. */
+  --color-warn-surface: #FFF7ED;
+  --color-warn-text: #B45309;
+
+  /* Broken — blocked members, bounced invitations, missing waivers. */
+  --color-danger-surface: #FEF2F2;
+  --color-danger-text: #B91C1C;
+
+  /* Settled — confirmed relationships, completed setup. */
+  --color-success-surface: rgba(163, 230, 53, 0.25);
+  --color-success-text: #3F6212;
+  --color-success-icon: #4D7C0F;
+
+  /* Role chips (Track 1). Neutral on purpose — Track 1 must never compete
+     with Track 2's saturated pill for attention. */
+  --color-chip-surface: #F1F1F3;
+  --color-chip-text: #4B5563;
+
+  /* Prospect, softened. The old Prospect pill was full-strength brand violet,
+     which made "never bought anything" the loudest thing in the row. */
+  --color-prospect-surface: rgba(109, 93, 246, 0.10);
+  --color-prospect-text: #5948E8;
+
+  /* Pending · not charged. */
+  --color-pending-surface: #EDEBFF;
+  --color-pending-text: #4F46E5;
+
+  /* Hairline inside cards — lighter than --color-border, for row dividers. */
+  --color-hairline: #F1F1F3;
+
+  /* Table header/footer fill. Replaces bg-app-bg in table chrome so the chrome
+     reads as chrome rather than as another card. */
+  --color-table-chrome: #FAFAFB;
 }
 
 body {
