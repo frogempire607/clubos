@@ -376,12 +376,31 @@ export function derivedBlockedReason(m: MemberTrackInput): string | null {
   const opens = m.invitationOpenedCount ?? 0;
   if (sends >= REPEATED_NO_OPEN_THRESHOLD && opens === 0) return "REPEATED_NO_OPEN";
 
-  // Only a problem for someone we are actually trying to invite. A manually
-  // added walk-in with no email is not blocked, they are just not on the
-  // invitation path at all.
-  if (isImported(m) && !inviteAddressFor(m)) return "EMAIL_MISSING";
+  // Only a problem for someone we are STILL trying to invite.
+  //
+  // Two exclusions, both learned from fixtures that failed the first time this
+  // ran:
+  //   · a manually-added walk-in is not on the invitation path at all, so a
+  //     missing email is not an outstanding task;
+  //   · someone who already opened the link — reached billing, activated, or
+  //     finished — is past needing an address. Blocking them for "no email on
+  //     file" would put a red Blocked dot on a member who has completed setup,
+  //     which is exactly the class of wrong-but-defensible label this redesign
+  //     exists to kill.
+  if (isImported(m) && !inviteAddressFor(m) && !hasStartedSetup(m)) return "EMAIL_MISSING";
 
   return null;
+}
+
+/** True once the member has demonstrably opened the invitation and acted on it. */
+export function hasStartedSetup(m: MemberTrackInput): boolean {
+  return (
+    Boolean(m.paymentSetupStatus) ||
+    isSet(m.activatedAt) ||
+    m.migrationStatus === "ACTIVATED" ||
+    m.migrationStatus === "COMPLETED" ||
+    setupComplete(m)
+  );
 }
 
 /** Where an invitation would actually go. Minors' invitations go to a guardian. */

@@ -1700,10 +1700,24 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
           {step === "map" && (
             <div>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-text-primary mb-1">Previous software (optional)</label>
+                <label className="block text-sm font-medium text-text-primary mb-1">Where are you importing from? (optional)</label>
+                {/*
+                  Phase 4.5.10 — no hard-coded vendor names. This placeholder
+                  used to read "e.g. Jackrabbit, Mindbody, spreadsheet", which
+                  named two real products in the UI of a third. Whatever the
+                  owner types here is the ONLY source of a previous-system
+                  label anywhere in the app (lib/memberTracks.resolveSourceLabel),
+                  and it degrades to "your previous system" when blank — so the
+                  field needs no examples to be usable.
+                  scripts/members-grep-guards.ts fails the build if a vendor
+                  literal comes back.
+                */}
                 <input value={legacySource} onChange={(e) => setLegacySource(e.target.value)}
-                  placeholder="e.g. Jackrabbit, Mindbody, spreadsheet"
+                  placeholder="Your previous system"
                   className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
+                <p className="mt-1 text-[11px] text-text-muted">
+                  Shown to staff as &ldquo;As imported from &hellip;&rdquo;. Leave blank and it reads &ldquo;your previous system&rdquo;.
+                </p>
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-text-primary mb-1">Date format in your file</label>
