@@ -89,12 +89,16 @@ Treat each phase as a complete product area before moving to the next.
 |---|---|---|
 | 1 | Owner Financials | ✅ Done |
 | 2 | Reports — thin fixes from this brief | ✅ Done |
-| **2.5** | **Reports — full design handoff** (8-tab hub, drill-through, imports wizard, alerts, forecasts) | ⬜ Planned |
-| 3 | Communications & Email | ⬜ Planned |
-| 4 | Client & Family Accounts | ⬜ Planned |
+| **2.5** | **Reports — full design handoff** (8-tab hub, drill-through, imports wizard, alerts, forecasts) | ✅ Done (2026-07-30) — see note below |
+| 3 | Communications & Email | ✅ Done (2026-08-02) |
+| 4 | Client & Family Accounts | ✅ Done (2026-08-03) |
 | **4.5** | **Members — full design handoff** (3 tracks, list, profile, Family & access, migration redesign, mobile, imports source label) | ⬜ Planned |
 | 5 | Event Registration Confirmation | ⬜ Planned |
 | 6 | Safety, Data Integrity, Testing, Deployment & Final Handoff | ⬜ Planned |
+
+**Remaining work: 4.5, 5, 6.** (There is no Phase 4.6 in this plan — 4.5 is the last decimal phase.)
+
+**Phase 2.5 carve-out:** 2.5.12 (mobile + responsive audit + regression pass) was deliberately held back by the owner and is the one 2.5 sub-phase not shipped. Everything else in 2.5, including 2.5.13's 238-test suite, is live. Do not re-open the rest of 2.5 to get at 2.5.12.
 
 **Non-negotiable:** neither Phase 2.5 nor Phase 4.5 is a "future project." They are scheduled and each has full acceptance criteria below. Partial implementations of either handoff are not acceptable.
 
@@ -105,14 +109,42 @@ Treat each phase as a complete product area before moving to the next.
 | Consumer | Depends on | Reason |
 |---|---|---|
 | Phase 2.5.5 (Membership tab, precise churn) | Phase 4.5.1 (server-derived tracks + subscription-event history) | The design handoff's own build plan says exact churn needs the member-event history from the Members redesign. Until 4.5.1 lands, 2.5.5 must return figures with an `ESTIMATED` reliability flag, never a fabricated total. |
-| Phase 2.5.9 + 2.5.10 (Historical imports schema + wizard) | Phase 4.5.10 (owner-typed `ImportBatch.sourceLabel` — no hardcoded vendor names) | Imports and the "as imported from <label>" surfaces share `ImportBatch`. They ship in the same migration to avoid double-migrating Member and Transaction. |
+| ~~Phase 2.5.9 + 2.5.10 (Historical imports schema + wizard)~~ | ~~Phase 4.5.10 (owner-typed `ImportBatch.sourceLabel`)~~ | **RESOLVED — no dependency remains.** 2.5.9 shipped `ImportBatch.sourceLabel` itself on 2026-07-29. See §4a-i. |
 | Phase 4.5.3 (Member profile Family & access card) | Phase 4B (`GET /api/members/[id]` `guardianLinks` + `user.guardianOf` include) | The read gap for the "Cameron symptom." Phase 4B must land first or fold into 4.5.1. |
 | Phase 4.5.7 (Migration dashboard funnel) | Phase 4.5.1 (server-derived tracks + step-of-7 resolver) | The funnel + queue segmentation read the derived tracks. |
 | Phase 2.5.4 (P&L drill-through) | Phase 2.5.9 (`Transaction.sourceSystem` + `isHistorical`) | Drill lists include historical rows and label them by source. |
 | Phase 2.5.7 (Cash flow) | Phase 1B (`PlaidTransaction` persistence) + new `PayoutMatch` | Cash flow reads bank ledger + excludes Stripe payouts. |
 | Phase 2.5.11 (granular permissions) + Phase 3.1.1 (`messages` sub-scopes) | Independent | Same pattern (nested JSON under existing key). |
-| Phase 5.2 (server-rendered event confirmation) | Phase 4.5.10 (`Import.sourceLabel`) | Registration UI never prints a vendor name the owner didn't type. |
+| Phase 5.2 (server-rendered event confirmation) | ~~Phase 4.5.10~~ — **unblocked**, reads `ImportBatch.sourceLabel` directly (shipped in 2.5.9) | Registration UI never prints a vendor name the owner didn't type. Phase 5.2 no longer waits on 4.5.10 for this; it does still have to honor the same degrade-when-blank copy rules (§4a-i). |
 | Reports ↔ Financials | Phase 1 | Reports **reads** Financials data; Reports must NOT modify `/dashboard/financials`. Regression test at 6.1. |
+
+### 4a-i. Shared-migration plan for imports + `sourceLabel` is closed (2026-08-04)
+
+The original §4a row said 2.5.9/2.5.10 and 4.5.10 would **ship `ImportBatch` in one migration** so `Member` and `Transaction` were only altered once. That is now moot, and it cost nothing:
+
+**2.5.9 already shipped the whole `ImportBatch` model, `sourceLabel` included.** Migration folder `20260731030000_historical_imports` (applied to production 2026-07-29, sha256 `43d83724…`) created `import_batches` with `sourceLabel TEXT NULL` — the owner-typed "where are you importing from?" free text — plus `import_rows`, `member_historical_records`, the six `members` columns, and the six `transactions` columns with both partial-unique indexes. 2.5.10's wizard already writes `sourceLabel` at Step 1. `Member` and `Transaction` were altered exactly once, which is what the shared-migration plan was protecting.
+
+**So 4.5.10 needs no migration for source-label enforcement.** Everything left in that half of 4.5.10 is read-side and copy-side against a column that already exists:
+
+- render `"As imported from <ImportBatch.sourceLabel>"` in the column header, migration subtitle, and per-member meta;
+- degrade to `"As imported"` / `"imported <date>"` / `"your previous system"` when the column is null (it is nullable, and pre-wizard batches will have it null);
+- the CI grep guard over `web/app/**/*.tsx` for vendor literals.
+
+No schema change. Do **not** write a migration to "add" `sourceLabel` — it is already in `schema.prisma` (`model ImportBatch`) and in production.
+
+**4.5.10's own migration is `MemberSubscriptionEvent`, and nothing else.** It is unrelated to imports; it exists to close Phase 2.5.5's `ESTIMATED` churn caveat. It must contain exactly:
+
+- new table `member_subscription_events` — `{ id, clubId, memberSubscriptionId, memberId, kind (CREATED|ACTIVATED|PAUSED|RESUMED|CANCELED|EXPIRED|PLAN_CHANGED|REACTIVATED), fromPlan, toPlan, fromAmount, toAmount, at, actorUserId, source (STRIPE_WEBHOOK|OWNER_ACTION|GUARDIAN_ACTION|MEMBER_ACTION|SYSTEM) }`;
+- indexes on `(clubId, at)` and `(memberSubscriptionId, at)` — the churn query walks a club's events over a date range, and the per-sub timeline reads one subscription in order;
+- the enums for `kind` and `source`;
+- RLS policy for the new table, matching the pattern in `web/rls/` used by the tables added after the 2026-07-02 RLS migration.
+
+Additive only. No column is added to `member_subscriptions` itself — the event log is a sidecar, so nothing about existing billing reads changes when it lands.
+
+Two rules when it gets written:
+
+1. **Name it by folder, not by `M<n>`.** The M-numbers in `PROGRESS.md` are a planning inventory and this one has already been renumbered (M22 → M28). The folder timestamp must sort after the latest applied folder (currently `20260803000000_family_accounts`).
+2. **The backfill is separate and dry-run-first.** One `CREATED` event per existing `MemberSubscription` at its `createdAt`, plus status-inference events. Reports' Membership tab only flips `reliability` from `ESTIMATED` to `COMPLETE` after that backfill runs — not when the table is created empty.
 
 ---
 
@@ -1437,7 +1469,7 @@ Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
 
 **Acceptance criteria — Reports integration (Phase 2.5.5 precision):**
 - The `MemberInvitationDelivery` model from 4.5.1 unlocks precise churn (was ESTIMATED in 2.5.5).
-- `MemberSubscription` gains an event history: **M22** — new `MemberSubscriptionEvent` model `{ id, clubId, memberSubscriptionId, memberId, kind (CREATED|ACTIVATED|PAUSED|RESUMED|CANCELED|EXPIRED|PLAN_CHANGED|REACTIVATED), fromPlan, toPlan, fromAmount, toAmount, at, actorUserId, source: enum (STRIPE_WEBHOOK|OWNER_ACTION|GUARDIAN_ACTION|MEMBER_ACTION|SYSTEM) }`. Written by every mutation to `MemberSubscription`. Powers churn's 14-day grace + plan-change detection with authority.
+- `MemberSubscription` gains an event history: **this sub-phase's one and only migration** (listed as M28 in `PROGRESS.md`'s inventory, renumbered from M22 — name it by folder when you write it, per §4a-i) — new `MemberSubscriptionEvent` model `{ id, clubId, memberSubscriptionId, memberId, kind (CREATED|ACTIVATED|PAUSED|RESUMED|CANCELED|EXPIRED|PLAN_CHANGED|REACTIVATED), fromPlan, toPlan, fromAmount, toAmount, at, actorUserId, source: enum (STRIPE_WEBHOOK|OWNER_ACTION|GUARDIAN_ACTION|MEMBER_ACTION|SYSTEM) }` + indexes on `(clubId, at)` and `(memberSubscriptionId, at)` + RLS policy. Written by every mutation to `MemberSubscription`. Powers churn's 14-day grace + plan-change detection with authority. **The source-label half of this sub-phase needs no migration — `ImportBatch.sourceLabel` shipped with 2.5.9 (§4a-i).**
 - Backfill: for existing subs, one `CREATED` event at `createdAt` + status-inference events. Dry-run first.
 - Reports Membership tab's `reliability` flips from `ESTIMATED` to `COMPLETE` once event history is populated.
 
@@ -1468,7 +1500,7 @@ Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
 
 **Phase 4.5 exit criteria:**
 - Every acceptance criterion above ✅ green.
-- Migrations M17–M22 applied and confirmed via `_prisma_migrations`.
+- Every Phase 4.5 migration applied and confirmed via `_prisma_migrations` (`PROGRESS.md` inventory rows M23–M28 — renumbered from M17–M22 on 2026-08-02; identify each by folder, not by number).
 - Reports Membership tab reliability flips from `ESTIMATED` to `COMPLETE`.
 - No hardcoded vendor name anywhere in the UI.
 - Owner sign-off on: `1c` tabs vs `1d` scroll+rail (defaulted to tabs); person-type labels; whether Prospect is renamed; default staff permissions.
@@ -2135,7 +2167,7 @@ The cron loop per eligible registration:
 
 ### 5.6.7 Coach digest — different data, same cron pass
 
-The second sweep inside `/api/cron/tournament-reminders` fires only when `hour(now) BETWEEN 9 AND 10 UTC` (a once-per-day gate — the wrapper's hourly schedule + this check gives us a daily fire without a second schedule). Digest logic:
+The second sweep inside `/api/cron/tournament-reminders` fires once per day — the wrapper's hourly schedule plus a once-per-day gate, so no second schedule is needed. **Per the §5.12 item 5 decision (owner, 2026-08-04) the gate is 09:00 in `Club.timezone` when that column is set, and `hour(now) BETWEEN 9 AND 10 UTC` only as the fallback when it is null** (it is null for every club today). Recipient is the single responsible coach, which is what the grouping below already does. Digest logic:
 
 - Query every user that is a `responsibleCoachUserId` on at least one Event whose registrations include a row with `approvalStatus = PENDING AND approvalRequestedAt < now - 24h`. Group by coach.
 - For each coach, compose a single `EmailSend` row via `sendCoachDigestEmail(coach, groupedRegistrations)` — a new §5.2.5 row (call it row 12: coach daily digest). Content: one line per registration with athlete name, event name, days since request, deep link to the roster row. `sendBatchId = "coach-digest"`, `dedupeKey = "coach-digest:<userId>:<YYYY-MM-DD in Club.timezone>"`. The date-in-club-tz key means one digest per coach per calendar day even if the cron fires 09:00 UTC twice (once at 08:59:59, once at 09:00:00 — the M16 index catches the second).
@@ -2260,18 +2292,33 @@ Every column is nullable or defaults to a safe value; every existing row keeps c
 
 ---
 
-## 5.12 Areas that still require design or product approval
+## 5.12 Design and product decisions — ALL EIGHT DECIDED (owner, 2026-08-04)
 
-Called out here so the implementation session can pause on them rather than guess:
+**These are closed. Do not re-ask them.** Every item below was answered by the owner and each answer is the recommendation that preceded it, unless the "Decided" line says otherwise. An implementation session should build straight from these — there is nothing here to pause on.
 
-1. **Cancellation policy text** — is this per-event-type, per-event, or per-club? Recommendation is per-type with per-event override. Confirm. Yes confirmed
-2. **Refund UI on coach-decline of a CARD-paid registration** — full Stripe refund with note-back-to-parent, or a "mark refunded" flag + owner does it manually in Stripe? Recommendation: full refund via `stripe.refunds.create` on decline of a CARD-paid registration, gated on `finances:full`. Yes that works
-3. **Holding a spot during review** — recommendation is default OFF (capacity is enforced on approval, not on registration). Default OFF but a coach can change.
-4. **`EVENT_PROPOSAL_RESPONSE` in the family approvals card** — this creates a member-facing approval kind, which the plan explicitly restricts to CLASS_BOOK / EVENT_REGISTER / PRIVATE_REQUEST / PACKAGE_BUY / MEMBERSHIP_SUBSCRIBE / PRODUCT_BUY. Confirm we may add one. Yes confirmed
-5. **Responsible-coach daily digest — 09:00 UTC** — pick a per-club timezone (recommendation: the digest cron reads `Club.timezone` if set, else 09:00 UTC) and confirm sending to a single coach vs the full staff list with `events:edit`. yes
-6. **Bundle + coach-approval interaction** — recommendation: bundles bypass coach approval for v1, coaches can decline individual events with a per-event refund. Confirm. Yes confirmed
-7. **Public-path `APPROVAL_CHARGE` for non-members** — recommendation: not offered publicly (requires a saved card, which requires an account). Confirm. Yes Confirmed
-8. **Reports Action Item `TOURNAMENT_PAYMENT_STALLED` threshold** — recommendation: any tournament reminder cadence that reached stage 6 with the payment still outstanding. Confirm the threshold. Yes confirmed
+1. **Cancellation policy text** — per-event-type, per-event, or per-club?
+   **DECIDED: per-type with a per-event override.** `ClubEventType` carries the default text (§5.3.1); `Event` may override it (§5.3.2). No club-level field.
+
+2. **Refund on coach-decline of a CARD-paid registration** — real refund or a "mark refunded" flag?
+   **DECIDED: a real, full refund.** `stripe.refunds.create` fires on decline of a CARD-paid registration, gated on `finances:full`. No manual-in-Stripe flag path. (§5.4.6 decline dispatch owns the idempotency; §5.4.7's parent-decline path refunds unconditionally with the parent recorded as initiator, per that section's stated exception to the `finances:full` gate.)
+
+3. **Holding a spot during review** —
+   **DECIDED: default OFF, but the coach can turn it on.** Ship the default as OFF — capacity is enforced at approve time (§5.4.2, §5.4.6), not at registration. This is **not** a hardcoded constant: it is the per-event `Event.holdSpotDuringReview @default(false)` field already specified in §5.4.2 / §5.10, and it must be exposed in the event editor so a coach who wants `PENDING_REVIEW` rows to consume capacity can flip it. When ON, `PENDING_REVIEW` joins the OR-clause in `capacityWhere()`.
+
+4. **`EVENT_PROPOSAL_RESPONSE` as a member-facing approval kind** — may we add a kind beyond the six the plan restricts to?
+   **DECIDED: yes, add it.** `MEMBER_APPROVAL_KINDS` in `lib/parentalControls.ts` gains `EVENT_PROPOSAL_RESPONSE` alongside CLASS_BOOK / EVENT_REGISTER / PRIVATE_REQUEST / PACKAGE_BUY / MEMBERSHIP_SUBSCRIBE / PRODUCT_BUY. It stays on the member/family side and must not cross into the owner Approvals queue.
+
+5. **Responsible-coach daily digest timing and recipients** —
+   **DECIDED: yes to both parts of the recommendation.** The digest cron reads `Club.timezone` and sends at 09:00 club-local, falling back to 09:00 UTC when the column is null (it is null today — see root `CLAUDE.md`). Recipient is the **single responsible coach**, not the full `events:edit` staff list.
+
+6. **Bundles vs coach approval** —
+   **DECIDED: bundles bypass coach approval for v1.** A coach may still decline an individual event inside a bundle, which refunds that event's share only. The bundle purchase itself is never held for approval.
+
+7. **Public-path `APPROVAL_CHARGE` for non-members** —
+   **DECIDED: not offered publicly.** It requires a saved card, which requires an account. `/e/[slug]` never presents `APPROVAL_CHARGE` — consistent with the existing rule that the public path never offers AUTO_CARD.
+
+8. **Reports Action Item `TOURNAMENT_PAYMENT_STALLED` threshold** —
+   **DECIDED: stage 6.** Any tournament reminder cadence that reached stage 6 (§5.6.4) with payment still outstanding raises the Action Item. No separate day-count threshold.
 
 ---
 
