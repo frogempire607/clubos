@@ -15,7 +15,8 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   CalendarCheck,
@@ -83,23 +84,62 @@ export function MemberActionsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  // ── Why this menu is a portal ────────────────────────────────────────────
+  // The roster's table lives in a `overflow-x-auto` wrapper so wide rows scroll
+  // instead of blowing out the page. CSS resolves the other axis to `auto` too,
+  // which means an absolutely-positioned dropdown inside it is CLIPPED — the
+  // menu opened fine on the top rows and was cut off on the lower ones, so the
+  // actions were literally unreachable for most of the roster.
+  //
+  // Rendering to document.body with fixed coordinates takes the menu out of
+  // that clipping context entirely. It also lets the menu flip above the button
+  // when there isn't room below, which matters on the last row of every page.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const place = useCallback(() => {
+    const b = btnRef.current?.getBoundingClientRect();
+    if (!b) return;
+    const MENU_W = 238;
+    const h = menuRef.current?.offsetHeight ?? 320;
+    const below = window.innerHeight - b.bottom;
+    const top = below < h + 12 && b.top > h + 12 ? b.top - h - 6 : b.bottom + 6;
+    // Right-align to the button, then clamp so it can never sit off-screen.
+    const left = Math.max(8, Math.min(b.right - MENU_W, window.innerWidth - MENU_W - 8));
+    setPos({ top, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (open) place();
+  }, [open, place]);
 
   useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
+    // A fixed menu doesn't travel with its row, so follow the button rather
+    // than closing. Closing on scroll looked tidier but broke the common case:
+    // clicking a ⋯ near the fold scrolls it into view, which fired the handler
+    // and dismissed the menu the same gesture had just opened.
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
     return () => {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
     };
-  }, [open]);
+  }, [open, place]);
 
   function allowed(requires: "members" | "billing" | "owner" | null): boolean {
     if (requires === null) return true;
@@ -111,6 +151,7 @@ export function MemberActionsMenu({
   return (
     <div ref={ref} className="relative">
       <button
+        ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         aria-label={`Actions for ${member.fullName}`}
         aria-expanded={open}
@@ -120,11 +161,20 @@ export function MemberActionsMenu({
         <MoreHorizontal className="h-4 w-4" />
       </button>
 
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className="absolute right-0 z-40 mt-1 w-[238px] rounded-[10px] bg-surface p-[5px]"
-          style={{ boxShadow: "0 12px 32px rgba(17,17,17,.14)", border: "1px solid var(--color-border)" }}
+          className="w-[238px] rounded-[10px] bg-surface p-[5px]"
+          style={{
+            position: "fixed",
+            top: pos?.top ?? -9999,
+            left: pos?.left ?? -9999,
+            zIndex: 60,
+            visibility: pos ? "visible" : "hidden",
+            boxShadow: "0 12px 32px rgba(17,17,17,.14)",
+            border: "1px solid var(--color-border)",
+          }}
         >
           {ITEMS.map((it, i) => {
             if (it.kind === "divider") {
@@ -165,7 +215,8 @@ export function MemberActionsMenu({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

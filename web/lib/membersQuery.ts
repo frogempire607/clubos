@@ -112,7 +112,15 @@ export function parseMemberFilters(url: URL): MemberListFilters {
  * that will drift.
  */
 export function memberWhere(clubId: string, f: MemberListFilters): Prisma.MemberWhereInput {
-  const where: Prisma.MemberWhereInput = { clubId, deletedAt: null };
+  // `isHistoricalOnly` rows are imported records kept for all-time reporting
+  // only — 2.5.9 is explicit that they appear in "no active rosters, billing or
+  // messaging". Nothing was enforcing that here, so they were being counted as
+  // active people and were selectable by bulk actions, which for an invitation
+  // sweep would mean emailing people who left the club years ago.
+  //
+  // Frog Empire has zero such rows today, so this changes no number Julian has
+  // seen; it closes the gap before an import creates one.
+  const where: Prisma.MemberWhereInput = { clubId, deletedAt: null, isHistoricalOnly: false };
   const and: Prisma.MemberWhereInput[] = [];
 
   if (f.search) {
@@ -196,6 +204,21 @@ export type MemberListResult = {
   pagination: { total: number; page: number; pageSize: number; pages: number };
   counts: PersonTypeCounts | null;
   countsCapped: boolean;
+  /**
+   * Rows in `members` that this roster deliberately never shows, so the header
+   * can account for them instead of leaving a silent gap.
+   *
+   * Julian counted 293 rows in the table against a header reading "281 people"
+   * and had no way to tell whether the missing 12 were deleted, archived, or
+   * hidden by a filter he couldn't see. They are archived (soft-deleted) — but
+   * a number that can't explain itself is a bug report waiting to happen, so
+   * the roster now states the exclusion rather than making it inferable.
+   *
+   * `historical` counts imported records kept for all-time reporting only
+   * (2.5.9). Zero at Frog Empire today; listed separately because "archived by
+   * staff" and "imported as history" are different answers to the same question.
+   */
+  excluded: { archived: number; historical: number };
 };
 
 /**
@@ -271,6 +294,14 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
 
   const total = await prisma.member.count({ where });
 
+  // Counted club-wide, not against `where` — the point is to explain rows the
+  // roster can never reach under ANY filter, so it must not move when the
+  // staffer narrows the view.
+  const [archived, historical] = await Promise.all([
+    prisma.member.count({ where: { clubId, deletedAt: { not: null } } }),
+    prisma.member.count({ where: { clubId, deletedAt: null, isHistoricalOnly: true } }),
+  ]);
+
   // ── Counts, and the derived-filter path ─────────────────────────────────
   // When a derived filter is active we cannot let the database paginate: the
   // rows it would skip might be exactly the ones that survive the filter. So we
@@ -305,6 +336,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
       },
       counts,
       countsCapped: false,
+      excluded: { archived, historical },
     };
   }
 
@@ -332,6 +364,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
     },
     counts: null,
     countsCapped: true,
+    excluded: { archived, historical },
   };
 }
 

@@ -40,6 +40,17 @@ import {
   RoleChips,
 } from "@/components/members/MemberTracks";
 import { MemberActionsMenu } from "@/components/members/MemberActionsMenu";
+import { PasswordResetDialog, type ResetState } from "@/components/members/PasswordResetDialog";
+import {
+  BulkEmailModal,
+  BulkMessageModal,
+  ImportCSVModal,
+  MemberModal,
+  PurchaseMembershipModal,
+  type CustomField,
+  type Member as FullMember,
+} from "@/components/members/MemberModals";
+import { DEFAULT_MEMBER_FORM_CONFIG, type MemberFormConfig } from "@/lib/memberForm";
 import type { NextAction } from "@/lib/memberTracks";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,6 +105,8 @@ type Payload = {
   pagination: { total: number; page: number; pageSize: number; pages: number };
   counts: Counts | null;
   countsCapped: boolean;
+  /** Rows the roster deliberately never shows — see MemberListResult. */
+  excluded?: { archived: number; historical: number };
 };
 
 const PERSON_TYPES: { key: string; label: string; countKey: keyof Counts }[] = [
@@ -137,13 +150,66 @@ function fmtDate(v: string | null): string {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; canBill: boolean }) {
+export default function MembersRoster({
+  canEdit,
+  canBill,
+  isOwner = false,
+  staffName = "you",
+}: {
+  canEdit: boolean;
+  canBill: boolean;
+  isOwner?: boolean;
+  staffName?: string;
+}) {
   const router = useRouter();
   const params = useSearchParams();
 
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Bumped to force a refetch after any modal writes. */
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  // ── What the modals need ────────────────────────────────────────────────
+  // Fetched once. The Add/Edit member form is driven by the club's intake-form
+  // config and custom fields, exactly as it was on the old page.
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [formConfig, setFormConfig] = useState<MemberFormConfig>(DEFAULT_MEMBER_FORM_CONFIG);
+  useEffect(() => {
+    fetch("/api/custom-fields")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setCustomFields)
+      .catch(() => {});
+    fetch("/api/club/member-form")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.config && setFormConfig(d.config))
+      .catch(() => {});
+  }, []);
+
+  // ── Modal + dialog state ────────────────────────────────────────────────
+  const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [editing, setEditing] = useState<FullMember | null>(null);
+  const [purchasing, setPurchasing] = useState<FullMember | null>(null);
+  const [bulkMessaging, setBulkMessaging] = useState<string[] | null>(null);
+  const [bulkEmailing, setBulkEmailing] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [reset, setReset] = useState<{
+    member: RosterMember;
+    state: ResetState;
+    email: string | null;
+    isGuardianEmail: boolean;
+    sentAt?: Date;
+    errorMessage?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Selection is query-scoped, not page-scoped. `allMatching` carries the
   // intent; the server re-resolves it. Sending the loaded ids would silently
@@ -218,11 +284,205 @@ export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; 
     return () => {
       cancelled = true;
     };
-  }, [q]);
+  }, [q, reloadKey]);
+
+  // `?add=1` opens the Add-member modal. Several places link here that way —
+  // the dashboard quick-action bar, the empty state, the old page's own CTA —
+  // so the deep link has to keep working after the cutover.
+  useEffect(() => {
+    if (params.get("add") === "1") {
+      setAdding(true);
+      const next = new URLSearchParams(params.toString());
+      next.delete("add");
+      router.replace(next.toString() ? `?${next.toString()}` : "?", { scroll: false });
+    }
+    // Only react to the flag appearing; `params` churns on every filter change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.get("add")]);
+
+  /**
+   * Load the FULL member record for a modal that needs one.
+   *
+   * The roster row is a lean projection (lib/memberDisplay.ts), not a Member —
+   * it deliberately doesn't carry addresses, custom fields or subscriptions.
+   * Edit and Assign-membership need those, so they fetch on open rather than
+   * bloating every row of a 200-row page with fields almost nobody opens.
+   */
+  const loadFull = useCallback(async (id: string): Promise<FullMember | null> => {
+    const r = await fetch(`/api/members/${id}`);
+    if (!r.ok) return null;
+    return (await r.json()) as FullMember;
+  }, []);
+
+  /** Resolve the current selection into ids the server agrees with. */
+  const resolveIds = useCallback(async (): Promise<string[]> => {
+    const body = selectAllMatching
+      ? { mode: "allMatching" as const, filter: Object.fromEntries(params.entries()) }
+      : { mode: "ids" as const, ids: Array.from(selected) };
+    const r = await fetch("/api/members/selection", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not resolve the selection");
+    return (await r.json()).ids as string[];
+  }, [params, selected, selectAllMatching]);
 
   const members = data?.members ?? [];
   const counts = data?.counts ?? null;
   const total = data?.pagination.total ?? 0;
+  const archived = data?.excluded?.archived ?? 0;
+  const historical = data?.excluded?.historical ?? 0;
+  // One clause, however many reasons — "and 12 more you can't see" is the thing
+  // to avoid, not the word count.
+  const hiddenNote = [
+    archived ? `${archived.toLocaleString()} archived` : null,
+    historical ? `${historical.toLocaleString()} history-only` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  /**
+   * The ⋯ menu's non-navigating items.
+   *
+   * Every key in MEMBER_MENU_ORDER either has an href (the menu routes it
+   * itself) or lands here. Nothing falls through silently — that was the
+   * complaint. `checkin` is the one item that still navigates, because
+   * check-in belongs to the attendance surface and duplicating it here would
+   * mean a second roster-shaped thing to keep in sync.
+   */
+  const onMenuAction = useCallback(
+    async (key: string, m: { id: string; fullName: string }) => {
+      const row = members.find((x) => x.id === m.id);
+      try {
+        switch (key) {
+          case "resend": {
+            setBusy(m.id);
+            const r = await fetch(`/api/members/${m.id}/resend-invitation`, { method: "POST" });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || "Could not send the invitation");
+            setToast({ kind: "ok", text: `${d.isReminder ? "Reminder" : "Invitation"} sent to ${m.fullName}.` });
+            reload();
+            break;
+          }
+          case "reset": {
+            if (!row) break;
+            // Ask the server who would receive it BEFORE showing the confirm —
+            // the dialog's copy names the address, and naming the wrong one
+            // (the child instead of the parent) is worse than not naming any.
+            const r = await fetch(`/api/members/${m.id}/password-reset`);
+            const d = await r.json().catch(() => ({}));
+            // "No account yet" is not "no email on file", and the dialog only
+            // knows how to say the second one. Sending someone a reset link for
+            // an account that doesn't exist is a dead end — the real next step
+            // is the invitation, so say that instead of opening a dialog whose
+            // copy would be wrong.
+            if (d.reason === "NO_LOGIN") {
+              setToast({
+                kind: "err",
+                text: `${m.fullName} has no portal account yet — send an invitation instead of a password reset.`,
+              });
+              break;
+            }
+            setReset({
+              member: row,
+              state: d.canSend ? "confirm" : "no-email",
+              email: d.email ?? null,
+              isGuardianEmail: !!d.isGuardianEmail,
+            });
+            break;
+          }
+          case "assign": {
+            const full = await loadFull(m.id);
+            if (full) setPurchasing(full);
+            break;
+          }
+          case "relationship":
+            // Family labels and access both live on the profile, under the
+            // tabs that own them. Opening a third editor here would be a third
+            // place the same rules could drift.
+            router.push(`/dashboard/members/${m.id}?tab=family`);
+            break;
+          case "checkin":
+            router.push(`/dashboard/attendance?member=${m.id}`);
+            break;
+          case "archive": {
+            if (
+              !confirm(
+                `Archive ${m.fullName}?\n\nThey stop appearing in the roster, billing and messaging. Nothing is deleted — history, payments and documents are kept, and an owner can restore them.`,
+              )
+            )
+              break;
+            setBusy(m.id);
+            const r = await fetch(`/api/members/${m.id}`, { method: "DELETE" });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not archive");
+            setToast({ kind: "ok", text: `${m.fullName} archived.` });
+            reload();
+            break;
+          }
+        }
+      } catch (e) {
+        setToast({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [members, loadFull, reload, router],
+  );
+
+  /** Bulk bar. Resolves the selection server-side first, always. */
+  const onBulk = useCallback(
+    async (kind: "invite" | "resend" | "assign" | "message" | "tag") => {
+      try {
+        setBusy(`bulk:${kind}`);
+        const ids = await resolveIds();
+        if (ids.length === 0) {
+          setToast({ kind: "err", text: "Nothing is selected." });
+          return;
+        }
+        if (kind === "message") {
+          setBulkMessaging(ids);
+          return;
+        }
+        if (kind === "assign") {
+          // Assigning a plan is a per-person decision (option, price, dates).
+          // A bulk version that picked one for everybody would be a billing
+          // mistake at scale, so this deliberately routes rather than acts.
+          setToast({
+            kind: "err",
+            text: "Assign a membership from each person's row — plan, price and start date differ per family.",
+          });
+          return;
+        }
+        if (kind === "tag") {
+          setBulkEmailing(null);
+          setToast({ kind: "err", text: "Bulk tagging isn't built yet." });
+          return;
+        }
+        // invite | resend — both go through the existing bulk sender, which
+        // caps per request and dedupes by family.
+        const r = await fetch("/api/members/migration/send", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ memberIds: ids, scope: "selected", reminder: kind === "resend" }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "Could not send");
+        setToast({
+          kind: "ok",
+          text: `${d.sent ?? ids.length} ${kind === "resend" ? "reminder" : "invitation"}${(d.sent ?? ids.length) === 1 ? "" : "s"} sent${d.remaining ? ` · ${d.remaining} queued` : ""}.`,
+        });
+        setSelected(new Set());
+        setSelectAllMatching(false);
+        reload();
+      } catch (e) {
+        setToast({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [resolveIds, reload],
+  );
 
   const activeFilterChips = useMemo(() => {
     const chips: { key: string; label: string }[] = [];
@@ -260,9 +520,16 @@ export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; 
       <PageHeader
         title="Members"
         description={
+          // Say what the number counts. A bare "281 people" against 293 rows in
+          // the table reads as a bug even when it isn't — so the header names
+          // the exclusion instead of leaving it to be discovered.
           counts
-            ? `${counts.everyone.toLocaleString()} ${counts.everyone === 1 ? "person" : "people"} · ${counts.midMigration.toLocaleString()} mid-migration · ${counts.prospects.toLocaleString()} prospects`
-            : `${total.toLocaleString()} ${total === 1 ? "person" : "people"}`
+            ? `${counts.everyone.toLocaleString()} active ${counts.everyone === 1 ? "record" : "records"} · ${counts.midMigration.toLocaleString()} mid-migration · ${counts.prospects.toLocaleString()} prospects${
+                hiddenNote ? ` · ${hiddenNote}, not shown` : ""
+              }`
+            : `${total.toLocaleString()} active ${total === 1 ? "record" : "records"}${
+                hiddenNote ? ` · ${hiddenNote}, not shown` : ""
+              }`
         }
         actions={
           <div className="flex flex-wrap items-center gap-2.5">
@@ -272,21 +539,43 @@ export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; 
             >
               <Download className="h-4 w-4" /> Export
             </Link>
+            <button
+              onClick={() => setImporting(true)}
+              disabled={!canEdit}
+              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" /> Import CSV
+            </button>
             <Link
               href="/dashboard/members/migration"
               className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
             >
-              <Upload className="h-4 w-4" /> Import / Migrate
+              Migrate
             </Link>
-            <Link
-              href="/dashboard/members?add=1"
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
+            <button
+              onClick={() => setAdding(true)}
+              disabled={!canEdit}
+              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UserPlus className="h-4 w-4" /> Add member
-            </Link>
+            </button>
           </div>
         }
       />
+
+      {toast && (
+        <div
+          role="status"
+          className="rounded-lg border px-3 py-2 text-[13px]"
+          style={
+            toast.kind === "ok"
+              ? { background: "var(--color-success-surface)", borderColor: "var(--color-success-text)", color: "var(--color-success-text)" }
+              : { background: "var(--color-danger-surface)", borderColor: "var(--color-danger-text)", color: "var(--color-danger-text)" }
+          }
+        >
+          {toast.text}
+        </div>
+      )}
 
       <WorkQueueStrip counts={counts} active={q.queue} onPick={(k) => setQuery({ queue: k === q.queue ? null : k })} />
 
@@ -418,11 +707,10 @@ export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; 
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <BulkButton primary disabled={!canEdit} label="Send invitations" />
-              <BulkButton disabled={!canEdit} label="Resend" />
-              <BulkButton disabled={!canBill} label="Assign membership" />
-              <BulkButton disabled={!canEdit} label="Message" />
-              <BulkButton disabled={!canEdit} label="Add tag" />
+              <BulkButton primary disabled={!canEdit} busy={busy === "bulk:invite"} label="Send invitations" onClick={() => onBulk("invite")} />
+              <BulkButton disabled={!canEdit} busy={busy === "bulk:resend"} label="Resend" onClick={() => onBulk("resend")} />
+              <BulkButton disabled={!canBill} busy={busy === "bulk:assign"} label="Assign membership" onClick={() => onBulk("assign")} />
+              <BulkButton disabled={!canEdit} busy={busy === "bulk:message"} label="Message" onClick={() => onBulk("message")} />
             </div>
           </div>
         )}
@@ -506,7 +794,7 @@ export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; 
                             allowed={permitted(m.nextAction, canEdit, canBill)}
                             requiredRoleLabel={roleLabelFor(m.nextAction)}
                           />
-                          <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} />
+                          <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} isOwner={isOwner} onAction={onMenuAction} />
                         </div>
                       </td>
                     </tr>
@@ -547,7 +835,7 @@ export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; 
                       />
                     </div>
                   </div>
-                  <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} size={44} />
+                  <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} isOwner={isOwner} onAction={onMenuAction} size={44} />
                 </li>
               ))}
             </ul>
@@ -588,6 +876,109 @@ export default function MembersRoster({ canEdit, canBill }: { canEdit: boolean; 
           onApply={(patch) => {
             setQuery(patch);
             setFiltersOpen(false);
+          }}
+        />
+      )}
+
+      {/* ── Modals, all lifted from the old page in this cutover ───────────── */}
+      {(adding || editing) && (
+        <MemberModal
+          member={editing}
+          customFields={customFields}
+          formConfig={formConfig}
+          onClose={() => {
+            setAdding(false);
+            setEditing(null);
+          }}
+          onSaved={() => {
+            setAdding(false);
+            setEditing(null);
+            reload();
+          }}
+        />
+      )}
+
+      {importing && (
+        <ImportCSVModal
+          customFields={customFields}
+          formConfig={formConfig}
+          onClose={() => setImporting(false)}
+          onImported={() => {
+            setImporting(false);
+            reload();
+          }}
+        />
+      )}
+
+      {purchasing && <PurchaseMembershipModal member={purchasing} onClose={() => setPurchasing(null)} />}
+
+      {bulkMessaging && (
+        <BulkMessageModal
+          memberIds={bulkMessaging}
+          onClose={() => setBulkMessaging(null)}
+          onSent={() => {
+            setBulkMessaging(null);
+            setSelected(new Set());
+            setSelectAllMatching(false);
+            setToast({ kind: "ok", text: "Message sent." });
+          }}
+        />
+      )}
+
+      {bulkEmailing && (
+        <BulkEmailModal
+          memberIds={bulkEmailing}
+          onClose={() => setBulkEmailing(null)}
+          onSent={() => {
+            setBulkEmailing(null);
+            setSelected(new Set());
+            setSelectAllMatching(false);
+            setToast({ kind: "ok", text: "Email queued." });
+          }}
+        />
+      )}
+
+      {reset && (
+        <PasswordResetDialog
+          state={reset.state}
+          memberName={reset.member.fullName}
+          email={reset.email}
+          isGuardianEmail={reset.isGuardianEmail}
+          staffName={staffName}
+          sentAt={reset.sentAt}
+          errorMessage={reset.errorMessage}
+          onClose={() => setReset(null)}
+          onSend={async () => {
+            setReset((r) => (r ? { ...r, state: "sending" } : r));
+            try {
+              const res = await fetch(`/api/members/${reset.member.id}/password-reset`, { method: "POST" });
+              const d = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(d.error || "Could not send the reset email");
+              setReset((r) =>
+                r ? { ...r, state: "sent", email: d.email ?? r.email, sentAt: new Date(d.sentAt ?? Date.now()) } : r,
+              );
+            } catch (e) {
+              setReset((r) =>
+                r ? { ...r, state: "error", errorMessage: e instanceof Error ? e.message : "Something went wrong" } : r,
+              );
+            }
+          }}
+          // Both of these are "the address is wrong" — and the only safe place
+          // to change an address is the member record itself, never this dialog.
+          onUseDifferentEmail={() => {
+            const id = reset.member.id;
+            setReset(null);
+            router.push(`/dashboard/members/${id}?edit=1`);
+          }}
+          onAddEmail={() => {
+            const id = reset.member.id;
+            setReset(null);
+            router.push(`/dashboard/members/${id}?edit=1`);
+          }}
+          onLinkGuardian={() => {
+            const id = reset.member.id;
+            setReset(null);
+            router.push(`/dashboard/members/${id}?tab=family`);
           }}
         />
       )}
@@ -700,10 +1091,23 @@ function WorkQueueStrip({
   );
 }
 
-function BulkButton({ label, primary, disabled }: { label: string; primary?: boolean; disabled?: boolean }) {
+function BulkButton({
+  label,
+  primary,
+  disabled,
+  busy,
+  onClick,
+}: {
+  label: string;
+  primary?: boolean;
+  disabled?: boolean;
+  busy?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <button
-      disabled={disabled}
+      disabled={disabled || busy}
+      onClick={onClick}
       title={disabled ? "You do not have permission for this action" : undefined}
       className={`inline-flex min-h-[34px] items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors ${
         disabled
@@ -713,7 +1117,7 @@ function BulkButton({ label, primary, disabled }: { label: string; primary?: boo
             : "border border-app-border bg-surface text-text-primary hover:bg-app-bg"
       }`}
     >
-      {label}
+      {busy ? "Working…" : label}
     </button>
   );
 }
