@@ -216,6 +216,29 @@ export const MEMBERSHIP_TRACK = {
   ACTIVE: "ACTIVE",
   PENDING: "PENDING",
   PROSPECT: "PROSPECT",
+  /**
+   * ── J-10, RAISED FOR JULIAN'S CALL (2026-08-04) ──────────────────────────
+   * Julian's definition: a Prospect "has attended a practice or done a free
+   * trial but never became a member. That is NOT the same as an untouched lead
+   * or an imported name nobody has contacted."
+   *
+   * The model DID conflate those. `!everHeldMembership(m) → PROSPECT` asked
+   * only "have they ever bought anything", so a walk-in who trialled last
+   * Tuesday and a name typed into the roster months ago and never contacted
+   * rendered the identical pill. Imported names were already excluded — they
+   * hit the never-Prospect rule and read Pending — so the collapse affected
+   * exactly the manually-added group.
+   *
+   * They need different next actions, which is the practical proof they are
+   * different states: the trialler needs a membership offered, the untouched
+   * name needs somebody to make contact at all.
+   *
+   * LEAD is the split. The NAME is a placeholder — Julian decides whether the
+   * pair ends up Prospect/Lead, Trialled/Prospect, or something else. Renaming
+   * is a one-line change to MEMBERSHIP_LABELS; the derivation is what matters
+   * and it is now correct either way.
+   */
+  LEAD: "LEAD",
   PAUSED: "PAUSED",
   INACTIVE: "INACTIVE",
 } as const;
@@ -228,6 +251,8 @@ export const MEMBERSHIP_LABELS: Record<MembershipTrack, string> = {
   // an owner panicking that an import started billing people.
   PENDING: "Pending · not charged",
   PROSPECT: "Prospect",
+  // PLACEHOLDER NAME — see MEMBERSHIP_TRACK.LEAD. Julian picks the final pair.
+  LEAD: "Lead",
   PAUSED: "Paused",
   INACTIVE: "Inactive",
 };
@@ -250,6 +275,27 @@ export function everHeldMembership(m: MemberTrackInput): boolean {
   return false;
 }
 
+/**
+ * Have they actually been through the door?
+ *
+ * Julian's definition of Prospect (2026-08-04): "attended a practice or done a
+ * free trial but never became a member." Any of these is evidence of that:
+ *
+ *   · an attendance record of any kind — PRESENT, LATE, TRIAL or DROP_IN
+ *   · a trial window ever granted (trialEndsAt set, past or future — a lapsed
+ *     trial still means they trialled)
+ *   · their own portal login, which they only get by being invited or signing up
+ *
+ * Everything else is a name in a list. The distinction matters because the two
+ * need opposite next actions.
+ */
+export function hasTouchedTheClub(m: MemberTrackInput): boolean {
+  if (m.hasAttendance) return true;
+  if (isSet(m.trialEndsAt)) return true;
+  if (m.userId) return true;
+  return false;
+}
+
 export function membershipTrackFor(m: MemberTrackInput, now: Date = new Date()): MembershipTrack {
   // Owner-controlled and sticky — never inferred away.
   if (m.status === "PAUSED") return MEMBERSHIP_TRACK.PAUSED;
@@ -268,7 +314,12 @@ export function membershipTrackFor(m: MemberTrackInput, now: Date = new Date()):
   // are Pending · not charged — which is both true and reassuring.
   if (isImported(m) && !isSet(m.migrationCompletedAt)) return MEMBERSHIP_TRACK.PENDING;
 
-  if (!everHeldMembership(m)) return MEMBERSHIP_TRACK.PROSPECT;
+  if (!everHeldMembership(m)) {
+    // J-10: Prospect means they SHOWED UP. Someone typed into the roster and
+    // never contacted is a different state with a different next action —
+    // offer them a membership vs. make contact at all.
+    return hasTouchedTheClub(m) ? MEMBERSHIP_TRACK.PROSPECT : MEMBERSHIP_TRACK.LEAD;
+  }
 
   return MEMBERSHIP_TRACK.INACTIVE;
 }
@@ -279,7 +330,8 @@ export function membershipDetailFor(m: MemberTrackInput, now: Date = new Date())
   const subs = m.subscriptions ?? [];
   const live = subs.find((s) => s.status === ACTIVE_SUB) ?? subs.find((s) => s.status === PENDING_SUB);
 
-  if (track === MEMBERSHIP_TRACK.PROSPECT) return "Never held a membership";
+  if (track === MEMBERSHIP_TRACK.PROSPECT) return "Trialled, never joined";
+  if (track === MEMBERSHIP_TRACK.LEAD) return "Never contacted";
 
   if (live) {
     const bits = [live.planName ?? live.optionLabel, live.price != null ? formatMoney(live.price) : null]
@@ -350,7 +402,29 @@ export const SETUP_DOT: Record<SetupTrack, string> = {
   PROFILE_INCOMPLETE: "#9CA3AF",
 };
 
-export const BLOCKED_REASON_LABELS: Record<string, string> = {
+/**
+ * The closed value set for `members.blockedReason`.
+ *
+ * J-2 (owner, 2026-08-04): the COLUMN is TEXT, not a Postgres enum, so the list
+ * can grow as real delivery failures are observed without a migration. But the
+ * TYPE is a union, so a typo is a compile error rather than a silent new reason
+ * that renders as "Blocked · emial bounced" and matches nothing.
+ *
+ * To add a reason: add it here and to BLOCKED_REASON_LABELS. The Record type
+ * below makes the label mandatory — you cannot add one without the other.
+ */
+export const BLOCKED_REASONS = [
+  "EMAIL_BOUNCED",
+  "EMAIL_MISSING",
+  "REPEATED_NO_OPEN",
+  "SETUP_FAILED",
+  "CONFLICTING_DATA",
+  "MANUAL",
+] as const;
+
+export type BlockedReason = (typeof BLOCKED_REASONS)[number];
+
+export const BLOCKED_REASON_LABELS: Record<BlockedReason, string> = {
   EMAIL_BOUNCED: "email bounced",
   EMAIL_MISSING: "no email on file",
   REPEATED_NO_OPEN: "never opened",
@@ -358,6 +432,19 @@ export const BLOCKED_REASON_LABELS: Record<string, string> = {
   CONFLICTING_DATA: "conflicting data",
   MANUAL: "set aside",
 };
+
+/**
+ * Narrow whatever the database returned to a known reason.
+ *
+ * The column is TEXT, so a row written by an older build — or by hand — can
+ * carry anything. Unknown values are treated as "no reason recorded" rather
+ * than rendered raw: showing an owner a bare enum token they have never seen is
+ * worse than showing them a generic blocked state.
+ */
+export function asBlockedReason(v: string | null | undefined): BlockedReason | null {
+  if (!v) return null;
+  return (BLOCKED_REASONS as readonly string[]).includes(v) ? (v as BlockedReason) : null;
+}
 
 /** How many unopened sends before we stop burning invitations on an address. */
 export const REPEATED_NO_OPEN_THRESHOLD = 3;
@@ -368,8 +455,10 @@ export const REPEATED_NO_OPEN_THRESHOLD = 3;
  * directly — "3 sends, never opened" — without waiting for someone to set a
  * flag. Returns null when nothing is blocking.
  */
-export function derivedBlockedReason(m: MemberTrackInput): string | null {
-  if (m.blockedReason) return m.blockedReason;
+export function derivedBlockedReason(m: MemberTrackInput): BlockedReason | null {
+  // The stored column is TEXT, so narrow it before trusting it (J-2).
+  const stored = asBlockedReason(m.blockedReason);
+  if (stored) return stored;
   if ((m.invitationBouncedCount ?? 0) > 0) return "EMAIL_BOUNCED";
 
   const sends = m.invitationSendCount ?? m.activationEmailSendCount ?? 0;
@@ -452,7 +541,7 @@ export function setupLabelFor(m: MemberTrackInput, now: Date = new Date()): stri
       return "Complete";
     case SETUP_TRACK.BLOCKED: {
       const reason = derivedBlockedReason(m);
-      const text = reason ? BLOCKED_REASON_LABELS[reason] ?? reason.toLowerCase().replace(/_/g, " ") : "blocked";
+      const text = reason ? BLOCKED_REASON_LABELS[reason] : "blocked";
       return `Blocked · ${text}`;
     }
     case SETUP_TRACK.PROFILE_CREATED:
@@ -591,6 +680,8 @@ export const ACTION_KIND = {
   CONFIRM_MEMBERSHIP: "CONFIRM_MEMBERSHIP",
   COMPLETE_MIGRATION: "COMPLETE_MIGRATION",
   ASSIGN_MEMBERSHIP: "ASSIGN_MEMBERSHIP",
+  /** J-10: an untouched lead needs contact, not an offer. */
+  MAKE_CONTACT: "MAKE_CONTACT",
   WIN_BACK: "WIN_BACK",
   ADD_CONTACT: "ADD_CONTACT",
   LEAVE_ALONE: "LEAVE_ALONE",
@@ -753,7 +844,21 @@ export function nextAction(m: MemberTrackInput, now: Date = new Date()): NextAct
       tone: "brand",
       permission: "billing:full",
       waitingOn: WAITING_ON.STAFF,
-      detail: `${m.firstName} has never held a membership.`,
+      // They have been in the building. The offer is the next step.
+      detail: `${m.firstName} has trained here but never joined.`,
+    };
+  }
+  if (membership === MEMBERSHIP_TRACK.LEAD) {
+    return {
+      kind: ACTION_KIND.MAKE_CONTACT,
+      label: "Make contact",
+      tone: "brand",
+      // Reaching out is not a money action, so it is gated on members, not
+      // billing — a coach should be able to call a lead without being able to
+      // start charging one.
+      permission: "members:edit",
+      waitingOn: WAITING_ON.STAFF,
+      detail: `Nobody has contacted ${m.firstName} yet.`,
     };
   }
   if (membership === MEMBERSHIP_TRACK.INACTIVE) {

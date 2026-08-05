@@ -73,6 +73,10 @@ const PILL_STYLE: Record<string, { background: string; color: string }> = {
   ACTIVE: { background: "var(--color-lime-accent)", color: "var(--color-charcoal)" },
   PENDING: { background: "var(--color-pending-surface)", color: "var(--color-pending-text)" },
   PROSPECT: { background: "var(--color-prospect-surface)", color: "var(--color-prospect-text)" },
+  // J-10 split. Quieter than Prospect on purpose: a lead who has never been
+  // contacted is the least urgent thing in a row, and rendering it at Prospect
+  // strength would put the loudest colour on the emptiest record.
+  LEAD: { background: "var(--color-chip-surface)", color: "var(--color-chip-text)" },
   PAUSED: { background: "#FFF1E6", color: "var(--color-warn-text)" },
   INACTIVE: { background: "var(--color-chip-surface)", color: "var(--color-text-muted)" },
 };

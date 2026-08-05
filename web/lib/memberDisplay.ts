@@ -16,22 +16,16 @@
 // segmented control were therefore counts of the current page, and the mobile
 // card and the row could disagree.
 //
-// ╔═══════════════════════════════════════════════════════════════════════════╗
-// ║ BLOCKED ON MIGRATION 20260804000000_members_experience                     ║
-// ║                                                                           ║
-// ║ MEMBER_TRACK_SELECT references four columns that do not exist in the      ║
-// ║ database yet: reviewedAt, reviewedByUserId, blockedReason, snoozedUntil.  ║
-// ║ Handing this select to Prisma before the migration is applied makes the   ║
-// ║ query throw, which would take /api/members down.                          ║
-// ║                                                                           ║
-// ║ So this module is COMPLETE AND TYPE-CHECKED BUT NOT YET WIRED into any    ║
-// ║ route. After Julian applies the migration, swap the select in             ║
-// ║ /api/members and /api/members/[id] to MEMBER_TRACK_SELECT and call        ║
-// ║ serializeMemberForList. See PROGRESS.md "Blocked on migration".           ║
-// ║                                                                           ║
-// ║ serializeMemberForList itself is safe to call today — it reads the new    ║
-// ║ fields as optional and every one of them degrades honestly when absent.   ║
-// ╚═══════════════════════════════════════════════════════════════════════════╝
+// ── Status: WIRED (2026-08-04, session 2) ────────────────────────────────────
+// MEMBER_TRACK_SELECT names four columns added by
+// 20260804000000_members_experience — reviewedAt, reviewedByUserId,
+// blockedReason, snoozedUntil. That migration is applied, so this select is
+// safe to hand to Prisma and is live behind `GET /api/members?paginated=1`
+// (see lib/membersQuery.ts).
+//
+// The legacy bare-array response on that route is deliberately unchanged: the
+// migration page, the attendance add-panel and several modals index it as an
+// array, and switching the default shape would break all of them at once.
 
 import { Prisma } from "@prisma/client";
 import {
@@ -334,25 +328,6 @@ export type PersonTypeCounts = {
   inactive: number;
   midMigration: number;
 };
-
-/**
- * Resolve the owner-typed source labels for a page of members in one query.
- *
- * Safe to call TODAY — import_batches."sourceLabel" shipped with 2.5.9 and is
- * already in production, so this is not blocked on the new migration.
- */
-export async function loadSourceLabels(
-  db: { importBatch: { findMany: (a: unknown) => Promise<{ id: string; sourceLabel: string | null }[]> } },
-  batchIds: (string | null | undefined)[],
-): Promise<Map<string, string | null>> {
-  const ids = Array.from(new Set(batchIds.filter((b): b is string => Boolean(b))));
-  if (ids.length === 0) return new Map();
-  const rows = await db.importBatch.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, sourceLabel: true },
-  });
-  return new Map(rows.map((r) => [r.id, r.sourceLabel]));
-}
 
 export function countsFrom(serialized: SerializedMember[]): PersonTypeCounts {
   const c: PersonTypeCounts = {

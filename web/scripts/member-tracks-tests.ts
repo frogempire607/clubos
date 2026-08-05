@@ -150,7 +150,11 @@ const mt = (m: MemberTrackInput) => membershipTrackFor(m, NOW);
 eq("Active — an active subscription", mt(member({ subscriptions: [{ status: "active" }] })), MEMBERSHIP_TRACK.ACTIVE);
 eq("Active — a live staff-granted trial with no subscription", mt(member({ trialEndsAt: daysAhead(5) })), MEMBERSHIP_TRACK.ACTIVE);
 eq("Pending — a pending subscription", mt(member({ subscriptions: [{ status: "pending" }] })), MEMBERSHIP_TRACK.PENDING);
-eq("Prospect — never held anything", mt(member()), MEMBERSHIP_TRACK.PROSPECT);
+// J-10 split (owner, 2026-08-04): Prospect means they SHOWED UP.
+eq("Prospect — trialled, never joined", mt(member({ hasAttendance: true })), MEMBERSHIP_TRACK.PROSPECT);
+eq("Prospect — a lapsed free trial still counts as having trialled", mt(member({ trialEndsAt: daysAgo(30) })), MEMBERSHIP_TRACK.PROSPECT);
+eq("Prospect — signed up for a portal login", mt(member({ userId: "u1" })), MEMBERSHIP_TRACK.PROSPECT);
+eq("Lead — a name nobody has contacted", mt(member()), MEMBERSHIP_TRACK.LEAD);
 eq("Paused — owner-controlled and sticky", mt(member({ status: "PAUSED", subscriptions: [{ status: "active" }] })), MEMBERSHIP_TRACK.PAUSED);
 eq(
   "Inactive — had one, it ended",
@@ -186,11 +190,8 @@ eq("a completed migration with no sub is genuinely Inactive, not Pending forever
   mt(member({ migrationStatus: "COMPLETED", migrationCompletedAt: daysAgo(3), legacyMembershipName: "Team" })),
   MEMBERSHIP_TRACK.INACTIVE);
 
-eq(
-  "Prospect's detail line says so in words",
-  membershipDetailFor(member(), NOW),
-  "Never held a membership",
-);
+eq("Prospect's detail line names what happened", membershipDetailFor(member({ hasAttendance: true }), NOW), "Trialled, never joined");
+eq("Lead's detail line names what has NOT happened", membershipDetailFor(member(), NOW), "Never contacted");
 eq(
   "an imported plan shows the plan, the price and that it came from an import",
   membershipDetailFor(member({ migrationStatus: "IMPORTED", legacyMembershipName: "Competition Team", legacyMembershipPrice: 175 }), NOW),
@@ -360,7 +361,8 @@ const CANONICAL: [string, MemberTrackInput, string][] = [
   ["bounced invitation", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), invitationBouncedCount: 1 }), ACTION_KIND.FIX_EMAIL],
   ["imported with no address at all", member({ migrationStatus: "IMPORTED" }), ACTION_KIND.ADD_CONTACT],
   ["three sends, never opened", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(9), activationEmailSentAt: daysAgo(2), invitationSendCount: 3, invitationOpenedCount: 0 }), ACTION_KIND.FIX_EMAIL],
-  ["a walk-in prospect", member({ userId: "u2" }), ACTION_KIND.ASSIGN_MEMBERSHIP],
+  ["a walk-in who trialled", member({ userId: "u2", hasAttendance: true }), ACTION_KIND.ASSIGN_MEMBERSHIP],
+  ["an untouched lead", member(), ACTION_KIND.MAKE_CONTACT],
   ["a lapsed member", member({ status: "INACTIVE", userId: "u3", subscriptions: [{ status: "canceled", canceledAt: daysAgo(60) }] }), ACTION_KIND.WIN_BACK],
 ];
 
@@ -391,6 +393,7 @@ for (const [name, m] of CANONICAL.map((c) => [c[0], c[1]] as [string, MemberTrac
 group("§10 nextAction — permissions and tone");
 eq("confirming a membership is gated on billing, not members", nextAction(CANONICAL[4][1], NOW).permission, "billing:full");
 eq("assigning a membership is gated on billing", nextAction(CANONICAL[10][1], NOW).permission, "billing:full");
+eq("making first contact is gated on members, not billing", nextAction(CANONICAL[11][1], NOW).permission, "members:edit");
 eq("reviewing import data is gated on members:edit", nextAction(CANONICAL[0][1], NOW).permission, "members:edit");
 eq("'leave alone' asks for no permission", nextAction(CANONICAL[6][1], NOW).permission, null);
 eq("fixing a broken address renders charcoal, not brand", nextAction(CANONICAL[7][1], NOW).tone, "charcoal");
