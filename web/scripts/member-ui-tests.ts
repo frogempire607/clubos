@@ -26,6 +26,13 @@ import {
 import { MEMBER_MENU_ITEMS, MEMBER_MENU_ORDER } from "../components/members/MemberActionsMenu";
 import { PasswordResetDialog } from "../components/members/PasswordResetDialog";
 import {
+  FamilySwitcher,
+  IdentityHeader,
+  LockedBirthdayRow,
+  PROFILE_TABS,
+} from "../components/members/MemberProfileHeader";
+import { EditMemberDrawer } from "../components/members/EditMemberDrawer";
+import {
   MEMBERSHIP_LABELS,
   migrationMeterFor,
   nextAction,
@@ -277,6 +284,111 @@ renders(
   }),
   ["This member does not have an email address on file", "Add an email address", "Link a guardian"],
 );
+
+// ═══════════════════════════════════════════════════════════════════════════
+group("§7  Profile (4.5.3) — tabs variant, one family switcher, locked birthday");
+// ═══════════════════════════════════════════════════════════════════════════
+
+const profileTracks = {
+  role: [{ role: "ATHLETE", label: "ATHLETE" }, { role: "MINOR", label: "MINOR · 14" }],
+  membership: { track: "PENDING", label: MEMBERSHIP_LABELS.PENDING, detail: "Competition Team · $175 · imported" },
+  accountSetup: {
+    track: "INVITED",
+    label: "Invited · 4 days ago",
+    dot: SETUP_DOT.INVITED,
+    meter: migrationMeterFor(member({ migrationStatus: "INVITED", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), email: "a@b.com" }), NOW),
+  },
+};
+
+eq("tabs variant is 1c — eleven tabs", PROFILE_TABS.length, 11);
+eq("Overview leads", PROFILE_TABS[0].key, "overview");
+check("Family & access is a tab, not a separate page", PROFILE_TABS.some((t) => t.key === "family"));
+
+renders(
+  "identity header",
+  React.createElement(IdentityHeader, {
+    member: { id: "m1", fullName: "Cameron Lister", initials: "CL", profileImageUrl: null, dateOfBirth: "2012-03-01" },
+    tracks: profileTracks,
+    planLine: "Competition Team · $175/mo",
+    joinedAt: "2024-09-01",
+    legacyId: "607329885",
+    sourceLabel: "Acme Gym",
+    actions: null,
+  }),
+  ["Cameron Lister", "607329885"],
+);
+// The legacy id must be labelled with the OWNER-TYPED source, never a literal.
+const hdr = render(React.createElement(IdentityHeader, {
+  member: { id: "m1", fullName: "Cameron Lister", initials: "CL", profileImageUrl: null, dateOfBirth: null },
+  tracks: profileTracks, planLine: null, joinedAt: null, legacyId: "607329885", sourceLabel: null, actions: null,
+}));
+check("with no owner-typed label the id reads 'Legacy ID', never a vendor name", hdr.includes("Legacy ID 607329885"));
+
+const fam = renders(
+  "family switcher renders every member once",
+  React.createElement(FamilySwitcher, {
+    familyName: "Lister",
+    currentId: "m1",
+    people: [
+      { id: "m1", name: "Cameron", initials: "C", annotation: "athlete" },
+      { id: "m2", name: "Michael", initials: "M", annotation: "parent · pays" },
+    ],
+  }),
+  ["Lister family", "Cameron", "Michael", "parent · pays"],
+);
+check("the current person is marked 'viewing', not annotated", fam.includes("viewing"));
+eq(
+  "a single-person family renders NO switcher — there is nothing to switch",
+  render(React.createElement(FamilySwitcher, { familyName: "Solo", currentId: "m1", people: [{ id: "m1", name: "A", initials: "A", annotation: "athlete" }] })),
+  "",
+);
+
+const locked = renders(
+  "locked birthday row",
+  React.createElement(LockedBirthdayRow, { dateOfBirth: "2012-03-01", age: 14, guardianName: "Michael Lister" }),
+  ["Birthday", "Locked", "Michael Lister"],
+);
+check("names WHERE the guardian changes it", locked.includes("Profile → Personal details"));
+check("tells staff what to do when it blocks a signup", locked.includes("then refresh"));
+
+// ═══════════════════════════════════════════════════════════════════════════
+group("§8  Edit drawer (4.5.4) — the three load-bearing rules");
+// ═══════════════════════════════════════════════════════════════════════════
+
+const editable = {
+  id: "m1",
+  firstName: "Cameron",
+  lastName: "Lister",
+  email: "cam@example.com",
+  phone: null,
+  dateOfBirth: "2012-03-01",
+  guardianName: "Michael Lister",
+  guardianEmail: "michael@example.com",
+  guardianPhone: null,
+  isMinor: true,
+  midMigration: true,
+  hasPendingInvitation: true,
+  imported: { firstName: { value: "Camron", correctedBy: "Dana R.", correctedAt: "Jul 8" } },
+};
+
+const drawer = renders(
+  "edit drawer",
+  React.createElement(EditMemberDrawer, {
+    member: editable,
+    staffName: "Dana R.",
+    onClose: () => {},
+    onSave: () => {},
+    onSendReset: () => {},
+    onCopyPortalLink: () => {},
+  }),
+  ["Edit Cameron Lister", "Identity", "Contact", "Relationship"],
+);
+check("says edits will NOT restart setup — the fear that stopped staff fixing anything", drawer.includes("won\u2019t restart their setup"));
+check("warns that an email edit re-points rather than re-sends", drawer.includes("does not re-send"));
+check("locked block is headed unmistakably", drawer.includes("Not editable by anyone at the club"));
+check("password is never rendered, only dots", drawer.includes("Never visible or settable by staff"));
+check("footer attributes the save before you press it", drawer.includes("Saved as") && drawer.includes("Dana R."));
+check("corrected field shows the imported original", drawer.includes("Camron") && drawer.includes("Revert"));
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log(`\n${"─".repeat(62)}`);

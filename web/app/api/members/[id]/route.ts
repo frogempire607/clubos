@@ -11,6 +11,8 @@ import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 import { validateMemberContact } from "@/lib/memberValidation";
 import { resolveIsMinor } from "@/lib/parentalConsent";
 import { loadFamilyForMember } from "@/lib/familyAccess";
+import { MEMBER_TRACK_SELECT, serializeMemberForList, type SerializedMember } from "@/lib/memberDisplay";
+import { buildTrackContext, loadSourceLabels } from "@/lib/membersQuery";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -143,7 +145,40 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
 
   const { relationshipsFrom: _f, relationshipsTo: _t, club: _c, ...rest } = member;
   void _f; void _t;
-  return NextResponse.json({ ...rest, relationships, family, passProcessingFees: _c.passProcessingFees });
+  // Phase 4.5.3 — the profile reads the SAME derived tracks and the SAME
+  // nextAction as the roster row and the mobile card. Additive: every existing
+  // consumer of this endpoint keeps its keys, and `tracks`/`nextAction` simply
+  // appear alongside them.
+  //
+  // Derived here rather than client-side for the reason 4.5.1 exists: two
+  // staff must never see a different answer, and the profile banner and the
+  // list button must never disagree about what to do next.
+  let tracks: SerializedMember | null = null;
+  try {
+    const trackRow = await prisma.member.findFirst({
+      where: { id: params.id, clubId: session.user.clubId },
+      select: MEMBER_TRACK_SELECT,
+    });
+    if (trackRow) {
+      const ctx = await buildTrackContext([trackRow.id]);
+      ctx.sourceLabelByBatch = await loadSourceLabels([trackRow.importBatchId]);
+      tracks = serializeMemberForList(trackRow, ctx);
+    }
+  } catch (e) {
+    // A derivation failure must not take the whole profile down — every other
+    // tab on this page works without it.
+    console.error("[members/[id]] track derivation failed", e);
+  }
+
+  return NextResponse.json({
+    ...rest,
+    relationships,
+    family,
+    passProcessingFees: _c.passProcessingFees,
+    tracks: tracks?.tracks ?? null,
+    nextAction: tracks?.nextAction ?? null,
+    sourceLabel: tracks?.sourceLabel ?? null,
+  });
 }
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
