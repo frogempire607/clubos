@@ -524,7 +524,7 @@ export default function MembersRoster({
           // the table reads as a bug even when it isn't — so the header names
           // the exclusion instead of leaving it to be discovered.
           counts
-            ? `${counts.everyone.toLocaleString()} active ${counts.everyone === 1 ? "record" : "records"} · ${counts.midMigration.toLocaleString()} mid-migration · ${counts.prospects.toLocaleString()} prospects${
+            ? `${counts.everyone.toLocaleString()} active ${counts.everyone === 1 ? "record" : "records"} · ${counts.midMigration.toLocaleString()} mid-migration · ${counts.prospects.toLocaleString()} ${counts.prospects === 1 ? "prospect" : "prospects"}${
                 hiddenNote ? ` · ${hiddenNote}, not shown` : ""
               }`
             : `${total.toLocaleString()} active ${total === 1 ? "record" : "records"}${
@@ -656,7 +656,7 @@ export default function MembersRoster({
 
         {/* ── Active filter bar ───────────────────────────────────────── */}
         {filterCount > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-app-border px-4 py-2.5" style={{ background: "#FCFCFD" }}>
+          <div className="flex flex-wrap items-center gap-2 border-b border-app-border px-4 py-2.5" style={{ background: "var(--color-table-chrome)" }}>
             <span className="text-[12px] text-text-muted">Filtered by</span>
             {activeFilterChips.map((c) => (
               <button
@@ -685,7 +685,7 @@ export default function MembersRoster({
         {selectedCount > 0 && (
           <div
             className="flex flex-col gap-2 border-b px-4 py-2.5 md:flex-row md:items-center md:justify-between"
-            style={{ background: "rgba(109,93,246,.06)", borderColor: "rgba(109,93,246,.25)" }}
+            style={{ background: "var(--color-info-surface)", borderColor: "var(--color-info-border)" }}
           >
             <div className="flex flex-wrap items-center gap-2 text-[13px]">
               <span className="font-medium text-text-primary">{selectedCount.toLocaleString()} selected</span>

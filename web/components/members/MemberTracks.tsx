@@ -87,7 +87,7 @@ const PILL_STYLE: Record<string, { background: string; color: string }> = {
   // contacted is the least urgent thing in a row, and rendering it at Prospect
   // strength would put the loudest colour on the emptiest record.
   LEAD: { background: "var(--color-chip-surface)", color: "var(--color-chip-text)" },
-  PAUSED: { background: "#FFF1E6", color: "var(--color-warn-text)" },
+  PAUSED: { background: "var(--color-warn-surface)", color: "var(--color-warn-text)" },
   INACTIVE: { background: "var(--color-chip-surface)", color: "var(--color-text-muted)" },
 };
 
@@ -368,7 +368,7 @@ export function NextActionBanner({
 
   const blocked = action.waitingOn === WAITING_ON.BLOCKED;
   const surface = blocked ? "var(--color-danger-surface)" : "var(--color-warn-surface)";
-  const border = blocked ? "rgba(185,28,28,.22)" : "rgba(180,83,9,.22)";
+  const border = blocked ? "var(--color-danger-border)" : "var(--color-warn-border)";
   const text = blocked ? "var(--color-danger-text)" : "var(--color-warn-text)";
 
   return (

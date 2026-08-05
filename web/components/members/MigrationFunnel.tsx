@@ -138,8 +138,8 @@ export function MigrationFunnel({
           className="flex items-start gap-2.5 rounded-[10px] border p-3"
           style={
             advisory.safeToCancel
-              ? { background: "var(--color-success-surface)", borderColor: "rgba(63,98,18,.25)" }
-              : { background: "var(--color-warn-surface)", borderColor: "rgba(180,83,9,.22)" }
+              ? { background: "var(--color-success-surface)", borderColor: "var(--color-success-border)" }
+              : { background: "var(--color-warn-surface)", borderColor: "var(--color-warn-border)" }
           }
         >
           {advisory.safeToCancel ? (

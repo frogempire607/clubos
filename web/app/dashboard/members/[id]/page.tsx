@@ -537,6 +537,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             loginEmail={m.user?.email ?? null}
             lastLoginAt={m.user?.lastLoginAt ?? null}
             resetTargetEmail={m.user?.email ?? m.family?.guardians[0]?.email ?? null}
+            resetTargetIsGuardian={!m.user && !!m.family?.guardians.length}
+            guardianName={m.family?.guardians[0]?.name ?? null}
             canReset={canEdit && !!(m.user || m.family?.guardians.length)}
             onSendReset={openReset}
           />

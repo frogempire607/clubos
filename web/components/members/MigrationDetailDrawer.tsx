@@ -156,7 +156,7 @@ export function MigrationDetailDrawer({
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-surface md:max-w-[664px] md:rounded-l-[14px]"
-        style={{ boxShadow: "0 18px 44px rgba(17,17,17,.13)" }}
+        style={{ boxShadow: "var(--shadow-panel)" }}
       >
         {error ? (
           <div className="p-6">

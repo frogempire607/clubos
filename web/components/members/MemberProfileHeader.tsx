@@ -223,7 +223,7 @@ export function LockedBirthdayRow({
   return (
     <div
       className="-mx-3 rounded-lg p-3 sm:mx-0"
-      style={{ background: "var(--color-table-chrome)", border: "1px solid #EFEFF2" }}
+      style={{ background: "var(--color-table-chrome)", border: "1px solid var(--color-inset-border)" }}
     >
       <div className="flex flex-wrap items-center gap-2">
         <Lock className="h-3.5 w-3.5 text-text-muted" />
@@ -270,6 +270,9 @@ export function AccountSecurityCard({
   loginEmail,
   lastLoginAt,
   resetTargetEmail,
+  /** Set when the reset would go to a guardian rather than the member. */
+  resetTargetIsGuardian,
+  guardianName,
   onSendReset,
   canReset,
 }: {
@@ -277,6 +280,8 @@ export function AccountSecurityCard({
   loginEmail: string | null;
   lastLoginAt: string | null;
   resetTargetEmail: string | null;
+  resetTargetIsGuardian?: boolean;
+  guardianName?: string | null;
   onSendReset: () => void;
   canReset: boolean;
 }) {
@@ -284,13 +289,25 @@ export function AccountSecurityCard({
     <div className="rounded-xl border border-app-border bg-surface p-[18px]">
       <h3 className="text-[15px] font-semibold text-text-primary">Account &amp; security</h3>
       <dl className="mt-3 space-y-2 text-[13px]">
-        <Row label="Portal login" value={hasLogin ? "Active" : "No account yet"} />
+        {/* A minor usually has no login of their own — the guardian holds the
+            family account. Saying only "No account yet" next to a live reset
+            button reads as a contradiction, so name who does hold it. */}
+        <Row
+          label="Portal login"
+          value={
+            hasLogin
+              ? "Active"
+              : resetTargetIsGuardian
+                ? `Held by ${guardianName ?? "their guardian"}`
+                : "No account yet"
+          }
+        />
         {hasLogin && <Row label="Logs in as" value={loginEmail ?? "—"} />}
         <Row label="Last login" value={lastLoginAt ? fmt(lastLoginAt) : "Never"} />
         <Row label="Password" value="Never visible to staff" muted />
       </dl>
 
-      <div className="mt-3 rounded-lg p-3" style={{ background: "rgba(109,93,246,.06)" }}>
+      <div className="mt-3 rounded-lg p-3" style={{ background: "var(--color-info-surface)" }}>
         <div className="text-[12.5px] font-medium text-text-primary">Send password reset link</div>
         <p className="mt-0.5 text-[12px] text-text-muted">
           {resetTargetEmail ? (

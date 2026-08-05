@@ -73,7 +73,7 @@ export function PasswordResetDialog({
       <div
         onClick={(e) => e.stopPropagation()}
         className="w-full rounded-t-2xl bg-surface p-5 sm:max-w-[412px] sm:rounded-[14px]"
-        style={{ boxShadow: "0 18px 44px rgba(17,17,17,.13)" }}
+        style={{ boxShadow: "var(--shadow-panel)" }}
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <IconTile state={state} />

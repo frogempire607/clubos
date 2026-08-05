@@ -172,7 +172,7 @@ export function MemberActionsMenu({
             left: pos?.left ?? -9999,
             zIndex: 60,
             visibility: pos ? "visible" : "hidden",
-            boxShadow: "0 12px 32px rgba(17,17,17,.14)",
+            boxShadow: "var(--shadow-overlay)",
             border: "1px solid var(--color-border)",
           }}
         >

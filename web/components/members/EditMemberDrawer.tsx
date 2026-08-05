@@ -114,7 +114,7 @@ export function EditMemberDrawer({
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-surface md:max-w-[560px] md:rounded-l-[14px]"
-        style={{ boxShadow: "0 18px 44px rgba(17,17,17,.13)" }}
+        style={{ boxShadow: "var(--shadow-panel)" }}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-app-border p-5">
@@ -131,7 +131,7 @@ export function EditMemberDrawer({
 
         <div className="flex-1 overflow-y-auto p-5">
           {member.midMigration && (
-            <div className="mb-5 rounded-lg p-3 text-[12.5px] leading-relaxed" style={{ background: "rgba(109,93,246,.06)" }}>
+            <div className="mb-5 rounded-lg p-3 text-[12.5px] leading-relaxed" style={{ background: "var(--color-info-surface)" }}>
               <strong className="font-medium text-text-primary">{member.firstName}</strong> is{" "}
               <strong className="font-medium text-text-primary">mid-migration</strong>. Fix anything that came over wrong
               in the import — it saves straight away and won&rsquo;t restart their setup. Every change is attributed to
@@ -158,7 +158,7 @@ export function EditMemberDrawer({
           </Group>
 
           {/* ── Locked block ─────────────────────────────────────────── */}
-          <div className="mb-5 rounded-[10px] p-3.5" style={{ background: "var(--color-table-chrome)", border: "1px solid #EFEFF2" }}>
+          <div className="mb-5 rounded-[10px] p-3.5" style={{ background: "var(--color-table-chrome)", border: "1px solid var(--color-inset-border)" }}>
             <div className="mb-2.5 flex items-center gap-1.5">
               <Lock className="h-3.5 w-3.5 text-text-muted" />
               <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">
@@ -170,7 +170,7 @@ export function EditMemberDrawer({
               <div className="mb-1 text-[12px] font-medium text-text-primary">Birthday</div>
               <div
                 className="flex min-h-[48px] items-center justify-between gap-2 rounded-lg px-3 py-2"
-                style={{ background: "#F4F4F6", border: "1px dashed #D7D7DC" }}
+                style={{ background: "var(--color-inset-surface)", border: "1px dashed var(--color-inset-dashed)" }}
               >
                 <span className="inline-flex items-center gap-2 text-[13px] text-text-primary">
                   <Lock className="h-3.5 w-3.5 text-text-muted" />
@@ -194,7 +194,7 @@ export function EditMemberDrawer({
               <div className="mb-1 text-[12px] font-medium text-text-primary">Password</div>
               <div
                 className="flex min-h-[48px] items-center rounded-lg px-3 py-2 tracking-[0.3em] text-text-muted"
-                style={{ background: "#F4F4F6", border: "1px dashed #D7D7DC" }}
+                style={{ background: "var(--color-inset-surface)", border: "1px dashed var(--color-inset-dashed)" }}
               >
                 ••••••••
               </div>
