@@ -684,6 +684,164 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 ---
 
+### Session 3 — 2026-08-05 · half-wired work finished, 4.5.6–4.5.8 built
+
+**No migration created or modified.** Phase 4.5's schema stays closed.
+
+Julian tested session 2's branch locally and found it half-wired. Four reports,
+all fixed and browser-verified before any new work started.
+
+#### 1. One members route, one list
+
+`/dashboard/members` **is** the redesigned roster now. The old 2,400-line page
+is gone. Its five modals (Add/Edit member, CSV import, membership purchase, bulk
+message, bulk email) moved verbatim to `components/members/MemberModals.tsx` and
+the roster owns them — that extraction is what made the swap possible without
+putting those flows at risk. `/dashboard/members/roster` redirects here so links
+made during the session-2 window still land somewhere real. `?add=1` still opens
+the Add-member modal, so the dashboard quick-action and the empty-state CTA keep
+working.
+
+#### 2. The profile renders the 4.5 components
+
+`MemberProfileHeader`, `EditMemberDrawer`, `MemberActionsMenu` and
+`PasswordResetDialog` existed and were mounted by nothing — "I can't edit a
+member at all." All four are now on `/dashboard/members/[id]`: IdentityHeader
+reading the same derived tracks as the roster row, ProfileTabs (variant 1c) with
+counts and a red dot only where someone must act, the edit drawer, and
+AccountSecurityCard sharing one reset implementation with the ⋯ menu.
+
+**The family switcher needed a server fix to work at all.** `family` answers
+"who can act for this member" and "who can this member act for"; neither answers
+"who else is in this family". A sibling is reachable only through a shared
+guardian, and a minor has no login, so both lists came back empty for exactly
+the case the switcher exists for — Cameron Lister's profile showed no family
+despite Rory being correctly linked to the same parent. `GET /api/members/[id]`
+now also returns `familyMembers`: other athletes this member's **CONFIRMED**
+guardians manage. Pending links are excluded — they grant nothing and must not
+place someone in a family they may not belong to.
+
+#### 3. Every ⋯ item does something
+
+Three new routes, each a thin wrapper over machinery that already existed:
+
+| Route | Notes |
+|---|---|
+| `POST /api/members/selection` | Resolves the query-scoped bulk selection into ids. `resolveSelection` had been sitting uncalled since session 2; without it "Select all N matching this filter" could only ever act on the loaded page. |
+| `GET/POST /api/members/[id]/password-reset` | Reuses the forgot-password token machinery. **The destination address is resolved server-side and there is deliberately no client-supplied email field** — a staffer who could post one could redirect any member's reset link to their own inbox. |
+| `POST /api/members/[id]/resend-invitation` | Single-member wrapper over `sendActivation`. `isReminder` is derived from send history, not passed, so the copy a family reads doesn't depend on which button was clicked. |
+
+Bulk **Assign membership** deliberately refuses and says why: plan, price and
+start date differ per family, so one bulk choice would be a billing mistake at
+scale.
+
+#### 4. The 281 vs 293 gap — answered
+
+**All 12 are soft-deleted.** Verified read-only against production:
+
+```
+293 rows · 281 live · 12 deleted · 0 historical-only
+```
+
+The header no longer leaves it to be inferred — it reads
+`N active records · … · N archived, not shown`.
+
+That query surfaced a **latent gap worth knowing about**: `memberWhere` filtered
+only `deletedAt`, so `isHistoricalOnly` rows — which 2.5.9 says belong in "no
+active rosters, billing or messaging" — were counted as active people **and were
+selectable by bulk actions**. An invitation sweep would have emailed people who
+left years ago. Frog Empire has zero such rows, so no number Julian has seen
+changes; the local fixture has five and they were being counted before the fix.
+
+#### Two bugs only clicking could find
+
+1. **The ⋯ menu was unreachable on most of the roster.** The table sits in an
+   `overflow-x-auto` wrapper; CSS resolves the other axis to `auto` too, so the
+   absolutely-positioned dropdown was clipped — fine on the top rows, cut off
+   below. Now a portal with fixed coordinates that flips above the button when
+   there's no room under it. (First attempt closed the menu on scroll, which
+   broke the common case: clicking a ⋯ near the fold scrolls it into view and
+   dismissed the menu the same gesture opened.)
+2. **The family permission toggle silently reverted.** It PATCHed `?linkId=` in
+   the query string; the handler reads `linkId` from the parsed body. The request
+   400'd and the optimistic flip rolled back, so the switch appeared to work.
+
+#### 4.5.6 Family & access — reconciled, not replaced
+
+Phase 4's card was verified correct against the Lister family, so this adds only
+what 4.5.6 asks for:
+
+- **Permissions editable in place.** They were read-only pills, so the only way
+  to change what a parent could do was to remove access and re-grant it —
+  destructive for a correction as small as "Sam shouldn't be paying", and it
+  discards the link's history. Toggles are optimistic and roll back on failure.
+- **PENDING links show permissions but can't edit them.** The row grants nothing
+  until confirmed; editing would imply an authority it doesn't have.
+- Header count line, and each link states its origin ("matched the guardian
+  email on file", "added by staff at the desk") — how a link came to exist is
+  what decides whether to trust it.
+
+Columns are the shipped `canBook` / `canPay` / `canSignWaivers` /
+`canReceiveEmails` throughout (J-9: code wins). **No migration.**
+
+⚠️ The spec asks for the creating staff member's *name* ("Added by Coach Ben").
+The payload carries only `createdByUserId`, so this states the origin rather
+than inventing an attribution — a wrong name is worse than an unnamed one.
+Adding the name is a payload change for a later pass.
+
+#### 4.5.7 Migration dashboard — the funnel replaces the eight KPI tiles
+
+The eight tiles never added up to anything. The funnel's seven segments are one
+sequence — the same steps `lib/memberTracks.ts` already resolves — so each
+person is counted at the furthest step completed, the segments descend by
+construction, and the drop between any two is a clickable population.
+
+- `GET /api/members/migration/funnel` derives every number from
+  `migrationMeterFor`. **There is no funnel column and there must not be one.**
+- Clicking a segment adds `?step=N`, which the queue route resolves through the
+  **same** resolver and intersects by id. A second derivation path would be a
+  second set of rules to keep in sync.
+- Sublines flag the drop *out of* their own segment, so the number tells you what
+  clicking will show.
+- **Cut-over advisory** answers "when can I stop paying for my previous system?"
+  from real numbers, and errs conservative: anyone below step 6 has no confirmed
+  membership here, and cancelling the old system while that is true is how a
+  family ends up charged by nobody at all.
+
+#### 4.5.8 Migration detail drawer
+
+664px over the queue, so the filter behind it survives (verified: 2 rows before,
+2 after). Header with `Step N of 7 · imported <date> · legacy <id>`, the 7-step
+timeline with **timestamps and actors** pulled from `MemberMigrationEvent` rows
+that nothing was reading, contextual invite actions on the invitation step
+itself, and an imported-data table whose "As imported" column is headed with the
+owner's **own** label for their previous system — never a hardcoded vendor name.
+
+#### Verification
+
+Genuine browser testing this session, unlike sessions 1–2: local Postgres 16 on
+:55432 with all 89 migrations applied, `scripts/seed-local-browser-test.ts`
+fixtures (23 members covering every roster state plus the Lister family), dev
+server, and Chromium via Playwright. Every screen listed above was clicked.
+
+`npx tsc --noEmit` clean · `test:phase45` 153 + 70 green · grep guards at
+baseline 8 · `test:phase4` 93/93.
+
+#### Still open
+
+| # | Item |
+|---|---|
+| S-1 | Saved views — the "Save as view" control renders and `saved_member_views` exists; no route yet. |
+| S-2 | Snooze / mark-reviewed routes — columns applied, nothing writes them. So funnel step 2 reads unreviewed for everyone until BF-A runs. |
+| S-3 | `member_invitation_deliveries` is never written; bounce history in the reset dialog is therefore always empty. |
+| S-4 | Balance column is always "—" — no balance source wired. |
+| S-5 | Bulk "Add tag" removed rather than left as a dead button. |
+| K-1 | Person-type labels still awaiting Julian's pick (options were listed in session 2). |
+| 4.5.9 | Mobile audit + Capacitor regression — deferred once already; dark mode is item 1 per J-8. |
+| 4.5.10 | `MemberSubscriptionEvent` writes + BF-B backfill. |
+
+---
+
 ### Session 2 — 2026-08-04 · J-decisions applied, 4.5.2–4.5.5 built
 
 **Migration applied.** No migration was created or modified this session.

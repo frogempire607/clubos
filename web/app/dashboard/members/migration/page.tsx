@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { MigrationFunnel } from "@/components/members/MigrationFunnel";
+import { MigrationDetailDrawer } from "@/components/members/MigrationDetailDrawer";
 import MembersTabs from "@/components/MembersTabs";
 
 // ── CSV parser (handles quoted cells / embedded commas / CRLF) ───────────────
@@ -213,6 +214,8 @@ export default function MigrationPage() {
   // Which funnel segment is selected, if any. Held here rather than in the
   // funnel so the queue below can filter by it.
   const [stepFilter, setStepFilter] = useState<number | null>(null);
+  // 4.5.8 — opens OVER the queue so the filter behind it survives.
+  const [detailFor, setDetailFor] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -892,6 +895,13 @@ export default function MigrationPage() {
                         </button>
                       )}
                       <button
+                        onClick={() => setDetailFor(r.id)}
+                        title="Where this member is in the 7 steps, and what we imported"
+                        className="ml-1 text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
+                      >
+                        Details
+                      </button>
+                      <button
                         onClick={() => resendOne(r.id)}
                         disabled={busy || noEmail || r.migrationStatus === "COMPLETED"}
                         className="text-xs px-2 py-1 ml-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
@@ -935,6 +945,15 @@ export default function MigrationPage() {
       {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
       {showMembershipImport && <MembershipImportWizard onClose={() => setShowMembershipImport(false)} onDone={() => { setShowMembershipImport(false); load(); }} />}
       {historyFor && <HistoryDrawer row={historyFor} onClose={() => setHistoryFor(null)} />}
+      {detailFor && (
+        <MigrationDetailDrawer
+          memberId={detailFor}
+          canEdit
+          onClose={() => setDetailFor(null)}
+          onChanged={load}
+        />
+      )}
+
       {drawerFor && (
         <MigrationDrawer
           memberId={drawerFor.id}
