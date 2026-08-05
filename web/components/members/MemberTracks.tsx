@@ -40,7 +40,17 @@ import {
  * as quiet metadata — the moment they compete with the membership pill the row
  * has two things shouting and the eye lands on neither.
  */
-export function RoleChips({ roles, max }: { roles: RoleChip[]; max?: number }) {
+export function RoleChips({
+  roles,
+  max,
+}: {
+  // Accepts the wire shape (role: string) as well as RoleChip, because the
+  // serialized payload crosses JSON and loses the literal union. The component
+  // only renders `label` and uses `role` as a React key, so widening here costs
+  // nothing and keeps every consumer from casting.
+  roles: { role: string; label: string }[] | RoleChip[];
+  max?: number;
+}) {
   if (!roles.length) return null;
   const shown = max ? roles.slice(0, max) : roles;
   const hidden = roles.length - shown.length;
