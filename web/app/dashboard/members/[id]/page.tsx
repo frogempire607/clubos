@@ -1,11 +1,28 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
 import TransferMembershipModal from "@/components/members/TransferMembershipModal";
-import { ArrowLeft } from "lucide-react";
+import {
+  AccountSecurityCard,
+  FamilySwitcher,
+  IdentityHeader,
+  LockedBirthdayRow,
+  OwnershipLegend,
+  ProfileTabs,
+  type FamilyPerson,
+  type ProfileTracks,
+} from "@/components/members/MemberProfileHeader";
+import { EditMemberDrawer, type EditableMember } from "@/components/members/EditMemberDrawer";
+import { MemberActionsMenu } from "@/components/members/MemberActionsMenu";
+import { PasswordResetDialog, type ResetState } from "@/components/members/PasswordResetDialog";
+import { NextActionBanner, NextActionButton } from "@/components/members/MemberTracks";
+import type { NextAction } from "@/lib/memberTracks";
+import { ArrowLeft, Pencil } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
+import { hasPermission } from "@/lib/permissions";
 
 type Sub = {
   id: string;
@@ -55,10 +72,20 @@ type MemberDetail = {
   // Phase 4B — the access edges the profile never loaded. `relationships`
   // above are descriptive labels and grant nothing; `family` is the real thing.
   family?: FamilyPayload;
+  /** Siblings, reached through a shared confirmed guardian — see the API note. */
+  familyMembers?: { id: string; name: string; profileImageUrl: string | null; isMinor: boolean; viaGuardian: string; canPay: boolean }[];
   migrationStatus?: string | null;
   legacyMembershipName?: string | null;
   trialEndsAt?: string | null;
   passProcessingFees?: boolean;
+  // Phase 4.5.3 — the SAME derived tracks the roster row renders, so the
+  // profile can never disagree with the list it was opened from.
+  tracks?: ProfileTracks | null;
+  nextAction?: NextAction | null;
+  sourceLabel?: string | null;
+  legacyMemberId?: string | null;
+  birthdayLockedAt?: string | null;
+  user?: { id: string; email: string; lastLoginAt: string | null } | null;
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -82,10 +109,58 @@ function fmtMoney(v: string | number | null) {
 
 export default function MemberProfilePage({ params }: { params: { id: string } }) {
   const { id } = params;
+  const router = useRouter();
+  const search = useSearchParams();
   const [m, setM] = useState<MemberDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingSub, setEditingSub] = useState<Sub | null>(null);
   const [addingRel, setAddingRel] = useState(false);
+
+  // ── Phase 4.5.3/4.5.4/4.5.5 wiring ──────────────────────────────────────
+  // These components shipped in session 2 and were never mounted anywhere, so
+  // the profile still rendered the pre-4.5 layout and there was no way to edit
+  // a member at all. Tab and drawer state live in the URL so a tab is
+  // linkable and the ⋯ menu's "Edit member" (?edit=1) lands where it says.
+  const tab = search.get("tab") ?? "overview";
+  const setTab = useCallback(
+    (key: string) => {
+      const next = new URLSearchParams(search.toString());
+      if (key === "overview") next.delete("tab");
+      else next.set("tab", key);
+      router.replace(next.toString() ? `?${next.toString()}` : "?", { scroll: false });
+    },
+    [router, search],
+  );
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [reset, setReset] = useState<{
+    state: ResetState;
+    email: string | null;
+    isGuardianEmail: boolean;
+    sentAt?: Date;
+    errorMessage?: string;
+  } | null>(null);
+  const [me, setMe] = useState<{ role?: string; name?: string; permissions?: Record<string, unknown> | null } | null>(null);
+
+  useEffect(() => {
+    if (search.get("edit") === "1") {
+      setEditOpen(true);
+      const next = new URLSearchParams(search.toString());
+      next.delete("edit");
+      router.replace(next.toString() ? `?${next.toString()}` : "?", { scroll: false });
+    }
+    // Only react to the flag itself; `search` churns on every tab change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.get("edit")]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -105,6 +180,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
       .then((r) => (r.ok ? r.json() : null))
       .then((me) => {
         if (!me) return;
+        setMe(me);
         setCanTransfer(
           me.role === "OWNER" ||
             me.permissions?.billing_subScopes?.transfer_subscription === true,
@@ -112,6 +188,115 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
       })
       .catch(() => {});
   }, []);
+
+  // ── Actions the header, drawer and Account & security card share ────────
+  // One implementation each, so the button in the drawer and the button in the
+  // card can never do different things.
+  const sendReset = useCallback(async () => {
+    setReset((r) => (r ? { ...r, state: "sending" } : r));
+    try {
+      const res = await fetch(`/api/members/${id}/password-reset`, { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Could not send the reset email");
+      setReset({
+        state: "sent",
+        email: d.email ?? null,
+        isGuardianEmail: !!d.isGuardianEmail,
+        sentAt: new Date(d.sentAt ?? Date.now()),
+      });
+    } catch (e) {
+      setReset((r) => ({
+        state: "error",
+        email: r?.email ?? null,
+        isGuardianEmail: !!r?.isGuardianEmail,
+        errorMessage: e instanceof Error ? e.message : "Something went wrong",
+      }));
+    }
+  }, [id]);
+
+  const openReset = useCallback(async () => {
+    const r = await fetch(`/api/members/${id}/password-reset`);
+    const d = await r.json().catch(() => ({}));
+    // Same distinction the roster makes: no account is not no address, and the
+    // dialog can only say the second one truthfully.
+    if (d.reason === "NO_LOGIN") {
+      setToast({ kind: "err", text: "No portal account yet — send an invitation instead of a password reset." });
+      return;
+    }
+    setReset({
+      state: d.canSend ? "confirm" : "no-email",
+      email: d.email ?? null,
+      isGuardianEmail: !!d.isGuardianEmail,
+    });
+  }, [id]);
+
+  const saveEdit = useCallback(
+    async (patch: Record<string, string | null>) => {
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const res = await fetch(`/api/members/${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof d.error === "string" ? d.error : "Could not save the changes");
+        setEditOpen(false);
+        setToast({ kind: "ok", text: "Changes saved." });
+        load();
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : "Could not save the changes");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [id, load],
+  );
+
+  const onMenuAction = useCallback(
+    async (key: string, mm: { id: string; fullName: string }) => {
+      try {
+        switch (key) {
+          case "resend": {
+            const r = await fetch(`/api/members/${mm.id}/resend-invitation`, { method: "POST" });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || "Could not send the invitation");
+            setToast({ kind: "ok", text: `${d.isReminder ? "Reminder" : "Invitation"} sent.` });
+            load();
+            break;
+          }
+          case "reset":
+            await openReset();
+            break;
+          case "assign":
+            router.push(`/dashboard/members/${mm.id}/billing`);
+            break;
+          case "relationship":
+            setTab("family");
+            break;
+          case "checkin":
+            router.push(`/dashboard/attendance?member=${mm.id}`);
+            break;
+          case "archive": {
+            if (
+              !confirm(
+                `Archive ${mm.fullName}?\n\nThey stop appearing in the roster, billing and messaging. Nothing is deleted — history, payments and documents are kept, and an owner can restore them.`,
+              )
+            )
+              break;
+            const r = await fetch(`/api/members/${mm.id}`, { method: "DELETE" });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not archive");
+            router.push("/dashboard/members");
+            break;
+          }
+        }
+      } catch (e) {
+        setToast({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
+      }
+    },
+    [load, openReset, router, setTab],
+  );
 
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
   if (!m) return <div className="p-8 text-center text-text-muted text-sm">Member not found.</div>;
@@ -132,6 +317,79 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         ? (pendingSub ? "PENDING" : "PROSPECT")
         : m.status;
   const sc = statusColors[displayStatus] ?? statusColors.INACTIVE;
+  void sc;
+
+  const isOwner = me?.role === "OWNER";
+  const canEdit = isOwner || hasPermission(me?.permissions ?? null, "members", "edit");
+  const canBill = isOwner || hasPermission(me?.permissions ?? null, "billing", "full");
+  const staffName = me?.name || "you";
+
+  // The header needs tracks. When derivation failed server-side the API sends
+  // null, so synthesise the minimum from what the page already computed rather
+  // than rendering a profile with no status at all.
+  const tracks: ProfileTracks = m.tracks ?? {
+    role: [],
+    membership: {
+      track: displayStatus,
+      label: displayStatus === "MIGRATING" ? "Migrating" : displayStatus.charAt(0) + displayStatus.slice(1).toLowerCase(),
+      detail: null,
+    },
+    accountSetup: {
+      track: "UNKNOWN",
+      label: "Status unavailable",
+      dot: "muted",
+      meter: { step: 0, total: 0, applicable: false, waitingOn: "NOBODY", steps: [] },
+    },
+  };
+
+  // ── The one family list ────────────────────────────────────────────────
+  // Built from `family` (the real access edges), never from `relationships`
+  // (descriptive labels that grant nothing). The annotation says what someone
+  // is TO THIS FAMILY — "parent · pays" — not their membership status.
+  const familyPeople: FamilyPerson[] = [
+    {
+      id: m.id,
+      name: `${m.firstName} ${m.lastName}`,
+      initials: `${m.firstName[0] ?? ""}${m.lastName[0] ?? ""}`.toUpperCase(),
+      annotation: m.isMinor ? "athlete" : "member",
+      imageUrl: m.profileImageUrl,
+    },
+    ...(m.familyMembers ?? []).map((a) => ({
+      id: a.id,
+      name: a.name,
+      initials: initialsOf(a.name),
+      annotation: [a.isMinor ? "athlete" : "member", a.canPay ? "pays" : null].filter(Boolean).join(" · "),
+      imageUrl: a.profileImageUrl,
+    })),
+    // A guardian appears only when they are themselves a member of the club —
+    // a guardian-only account is not a member and must not be offered as a
+    // profile to open (there is nothing behind the link).
+    ...(m.family?.guardians ?? [])
+      .filter((g) => g.memberId && g.memberId !== m.id && !(m.familyMembers ?? []).some((f) => f.id === g.memberId))
+      .map((g) => ({
+        id: g.memberId as string,
+        name: g.name,
+        initials: initialsOf(g.name),
+        annotation: [g.relationship?.toLowerCase() ?? "guardian", g.canPay ? "pays" : null].filter(Boolean).join(" · "),
+        imageUrl: g.profileImageUrl,
+      })),
+  ];
+
+  const tabCounts: Partial<Record<string, number>> = {
+    memberships: m.subscriptions.length,
+    family: (m.family?.guardians.length ?? 0) + (m.family?.managedAthletes.length ?? 0),
+    attendance: m.attendanceRecords.length,
+    payments: m.transactions.length,
+    bookings: m.bookings.length + m.eventRegistrations.length,
+  };
+  // A red dot means someone has to do something, not merely that a tab is
+  // empty. Pending guardian requests are the case that was invisible before.
+  const tabProblems: string[] = [
+    (m.family?.pendingGuardianRequests.length ?? 0) > 0 ? "family" : null,
+  ].filter(Boolean) as string[];
+
+  /** Show a card only on Overview and its own tab. */
+  const on = (key: string) => tab === "overview" || tab === key;
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -139,73 +397,152 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Back to members
       </Link>
 
-      {/* Header */}
-      <div className="mt-3 mb-6 flex items-start gap-4">
-        <div className="w-16 h-16 rounded-full bg-app-border flex items-center justify-center text-lg font-semibold text-text-primary overflow-hidden flex-shrink-0">
-          {m.profileImageUrl
-            ? <img src={m.profileImageUrl} alt="" className="w-full h-full object-cover" />
-            : <>{m.firstName[0]}{m.lastName[0]}</>}
+      {toast && (
+        <div
+          role="status"
+          className="mt-3 rounded-lg border px-3 py-2 text-[13px]"
+          style={
+            toast.kind === "ok"
+              ? { background: "var(--color-success-surface)", borderColor: "var(--color-success-text)", color: "var(--color-success-text)" }
+              : { background: "var(--color-danger-surface)", borderColor: "var(--color-danger-text)", color: "var(--color-danger-text)" }
+          }
+        >
+          {toast.text}
         </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-semibold text-text-primary">{m.firstName} {m.lastName}</h1>
-            <span className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.fg }}>
-              {displayStatus === "MIGRATING"
-                ? "Migrating"
-                : displayStatus.charAt(0) + displayStatus.slice(1).toLowerCase()}
-            </span>
-            {displayStatus === "MIGRATING" && m.legacyMembershipName && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted"
-                title="Imported plan from the previous software — billing starts after activation & approval."
+      )}
+
+      {/* ── Identity header (4.5.3) ───────────────────────────────────────
+          Renders the SAME derived tracks as the roster row. When the API's
+          derivation fails it returns tracks:null, and this falls back to the
+          status the page already computed — a degraded header beats a blank
+          profile. */}
+      <div className="mt-3">
+        <IdentityHeader
+          member={{
+            id: m.id,
+            fullName: `${m.firstName} ${m.lastName}`,
+            initials: `${m.firstName[0] ?? ""}${m.lastName[0] ?? ""}`.toUpperCase(),
+            profileImageUrl: m.profileImageUrl,
+            dateOfBirth: m.dateOfBirth,
+          }}
+          tracks={tracks}
+          planLine={activeSub?.membership?.name ?? m.legacyMembershipName ?? null}
+          joinedAt={m.joinedAt}
+          legacyId={m.legacyMemberId ?? null}
+          sourceLabel={m.sourceLabel ?? null}
+          actions={
+            <>
+              <button
+                onClick={() => setEditOpen(true)}
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
               >
-                {m.legacyMembershipName}
-              </span>
-            )}
-            {/* A purchase mid-flight (pending sub) — make it explicit that nothing
-                has been charged yet. A true Prospect (no sub at all) needs no chip;
-                the status pill already reads "Prospect". */}
-            {pendingSub && !activeSub && (
-              <span
-                className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-orange-accent/20 text-text-primary"
-                title="A membership purchase is in progress — nothing has been charged yet."
+                <Pencil className="h-4 w-4" /> Edit
+              </button>
+              <Link
+                href={`/dashboard/members/${id}/billing`}
+                className="inline-flex min-h-[38px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
               >
-                Not charged yet
-              </span>
-            )}
-            {m.isMinor && <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Minor</span>}
-            {m.trialEndsAt && new Date(m.trialEndsAt) > new Date() && !activeSub && (
-              <span
-                className="inline-flex items-center whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-lime-accent/25 text-text-primary"
-                title="Staff-granted free trial — classes book free in the portal until this date."
-              >
-                Free trial until {fmtDate(m.trialEndsAt)}
-              </span>
-            )}
-          </div>
-          <div className="text-sm text-text-muted mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
-            {m.email && <span>{m.email}</span>}
-            {m.phone && <span>{m.phone}</span>}
-            <span>Joined {fmtDate(m.joinedAt)}</span>
-            {m.dateOfBirth && <span>DOB {fmtDate(m.dateOfBirth)}</span>}
-          </div>
-          {m.isMinor && m.guardianName && (
-            <div className="text-xs text-text-muted mt-1">
-              Guardian: {m.guardianName}{m.guardianEmail ? ` · ${m.guardianEmail}` : ""}{m.guardianPhone ? ` · ${m.guardianPhone}` : ""}
-            </div>
-          )}
-          {m.tags.trim() && (
-            <div className="flex gap-1 flex-wrap mt-2">
-              {m.tags.split(",").map((t) => t.trim()).filter(Boolean).map((t) => (
-                <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-primary">{t}</span>
-              ))}
-            </div>
-          )}
+                Manage billing
+              </Link>
+              <MemberActionsMenu
+                member={{ id: m.id, fullName: `${m.firstName} ${m.lastName}` }}
+                canEdit={canEdit}
+                canBill={canBill}
+                isOwner={isOwner}
+                onAction={onMenuAction}
+                size={38}
+              />
+            </>
+          }
+        />
+      </div>
+
+      {/* The ONE family switcher. Returns null for a one-person family. */}
+      {familyPeople.length > 1 && (
+        <div className="mt-4">
+          <FamilySwitcher familyName={m.lastName} people={familyPeople} currentId={m.id} />
         </div>
+      )}
+
+      {/* The next action, stated once, from the same resolver as the list. */}
+      {m.nextAction && m.nextAction.kind !== "NONE" && (
+        <div className="mt-4">
+          <NextActionBanner action={m.nextAction} memberName={m.firstName}>
+            <NextActionButton
+              action={m.nextAction}
+              allowed={m.nextAction.permission?.startsWith("billing") ? canBill : canEdit}
+              requiredRoleLabel={m.nextAction.permission?.startsWith("billing") ? "Billing" : "Members"}
+              onClick={() =>
+                onMenuAction(
+                  m.nextAction?.permission?.startsWith("billing") ? "assign" : "resend",
+                  { id: m.id, fullName: `${m.firstName} ${m.lastName}` },
+                )
+              }
+            />
+          </NextActionBanner>
+        </div>
+      )}
+
+      <div className="mt-5">
+        <ProfileTabs active={tab} onSelect={setTab} counts={tabCounts} problems={tabProblems} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Current membership */}
+        {/* ── Personal info (4.5.3) ──────────────────────────────────────
+            Contact facts plus the two cards the handoff singles out: the
+            locked birthday (staff kept "fixing" DOBs to unblock signups,
+            silently moving age brackets and waiver requirements) and Account
+            & security, which is where a password reset actually belongs. */}
+        {on("personal") && (
+        <Card title="Personal info">
+          <div className="space-y-3">
+            <OwnershipLegend />
+            <dl className="space-y-2 text-[13px]">
+              <InfoRow label="Email" value={m.email} />
+              <InfoRow label="Phone" value={m.phone} />
+              {m.isMinor && (
+                <>
+                  <InfoRow label="Guardian" value={m.guardianName} />
+                  <InfoRow label="Guardian email" value={m.guardianEmail} />
+                  <InfoRow label="Guardian phone" value={m.guardianPhone} />
+                </>
+              )}
+              <InfoRow label="Joined" value={fmtDate(m.joinedAt)} />
+            </dl>
+            <LockedBirthdayRow
+              dateOfBirth={m.dateOfBirth}
+              age={m.dateOfBirth ? Math.floor((Date.now() - new Date(m.dateOfBirth).getTime()) / 31557600000) : null}
+              guardianName={m.family?.guardians[0]?.name ?? m.guardianName ?? null}
+            />
+            {m.tags.trim() && (
+              <div className="flex flex-wrap gap-1">
+                {m.tags.split(",").map((t) => t.trim()).filter(Boolean).map((t) => (
+                  <span key={t} className="rounded-full bg-app-bg px-2 py-0.5 text-xs text-text-primary">{t}</span>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setEditOpen(true)}
+              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
+            >
+              <Pencil className="h-4 w-4" /> Edit details
+            </button>
+          </div>
+        </Card>
+        )}
+
+        {on("personal") && (
+          <AccountSecurityCard
+            hasLogin={!!m.user}
+            loginEmail={m.user?.email ?? null}
+            lastLoginAt={m.user?.lastLoginAt ?? null}
+            resetTargetEmail={m.user?.email ?? m.family?.guardians[0]?.email ?? null}
+            canReset={canEdit && !!(m.user || m.family?.guardians.length)}
+            onSendReset={openReset}
+          />
+        )}
+
+        {on("memberships") && (
         <Card
           title="Current membership"
           action={
@@ -228,8 +565,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             <p className="text-sm text-text-muted">No active membership.</p>
           )}
         </Card>
+        )}
 
-        {/* Family & access — who can actually act for this athlete */}
+        {on("family") && (
         <FamilyAccessCard
           memberId={id}
           memberName={m.firstName}
@@ -237,8 +575,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           onChanged={load}
           onAssignMembership={(subId) => setTransferringSubId(subId)}
         />
+        )}
 
-        {/* Family labels — descriptive only, deliberately NOT presented as access */}
+        {on("family") && (
         <Card
           title="Family labels"
           className="lg:col-span-2"
@@ -277,8 +616,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             </ul>
           )}
         </Card>
+        )}
 
-        {/* Membership history */}
+        {on("memberships") && (
         <Card title="Membership history" className="lg:col-span-2">
           {m.subscriptions.length === 0 ? (
             <p className="text-sm text-text-muted">No membership history.</p>
@@ -290,8 +630,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             </div>
           )}
         </Card>
+        )}
 
-        {/* Bookings */}
+        {on("bookings") && (
         <Card title="Event bookings">
           {m.bookings.length === 0 ? (
             <p className="text-sm text-text-muted">No bookings.</p>
@@ -308,8 +649,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             </ul>
           )}
         </Card>
+        )}
 
-        {/* Attendance */}
+        {on("attendance") && (
         <Card title="Attendance">
           {m.attendanceRecords.length === 0 ? (
             <p className="text-sm text-text-muted">No attendance records.</p>
@@ -328,8 +670,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             </ul>
           )}
         </Card>
+        )}
 
-        {/* Event registrations */}
+        {on("bookings") && (
         <Card title="Tournament / event registrations">
           {m.eventRegistrations.length === 0 ? (
             <p className="text-sm text-text-muted">No registrations.</p>
@@ -346,8 +689,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             </ul>
           )}
         </Card>
+        )}
 
-        {/* Transactions */}
+        {on("payments") && (
         <Card title="Recent transactions">
           {m.transactions.length === 0 ? (
             <p className="text-sm text-text-muted">No transactions.</p>
@@ -362,12 +706,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             </ul>
           )}
         </Card>
+        )}
 
         {/* 3G — Communications history for this member. Loads lazily
             because it's PII surface + can be large. Gated at the API
             level on messages.analytics; a coach without the sub-scope
             gets a 403 and the card renders a permissive empty state. */}
-        <CommunicationsCard memberId={id} className="lg:col-span-2" />
+        {on("messages") && <CommunicationsCard memberId={id} className="lg:col-span-2" />}
       </div>
 
       {editingSub && (
@@ -385,6 +730,68 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           onDone={load}
         />
       )}
+      {editOpen && (
+        <EditMemberDrawer
+          member={{
+            id: m.id,
+            firstName: m.firstName,
+            lastName: m.lastName,
+            email: m.email,
+            phone: m.phone,
+            dateOfBirth: m.dateOfBirth,
+            guardianName: m.guardianName,
+            guardianEmail: m.guardianEmail,
+            guardianPhone: m.guardianPhone,
+            isMinor: m.isMinor,
+            midMigration: !!m.migrationStatus && m.migrationStatus !== "COMPLETED",
+            hasPendingInvitation: !!m.migrationStatus && m.migrationStatus === "INVITED",
+          }}
+          staffName={staffName}
+          saving={saving}
+          error={saveError}
+          onClose={() => {
+            setEditOpen(false);
+            setSaveError(null);
+          }}
+          onSave={saveEdit}
+          onSendReset={openReset}
+          onCopyPortalLink={() => {
+            navigator.clipboard
+              ?.writeText(`${window.location.origin}/member`)
+              .then(() => setToast({ kind: "ok", text: "Portal link copied." }))
+              .catch(() => setToast({ kind: "err", text: "Could not copy the link." }));
+          }}
+        />
+      )}
+
+      {reset && (
+        <PasswordResetDialog
+          state={reset.state}
+          memberName={`${m.firstName} ${m.lastName}`}
+          email={reset.email}
+          isGuardianEmail={reset.isGuardianEmail}
+          staffName={staffName}
+          sentAt={reset.sentAt}
+          errorMessage={reset.errorMessage}
+          onClose={() => setReset(null)}
+          onSend={sendReset}
+          // Every "wrong address" path leads to the record, never to a field in
+          // this dialog — see the note on the password-reset route.
+          onUseDifferentEmail={() => {
+            setReset(null);
+            setEditOpen(true);
+          }}
+          onAddEmail={() => {
+            setReset(null);
+            setEditOpen(true);
+          }}
+          onLinkGuardian={() => {
+            setReset(null);
+            setTab("family");
+          }}
+        />
+      )}
+
       {addingRel && (
         <AddRelationshipModal
           memberId={id}
@@ -392,6 +799,19 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           onSaved={() => { setAddingRel(false); load(); }}
         />
       )}
+    </div>
+  );
+}
+
+function initialsOf(name: string): string {
+  return name.split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+}
+
+function InfoRow({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt className="text-text-muted">{label}</dt>
+      <dd className="text-right text-text-primary">{value || "—"}</dd>
     </div>
   );
 }

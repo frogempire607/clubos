@@ -107,6 +107,10 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
           },
         },
       },
+      // Phase 4.5.3 — the Account & security card states whether a portal
+      // login exists, which address it signs in with, and when it was last
+      // used. Scalars only: never the password hash, never the reset token.
+      user: { select: { id: true, email: true, lastLoginAt: true } },
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -143,6 +147,66 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   // returned before, so a correctly-linked child was invisible on the profile.
   const family = await loadFamilyForMember(params.id, session.user.clubId);
 
+  // ── Phase 4.5.3 — the family switcher's people ──────────────────────────
+  // `family` answers "who can act for this member" and "who can this member's
+  // login act for". Neither answers "who else is in this family" — a sibling is
+  // reachable only through a SHARED GUARDIAN, and a minor has no login of their
+  // own, so both lists come back empty for exactly the case the switcher exists
+  // for. Cameron Lister's profile showed no family at all despite Rory being
+  // correctly linked to the same parent.
+  //
+  // So: take this member's guardians, and return every other athlete those
+  // guardians manage. Confirmed links only — a PENDING link grants nothing and
+  // must not put someone in a family they may not belong to.
+  let familyMembers: {
+    id: string;
+    name: string;
+    profileImageUrl: string | null;
+    isMinor: boolean;
+    viaGuardian: string;
+    canPay: boolean;
+  }[] = [];
+  try {
+    const guardianUserIds = family.guardians
+      .filter((g) => g.status === "CONFIRMED")
+      .map((g) => g.userId);
+    if (guardianUserIds.length) {
+      const siblings = await prisma.memberGuardianUser.findMany({
+        where: {
+          userId: { in: guardianUserIds },
+          status: "CONFIRMED",
+          memberId: { not: params.id },
+          member: { clubId: session.user.clubId, deletedAt: null },
+        },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        select: {
+          canPay: true,
+          user: { select: { firstName: true, lastName: true } },
+          member: {
+            select: { id: true, firstName: true, lastName: true, profileImageUrl: true, isMinor: true },
+          },
+        },
+      });
+      const seen = new Set<string>();
+      for (const s of siblings) {
+        if (seen.has(s.member.id)) continue;
+        seen.add(s.member.id);
+        familyMembers.push({
+          id: s.member.id,
+          name: `${s.member.firstName} ${s.member.lastName}`,
+          profileImageUrl: s.member.profileImageUrl,
+          isMinor: s.member.isMinor,
+          viaGuardian: `${s.user.firstName ?? ""} ${s.user.lastName ?? ""}`.trim(),
+          canPay: s.canPay,
+        });
+      }
+    }
+  } catch (e) {
+    // The switcher is a convenience; the profile must still render without it.
+    console.error("[members/[id]] family switcher resolution failed", e);
+    familyMembers = [];
+  }
+
   const { relationshipsFrom: _f, relationshipsTo: _t, club: _c, ...rest } = member;
   void _f; void _t;
   // Phase 4.5.3 — the profile reads the SAME derived tracks and the SAME
@@ -174,6 +238,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     ...rest,
     relationships,
     family,
+    familyMembers,
     passProcessingFees: _c.passProcessingFees,
     tracks: tracks?.tracks ?? null,
     nextAction: tracks?.nextAction ?? null,
