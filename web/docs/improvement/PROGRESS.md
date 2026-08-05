@@ -1,47 +1,25 @@
 # AthletixOS Improvement — Progress & Phased Plan
 
-> ## ⏭️ APPLY THIS MIGRATION — Phase 4.5, written 2026-08-04, NOT applied
+> ## ✅ Phase 4.5 migration APPLIED — `20260804000000_members_experience`
 >
-> **Working checkout:** `/home/user/clubos` (the main checkout, not a worktree),
-> branch `claude/plan-md-housekeeping-8pw61h`. Everything below runs from
-> `<checkout>/web`.
+> Applied and verified by Julian, 2026-08-04. `members.reviewedAt /
+> reviewedByUserId / blockedReason / snoozedUntil`, plus
+> `member_invitation_deliveries`, `saved_member_views` and
+> `member_subscription_events`, are live. **Do not create or modify a Phase 4.5
+> migration** — the phase's schema is closed.
 >
-> **Folder: `20260804000000_members_experience`** — the whole of Phase 4.5 in one
-> migration. Additive only; every column is nullable or defaulted, so applying it
-> changes nothing until the code reads it. Sorts after
-> `20260803000000_family_accounts`.
+> **Backfills have NOT been run.** `scripts/members-experience-backfill.ts`
+> is dry-run by default and refuses `--apply` without `--clubs`:
 >
 > ```bash
-> # 0. Back up first — non-negotiable, this touches `members`
-> export PATH="$(brew --prefix postgresql@17)/bin:$PATH"
-> pg_dump "<session pooler URI>" --no-owner --no-privileges \
->   -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql
->
-> # 1. Confirm what is pending — expect exactly one, members_experience
-> cd <checkout>/web && npx prisma migrate status
->
-> # 2. Apply (NOT `migrate dev` — the shadow DB is blocked by the pooler)
-> npx prisma migrate deploy
->
-> # 3. Regenerate the client and re-verify
-> npx prisma generate && npx tsc --noEmit && npm run build
->
-> # 4. Backfills — DRY RUN FIRST, read the output before applying
-> npx tsx scripts/members-experience-backfill.ts
-> npx tsx scripts/members-experience-backfill.ts --apply --clubs=<clubId>
->
-> # 5. Tests still green
-> npm run test:phase45
+> cd <checkout>/web
+> npx tsx scripts/members-experience-backfill.ts                      # read this first
+> npx tsx scripts/members-experience-backfill.ts --apply --clubs=<id>
 > ```
 >
-> **What the backfill does:** BF-A promotes the inferred "information reviewed"
-> signal to a real column, only where a NOTE migration event carries an actor.
-> BF-B synthesizes subscription history so Reports can stop saying `ESTIMATED`.
-> It is idempotent and refuses `--apply` without a `--clubs` allowlist.
->
-> **Reverse SQL** is in the migration's footer. Dropping the three new tables
-> destroys invitation-delivery and subscription-event history, which is not
-> reconstructable from anything else — hence step 0.
+> Until BF-B runs, Reports' Membership tab stays `ESTIMATED` — an empty event
+> log reads as "nothing ever happened", so creating the table was not enough.
+> Until BF-A runs, migration-meter step 2 reads unreviewed for everyone.
 
 > ## 📍 Where this work lives
 >
@@ -706,6 +684,59 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 ---
 
+### Session 2 — 2026-08-04 · J-decisions applied, 4.5.2–4.5.5 built
+
+**Migration applied.** No migration was created or modified this session.
+
+#### J-1 … J-10 — all resolved
+
+| # | Decision | What was done |
+|---|---|---|
+| J-1 | accepted | `sourceLabel` not re-added. Render-side only; `resolveSourceLabel` reads `ImportBatch.sourceLabel` then `Member.legacySource`. |
+| J-2 | accepted **with the union** | Column stays TEXT. `BLOCKED_REASONS` is a `readonly` tuple, `BlockedReason` its union, `BLOCKED_REASON_LABELS` a `Record<BlockedReason, string>` — so a new reason cannot be added without its label, and a typo is a compile error. `asBlockedReason()` narrows what the column actually holds; unknown values read as no-reason rather than printing a raw token at an owner. |
+| J-3 | accepted | `PROFILE_INCOMPLETE` kept. |
+| J-4 | accepted | `legacySource` fallback kept. |
+| J-5 | accepted | Billing gating unchanged; **no exception built for Sal.** On `billing:full` he clears every members-surface gate except owner-only Archive — asserted in `member-ui-tests.ts` §2 so it stays true. |
+| J-6 | accepted | A blocked member still surfaces through a snooze. |
+| J-7 | accepted | Ratchet at baseline 8; must reach 0 for phase exit. |
+| J-8 | accepted, **re-raised** | Dark mode is now the FIRST item of plan.md §4.5.9, with "deferred once already" recorded in the text. |
+| J-9 | fixed | plan.md §4.5.6 corrected to `canSignWaivers` / `canReceiveEmails`, and its "Migration required: M21" block replaced — that migration was absorbed by `20260803000000_family_accounts`. |
+| J-10 | tabs + **split** | `1c` tabs built. The Prospect question had a real answer — see below. |
+
+#### J-10: the Prospect conflation was real
+
+`!everHeldMembership → PROSPECT` asked only *"have they ever bought anything"*. So a walk-in who trialled last Tuesday and a name typed into the roster months ago and never contacted rendered the **identical pill**. Imported names were already excluded by the never-Prospect rule, so the collapse hit exactly the manually-added group.
+
+The fix is a **split, not a rename**, because the two need opposite next actions — the trialler needs a membership offered, the untouched name needs somebody to make contact at all. `hasTouchedTheClub()` separates them on attendance / any trial ever granted / their own login, and `nextAction` gained `MAKE_CONTACT`, gated on `members:edit` rather than billing (phoning a lead is not a money action).
+
+#### Shipped
+
+| Sub-phase | What | Where |
+|---|---|---|
+| 4.5.1 wiring | `MEMBER_TRACK_SELECT` live behind `GET /api/members?paginated=1`; `GET /api/members/[id]` additively returns `tracks` / `nextAction` / `sourceLabel` | `lib/membersQuery.ts`, both routes |
+| 4.5.2 | Members list — work-queue strip, segmented control with server counts, search, Filters sheet, active-filter chips, query-scoped bulk bar, table + card list, footer | `components/members/MembersRoster.tsx`, `app/dashboard/members/roster` |
+| 4.5.2 §1g | `⋯` menu — nine actions, fixed order, permission-denied items visible + locked with the role named | `components/members/MemberActionsMenu.tsx` |
+| 4.5.3 | Profile — identity header, single family switcher, 11 tabs, locked-birthday row, ownership legend, Account & security | `components/members/MemberProfileHeader.tsx` |
+| 4.5.4 | Edit drawer — info strip, grouped fields, corrected-field Revert, locked block, attributed footer | `components/members/EditMemberDrawer.tsx` |
+| 4.5.5 | Password reset — three states, copy verbatim, live countdown | `components/members/PasswordResetDialog.tsx` |
+| 4.5.11 | `npm run test:phase45` → 153 fixtures + 70 UI assertions + 2 grep guards | `scripts/member-*-tests.ts` |
+
+**Legacy `/api/members` is deliberately unchanged.** The new envelope is opt-in via `?paginated=1`; the migration page, attendance add-panel and several modals index the bare array and would all break in one commit otherwise.
+
+#### Still open in 4.5
+
+| # | Item |
+|---|---|
+| S-1 | **Roster cutover** (K-3) — port the Add-member modal, CSV import mapping, custom-field editor and membership purchase flow, then point `/dashboard/members` at the new list and retire the old page. Guard 2's ratchet reaches 0 here. |
+| S-2 | **Bulk actions are wired to nothing.** The bar renders and `resolveSelection()` exists server-side; `POST /api/members/bulk` does not yet accept `{mode:'allMatching', filter}`. |
+| S-3 | **Saved views** — `saved_member_views` exists, no route yet. |
+| S-4 | **Snooze / Mark reviewed** — columns exist, no route sets them. |
+| S-5 | **Invitation deliveries are never written.** `lib/migrationServer.ts` still only bumps the Member counter, so Blocked derivation falls back to "3 sends, never opened" and cannot yet tell a bounce from an ignore. |
+| S-6 | **Balance column always reads —.** Needs a transaction aggregate; deliberately not added to the page-load hot path yet. |
+| S-7 | 4.5.6 Family & access, 4.5.7 migration dashboard, 4.5.8 detail drawer, 4.5.9 mobile+dark audit, 4.5.10 source-label surfaces + Reports flip. |
+
+---
+
 ### Session 1 — 2026-08-04 · what shipped, what is blocked
 
 **Migration `20260804000000_members_experience` is WRITTEN, NOT APPLIED.** Apply commands are at the top of this file.
@@ -741,20 +772,49 @@ Everything here is written against `schema.prisma` and type-checks clean. None o
 
 #### 🙋 Needs Julian's call
 
-Conservative option taken in every case so the session could keep moving. None of these block applying the migration.
+**Session 1's J-1 … J-10 are all RESOLVED (owner, 2026-08-04)** and recorded in the session-2 block below. What follows is new.
 
-| # | Decision | What I did, and why |
+| # | Decision | Status |
 |---|---|---|
-| J-1 | **`sourceLabel` could not go in the migration** | The session brief asked for the migration to include 4.5.10's `sourceLabel`. It already exists — `import_batches."sourceLabel"`, shipped 2026-07-29 in `20260731030000_historical_imports`, already written by the 2.5.10 wizard and read by `/api/reports/imports`. Adding it again is a no-op at best. **I left it out and documented the omission at length in the migration header** so a later session doesn't "fix" it. 4.5.10's source-label work is render-side only. |
-| J-2 | **`blockedReason` is TEXT, not a Postgres enum** | plan.md 4.5.1 says enum. Every other lifecycle field on `members` is TEXT with a documented value set (`migrationStatus`, `approvalStatus`, `paymentSetupStatus`), and a TEXT column can gain a value without a migration — which matters because the blocked-reason list will grow as real delivery failures are observed. Say the word and it becomes an enum. |
-| J-3 | **Track 3 has a 7th state the spec doesn't list** | The spec names six. I added `PROFILE_INCOMPLETE` for manually-added members, because the README separately says to retire "Un-invited" for exactly that group — and they cannot be `NOT_INVITED`, since nobody ever intended to invite a walk-in added at practice. |
-| J-4 | **`legacySource` as the source-label fallback** | Members imported by the *older* CSV migration tool have no `ImportBatch`, so their only label is `Member.legacySource`. That field is also owner-typed, just from a different flow, so I treat it as a legitimate second choice rather than a guess. If you'd rather those members read "your previous system", drop the fallback in `resolveSourceLabel`. |
-| J-5 | **Confirm/assign membership gated on `billing:full`, not `members:edit`** | Confirming a membership is what starts charging a family. plan.md 4.5.1 doesn't say which key. I used `billing`, consistent with the 2026-07-10 rule that a coach with `members:edit` must not be able to start billing. |
-| J-6 | **A snoozed member who is BLOCKED still surfaces** | Snooze hides someone who is merely slow. A bouncing address keeps consuming invitation sends, so hiding it costs real money and real time. Asserted in the fixtures. |
-| J-7 | **Deprecation guard is a ratchet, not a hard fail** | `migrationGroup` / `migrationFinalAction` / `readiness*` are still on screen in 2 files; removing them is 4.5.2 and 4.5.7 work. A test that's known-red the day it's written gets ignored within a week, so the guard fails only if the count *grows*. Baseline 8, must reach 0 for the phase exit criteria. |
-| J-8 | **Semantic tokens are fixed light-mode values** | They're tints whose job is to read as a temperature (waiting / broken / settled); routing them through the dark-mode overrides collapses three meanings into one grey. Dark-theme audit deferred to 4.5.9. |
-| J-9 | **plan.md 4.5.6 names columns that don't exist** | It says `canWaivers` / `canMessages`. The shipped columns from Phase 4 are `canSignWaivers` / `canReceiveEmails`. Shipped names win; I did not add a second pair. plan.md is now wrong here and should be corrected when 4.5.6 is built. |
-| J-10 | **Still open from the handoff's own list** | `1c` tabs vs `1d` scroll+rail (plan defaults to tabs, I built nothing that forecloses either); the four person-type labels; whether "Prospect" gets renamed now that it strictly means never-a-member; default staff permissions vs owner-only. |
+| K-1 | **Person-type labels — YOURS TO PICK.** Options below; I built nothing that forecloses any of them. | ⬜ open |
+| K-2 | **Prospect / Lead naming.** The split is built and correct; only the two words are provisional. | ⬜ open |
+| K-3 | **Roster cutover.** The new list is at `/dashboard/members/roster`. Making it the default means porting the Add-member modal, CSV import mapping, custom-field editor and membership purchase flow off the 2,400-line page. | ⬜ open |
+| K-4 | **Browser pass owed.** Nothing in session 2 was verified in a browser — see the honesty note below. | ⬜ open |
+
+##### K-1 — the four person-type labels
+
+Current segmented control reads: **Everyone · Athletes · Parents · Account holders · Prospects · Inactive**.
+
+The friction is that "Parents" and "Account holders" overlap heavily but not completely — a parent who doesn't pay, and a grandparent who pays but isn't a guardian, both exist — and staff read "Account holders" as a billing concept rather than a person concept.
+
+| Slot | Current | Option A — plain | Option B — role-first | Option C — job-first |
+|---|---|---|---|---|
+| 1 | Athletes | Athletes | Athletes | Who trains |
+| 2 | Parents | Parents & guardians | Guardians | Who's responsible |
+| 3 | Account holders | Payers | Account holders | Who pays |
+| 4 | Prospects | Prospects | Prospects | Not joined yet |
+
+**My recommendation: Option A.** "Parents & guardians" is what staff actually say out loud, and it stops a legal guardian who isn't a parent reading as excluded. "Payers" is shorter than "Account holders", is unambiguous about what it means, and doesn't collide with the billing vocabulary elsewhere in the app. Option C reads well in isolation but makes the control much wider, which is the one thing this row cannot afford at 375px. Option B keeps "Account holders", which is the term I'd most want to lose.
+
+##### K-2 — Prospect / Lead
+
+Your definition is now implemented: **Prospect = attended a practice or did a free trial, never joined. Lead = a name nobody has contacted.** `hasTouchedTheClub()` separates them on attendance, any trial window ever granted, or their own portal login.
+
+"Lead" is a placeholder. Alternatives, if it reads too salesy for a club: **Prospect / Enquiry**, **Trialled / Prospect** (shifts both words), or **Prospect / Not contacted** (longest but zero ambiguity). Renaming is one line in `MEMBERSHIP_LABELS`; the derivation stays as-is either way.
+
+#### ⚠️ Honesty note — what was NOT verified in session 2
+
+The brief said to browser-test as I built. **I could not.** There is no `.env` in this container and the sandbox cannot reach the database (CLAUDE.md records this as a standing limitation), so no page renders against real data.
+
+What I did instead, and what it is worth:
+
+- `npm run test:member-ui` — 70 assertions. Server-renders every component through `react-dom/server` and asserts the handoff's final copy appears. **This proves components mount and say the right words. It does not prove they look right, that the layout holds at 375px, or that any interaction works.**
+- `npm run build` — clean, which catches render-time crashes in server components.
+- `npm run test:member-tracks` — 153 assertions over the pure rules.
+
+**Still owed, and none of it is optional before the roster goes live:** click through the list at 375 / 414 / 768 / 1280, confirm the `⋯` popover positions correctly near the viewport edge, confirm the filters sheet scrolls on a short screen, watch the `Resend in m:ss` countdown actually tick, and confirm the query-scoped "Select all N" really does reach rows on page 2+.
+
+One harness limit worth recording: `MemberActionsMenu` cannot be server-rendered in the smoke because it calls `useRouter()`, which throws outside Next. Its order and gating are asserted against the data instead, which is where those rules live — but the rendered lock affordance is unverified.
 
 ---
 
@@ -1030,6 +1090,8 @@ Every migration ships with a matching reverse SQL kept in the commit body. Featu
 ## Progress log
 
 Each phase gets one dated entry per meaningful checkpoint below.
+
+- 2026-08-04 (session 2) — **Phase 4.5: J-decisions applied, 4.5.2–4.5.5 built, no migration touched.** The owner resolved J-1…J-10; all ten are recorded in the Phase 4.5 section. Two changed the code rather than just the docs. **J-2**: `blockedReason` stays TEXT in the database but its TYPE is now a union with a `Record`-typed label map, so a new reason cannot be added without its label and a typo fails the build; `asBlockedReason()` narrows whatever the column holds. **J-10**: the Prospect conflation was real — `!everHeldMembership → PROSPECT` asked only "have they ever bought anything", so a walk-in who trialled last Tuesday and an uncontacted name in the roster rendered the identical pill. The fix is a split, not a rename, because they need opposite next actions; `hasTouchedTheClub()` separates them and `nextAction` gained `MAKE_CONTACT` (gated on members, not billing). LEAD is a placeholder name — K-2 is the owner's call. J-9 corrected plan.md §4.5.6, which named two columns that do not exist. J-8 moved dark mode to the FIRST item of 4.5.9 with the prior deferral recorded. **Built**: the serializer wired behind `GET /api/members?paginated=1` with server-side paging, search, filters and query-derived segment counts (`counts:null` past COUNT_CAP rather than a wrong number); `GET /api/members/[id]` additively returning tracks; the members list with work-queue strip, segmented control, filters sheet, query-scoped bulk bar, table + mobile cards; the `⋯` menu with permission-denied items visible-and-locked; the profile's identity header, single family switcher, 11 tabs and locked-birthday row; the edit drawer with its three load-bearing rules enforced; and password reset's three states with verbatim copy. Tests: `npm run test:phase45` = 153 fixtures + 70 UI assertions + 2 grep guards. **Not verified in a browser** — no `.env` and no database reachable from the sandbox; the UI coverage is `react-dom/server` renders that prove components mount and say the right words, not that they look right or that interactions work. Seven items remain open in 4.5 (S-1…S-7), the largest being the roster cutover off the 2,400-line members page.
 
 - 2026-08-04 — **Phase 4.5 session 1: one migration written (NOT applied) and the status-model spine built.** `prisma/migrations/20260804000000_members_experience` carries every schema need across 4.5.1–4.5.11 in one folder: `members.reviewedAt/reviewedByUserId/blockedReason/snoozedUntil`, new `member_invitation_deliveries` (one row per SEND — the existing timestamp+counter cannot tell a bounce from an ignore, and those need opposite actions), `saved_member_views`, `member_subscription_events` (the sidecar that lets Reports churn stop saying ESTIMATED), plus three indexes for server-side paging and the funnel's seven per-load counts. Additive only, reverse SQL in the footer, no RLS policies (matching every table added since `20260702000000_enable_rls`). **Two things the plan lists as 4.5 migrations were deliberately omitted because they are already in production** — `ImportBatch.sourceLabel` (2.5.9) and the `member_guardian_users` permission columns (M29, which absorbed M27) — and the migration header documents both omissions at length so a later session doesn't "fix" them. Built on top: `lib/memberTracks.ts` (PURE, no Prisma — three tracks, the 7-step meter with whose-turn, and `nextAction()` as ONE resolver shared by row, banner and mobile card), `lib/memberDisplay.ts` (the Prisma-facing serializer — complete and type-checked but deliberately NOT wired, since its select names columns that don't exist yet), `components/members/MemberTracks.tsx` (the presentational kit), the handoff's semantic token pairs in `app/globals.css`, and `scripts/members-experience-backfill.ts` (dry-run default, `--apply` refuses without a `--clubs` allowlist). Tests: `npm run test:phase45` — 146 fixture assertions plus two grep guards. **The fixtures caught a real bug on first run**: `derivedBlockedReason()` put a red "Blocked · no email on file" dot on imported members who had *already finished setup*, typically a minor onboarded entirely through a guardian's address — blocking someone for lacking an invite address after they have used the invitation is exactly the wrong-but-defensible label this phase exists to kill; fixed with `hasStartedSetup()` and pinned by three regression assertions. **The vendor-literal guard also found a live violation**: the import wizard's "Previous software" field shipped `placeholder="e.g. Jackrabbit, Mindbody, spreadsheet"` — two real products named in the UI of a third, in a `.tsx` — now replaced with a neutral placeholder. `tsc --noEmit` and `npm run build` clean throughout. Ten decisions taken conservatively and logged under "Needs Julian's call" in the Phase 4.5 section; seven items logged as blocked on the migration with the first step for each after apply.
 
