@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { MigrationFunnel } from "@/components/members/MigrationFunnel";
 import MembersTabs from "@/components/MembersTabs";
 
 // ── CSV parser (handles quoted cells / embedded commas / CRLF) ───────────────
@@ -209,6 +210,9 @@ const READINESS_STYLE: Record<string, string> = {
 
 export default function MigrationPage() {
   const [stats, setStats] = useState<Stats | null>(null);
+  // Which funnel segment is selected, if any. Held here rather than in the
+  // funnel so the queue below can filter by it.
+  const [stepFilter, setStepFilter] = useState<number | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -238,6 +242,7 @@ export default function MigrationPage() {
     const params = new URLSearchParams({ filter, q, page: String(page), pageSize: "25" });
     if (group) params.set("group", group);
     if (readiness) params.set("readiness", readiness);
+    if (stepFilter !== null) params.set("step", String(stepFilter));
     fetch(`/api/members/migration?${params}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -252,12 +257,12 @@ export default function MigrationPage() {
         }
         setLoading(false);
       });
-  }, [filter, q, page, group, readiness]);
+  }, [filter, q, page, group, readiness, stepFilter]);
 
   useEffect(() => { load(); }, [load]);
   // Clear selection when the underlying set changes (filter/search) — but NOT on
   // page changes, so a selection can span every page ("select all matching").
-  useEffect(() => { setSelected(new Set()); }, [filter, q, group, readiness]);
+  useEffect(() => { setSelected(new Set()); }, [filter, q, group, readiness, stepFilter]);
 
   // Send activation links to an explicit set of member ids (selection or a
   // family group). The server collapses each family to ONE guardian email, but
@@ -587,23 +592,18 @@ export default function MigrationPage() {
         </ul>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
-        {[
-          { label: "Imported", value: stats?.total },
-          { label: "Emails sent", value: stats?.activationEmailsSent },
-          { label: "Invited", value: stats?.invited },
-          { label: "Profile completed", value: stats?.activated },
-          { label: "Profile completed (reviewed)", value: stats?.completed },
-          { label: "Payment req.", value: stats?.paymentRequired },
-          { label: "Needs review", value: stats?.needsReview },
-          { label: "Missing email", value: stats?.missingContact },
-        ].map((s) => (
-          <div key={s.label} className="bg-surface border border-app-border rounded-xl p-3">
-            <p className="text-[11px] uppercase tracking-wider text-text-muted">{s.label}</p>
-            <p className="text-2xl font-semibold text-text-primary mt-1">{loading ? "—" : s.value ?? 0}</p>
-          </div>
-        ))}
+      {/* ── Phase 4.5.7 — the funnel replaces the eight KPI tiles ─────────
+          The tiles were eight unrelated numbers that never added up to an
+          answer. The funnel is one sequence, every segment is a filter, and
+          the counts come from the same resolver the queue rows use. */}
+      <div className="mb-6">
+        <MigrationFunnel
+          activeStep={stepFilter}
+          onPickStep={(step) => {
+            setStepFilter(step);
+            setPage(1);
+          }}
+        />
       </div>
 
       {/* Filters + search */}
