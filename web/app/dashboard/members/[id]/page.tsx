@@ -15,7 +15,7 @@ import {
   type FamilyPerson,
   type ProfileTracks,
 } from "@/components/members/MemberProfileHeader";
-import { EditMemberDrawer, type EditableMember } from "@/components/members/EditMemberDrawer";
+import { EditMemberDrawer, type EditableCustomField } from "@/components/members/EditMemberDrawer";
 import { MemberActionsMenu } from "@/components/members/MemberActionsMenu";
 import { PasswordResetDialog, type ResetState } from "@/components/members/PasswordResetDialog";
 import { NextActionBanner, NextActionButton } from "@/components/members/MemberTracks";
@@ -58,6 +58,13 @@ type MemberDetail = {
   guardianName: string | null;
   guardianEmail: string | null;
   guardianPhone: string | null;
+  guardianRelationship: string | null;
+  gender: string | null;
+  streetAddress: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+  customFieldValues: string | null;
   joinedAt: string;
   tags: string;
   notes: string | null;
@@ -171,6 +178,18 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
 
   useEffect(() => { load(); }, [load]);
 
+  // D-4 — the drawer edits the club's own custom fields too. This is where
+  // "emergency contact" lives: there is no emergency-contact column on Member,
+  // so clubs model it as a custom field, and rendering custom fields is what
+  // makes it editable.
+  const [customFields, setCustomFields] = useState<EditableCustomField[]>([]);
+  useEffect(() => {
+    fetch("/api/custom-fields")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setCustomFields(Array.isArray(d) ? d.filter((f: { active?: boolean }) => f.active !== false) : []))
+      .catch(() => setCustomFields([]));
+  }, []);
+
   // Moving a membership between siblings is its own sub-scope, not billing:full
   // — a front-desk lead may need it without prices, cards and plans.
   const [canTransfer, setCanTransfer] = useState(false);
@@ -231,7 +250,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   }, [id]);
 
   const saveEdit = useCallback(
-    async (patch: Record<string, string | null>) => {
+    async (patch: Record<string, unknown>) => {
       setSaving(true);
       setSaveError(null);
       try {
@@ -741,13 +760,30 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             email: m.email,
             phone: m.phone,
             dateOfBirth: m.dateOfBirth,
+            gender: m.gender,
+            streetAddress: m.streetAddress,
+            city: m.city,
+            state: m.state,
+            zipCode: m.zipCode,
+            status: m.status,
+            tags: m.tags,
+            notes: m.notes,
+            customFieldValues: m.customFieldValues,
             guardianName: m.guardianName,
             guardianEmail: m.guardianEmail,
             guardianPhone: m.guardianPhone,
+            guardianRelationship: m.guardianRelationship,
             isMinor: m.isMinor,
             midMigration: !!m.migrationStatus && m.migrationStatus !== "COMPLETED",
             hasPendingInvitation: !!m.migrationStatus && m.migrationStatus === "INVITED",
+            // D-0 — `user` is the member's OWN login (the GET selects it for the
+            // Account & security card). Null means a guardian holds the account,
+            // and the drawer says the email edit is contact-only.
+            loginEmail: m.user?.email ?? null,
+            accountHolderName:
+              m.family?.guardians?.find((g) => g.status === "CONFIRMED")?.name ?? m.guardianName ?? null,
           }}
+          customFields={customFields}
           staffName={staffName}
           saving={saving}
           error={saveError}
