@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { groupDuplicates, duplicateReasonLabel } from "@/lib/memberDuplicates";
 
 // GET /api/members/duplicates
 //
@@ -52,68 +53,7 @@ export async function GET() {
   });
   type M = (typeof members)[number];
 
-  const norm = (s: string | null) => (s ? s.trim().toLowerCase() : "");
-  const dobKey = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
-  const digits = (s: string | null) => (s || "").replace(/\D/g, "");
-  const keysOf = (m: M): string[] => {
-    const keys: string[] = [];
-
-    // A value that also appears in this row's own guardian columns is the
-    // guardian's, whichever column it is sitting in. It groups siblings, so it
-    // must never become a key. See the header note.
-    const email = norm(m.email);
-    if (email && email !== norm(m.guardianEmail)) keys.push("email:" + email);
-
-    const first = norm(m.firstName);
-    const last = norm(m.lastName);
-    const dk = dobKey(m.dateOfBirth);
-    if (first && last && dk) keys.push("namedob:" + first + "|" + last + "|" + dk);
-
-    const phone = digits(m.phone);
-    if (phone.length >= 10 && last && phone !== digits(m.guardianPhone)) {
-      keys.push("phone:" + phone + "|" + last);
-    }
-    return keys;
-  };
-
-  // Union-find: merge any two members that share a strong key.
-  const parent = new Map<string, string>();
-  for (const m of members) parent.set(m.id, m.id);
-  const find = (x: string): string => {
-    let r = x;
-    while (parent.get(r) && parent.get(r) !== r) r = parent.get(r) as string;
-    return r;
-  };
-  const union = (a: string, b: string) => { parent.set(find(a), find(b)); };
-
-  // Record only the keys that ACTUALLY caused a union. The previous version
-  // collected every key prefix held by every member of a group, so a group
-  // formed purely on email still told the owner "same name & date of birth" —
-  // each member had a namedob key of their own, it just never collided. Stating
-  // evidence that does not exist is how an owner learns to distrust the screen.
-  const keyToMember = new Map<string, string>();
-  const collisions: { prefix: string; a: string }[] = [];
-  for (const m of members) {
-    for (const k of keysOf(m)) {
-      const prev = keyToMember.get(k);
-      if (prev) { union(prev, m.id); collisions.push({ prefix: k.split(":")[0], a: m.id }); }
-      else keyToMember.set(k, m.id);
-    }
-  }
-
-  const byRoot = new Map<string, M[]>();
-  const reasonByRoot = new Map<string, Set<string>>();
-  for (const m of members) {
-    const root = find(m.id);
-    if (!byRoot.has(root)) { byRoot.set(root, []); reasonByRoot.set(root, new Set()); }
-    byRoot.get(root)!.push(m);
-  }
-  // Roots are only final after every union, so attribute collisions afterwards.
-  for (const c of collisions) {
-    const root = find(c.a);
-    if (!reasonByRoot.has(root)) reasonByRoot.set(root, new Set());
-    reasonByRoot.get(root)!.add(c.prefix);
-  }
+  const groups0 = groupDuplicates(members);
 
   // Higher score = better "keep" candidate (has a login, completed onboarding,
   // carries the most real data).
@@ -125,21 +65,12 @@ export async function GET() {
     m._count.bookings * 5 +
     m._count.transactions * 20;
 
-  const reasonLabel = (prefixes: Set<string> | undefined): string => {
-    const parts: string[] = [];
-    if (prefixes?.has("email")) parts.push("same email");
-    if (prefixes?.has("namedob")) parts.push("same name & date of birth");
-    if (prefixes?.has("phone")) parts.push("same phone & last name");
-    return parts.join(" · ") || "possible duplicate";
-  };
-
-  const groups = [...byRoot.entries()]
-    .filter(([, g]) => g.length > 1)
-    .map(([root, g]) => {
-      const sorted = [...g].sort((a, b) => score(b) - score(a));
+  const groups = groups0
+    .map((g) => {
+      const sorted = [...g.members].sort((a, b) => score(b) - score(a));
       const primary = sorted[0];
       return {
-        reason: reasonLabel(reasonByRoot.get(root)),
+        reason: duplicateReasonLabel(g.reasons),
         suggestedPrimaryId: primary.id,
         members: sorted.map((m) => ({
           id: m.id,
