@@ -684,6 +684,116 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 ---
 
+### Session D — QUEUED (Julian's local testing, 2026-08-05)
+
+Julian merged after session 3. He confirmed working: roster cutover, profile
+tabs, family switcher, and the ⋯ menu on lower rows. **Finding #1 (password
+reset email) was answered and closed** — see below. Three items remain.
+
+#### ✅ #1 CLOSED — password reset resolves the LOGIN account, correctly
+
+The dialog offered `hello@athletix-os.com` while the edit drawer showed the
+`julianramirez1181@gmail.com` he had just typed. Verified against production —
+that is John Doe, and they are genuinely two different columns:
+
+```
+members.email (contact) = julianramirez1181@gmail.com
+users.email   (login)   = hello@athletix-os.com
+```
+
+`resolveTarget` reads `member.user.email`, falling back to a CONFIRMED
+guardian's login email. It never reads `members.email` for a send. Behaviour was
+right; the copy was the problem. Both the dialog and Account & security now say
+"account email … not the contact email on the profile."
+
+**Editing a contact email does NOT move a login** — confirmed by reading the
+PATCH: it writes `members.email` only, and its single `prisma.user` reference is
+a *read* looking for a guardian account to link. Keep it that way.
+
+#### D-1 — Duplicate detection flags siblings (ROOT CAUSE FOUND: data, not algorithm)
+
+Julian: "siblings share a guardian email and phone by definition. Never key
+duplicate detection on guardian contact fields."
+
+The detector already believes it doesn't — its keys are `email:` from
+`m.email`, `namedob:`, and `phone:` from `m.phone` + last name, and its header
+comment says minors carry guardian contact on `guardianEmail`. **But the
+guardian's contact was copied into the child's own columns at import.** Measured
+read-only against production:
+
+| | count |
+|---|---|
+| Live minors whose **own** `members.email` equals their guardian's email | **27** |
+| Live minors whose **own** `members.phone` equals their guardian's phone | **42** |
+| Live minors with any own email at all | 34 |
+
+So 27 of 34 minors with an own email have the guardian's. Siblings collide on
+`email:`, and on `phone:`+lastName (siblings share a surname). The algorithm is
+keying on guardian contact — just laundered through the wrong column.
+
+Two pieces of work, in this order:
+
+1. **Make the detector defensive regardless of data.** Skip an `email:`/`phone:`
+   key whenever that value equals the same row's `guardianEmail`/`guardianPhone`.
+   A shared address is evidence of a shared *guardian*, never of a shared person.
+   This must hold even after the data is cleaned, because the next import can
+   reintroduce it.
+2. **Then a data correction** for the 27 + 42 rows — null the child's own
+   email/phone where it duplicates the guardian's, per the contact rule in
+   CLAUDE.md. Dry-run by default, allowlist to act, **Julian runs it** (same
+   shape as `scripts/fix-status-truth.ts`). Do NOT fold this into the detector.
+
+#### D-2 — Merge button does nothing
+
+Reported on both a sibling pair and the one genuine duplicate. The client path
+looks wired (`openPreview` → modal → `confirmMerge` → `POST /api/members/merge`),
+so **reproduce before changing anything** — seed a real duplicate pair locally;
+session 3's fixture has none, which is why this was not caught.
+
+First hypothesis to test: `/api/members/merge` refuses to merge two records that
+both have a login (documented in CLAUDE.md). That returns a 4xx whose message
+goes to `setMsg`, and if that banner renders above the fold it would read as
+"nothing happened". Check the network response before assuming the button is
+dead.
+
+#### D-3 — Work-queue cards show "—" for blocked / missing contact / duplicates
+
+Not a counting disagreement — **those three were never wired.**
+`WorkQueueStrip` in `components/members/MembersRoster.tsx` renders
+`counts && c.key === "neverInvited" ? counts.midMigration : "—"`. Only the first
+card has a number, and even that one is borrowing `midMigration` rather than
+counting never-invited.
+
+All four need real counts. `memberWhere` already has the exact predicates —
+`queue: "blocked" | "missingContact" | "neverInvited"` — so the counts must come
+from those same clauses or the card and the list it opens will disagree. The
+duplicates count comes from the duplicates detector, so it depends on D-1: wire
+it AFTER the sibling fix, or the card will advertise a number Julian knows is
+wrong.
+
+#### D-4 — Edit drawer scope
+
+Julian: "I need to edit everything about a member except birthday and password."
+
+**Covers today** (`components/members/EditMemberDrawer.tsx`): first name, last
+name, email, phone, guardian name, guardian email, guardian phone.
+
+**Missing**: street address, city, state, zip, gender, emergency contact, notes,
+tags, custom fields, and profile photo. `PATCH /api/members/[id]` already
+accepts every one of those — `streetAddress`, `city`, `state`, `zipCode`,
+`gender`, `notes`, `tags`, `customFieldValues`, `profileImageUrl` are all in its
+Zod schema. **This is a UI gap only; no API or migration work.**
+
+Correctly excluded, keep excluded: **birthday** (guardian-owned, `birthdayLockedAt`
+— the locked row explains who changes it and where) and **password** (never
+settable by staff; the reset flow is the only path).
+
+Note `MemberModal` in `MemberModals.tsx` already renders the full field set
+including custom fields — the drawer should reuse that field list rather than
+grow a second, drifting copy of it.
+
+---
+
 ### Session 3 — 2026-08-05 · half-wired work finished, 4.5.6–4.5.8 built
 
 **No migration created or modified.** Phase 4.5's schema stays closed.
