@@ -163,7 +163,54 @@ async function main() {
     });
   }
 
+  // ── Duplicate fixtures (session 4) ─────────────────────────────────────
+  // Session 3's fixture had no duplicate pair at all, which is exactly why
+  // D-2 ("merge does nothing") was never caught here. Two shapes are needed:
+  //
+  // (a) A GENUINE duplicate — same person entered twice. Same name + DOB, so
+  //     the `namedob:` key groups them. The older row has a login and the
+  //     history; the newer one is the accidental re-entry.
+  specs.push({
+    id: "m_dupe_keep", clubId, firstName: "Marcus", lastName: "Whitfield",
+    status: "ACTIVE", email: "marcus@local.test", dateOfBirth: new Date("1991-09-14"),
+    phone: "555-0142", joinedAt: ago(600),
+  });
+  specs.push({
+    id: "m_dupe_extra", clubId, firstName: "Marcus", lastName: "Whitfield",
+    status: "PROSPECT", email: "m.whitfield@local.test", dateOfBirth: new Date("1991-09-14"),
+    phone: "555-0142", streetAddress: "88 Canal St", city: "Dover", state: "NH", zipCode: "03820",
+    migrationStatus: "IMPORTED", importedAt: ago(30), importBatchId: batch.id, joinedAt: ago(30),
+  });
+
+  // (b) SIBLINGS whose guardian's contact was copied into their OWN columns at
+  //     import — the 27-email / 42-phone shape measured in production. These
+  //     are two different children and must NEVER group. Before D-1 they
+  //     collide on `email:` and on `phone:`+lastName.
+  for (const [id, first, dob] of [
+    ["m_sib_a", "Aisha", "2011-04-02"],
+    ["m_sib_b", "Idris", "2013-11-19"],
+  ] as const) {
+    specs.push({
+      id, clubId, firstName: first, lastName: "Adeyemi", status: "PROSPECT", isMinor: true,
+      dateOfBirth: new Date(dob),
+      // The bug: the guardian's address and phone sitting on the child's row.
+      email: "nadia.adeyemi@local.test", phone: "555-0199",
+      guardianName: "Nadia Adeyemi", guardianEmail: "nadia.adeyemi@local.test",
+      guardianPhone: "555-0199",
+      migrationStatus: "IMPORTED", importedAt: ago(30), importBatchId: batch.id, joinedAt: ago(30),
+    });
+  }
+
   for (const data of specs) await prisma.member.create({ data });
+
+  // The survivor of the genuine duplicate owns a login; the re-entry does not.
+  // `/api/members/merge` refuses only when BOTH sides have one.
+  const dupeUser = await prisma.user.upsert({
+    where: { clubId_email: { clubId, email: "marcus@local.test" } },
+    update: {},
+    create: { clubId, email: "marcus@local.test", passwordHash: hash, firstName: "Marcus", lastName: "Whitfield", role: "MEMBER" },
+  });
+  await prisma.member.update({ where: { id: "m_dupe_keep" }, data: { userId: dupeUser.id } });
 
   // Cameron's guardian link — the family the profile switcher renders.
   await prisma.memberGuardianUser.create({

@@ -33,14 +33,30 @@ import { requirePermission } from "@/lib/apiGuard";
 
 // Tables with a plain memberId -> members(id) FK and NO unique constraint on
 // memberId: a straight bulk reassignment can never collide.
+// Keep this list exhaustive. Session 4 audited `information_schema` against it
+// and found six tables carrying `memberId` that were never reassigned — their
+// rows silently stayed on the soft-deleted loser after a merge. Two of them
+// (`billing_audit_logs`, `membership_reactivations`) are money history, and two
+// are Phase 4.5's own (`member_invitation_deliveries` feeds Blocked and the
+// "3 sends, never opened" copy; `member_subscription_events` is what lets
+// Reports churn stop saying ESTIMATED) — losing either would quietly corrupt
+// the very signals this phase exists to make trustworthy.
+//
+// If you add a table with a `memberId` column, add it here too. The regression
+// test `scripts/member-merge-tests.ts` re-runs that audit and fails on a gap.
 const SAFE_MEMBER_ID_TABLES = [
   "attendance_records",
+  "billing_audit_logs",
   "campaign_attributions",
   "event_registrations",
   "guardian_consent_requests",
   "invoice_splits",
+  "member_historical_records",
+  "member_invitation_deliveries",
   "member_migration_events",
+  "member_subscription_events",
   "member_subscriptions",
+  "membership_reactivations",
   "parental_consents",
   "pending_approvals",
   "private_booking_partners",
@@ -116,7 +132,39 @@ export async function POST(req: Request) {
   }
   if (winner.userId && loser.userId) {
     return NextResponse.json(
-      { error: "Both records have their own login. Remove one login first, then merge." },
+      {
+        error:
+          "Both records have their own portal login, so merging them would decide which person keeps access. " +
+          "Open the record you are not keeping and archive it (that releases its login), then merge.",
+        code: "BOTH_HAVE_LOGIN",
+      },
+      { status: 409 },
+    );
+  }
+
+  // `event_bundle_purchases` carries a PARTIAL unique on (bundleId, memberId)
+  // WHERE status NOT IN (CANCELED, PAYMENT_FAILED) — one live purchase of a
+  // bundle per member, enforced in SQL because Prisma cannot model it.
+  //
+  // If both records hold a LIVE purchase of the same bundle, the same human
+  // paid for it twice. Dropping one row the way we drop a colliding booking
+  // would destroy a payment record, and cancelling one is a refund decision.
+  // Neither belongs to an automated merge, so refuse and name the bundle.
+  const liveBundleClash = await prisma.$queryRaw<{ bundleId: string }[]>`
+    SELECT w."bundleId" FROM "event_bundle_purchases" w
+    JOIN "event_bundle_purchases" l ON l."bundleId" = w."bundleId"
+    WHERE w."memberId" = ${winnerId} AND l."memberId" = ${loserId}
+      AND w."status" NOT IN ('CANCELED','PAYMENT_FAILED')
+      AND l."status" NOT IN ('CANCELED','PAYMENT_FAILED')
+  `;
+  if (liveBundleClash.length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Both records hold a live purchase of the same event bundle, so one of them was paid for twice. " +
+          "Resolve that purchase (refund or cancel one) before merging — this page will not decide it for you.",
+        code: "DUPLICATE_BUNDLE_PURCHASE",
+      },
       { status: 409 },
     );
   }
@@ -168,6 +216,14 @@ export async function POST(req: Request) {
         loserId,
       );
     }
+
+    // Bundle purchases: the live-clash case was refused above, so anything left
+    // can be reassigned without tripping the partial unique index.
+    await tx.$executeRawUnsafe(
+      `UPDATE "event_bundle_purchases" SET "memberId" = $1 WHERE "memberId" = $2`,
+      winnerId,
+      loserId,
+    );
 
     // Messages "about" the loser child (scalar subjectMemberId, no FK) follow the
     // survivor so a guardian↔coach thread scoped to the merged child still resolves.
