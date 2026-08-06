@@ -312,8 +312,9 @@ export function AccountSecurityCard({
         <p className="mt-0.5 text-[12px] text-text-muted">
           {resetTargetEmail ? (
             <>
-              Goes to <strong className="font-medium text-text-primary">{resetTargetEmail}</strong>. Works once, expires
-              in 60 minutes, and is recorded against your name.
+              Goes to the account email{" "}
+              <strong className="font-medium text-text-primary">{resetTargetEmail}</strong> — not the contact email on
+              the profile, which can differ. Works once, expires in 60 minutes, and is recorded against your name.
             </>
           ) : (
             <>No email on file, so there is nowhere to send a link.</>

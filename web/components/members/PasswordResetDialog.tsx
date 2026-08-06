@@ -164,6 +164,16 @@ function Confirm({
         We&rsquo;ll email a secure link to <strong className="font-medium text-text-primary">{email}</strong>
         {isGuardianEmail && <> &mdash; {memberName}&rsquo;s guardian</>}. It works once and expires in 60 minutes.
       </p>
+      {/* A member's CONTACT email and their LOGIN email are separate values and
+          routinely differ — staff edit the contact address on the profile all
+          the time, and that deliberately does not move anyone's login. Showing
+          an address here that doesn't match the one just typed into the editor
+          reads as a stale value unless the dialog says which one it is. */}
+      <p className="mt-1.5 text-[12px] text-text-muted">
+        Resets always go to the <strong className="font-medium text-text-primary">account email</strong> — the address{" "}
+        {isGuardianEmail ? "they sign in with" : `${memberName} signs in with`} — which can differ from the contact
+        email on their profile. Editing the contact email never moves a login.
+      </p>
       <p className="mt-3 rounded-lg p-2.5 text-[12.5px] text-text-muted" style={{ background: "var(--color-table-chrome)" }}>
         You won&rsquo;t see the new password, and this doesn&rsquo;t change {memberName}&rsquo;s membership, bookings or
         migration status. Sent as <strong className="font-medium text-text-primary">{staffName}</strong> and recorded in
