@@ -1,0 +1,14 @@
+{
+  // The app's tsconfig sets "jsx": "preserve" because Next does its own JSX
+  // transform at build time. tsx/esbuild honours that and leaves JSX
+  // untransformed, so a script that server-renders a component dies with
+  // "React is not defined".
+  //
+  // This override is ONLY for scripts that render React outside Next.
+  // Everything else — paths, strictness, target — is inherited.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  }
+}

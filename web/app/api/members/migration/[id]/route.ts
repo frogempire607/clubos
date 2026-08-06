@@ -4,6 +4,9 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_TRACK_SELECT, toTrackInput } from "@/lib/memberDisplay";
+import { buildTrackContext } from "@/lib/membersQuery";
+import { migrationMeterFor } from "@/lib/memberTracks";
 import { requirePermission } from "@/lib/apiGuard";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 
@@ -31,6 +34,10 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       migrationSelectedOption: true, migrationFinalPeriodPaid: true,
       activationToken: true, activationTokenExpires: true,
       activationEmailSentAt: true, activationEmailSendCount: true,
+      // Phase 4.5.8 — the drawer's header + imported-data table.
+      dateOfBirth: true, phone: true, guardianName: true, guardianPhone: true,
+      profileImageUrl: true, legacyMemberId: true, importedAt: true,
+      importBatchId: true, reviewedAt: true, blockedReason: true,
     },
   });
   if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -38,7 +45,67 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   const baseUrl = baseUrlFromRequest(req);
   const activationUrl = m.activationToken ? `${baseUrl}/activate/${m.activationToken}` : null;
 
-  return NextResponse.json({ member: m, activationUrl });
+  // ── Phase 4.5.8 ─────────────────────────────────────────────────────────
+  // The drawer's timeline shows WHEN each step happened and WHO did it. Both
+  // already exist as MemberMigrationEvent rows; nothing was reading them.
+  const events = await prisma.memberMigrationEvent.findMany({
+    where: { memberId: id, clubId: session.user.clubId },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+    select: {
+      id: true, type: true, message: true, createdAt: true,
+      actorUserId: true,
+    },
+  });
+  const actorIds = Array.from(new Set(events.map((e) => e.actorUserId).filter((x): x is string => !!x)));
+  const actors = actorIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : [];
+  const actorById = new Map(actors.map((a) => [a.id, `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || "staff"]));
+
+  // The owner-typed label for the previous system. NEVER a hardcoded vendor
+  // name — the "As imported" column header reads whatever they called it.
+  let sourceLabel: string | null = null;
+  if (m.importBatchId) {
+    const batch = await prisma.importBatch.findUnique({
+      where: { id: m.importBatchId },
+      select: { sourceLabel: true },
+    });
+    sourceLabel = batch?.sourceLabel ?? null;
+  }
+  sourceLabel = sourceLabel ?? m.legacySource ?? null;
+
+  // The same derived meter the funnel counted with and the roster row renders.
+  let meter: ReturnType<typeof migrationMeterFor> | null = null;
+  try {
+    const trackRow = await prisma.member.findFirst({
+      where: { id, clubId: session.user.clubId },
+      select: MEMBER_TRACK_SELECT,
+    });
+    if (trackRow) {
+      const ctx = await buildTrackContext([trackRow.id]);
+      meter = migrationMeterFor(toTrackInput(trackRow, ctx));
+    }
+  } catch (e) {
+    console.error("[members/migration/[id]] meter derivation failed", e);
+  }
+
+  return NextResponse.json({
+    member: m,
+    activationUrl,
+    sourceLabel,
+    meter,
+    events: events.map((e) => ({
+      id: e.id,
+      type: e.type,
+      message: e.message,
+      at: e.createdAt,
+      actor: e.actorUserId ? actorById.get(e.actorUserId) ?? "staff" : null,
+    })),
+  });
 }
 
 const patchSchema = z.object({

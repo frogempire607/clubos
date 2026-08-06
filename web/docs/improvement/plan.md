@@ -1390,11 +1390,10 @@ Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
 - **Staff-created relationship card**: a link a coach created at the desk appears immediately as `Pending`, attributed (`Added by Coach Ben at the desk · Jul 27`), with `Confirm`. **Grants no booking/payment rights until the adult confirms.**
 
 **Backend acceptance:**
-- Extend `MemberGuardianUser` with per-permission columns (from Phase 4C): `canBook`, `canPay`, `canWaivers`, `canMessages`. Updates are inline PATCH.
+- `MemberGuardianUser` per-permission columns **already shipped** with Phase 4's `20260803000000_family_accounts` (which absorbed the migration this sub-phase used to own). The live column names are **`canBook`, `canPay`, `canSignWaivers`, `canReceiveEmails`** — this document previously said `canWaivers` / `canMessages`, which do not exist. **Corrected 2026-08-04 (J-9): code wins.** Do not add a second pair. Updates are inline PATCH.
 - `POST /api/members/[id]/relationships` accepts owner/staff-created relationships in `Pending` state; requires confirmation from the linked user before rights activate.
 
-**Migration required:**
-- **M21**: `MemberGuardianUser` gains `canBook Boolean @default(false)`, `canPay Boolean @default(false)`, `canWaivers Boolean @default(false)`, `canMessages Boolean @default(false)`, `status String @default('CONFIRMED')` (values: `CONFIRMED | PENDING | REJECTED`), `confirmedAt DateTime?`, `createdByUserId String?`. Backfill: existing rows → `status='CONFIRMED'`, `confirmedAt = createdAt`, all four booleans `true` (they were unrestricted before).
+**Migration required: NONE.** The former M21 was folded into Phase 4's `20260803000000_family_accounts` and is already in production, with `status` defaulting to `CONFIRMED` and all four permission booleans defaulting to `true` so pre-Phase-4 rows keep their previously-unrestricted behavior. `isPrimary`, `source`, `createdByUserId`, `confirmedAt` and `revokedAt` shipped in the same migration.
 
 **Acceptance criteria — mobile:**
 - Header stacks: title + counts on one row, actions on the next row at `<sm`.
@@ -1440,6 +1439,8 @@ Reuses existing `/api/auth/reset-password` machinery — sub-phase is UI-only.
 - Footer sticky to bottom with safe-area inset.
 
 ## 4.5.9 — Mobile audit + regression pass (`README.md` §1j Mobile — 390 × 844, Capacitor shells)
+
+**FIRST ITEM — dark mode (owner, 2026-08-04, J-8).** The dashboard runs in dark mode and Phase 4.5's semantic tint pairs (`warn-surface`, `danger-surface`, `success-surface`, `chip-surface`, `prospect-surface`, `pending-surface`, `hairline`, `table-chrome`) shipped as **fixed light-mode values**, which read wrong on a dark background. **This has now been deferred once already** — accepted in session 1 to keep the build moving, and explicitly re-raised by the owner in session 2. It is the FIRST item in this sub-phase, not the last: walk every members surface with `data-theme="dark"` before touching viewport widths. Each pair needs a dark counterpart under the existing `:root[data-theme="dark"]` override block in `app/globals.css`; the tints must stay distinguishable from each other (waiting / broken / settled) rather than collapsing into one grey.
 
 **Scope note:** every earlier sub-phase (4.5.1 through 4.5.8) already ships mobile-responsive per its own acceptance criteria. This sub-phase is the **cross-cutting audit + Capacitor shell regression pass** — walk every screen at 375 × 812 (iPhone SE-ish), 390 × 844 (iPhone 14), 414 × 896, 768 × 1024, 1024 × 768, 1280 × 800. Fix any drift, verify Capacitor shell interaction, lock in with tests.
 

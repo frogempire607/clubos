@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { MigrationFunnel } from "@/components/members/MigrationFunnel";
+import { MigrationDetailDrawer } from "@/components/members/MigrationDetailDrawer";
 import MembersTabs from "@/components/MembersTabs";
 
 // ── CSV parser (handles quoted cells / embedded commas / CRLF) ───────────────
@@ -209,6 +211,11 @@ const READINESS_STYLE: Record<string, string> = {
 
 export default function MigrationPage() {
   const [stats, setStats] = useState<Stats | null>(null);
+  // Which funnel segment is selected, if any. Held here rather than in the
+  // funnel so the queue below can filter by it.
+  const [stepFilter, setStepFilter] = useState<number | null>(null);
+  // 4.5.8 — opens OVER the queue so the filter behind it survives.
+  const [detailFor, setDetailFor] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -238,6 +245,7 @@ export default function MigrationPage() {
     const params = new URLSearchParams({ filter, q, page: String(page), pageSize: "25" });
     if (group) params.set("group", group);
     if (readiness) params.set("readiness", readiness);
+    if (stepFilter !== null) params.set("step", String(stepFilter));
     fetch(`/api/members/migration?${params}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -252,12 +260,12 @@ export default function MigrationPage() {
         }
         setLoading(false);
       });
-  }, [filter, q, page, group, readiness]);
+  }, [filter, q, page, group, readiness, stepFilter]);
 
   useEffect(() => { load(); }, [load]);
   // Clear selection when the underlying set changes (filter/search) — but NOT on
   // page changes, so a selection can span every page ("select all matching").
-  useEffect(() => { setSelected(new Set()); }, [filter, q, group, readiness]);
+  useEffect(() => { setSelected(new Set()); }, [filter, q, group, readiness, stepFilter]);
 
   // Send activation links to an explicit set of member ids (selection or a
   // family group). The server collapses each family to ONE guardian email, but
@@ -587,23 +595,18 @@ export default function MigrationPage() {
         </ul>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
-        {[
-          { label: "Imported", value: stats?.total },
-          { label: "Emails sent", value: stats?.activationEmailsSent },
-          { label: "Invited", value: stats?.invited },
-          { label: "Profile completed", value: stats?.activated },
-          { label: "Profile completed (reviewed)", value: stats?.completed },
-          { label: "Payment req.", value: stats?.paymentRequired },
-          { label: "Needs review", value: stats?.needsReview },
-          { label: "Missing email", value: stats?.missingContact },
-        ].map((s) => (
-          <div key={s.label} className="bg-surface border border-app-border rounded-xl p-3">
-            <p className="text-[11px] uppercase tracking-wider text-text-muted">{s.label}</p>
-            <p className="text-2xl font-semibold text-text-primary mt-1">{loading ? "—" : s.value ?? 0}</p>
-          </div>
-        ))}
+      {/* ── Phase 4.5.7 — the funnel replaces the eight KPI tiles ─────────
+          The tiles were eight unrelated numbers that never added up to an
+          answer. The funnel is one sequence, every segment is a filter, and
+          the counts come from the same resolver the queue rows use. */}
+      <div className="mb-6">
+        <MigrationFunnel
+          activeStep={stepFilter}
+          onPickStep={(step) => {
+            setStepFilter(step);
+            setPage(1);
+          }}
+        />
       </div>
 
       {/* Filters + search */}
@@ -892,6 +895,13 @@ export default function MigrationPage() {
                         </button>
                       )}
                       <button
+                        onClick={() => setDetailFor(r.id)}
+                        title="Where this member is in the 7 steps, and what we imported"
+                        className="ml-1 text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
+                      >
+                        Details
+                      </button>
+                      <button
                         onClick={() => resendOne(r.id)}
                         disabled={busy || noEmail || r.migrationStatus === "COMPLETED"}
                         className="text-xs px-2 py-1 ml-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
@@ -935,6 +945,15 @@ export default function MigrationPage() {
       {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
       {showMembershipImport && <MembershipImportWizard onClose={() => setShowMembershipImport(false)} onDone={() => { setShowMembershipImport(false); load(); }} />}
       {historyFor && <HistoryDrawer row={historyFor} onClose={() => setHistoryFor(null)} />}
+      {detailFor && (
+        <MigrationDetailDrawer
+          memberId={detailFor}
+          canEdit
+          onClose={() => setDetailFor(null)}
+          onChanged={load}
+        />
+      )}
+
       {drawerFor && (
         <MigrationDrawer
           memberId={drawerFor.id}
@@ -1700,10 +1719,24 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
           {step === "map" && (
             <div>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-text-primary mb-1">Previous software (optional)</label>
+                <label className="block text-sm font-medium text-text-primary mb-1">Where are you importing from? (optional)</label>
+                {/*
+                  Phase 4.5.10 — no hard-coded vendor names. This placeholder
+                  used to read "e.g. Jackrabbit, Mindbody, spreadsheet", which
+                  named two real products in the UI of a third. Whatever the
+                  owner types here is the ONLY source of a previous-system
+                  label anywhere in the app (lib/memberTracks.resolveSourceLabel),
+                  and it degrades to "your previous system" when blank — so the
+                  field needs no examples to be usable.
+                  scripts/members-grep-guards.ts fails the build if a vendor
+                  literal comes back.
+                */}
                 <input value={legacySource} onChange={(e) => setLegacySource(e.target.value)}
-                  placeholder="e.g. Jackrabbit, Mindbody, spreadsheet"
+                  placeholder="Your previous system"
                   className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
+                <p className="mt-1 text-[11px] text-text-muted">
+                  Shown to staff as &ldquo;As imported from &hellip;&rdquo;. Leave blank and it reads &ldquo;your previous system&rdquo;.
+                </p>
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-text-primary mb-1">Date format in your file</label>

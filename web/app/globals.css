@@ -34,6 +34,71 @@
   /* Sidebar stays charcoal in dark mode but ever-so-slightly lighter for contrast against the new darker content bg */
   --color-sidebar-bg:    #16161A;
   --color-sidebar-hover: #232328;
+
+  /* ── Phase 4.5 semantic pairs, dark ──────────────────────────────────────
+     J-8: this app runs in dark mode, and the light tints above are opaque
+     near-whites (#FFF7ED, #FEF2F2, #F1F1F3, #FAFAFB). Left alone they render
+     as glowing white slabs over a #0F0F12 page — the "waiting on you" banner
+     was the brightest thing on the screen while meaning the mildest thing.
+
+     These are not the light values darkened. A tint on dark has to invert:
+     the SURFACE becomes a low-alpha wash of the hue over whatever is behind
+     it, and the FOREGROUND moves to the light end of the same hue. Keeping
+     #B45309 amber text on a dark amber wash would be unreadable, so the text
+     goes to #FDBA74 and the temperature survives.
+
+     Alpha rather than opaque hex is deliberate: these tints sit on both
+     --color-bg and --color-surface, which differ, and a wash composites
+     correctly over both. */
+
+  /* Waiting on someone. */
+  --color-warn-surface: rgba(255, 138, 30, 0.14);
+  --color-warn-text:    #FDBA74;
+  --color-warn-border:  rgba(253, 186, 116, 0.28);
+
+  /* Broken. */
+  --color-danger-surface: rgba(239, 68, 68, 0.15);
+  --color-danger-text:    #FCA5A5;
+  --color-danger-border:  rgba(252, 165, 165, 0.28);
+
+  /* Settled. */
+  --color-success-surface: rgba(163, 230, 53, 0.16);
+  --color-success-text:    #BEF264;
+  --color-success-icon:    #A3E635;
+  --color-success-border:  rgba(190, 242, 100, 0.28);
+
+  /* Explanatory panels — brand violet needs more presence on dark to register
+     as a tint at all. */
+  --color-info-surface: rgba(139, 126, 255, 0.12);
+  --color-info-border:  rgba(139, 126, 255, 0.32);
+
+  /* Role chips — still the quietest thing in the row. */
+  --color-chip-surface: #26262C;
+  --color-chip-text:    #C7C9CE;
+
+  /* Prospect, softened. */
+  --color-prospect-surface: rgba(109, 93, 246, 0.20);
+  --color-prospect-text:    #A9A2FF;
+
+  /* Pending · not charged. */
+  --color-pending-surface: rgba(99, 91, 255, 0.22);
+  --color-pending-text:    #C7C2FF;
+
+  /* Row dividers: subtler than --color-border, so DARKER than it here —
+     the light-mode relationship (#F1F1F3 vs #E5E7EB) inverts. */
+  --color-hairline: #232329;
+
+  /* Table chrome sits between the page and the card so it still reads as
+     chrome and not as a second card. */
+  --color-table-chrome: #16161A;
+
+  --color-inset-surface: #202027;
+  --color-inset-border:  #2E2E36;
+  --color-inset-dashed:  #3A3A44;
+
+  /* Shadows do nothing over a near-black page; depth comes from opacity. */
+  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-panel:   0 18px 44px rgba(0, 0, 0, 0.6);
 }
 
 /*
@@ -112,6 +177,75 @@
   --color-app-border: var(--color-border);
   --color-text-primary: var(--color-text);
   --color-text-muted: var(--color-muted);
+
+  /* ── Phase 4.5 semantic pairs (Members experience redesign) ─────────────
+     Introduced by the design handoff's "New semantic pairs" table so the
+     members surfaces stop sprinkling raw hex. Each is a background/foreground
+     PAIR — use them together or the contrast guarantee is gone.
+
+     These are NOT var() indirections onto the theme tokens: each is a tint
+     whose whole job is to read as a specific temperature (waiting / broken /
+     settled), and routing them through --color-bg would collapse three distinct
+     meanings into the same grey.
+
+     The values below are the LIGHT set. Every one of them has a dark
+     counterpart in the [data-theme="dark"] block — see the note there for why
+     the dark values are not simply these darkened. */
+
+  /* Waiting on someone — the next-action banner, "waiting on you" pills. */
+  --color-warn-surface: #FFF7ED;
+  --color-warn-text: #B45309;
+  --color-warn-border: rgba(180, 83, 9, 0.22);
+
+  /* Broken — blocked members, bounced invitations, missing waivers. */
+  --color-danger-surface: #FEF2F2;
+  --color-danger-text: #B91C1C;
+  --color-danger-border: rgba(185, 28, 28, 0.22);
+
+  /* Settled — confirmed relationships, completed setup. */
+  --color-success-surface: rgba(163, 230, 53, 0.25);
+  --color-success-text: #3F6212;
+  --color-success-icon: #4D7C0F;
+  --color-success-border: rgba(63, 98, 18, 0.25);
+
+  /* Explanatory / neutral-informative panels — the reset-link box, the drawer's
+     "what changes" note, the bulk-selection bar. Brand-tinted so it reads as
+     the app talking, not as a warning. */
+  --color-info-surface: rgba(109, 93, 246, 0.06);
+  --color-info-border: rgba(109, 93, 246, 0.25);
+
+  /* Role chips (Track 1). Neutral on purpose — Track 1 must never compete
+     with Track 2's saturated pill for attention. */
+  --color-chip-surface: #F1F1F3;
+  --color-chip-text: #4B5563;
+
+  /* Prospect, softened. The old Prospect pill was full-strength brand violet,
+     which made "never bought anything" the loudest thing in the row. */
+  --color-prospect-surface: rgba(109, 93, 246, 0.10);
+  --color-prospect-text: #5948E8;
+
+  /* Pending · not charged. */
+  --color-pending-surface: #EDEBFF;
+  --color-pending-text: #4F46E5;
+
+  /* Hairline inside cards — lighter than --color-border, for row dividers. */
+  --color-hairline: #F1F1F3;
+
+  /* Table header/footer fill. Replaces bg-app-bg in table chrome so the chrome
+     reads as chrome rather than as another card. */
+  --color-table-chrome: #FAFAFB;
+
+  /* Inset panels INSIDE a card — the locked-birthday row, the drawer's
+     "as imported" boxes. Distinct from table-chrome: chrome frames a table,
+     an inset is a quoted value sitting inside body content. */
+  --color-inset-surface: #F4F4F6;
+  --color-inset-border:  #EFEFF2;
+  --color-inset-dashed:  #D7D7DC;
+
+  /* Elevation. A shadow tuned for white cards is invisible over a #0F0F12
+     page, so this is a token rather than a repeated literal. */
+  --shadow-overlay: 0 12px 32px rgba(17, 17, 17, 0.14);
+  --shadow-panel:   0 18px 44px rgba(17, 17, 17, 0.13);
 }
 
 body {

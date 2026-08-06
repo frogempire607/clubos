@@ -10,6 +10,17 @@ import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { validateMemberContact } from "@/lib/memberValidation";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { listMembers, parseMemberFilters } from "@/lib/membersQuery";
+
+/**
+ * Phase 4.5.2 — the new roster payload. Opt-in via `?paginated=1`; see the note
+ * in GET for why the default shape is unchanged.
+ */
+async function listMembersPaginated(req: Request, clubId: string) {
+  const filters = parseMemberFilters(new URL(req.url));
+  const result = await listMembers(clubId, filters);
+  return NextResponse.json(result);
+}
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -17,6 +28,20 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const guardianEmail = url.searchParams.get("guardianEmail");
+
+  // ── Phase 4.5.2 ──────────────────────────────────────────────────────────
+  // `?paginated=1` opts into the new envelope: server-side paging, search,
+  // filters, derived tracks, one nextAction per row, and segment counts taken
+  // from the QUERY rather than the loaded page.
+  //
+  // Without the flag this route returns the legacy bare array, unchanged. That
+  // is deliberate rather than lazy: /dashboard/members/migration, the
+  // attendance add-panel, the duplicates page and several modals all consume
+  // this endpoint and index it as an array. Switching the default shape would
+  // break every one of them in the same commit.
+  if (url.searchParams.get("paginated") === "1") {
+    return listMembersPaginated(req, session.user.clubId);
+  }
 
   // Self-heal: lazily flip prospects older than the TTL to INACTIVE.
   // Lazily expire ended MANUAL non-renewing subscriptions (final-period-paid

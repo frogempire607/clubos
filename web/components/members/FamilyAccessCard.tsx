@@ -104,6 +104,36 @@ const PERMS = [
   { key: "canReceiveEmails", label: "Emails" },
 ] as const;
 
+/**
+ * Where a link came from, in words.
+ *
+ * 4.5.6 asks for "Added by Coach Ben at the desk · Jul 27" on staff-created
+ * links. We don't carry the creating staff member's NAME on the payload (only
+ * createdByUserId), so this states the ORIGIN honestly rather than inventing an
+ * attribution — how a link came to exist is what decides whether to trust it,
+ * and a wrong name is worse than an unnamed one. Adding the name is a payload
+ * change for a later pass.
+ */
+function sourceLine(source: string | null, linkedAt: string): string {
+  const when = fmtDate(linkedAt);
+  switch (source) {
+    case "STAFF_LINKED":
+      return `added by staff at the desk · ${when}`;
+    case "OWNER_VOUCHED":
+      return `matched the guardian email on file · ${when}`;
+    case "SIGNUP_SWEEP":
+      return `linked when they signed up · ${when}`;
+    case "MIGRATION_ACTIVATION":
+      return `linked during activation · ${when}`;
+    case "APPROVAL":
+      return `approved from the queue · ${when}`;
+    case "CONSENT_TOKEN":
+      return `confirmed by the guardian · ${when}`;
+    default:
+      return `linked ${when}`;
+  }
+}
+
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
@@ -117,24 +147,115 @@ function Avatar({ src, name }: { src: string | null; name: string }) {
   );
 }
 
-/** The four permissions, as read-only pills. A struck-through pill means denied. */
-function PermPills({ row }: { row: Record<string, unknown> }) {
+/**
+ * The four permissions — 4.5.6 requires these EDITABLE IN PLACE.
+ *
+ * They were read-only pills, which meant the only way to change what a parent
+ * could do was to remove their access and re-grant it. That is destructive for
+ * a correction as small as "Sam shouldn't be paying" and it loses the original
+ * link's history.
+ *
+ * Column names are the shipped ones — canBook / canPay / canSignWaivers /
+ * canReceiveEmails. plan.md said canWaivers / canMessages, which do not exist;
+ * J-9 settled it in favour of the code and the doc was corrected.
+ *
+ * A PENDING link's permissions are shown but NOT editable: the row grants
+ * nothing until it is confirmed, so editing it would imply an authority it
+ * doesn't have. Confirm first, then adjust.
+ */
+function PermCells({
+  row,
+  linkId,
+  memberId,
+  editable,
+  onChanged,
+}: {
+  row: Record<string, unknown>;
+  linkId: string;
+  memberId: string;
+  editable: boolean;
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState<string | null>(null);
+  const [local, setLocal] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(PERMS.map((p) => [p.key, !!row[p.key]])),
+  );
+  const [failed, setFailed] = useState<string | null>(null);
+
+  // Keep in step when the parent reloads the family after some other change.
+  useEffect(() => {
+    setLocal(Object.fromEntries(PERMS.map((p) => [p.key, !!row[p.key]])));
+  }, [row]);
+
+  async function toggle(key: string) {
+    if (!editable || saving) return;
+    const next = !local[key];
+    setLocal((l) => ({ ...l, [key]: next })); // optimistic
+    setSaving(key);
+    setFailed(null);
+    try {
+      // linkId travels in the BODY — the PATCH handler reads it from the parsed
+      // schema, not the query string. Sending it as ?linkId= parsed fine and
+      // then 400'd on the missing field, which surfaced as a toggle that
+      // flipped and silently flipped back.
+      const res = await fetch(`/api/members/${memberId}/guardians`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId, [key]: next }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Could not save");
+      onChanged();
+    } catch (e) {
+      // Roll the optimistic flip back — a permission that looks granted but
+      // isn't is worse than a visible failure.
+      setLocal((l) => ({ ...l, [key]: !next }));
+      setFailed(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      setSaving(null);
+    }
+  }
+
   return (
-    <div className="flex flex-wrap gap-1">
-      {PERMS.map((p) => {
-        const on = !!row[p.key];
-        return (
-          <span
-            key={p.key}
-            title={on ? `Can ${p.label.toLowerCase()}` : `Cannot ${p.label.toLowerCase()}`}
-            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-              on ? "bg-lime-accent/25 text-charcoal" : "bg-app-bg text-text-muted line-through"
-            }`}
-          >
-            {p.label}
-          </span>
-        );
-      })}
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {PERMS.map((p) => {
+          const on = local[p.key];
+          const busy = saving === p.key;
+          const label = `${on ? "Can" : "Cannot"} ${p.label.toLowerCase()}`;
+          if (!editable) {
+            return (
+              <span
+                key={p.key}
+                title={`${label} — confirm this link before changing what it allows`}
+                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                  on ? "bg-lime-accent/25 text-charcoal" : "bg-app-bg text-text-muted line-through"
+                }`}
+              >
+                {p.label}
+              </span>
+            );
+          }
+          return (
+            <button
+              key={p.key}
+              onClick={() => toggle(p.key)}
+              disabled={busy}
+              role="switch"
+              aria-checked={on}
+              aria-label={`${p.label} — ${label}`}
+              title={`${label}. Click to change.`}
+              className={`min-h-[30px] rounded px-1.5 text-[10px] font-medium transition-colors disabled:opacity-60 md:min-h-[26px] ${
+                on
+                  ? "bg-lime-accent/25 text-charcoal hover:bg-lime-accent/40"
+                  : "bg-app-bg text-text-muted line-through hover:bg-app-border"
+              }`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+      {failed && <p className="mt-1 text-[10px] text-orange-accent">{failed}</p>}
     </div>
   );
 }
@@ -234,6 +355,18 @@ export default function FamilyAccessCard({
   const managed = family?.managedAthletes ?? [];
   const requests = family?.pendingGuardianRequests ?? [];
   const canManage = !!caps?.canGrantLink;
+
+  const confirmedGuardians = guardians.filter((g) => g.status === "CONFIRMED");
+  const pendingGuardians = guardians.filter((g) => g.status === "PENDING");
+  const countLine = [
+    `${confirmedGuardians.length} account ${confirmedGuardians.length === 1 ? "holder" : "holders"}`,
+    `${managed.length} ${managed.length === 1 ? "athlete" : "athletes"}`,
+    pendingGuardians.length + requests.length > 0
+      ? `${pendingGuardians.length + requests.length} pending guardian`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const canAdd = !!(caps?.canGrantLink || caps?.canProposeLink);
 
   return (
@@ -241,6 +374,12 @@ export default function FamilyAccessCard({
       <div className="flex items-start justify-between gap-3 mb-1">
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Family &amp; access</h2>
+          {/* 4.5.6 header line. Counts are of ACCESS, not of relationships —
+              a pending guardian is counted separately precisely because it
+              grants nothing yet. */}
+          <p className="text-xs text-text-muted mt-0.5 tabular-nums">
+            {countLine}
+          </p>
           <p className="text-xs text-text-muted mt-0.5">
             Who can sign in and act for this athlete. This is real access — not the family labels below.
           </p>
@@ -391,7 +530,7 @@ export default function FamilyAccessCard({
                       </p>
                       <p className="text-xs text-text-muted truncate">
                         {g.email}
-                        {g.relationship ? ` · ${g.relationship}` : ""} · linked {fmtDate(g.linkedAt)}
+                        {g.relationship ? ` · ${g.relationship}` : ""} · {sourceLine(g.source, g.linkedAt)}
                       </p>
                     </div>
                   </div>
@@ -425,7 +564,13 @@ export default function FamilyAccessCard({
                 </div>
 
                 <div className="mt-1.5">
-                  <PermPills row={g as unknown as Record<string, unknown>} />
+                  <PermCells
+                    row={g as unknown as Record<string, unknown>}
+                    linkId={g.linkId}
+                    memberId={memberId}
+                    editable={canManage && g.status === "CONFIRMED"}
+                    onChanged={onChanged}
+                  />
                 </div>
 
                 {editing === g.linkId && canManage && (
@@ -493,7 +638,15 @@ export default function FamilyAccessCard({
                       )}
                     </div>
                   </div>
-                  <div className="mt-1.5"><PermPills row={m as unknown as Record<string, unknown>} /></div>
+                  <div className="mt-1.5">
+                    <PermCells
+                      row={m as unknown as Record<string, unknown>}
+                      linkId={m.linkId}
+                      memberId={m.memberId}
+                      editable={canManage && m.linkStatus === "CONFIRMED"}
+                      onChanged={onChanged}
+                    />
+                  </div>
                 </li>
               ))}
             </ul>

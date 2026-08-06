@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_TRACK_SELECT, toTrackInput } from "@/lib/memberDisplay";
+import { buildTrackContext, loadSourceLabels } from "@/lib/membersQuery";
+import { migrationMeterFor } from "@/lib/memberTracks";
 import { requirePermission } from "@/lib/apiGuard";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
 import { deriveReadiness, resolveOfferPricing, READINESS_LABELS, type Readiness } from "@/lib/billingAdmin";
@@ -22,6 +25,12 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") || "").trim();
   const group = url.searchParams.get("group") || "";
   const readinessFilter = (url.searchParams.get("readiness") || "") as Readiness | "";
+  // Phase 4.5.7 — clicking a funnel segment filters the queue to the people
+  // counted in it. Derived like `readiness`, because the 7 steps are a function
+  // of several columns at once and cannot be a WHERE clause without restating
+  // rules lib/memberTracks.ts already owns.
+  const stepParam = Number(url.searchParams.get("step"));
+  const stepFilter = Number.isInteger(stepParam) && stepParam >= 1 && stepParam <= 7 ? stepParam : null;
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(100, Math.max(10, parseInt(url.searchParams.get("pageSize") || "25", 10)));
 
@@ -82,7 +91,7 @@ export async function GET(req: Request) {
   // Readiness is DERIVED per row (plan + date + saved card + triage), so a
   // readiness filter can't run in SQL — pull the whole candidate set (capped),
   // derive, then paginate in memory. Fine at this club's scale (~hundreds).
-  const readinessMode = !!readinessFilter;
+  const readinessMode = !!readinessFilter || stepFilter !== null;
 
   const [
     total,
@@ -302,8 +311,31 @@ export async function GET(req: Request) {
     };
   });
 
+  // ── Funnel-segment filter (4.5.7) ───────────────────────────────────────
+  // Resolve which members sit at the requested step using the SAME resolver the
+  // funnel counted with, then intersect by id. A second derivation path here
+  // would be a second set of rules to keep in sync, and the first time they
+  // disagreed the segment count and the list it opens would differ — which is
+  // exactly the class of bug 4.5.1 exists to prevent.
+  let stepIds: Set<string> | null = null;
+  if (stepFilter !== null) {
+    const stepRows = await prisma.member.findMany({
+      where: { ...base, ...filterWhere, ...search },
+      select: MEMBER_TRACK_SELECT,
+      take: 20_000,
+    });
+    const ctx = await buildTrackContext(stepRows.map((r) => r.id));
+    ctx.sourceLabelByBatch = await loadSourceLabels(stepRows.map((r) => r.importBatchId));
+    stepIds = new Set(
+      stepRows
+        .filter((r) => migrationMeterFor(toTrackInput(r, ctx)).step === stepFilter)
+        .map((r) => r.id),
+    );
+  }
+
   // Readiness filter paginates in memory (derived value, see above).
-  const filtered = readinessMode ? mapped.filter((m) => m.readiness === readinessFilter) : mapped;
+  const byReadiness = readinessFilter ? mapped.filter((m) => m.readiness === readinessFilter) : mapped;
+  const filtered = stepIds ? byReadiness.filter((m) => stepIds!.has(m.id)) : byReadiness;
   const members = readinessMode ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered;
   const totalInFilter = readinessMode ? filtered.length : pageCount;
 
