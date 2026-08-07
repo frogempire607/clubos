@@ -143,6 +143,9 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     registrationForm: event.registrationForm ?? [],
     price,
     priceLabel,
+    // Variable-cost events bill later, so the page can still offer a discount
+    // code field even though it has no total to quote yet.
+    variableCost: !!event.variableCostEnabled,
     capacityReached,
     // AUTO_CARD needs an authenticated member with a saved card — the public
     // page is anonymous, so it only ever offers CARD / CASH / CHECK.

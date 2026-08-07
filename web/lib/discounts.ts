@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 //   - appliesTo (JSON array of DiscountItemType) — [] = every purchase type.
 //   - membershipIds (JSON array) — when the code covers MEMBERSHIP purchases,
 //     [] = every plan, otherwise only the listed plans.
+//   - eventIds (JSON array) — when the code covers EVENT purchases, [] = every
+//     event, otherwise only the listed events. Exactly the membershipIds shape.
+//     No legacy guard is needed: no row can already carry a non-empty value.
 //   - Back-compat: a legacy code with plan-narrowed membershipIds and an empty
 //     appliesTo is treated as memberships-only (the migration backfills
 //     appliesTo=["MEMBERSHIP"] for those, and this guard covers rows written
@@ -34,6 +37,10 @@ export type ValidDiscount = {
   code: string;
   type: "PERCENT" | "FIXED";
   value: number;
+  /** The owner's label for the code ("Sibling discount"). Optional so the
+   *  inline {id,code,type,value} objects callers build for discountedPrice
+   *  still satisfy the type. */
+  description?: string | null;
 };
 
 export type DiscountCheck =
@@ -43,7 +50,7 @@ export type DiscountCheck =
 export async function findValidDiscountFor(
   clubId: string,
   rawCode: string,
-  item: { type: DiscountItemType; membershipId?: string | null },
+  item: { type: DiscountItemType; membershipId?: string | null; eventId?: string | null },
 ): Promise<DiscountCheck> {
   const code = rawCode.trim().toUpperCase();
   if (!code) return { ok: false, error: "Enter a discount code." };
@@ -78,6 +85,18 @@ export async function findValidDiscountFor(
     }
   }
 
+  // Event narrowing. [] = every event, which is what every existing row
+  // carries — so a code that already worked on events keeps working on all of
+  // them, including any event created later.
+  const eventScope: string[] = Array.isArray((d as { eventIds?: unknown }).eventIds)
+    ? ((d as { eventIds: unknown }).eventIds as string[])
+    : [];
+  if (item.type === "EVENT" && eventScope.length > 0) {
+    if (!item.eventId || !eventScope.includes(item.eventId)) {
+      return { ok: false, error: "That discount code doesn't apply to this event." };
+    }
+  }
+
   return {
     ok: true,
     discount: {
@@ -85,6 +104,7 @@ export async function findValidDiscountFor(
       code: d.code,
       type: d.type === "FIXED" ? "FIXED" : "PERCENT",
       value: Number(d.value),
+      description: d.description,
     },
   };
 }

@@ -2005,6 +2005,11 @@ type RegistrationRow = {
   status: string;
   amountDue: number | null;
   amountPaid: number | null;
+  discountCode: string | null;
+  discountAmount: number | null;
+  // Present when an offline Transaction is already open against this row —
+  // the discount editor stays hidden, matching the server's lock rule.
+  transactionId: string | null;
   paymentUrl: string | null;
   stripeCheckoutSessionId: string | null;
   invoicedAt: string | null;
@@ -2110,6 +2115,10 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   const [previewOpts, setPreviewOpts] = useState<InvoiceOpts>({});
   const [repricing, setRepricing] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  // Which row's discount editor is open, and which row is mid-save.
+  const [discountFor, setDiscountFor] = useState<string | null>(null);
+  const [discountInput, setDiscountInput] = useState("");
+  const [discountBusy, setDiscountBusy] = useState<string | null>(null);
   // Removed registrants keep their row for history but are off the screen by
   // default — a canceled row in the list is what made "who am I actually
   // invoicing?" unanswerable.
@@ -2340,13 +2349,54 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   // twice (the server refuses them too).
   // Same resolution the server uses (lib/eventRepricing.amountToCollect), so a
   // row can never display one number while the invoice sends another.
+  // Dollars this row's code takes off the list price. Mirrors the server's
+  // lib/eventRepricing — a discounted registrant owes less on purpose.
+  const discountOff = (r: RegistrationRow) => Number(r.discountAmount ?? 0);
+  // Apply or clear a discount code on someone's behalf. Server re-resolves the
+  // code against the event's current price and refuses any row whose money is
+  // already committed — the client never computes the new amount.
+  async function setRegistrationDiscount(r: RegistrationRow, code: string | null) {
+    setDiscountBusy(r.id);
+    setMsg("");
+    setErr("");
+    const res = await fetch(`/api/events/${eventId}/registrations/${r.id}/discount`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ discountCode: code }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setDiscountBusy(null);
+    setDiscountFor(null);
+    if (!res.ok) {
+      setErr(typeof d.message === "string" ? d.message : typeof d.error === "string" ? d.error : "Could not apply that code.");
+      return;
+    }
+    setPreview(null);
+    setMsg(
+      code
+        ? `${d.discountCode} applied to ${r.name} — now $${Number(d.amountDue ?? 0).toFixed(2)}.${
+            d.reinvoiceNeeded ? " They were already invoiced — re-send their payment link." : ""
+          }`
+        : `Discount cleared for ${r.name} — now $${Number(d.amountDue ?? 0).toFixed(2)}.`,
+    );
+    load();
+  }
+
   const owes = (r: RegistrationRow) =>
     isVariable
-      ? (data?.perHead ?? 0)
+      ? Math.max(0, Math.round(((data?.perHead ?? 0) - discountOff(r)) * 100) / 100)
       : Number(r.amountDue ?? 0) > 0
         ? Number(r.amountDue)
-        : (data?.publicPrice ?? 0);
-  // What the event's CURRENT pricing says everyone should owe.
+        : Math.max(0, Math.round(((data?.publicPrice ?? 0) - discountOff(r)) * 100) / 100);
+  // What the event's CURRENT pricing says THIS registrant should owe — the
+  // list price minus their own discount. Comparing a discounted row against
+  // the bare list price flags every one of them as a stale snapshot.
+  const expectedFor = (r: RegistrationRow) =>
+    Math.max(
+      0,
+      Math.round(((isVariable ? (data?.perHead ?? 0) : (data?.publicPrice ?? 0)) - discountOff(r)) * 100) / 100,
+    );
+  // The event-level headline figure (no one person's discount applied).
   const expectedDue = isVariable ? (data?.perHead ?? 0) : (data?.publicPrice ?? 0);
   const collectable = (r: RegistrationRow) =>
     r.status !== "PAID" &&
@@ -2364,7 +2414,7 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
   // Rows carrying an amount the event's own pricing doesn't produce — the
   // Frog Empire failure mode, made visible instead of silently invoiced.
   const mismatchedRows = (data?.registrations ?? []).filter(
-    (r) => collectable(r) && expectedDue > 0 && Math.round(owes(r) * 100) !== Math.round(expectedDue * 100),
+    (r) => collectable(r) && expectedDue > 0 && Math.round(owes(r) * 100) !== Math.round(expectedFor(r) * 100),
   );
 
   function toggle(id: string) {
@@ -2774,6 +2824,14 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${chip}`}>
                                       {label}
                                     </span>
+                                    {r.discountCode && (
+                                      <span className="block text-[10px] text-text-muted mt-1">
+                                        {r.discountCode}
+                                        {r.discountAmount != null && r.discountAmount > 0
+                                          ? ` · −$${Number(r.discountAmount).toFixed(2)}`
+                                          : ""}
+                                      </span>
+                                    )}
                                     {r.status === "PAID" && r.paidVia && r.paidVia !== "STRIPE" && (
                                       <span className="block text-[10px] text-text-muted mt-1">
                                         {r.paidVia === "CHECK" ? "By check" : "In cash"}
@@ -2820,6 +2878,66 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                                           </button>
                                         </span>
                                       )}
+                                    {/* Staff applying a code on a registrant's
+                                        behalf. Only offered while the row is
+                                        still repriceable — the server enforces
+                                        the same rule. */}
+                                    {r.status !== "PAID" &&
+                                      r.status !== "CANCELED" &&
+                                      r.status !== "SCHEDULED" &&
+                                      !r.transactionId &&
+                                      (discountFor === r.id ? (
+                                        <span className="mt-1 flex items-center gap-1">
+                                          <input
+                                            autoFocus
+                                            value={discountInput}
+                                            onChange={(e) => setDiscountInput(e.target.value.toUpperCase())}
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter") setRegistrationDiscount(r, discountInput.trim() || null);
+                                              if (e.key === "Escape") setDiscountFor(null);
+                                            }}
+                                            placeholder="CODE"
+                                            className="w-24 px-1.5 py-0.5 border border-app-border rounded text-[10px] font-mono uppercase bg-surface text-text-primary"
+                                          />
+                                          <button
+                                            onClick={() => setRegistrationDiscount(r, discountInput.trim() || null)}
+                                            disabled={discountBusy === r.id}
+                                            className="text-[10px] text-brand hover:underline disabled:opacity-50"
+                                          >
+                                            {discountBusy === r.id ? "Saving…" : "Apply"}
+                                          </button>
+                                          <button
+                                            onClick={() => setDiscountFor(null)}
+                                            className="text-[10px] text-text-muted hover:underline"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </span>
+                                      ) : (
+                                        <span className="block text-[10px] text-text-muted mt-1">
+                                          <button
+                                            onClick={() => {
+                                              setDiscountFor(r.id);
+                                              setDiscountInput(r.discountCode ?? "");
+                                            }}
+                                            className="text-brand hover:underline"
+                                          >
+                                            {r.discountCode ? "Change discount" : "Apply discount"}
+                                          </button>
+                                          {r.discountCode && (
+                                            <>
+                                              {" · "}
+                                              <button
+                                                onClick={() => setRegistrationDiscount(r, null)}
+                                                disabled={discountBusy === r.id}
+                                                className="text-brand hover:underline disabled:opacity-50"
+                                              >
+                                                remove
+                                              </button>
+                                            </>
+                                          )}
+                                        </span>
+                                      ))}
                                     {r.status === "PAID" && (
                                       <button
                                         onClick={() => resendReceipt(r)}

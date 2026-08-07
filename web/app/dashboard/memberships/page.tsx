@@ -81,17 +81,33 @@ export default function MembershipsPage() {
   const [editingDiscount, setEditingDiscount] = useState<Discount | null>(null);
   const [freeTrial, setFreeTrial] = useState<FreeTrialInfo | null>(null);
   const [showFreeTrial, setShowFreeTrial] = useState(false);
+  // Events feed the discount modal's "only these events" checklist. Kept here
+  // rather than in a second admin surface — one place manages every code.
+  const [events, setEvents] = useState<DiscountEvent[]>([]);
 
   async function load() {
     setLoading(true);
-    const [mRes, dRes, cRes, tRes] = await Promise.all([
+    const [mRes, dRes, cRes, tRes, eRes] = await Promise.all([
       fetch("/api/memberships"),
       fetch("/api/discounts"),
       fetch("/api/club/info"),
       fetch("/api/club/free-trial"),
+      fetch("/api/events"),
     ]);
     if (mRes.ok) setMemberships(await mRes.json());
     if (dRes.ok) setDiscounts(await dRes.json());
+    if (eRes.ok) {
+      const rows = await eRes.json().catch(() => []);
+      setEvents(
+        (Array.isArray(rows) ? rows : [])
+          .map((e: { id?: string; name?: string; startsAt?: string }) => ({
+            id: String(e?.id ?? ""),
+            name: String(e?.name ?? "Untitled event"),
+            startsAt: e?.startsAt ?? null,
+          }))
+          .filter((e: DiscountEvent) => e.id),
+      );
+    }
     if (cRes.ok) {
       const c = await cRes.json().catch(() => null);
       if (c?.slug) setClubSlug(c.slug);
@@ -405,6 +421,7 @@ export default function MembershipsPage() {
         <DiscountModal
           discount={editingDiscount}
           memberships={memberships}
+          events={events}
           onClose={() => { setShowAddDiscount(false); setEditingDiscount(null); }}
           onSaved={() => { setShowAddDiscount(false); setEditingDiscount(null); load(); }}
         />
@@ -844,7 +861,9 @@ const DISCOUNT_ITEM_TYPES: { key: string; label: string }[] = [
   { key: "PRIVATE_PACK", label: "Lesson packs" },
 ];
 
-function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: Discount | null; memberships: Membership[]; onClose: () => void; onSaved: () => void }) {
+type DiscountEvent = { id: string; name: string; startsAt?: string | null };
+
+function DiscountModal({ discount, memberships, events, onClose, onSaved }: { discount: Discount | null; memberships: Membership[]; events: DiscountEvent[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!discount;
   const [code, setCode] = useState(discount?.code || "");
   const [description, setDescription] = useState(discount?.description || "");
@@ -858,6 +877,11 @@ function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: 
       ? ((discount as unknown as { appliesTo: string[] }).appliesTo)
       : [],
   );
+  const [scopedEventIds, setScopedEventIds] = useState<string[]>(
+    Array.isArray((discount as { eventIds?: unknown } | null)?.eventIds)
+      ? ((discount as unknown as { eventIds: string[] }).eventIds)
+      : [],
+  );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -868,6 +892,13 @@ function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: 
   function toggleType(key: string) {
     setAppliesTo((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
   }
+
+  function toggleEventScope(id: string) {
+    setScopedEventIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  const eventFmt = (iso?: string | null) =>
+    iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -883,6 +914,7 @@ function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: 
       expiresAt: expiresAt || null,
       membershipIds: scopedIds,
       appliesTo,
+      eventIds: scopedEventIds,
     };
 
     const url = isEdit ? `/api/discounts/${discount!.id}` : "/api/discounts";
@@ -1000,6 +1032,34 @@ function DiscountModal({ discount, memberships, onClose, onSaved }: { discount: 
                   ))}
                   {memberships.length === 0 && (
                     <p className="px-3 py-2 text-xs text-text-muted">No membership plans yet — the code will apply to all future plans.</p>
+                  )}
+                </div>
+              </>
+            )}
+            {(appliesTo.length === 0 || appliesTo.includes("EVENT")) && (
+              <>
+                <p className="text-xs text-text-muted mt-3 mb-2">
+                  {scopedEventIds.length === 0
+                    ? "Covers every event, including ones you create later. Check events to narrow it."
+                    : `Only the ${scopedEventIds.length} selected event${scopedEventIds.length === 1 ? "" : "s"}.`}
+                </p>
+                <div className="max-h-36 overflow-y-auto border border-app-border rounded-lg divide-y divide-app-border">
+                  {events.map((e) => (
+                    <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary cursor-pointer hover:bg-app-bg">
+                      <input
+                        type="checkbox"
+                        checked={scopedEventIds.includes(e.id)}
+                        onChange={() => toggleEventScope(e.id)}
+                        className="rounded border-app-border"
+                      />
+                      <span className="min-w-0 truncate">{e.name}</span>
+                      {eventFmt(e.startsAt) && (
+                        <span className="ml-auto shrink-0 text-xs text-text-muted">{eventFmt(e.startsAt)}</span>
+                      )}
+                    </label>
+                  ))}
+                  {events.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-text-muted">No events yet — the code will apply to all future events.</p>
                   )}
                 </div>
               </>

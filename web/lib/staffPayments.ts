@@ -2,7 +2,6 @@
 // vocabulary, the payment state machine, server-side discount resolution, and
 // the pricing quote every surface displays and every route charges. No page
 // may implement its own variant of any of these.
-import { prisma } from "@/lib/prisma";
 import { findValidDiscountFor, discountedPrice, type DiscountItemType } from "@/lib/discounts";
 import { applyProcessingFee } from "@/lib/fees";
 
@@ -84,22 +83,18 @@ export type ResolvedStaffDiscount = {
 export async function resolveStaffDiscount(
   clubId: string,
   rawCode: string | null | undefined,
-  item: { type: DiscountItemType; membershipId?: string | null },
+  item: { type: DiscountItemType; membershipId?: string | null; eventId?: string | null },
 ): Promise<{ ok: true; discount: ResolvedStaffDiscount | null } | { ok: false; error: string }> {
   const code = (rawCode || "").trim();
   if (!code) return { ok: true, discount: null };
   const check = await findValidDiscountFor(clubId, code, item);
   if (!check.ok) return { ok: false, error: check.error };
-  const row = await prisma.discount.findFirst({
-    where: { clubId, id: check.discount.id },
-    select: { description: true },
-  });
   return {
     ok: true,
     discount: {
       id: check.discount.id,
       code: check.discount.code,
-      description: row?.description ?? null,
+      description: check.discount.description ?? null,
       type: check.discount.type as "PERCENT" | "FIXED",
       value: Number(check.discount.value),
     },

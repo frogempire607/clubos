@@ -32,6 +32,7 @@ type PublicEvent = {
   registrationForm: FormField[];
   price: number | null;
   priceLabel: string;
+  variableCost?: boolean;
   capacityReached: boolean;
   registrationOpen: boolean;
   paymentMethods?: string[];
@@ -62,6 +63,23 @@ export default function PublicEventPage() {
   const [done, setDone] = useState<null | { message: string }>(null);
   const [payMethod, setPayMethod] = useState<string>("");
   const [docsAcknowledged, setDocsAcknowledged] = useState(false);
+  // Discount code. `applied` is the server's verdict — the page never does its
+  // own discount math, so what's shown here is what the register route will
+  // charge. Typing again clears it, so a stale total can't sit on screen.
+  const [codeInput, setCodeInput] = useState("");
+  const [codeChecking, setCodeChecking] = useState(false);
+  const [codeError, setCodeError] = useState("");
+  const [applied, setApplied] = useState<null | {
+    code: string;
+    label: string | null;
+    quotable: boolean;
+    gross?: number;
+    discountOff?: number;
+    net?: number;
+    processingFee?: number;
+    total?: number;
+    message?: string;
+  }>(null);
 
   const justRegistered = searchParams.get("registered") === "true";
   const justPaid = searchParams.get("paid") === "true";
@@ -95,6 +113,45 @@ export default function PublicEventPage() {
   const eventDocs = event?.documents ?? [];
   const gatedDocs = eventDocs.filter((d) => d.requirement !== "INFO");
 
+  async function applyCode() {
+    const code = codeInput.trim();
+    if (!code) return;
+    setCodeChecking(true);
+    setCodeError("");
+    try {
+      const res = await fetch(`/api/public/events/${slug}/validate-discount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCodeError(typeof d.error === "string" ? d.error : "Could not check that code.");
+        setApplied(null);
+      } else if (d.valid) {
+        setApplied(d);
+        setCodeError("");
+      } else {
+        setApplied(null);
+        setCodeError(typeof d.error === "string" ? d.error : "That code isn't valid for this event.");
+      }
+    } catch {
+      setCodeError("Could not check that code. Try again.");
+      setApplied(null);
+    }
+    setCodeChecking(false);
+  }
+
+  function clearCode() {
+    setApplied(null);
+    setCodeError("");
+    setCodeInput("");
+  }
+
+  // What the visitor actually pays, once a code is applied. Falls back to the
+  // event's own price when there's no code.
+  const payableNow = applied?.quotable && applied.net != null ? applied.net : (event?.price ?? 0);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (needsPayChoice && !payMethod) {
@@ -116,6 +173,7 @@ export default function PublicEventPage() {
         phone: phone || null,
         formResponses: responses,
         ...(needsPayChoice ? { paymentMethod: payMethod } : {}),
+        ...(applied ? { discountCode: applied.code } : {}),
         ...(gatedDocs.length > 0 ? { acknowledgeDocuments: docsAcknowledged } : {}),
       }),
     });
@@ -448,6 +506,97 @@ export default function PublicEventPage() {
               </div>
             )}
 
+            {/* Discount code. Shown whenever money is owed OR the event bills
+                later (variable cost) — in the latter case there's no total to
+                quote, but the code still binds to the registration and comes
+                off the invoice. */}
+            {(!!(event.price && event.price > 0) || event.variableCost) && (
+              <div>
+                <label htmlFor="discount-code" className="block text-sm font-medium text-stone-700 mb-1">
+                  Discount code <span className="font-normal text-stone-400">(optional)</span>
+                </label>
+                {applied ? (
+                  <div
+                    className="rounded-lg border px-3 py-2.5"
+                    style={{ borderColor: `${accent}55`, background: `${accent}0d` }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-stone-900 min-w-0 truncate">
+                        {applied.label || applied.code} applied
+                      </span>
+                      <button
+                        type="button"
+                        onClick={clearCode}
+                        className="text-xs text-stone-500 underline shrink-0"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    {applied.quotable && applied.net != null ? (
+                      <div className="mt-2 space-y-1 text-sm">
+                        <div className="flex justify-between text-stone-500">
+                          <span>Subtotal</span>
+                          <span>${(applied.gross ?? 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-stone-500">
+                          <span>Discount</span>
+                          <span>−${(applied.discountOff ?? 0).toFixed(2)}</span>
+                        </div>
+                        {(applied.processingFee ?? 0) > 0 && (
+                          <div className="flex justify-between text-stone-500">
+                            <span>Processing fee</span>
+                            <span>${(applied.processingFee ?? 0).toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-semibold text-stone-900 border-t border-stone-200 pt-1">
+                          <span>{(applied.processingFee ?? 0) > 0 ? "You pay" : "New total"}</span>
+                          <span>${(applied.total ?? applied.net).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-xs text-stone-500">
+                        {applied.message || "It'll come off the invoice the club sends you."}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      id="discount-code"
+                      type="text"
+                      value={codeInput}
+                      onChange={(e) => {
+                        setCodeInput(e.target.value.toUpperCase());
+                        if (codeError) setCodeError("");
+                      }}
+                      onKeyDown={(e) => {
+                        // Enter checks the code instead of submitting the whole
+                        // registration — a half-typed code must never register.
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          applyCode();
+                        }
+                      }}
+                      placeholder="Enter code"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="flex-1 min-w-0 px-3 py-2 border border-stone-300 rounded-lg text-sm font-mono uppercase focus:outline-none focus:ring-2"
+                    />
+                    <button
+                      type="button"
+                      onClick={applyCode}
+                      disabled={codeChecking || !codeInput.trim()}
+                      className="shrink-0 px-4 py-2 rounded-lg border border-stone-300 text-sm font-medium text-stone-700 disabled:opacity-50"
+                    >
+                      {codeChecking ? "Checking…" : "Apply"}
+                    </button>
+                  </div>
+                )}
+                {codeError && <p className="mt-1 text-xs text-red-600">{codeError}</p>}
+              </div>
+            )}
+
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
             )}
@@ -462,9 +611,11 @@ export default function PublicEventPage() {
                 ? "Submitting…"
                 : !(event.price && event.price > 0)
                   ? "Register"
-                  : payMethod === "CASH" || payMethod === "CHECK"
-                    ? `Register — pay $${event.price.toFixed(2)} at the event`
-                    : `Register & pay $${event.price.toFixed(2)}`}
+                  : payableNow <= 0
+                    ? "Register — no payment due"
+                    : payMethod === "CASH" || payMethod === "CHECK"
+                      ? `Register — pay $${payableNow.toFixed(2)} at the event`
+                      : `Register & pay $${(applied?.total ?? payableNow).toFixed(2)}`}
             </button>
             <p className="text-[11px] text-stone-400 text-center">
               Powered by AthletixOS

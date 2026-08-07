@@ -1624,6 +1624,24 @@ model EventRegistration {
   // and how many times this registrant has been invoiced.
   invoicedAt              DateTime?
   invoiceCount            Int       @default(0)
+  // The one discount this registration redeemed (never more than one — the
+  // engine has no stacking configuration). The RULE is snapshotted, not just
+  // the result: the owner may later edit, expire, or delete the code, and none
+  // of that may change what an existing registrant already agreed to owe.
+  //   discountId     — soft pointer, NO FK; the snapshot outlives the code.
+  //                    Redemption accounting + audit only, never read for price.
+  //   discountType   — PERCENT | FIXED, as of redemption
+  //   discountValue  — the rule's number, as of redemption
+  //   discountAmount — derived dollars-off; rewritten by the same paths that
+  //                    write amountDue (a display/reconciliation cache — the
+  //                    type+value rule above it is the source of truth).
+  // amountDue stays NET (after the discount); amountDue + discountAmount = the
+  // event's list price for this registrant.
+  discountId              String?
+  discountCode            String?
+  discountType            String?
+  discountValue           Decimal?  @db.Decimal(10, 2)
+  discountAmount          Decimal?  @db.Decimal(10, 2)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
@@ -2608,6 +2626,11 @@ model Discount {
   // PRIVATE_PACK. [] = every purchase type (the default). When MEMBERSHIP is
   // covered, membershipIds can narrow it to specific plans.
   appliesTo     Json      @default("[]")
+  // Events the code covers when it applies to EVENT purchases. [] = every
+  // event (the default). Mirrors membershipIds exactly — this is the "only
+  // works on the College Combine" scope, and it lives on the SAME Discount row
+  // so there is never a second place to manage codes.
+  eventIds      Json      @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -386,9 +386,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
     // Optional discount code (EVENT scope) — applied to the server-resolved
     // tier price before the parental gate and Stripe see the amount.
+    // The tier price BEFORE any discount — kept so the registration can record
+    // how much the code actually took off (amountDue + discountAmount = this).
+    const grossPrice = priceCents / 100;
     let discount: ValidDiscount | null = null;
     if (discountCode?.trim()) {
-      const check = await findValidDiscountFor(session.user.clubId, discountCode, { type: "EVENT" });
+      const check = await findValidDiscountFor(session.user.clubId, discountCode, {
+        type: "EVENT",
+        // Scoped to THIS event, so a code limited to the College Combine is
+        // refused on anything else instead of silently discounting it.
+        eventId: event.id,
+      });
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
       discount = check.discount;
       priceCents = Math.round(discountedPrice(priceCents / 100, discount) * 100);
@@ -555,7 +563,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         const fields = {
           status: data.status,
           paymentMethod: data.method,
+          // `price` is already net of the discount (applied to the tier price
+          // above). The rule is stored alongside it so the roster can explain
+          // the number and repricing can't erase it — the autoChargeConsent
+          // blob is no longer the only record of which code applied.
           amountDue: price,
+          discountId: discount?.id ?? null,
+          discountCode: discount?.code ?? null,
+          discountType: discount?.type ?? null,
+          discountValue: discount?.value ?? null,
+          discountAmount: discount ? Math.round((grossPrice - price) * 100) / 100 : null,
           scheduledChargeAt: data.scheduledChargeAt ?? null,
           ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
         };
