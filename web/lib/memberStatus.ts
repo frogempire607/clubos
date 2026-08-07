@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import {
+  recordSubscriptionEvent,
+  SUBSCRIPTION_EVENT_KIND,
+  SUBSCRIPTION_EVENT_SOURCE,
+} from "@/lib/subscriptionEvents";
 
 // Status policy (owner-confirmed 2026-07-13):
 //   - ACTIVE   = currently has an active membership subscription.
@@ -62,7 +67,7 @@ export async function expireEndedManualSubscriptions(clubId: string): Promise<nu
       stripeSubscriptionId: null,
       endDate: { lt: new Date() },
     },
-    select: { id: true, memberId: true },
+    select: { id: true, memberId: true, optionLabel: true, price: true },
   });
   if (ended.length === 0) return 0;
 
@@ -70,6 +75,22 @@ export async function expireEndedManualSubscriptions(clubId: string): Promise<nu
     where: { id: { in: ended.map((s) => s.id) } },
     data: { status: "expired", expiredAt: new Date() },
   });
+  // 4.5.10 — EXPIRED is not CANCELED. A non-renewing plan reaching its end
+  // date is not somebody leaving, and churn that conflates the two overstates
+  // losses every time a fixed-term membership runs out on schedule.
+  // source SYSTEM: nobody did this, a date passed.
+  for (const s of ended) {
+    await recordSubscriptionEvent({
+      clubId,
+      memberSubscriptionId: s.id,
+      memberId: s.memberId,
+      kind: SUBSCRIPTION_EVENT_KIND.EXPIRED,
+      fromPlan: s.optionLabel,
+      fromAmount: s.price == null ? null : String(s.price),
+      source: SUBSCRIPTION_EVENT_SOURCE.SYSTEM,
+      detail: { via: "expireEndedManualSubscriptions" },
+    });
+  }
   for (const memberId of new Set(ended.map((s) => s.memberId))) {
     await recomputeMemberStatus(memberId, clubId);
   }

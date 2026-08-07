@@ -16,6 +16,12 @@ import { addBillingPeriod } from "@/lib/billingAdmin";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
+import {
+  recordSubscriptionCreated,
+  recordSubscriptionEvent,
+  SUBSCRIPTION_EVENT_KIND,
+  SUBSCRIPTION_EVENT_SOURCE,
+} from "@/lib/subscriptionEvents";
 
 // Athlete (or guardian for minors) contact email for activation/approval notices.
 function memberContactEmail(m: { isMinor: boolean; email: string | null; guardianEmail: string | null }) {
@@ -363,7 +369,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // with no membership — so a $0/grandfathered or cash member never went live.
     // Record a MANUAL subscription so the membership shows in their portal and
     // can be canceled like any other.
-    await prisma.memberSubscription.create({
+    const manualSub = await prisma.memberSubscription.create({
       data: {
         memberId: member.id,
         membershipId: membershipId!,
@@ -388,6 +394,26 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             ? "Free / grandfathered membership — no recurring charge"
             : `Manual billing — ${club.name} collects payment offline`,
       },
+    });
+    // 4.5.10 — a migrated MANUAL membership goes live at approval, so it is
+    // both CREATED and ACTIVATED. `at` is now: this is a real activation
+    // today, not reconstructed history, and Reports must count it as one.
+    await recordSubscriptionCreated(manualSub, {
+      clubId: club.id,
+      source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      actorUserId: session.user.id,
+      detail: { route: "POST /api/members/migration/[id]/approve", billingType: "MANUAL" },
+    });
+    await recordSubscriptionEvent({
+      clubId: club.id,
+      memberSubscriptionId: manualSub.id,
+      memberId: member.id,
+      kind: SUBSCRIPTION_EVENT_KIND.ACTIVATED,
+      toPlan: planName,
+      toAmount: String(price),
+      actorUserId: session.user.id,
+      source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      detail: { route: "POST /api/members/migration/[id]/approve", billingType: "MANUAL" },
     });
     await prisma.member.update({
       where: { id: member.id },
@@ -595,6 +621,32 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
   } catch (e) {
     return NextResponse.json({ error: `Could not start the subscription: ${String(e)}` }, { status: 502 });
+  }
+
+  // 4.5.10 — the real Stripe subscription exists now. ACTIVATED is recorded
+  // only when Stripe says active/trialing; a `pending` row is a created
+  // subscription that has not started billing, and counting it as an
+  // activation would inflate every signup figure Reports produces.
+  if (memberSub) {
+    await recordSubscriptionCreated(memberSub, {
+      clubId: club.id,
+      source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      actorUserId: session.user.id,
+      detail: { route: "POST /api/members/migration/[id]/approve", billingType: "RECURRING" },
+    });
+    if (memberSub.status === "active") {
+      await recordSubscriptionEvent({
+        clubId: club.id,
+        memberSubscriptionId: memberSub.id,
+        memberId: member.id,
+        kind: SUBSCRIPTION_EVENT_KIND.ACTIVATED,
+        toPlan: memberSub.optionLabel,
+        toAmount: String(memberSub.price),
+        actorUserId: session.user.id,
+        source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+        detail: { route: "POST /api/members/migration/[id]/approve" },
+      });
+    }
   }
 
   await prisma.member.update({

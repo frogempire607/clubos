@@ -8,6 +8,10 @@ import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/l
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import {
+  recordSubscriptionCreated,
+  SUBSCRIPTION_EVENT_SOURCE,
+} from "@/lib/subscriptionEvents";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
@@ -204,6 +208,13 @@ export async function POST(req: Request) {
     });
 
     const amountInCents = Math.round(finalPrice * 100);
+    // 4.5.10 — CREATED only. The row is `pending`; ACTIVATED belongs to the
+    // webhook that confirms the money, not to opening a checkout page.
+    await recordSubscriptionCreated(memberSub, {
+      clubId: club.id,
+      source: SUBSCRIPTION_EVENT_SOURCE.MEMBER_ACTION,
+      detail: { route: "POST /api/member/memberships/subscribe", billingType },
+    });
     const platformFee = calculatePlatformFee(amountInCents, club.tier);
     const stripeInterval = billingPeriodToStripeInterval(option.billingPeriod);
     const isRecurring = billingType === "RECURRING" && stripeInterval !== null;
