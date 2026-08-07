@@ -15,6 +15,7 @@ const schema = z.object({
   expiresAt:     z.string().optional().nullable(),
   membershipIds: z.array(z.string()).optional(),
   appliesTo:     z.array(z.enum(["MEMBERSHIP", "EVENT", "CLASS", "PRODUCT", "PRIVATE_PACK"])).optional(),
+  eventIds:      z.array(z.string()).optional(),
 });
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {

@@ -15,6 +15,8 @@
 import {
   amountMismatch,
   amountToCollect,
+  applyRegistrationDiscount,
+  collectionBreakdown,
   expectedAmount,
   isCanceledRegistration,
   planReprice,
@@ -69,6 +71,9 @@ const reg = (over: Partial<PricingRegistration> = {}): PricingRegistration => ({
   amountPaid: over.amountPaid ?? null,
   transactionId: over.transactionId ?? null,
   createdAt: over.createdAt ?? null,
+  discountCode: over.discountCode ?? null,
+  discountType: over.discountType ?? null,
+  discountValue: "discountValue" in over ? over.discountValue : null,
 });
 
 console.log("\n— the variable-cost split that produced $533.33 —");
@@ -216,6 +221,87 @@ console.log("\n— per-registrant prices on fixed events are preserved —");
   check("recorded per-registrant price is what gets collected", amountToCollect(event, nonMember, 5) === 600);
   check("but it is flagged as differing from the event price", amountMismatch(event, nonMember, 5));
   check("a zero/absent amount falls back to the event price", amountToCollect(event, reg({ amountDue: 0 }), 5) === 450);
+}
+
+console.log("\n— discounts survive repricing and invoicing —");
+{
+  // The failure this section exists to prevent: a discounted registration reads
+  // as a stale snapshot (it owes less than the event's price), so the reprice
+  // preview marks it `changed` and rewrites it back to full price, silently
+  // deleting the discount the family was promised.
+  const event: PricingEvent = { ...FIXED_CAMP, memberPrice: 450 };
+  const tenOff = reg({ amountDue: 405, discountCode: "COMBINE10", discountType: "PERCENT", discountValue: 10 });
+
+  check("a discounted row collects the discounted amount", amountToCollect(event, tenOff, 5) === 405);
+  check("expected honors the row's discount", expectedAmount(event, 5, tenOff) === 405);
+  check("expected WITHOUT a row is still the list price", expectedAmount(event, 5) === 450);
+  check("a discounted row is NOT a mismatch", !amountMismatch(event, tenOff, 5));
+
+  const plan = planReprice(event, [tenOff]);
+  check("reprice leaves a healthy discounted row alone", plan.changed.length === 0, plan.changed);
+  check("the preview names the code", plan.rows[0].discountCode === "COMBINE10");
+
+  // The legitimate reprice: the EVENT's price moved. The discount rides along
+  // instead of being erased.
+  const cheaper: PricingEvent = { ...event, memberPrice: 400 };
+  const movedPlan = planReprice(cheaper, [tenOff]);
+  check("event price drop reprices the discounted row", movedPlan.changed.length === 1);
+  check("…to the discounted new price, not the new list price", movedPlan.rows[0].expected === 360, movedPlan.rows[0]);
+
+  // Fixed-amount codes.
+  const fifty = reg({ amountDue: 400, discountCode: "SIB50", discountType: "FIXED", discountValue: 50 });
+  check("fixed-amount code expects list minus the amount", expectedAmount(event, 5, fifty) === 400);
+  check("fixed-amount code is not a mismatch", !amountMismatch(event, fifty, 5));
+
+  // Variable-cost: the discount applies on top of the LIVE split, never a
+  // frozen one — the whole point of the Frog Empire fix.
+  const varDiscounted = reg({
+    amountDue: 533.33, discountCode: "COMBINE10", discountType: "PERCENT", discountValue: 10,
+  });
+  // 8000 ÷ 15 estimated signups = 533.33, then 10% off = 480. The stale 533.33
+  // sitting in amountDue is ignored on a variable-cost event, exactly as before
+  // — the discount rides on the LIVE split, not on the frozen snapshot.
+  check(
+    "variable-cost discount applies to the live per-head split",
+    amountToCollect(VARIABLE_CAMP, varDiscounted, 10) === 480,
+    amountToCollect(VARIABLE_CAMP, varDiscounted, 10),
+  );
+
+  // A row with no discount behaves exactly as it did before this feature.
+  const plain = reg({ amountDue: 450 });
+  check("undiscounted rows are unchanged", expectedAmount(event, 5, plain) === 450 && !amountMismatch(event, plain, 5));
+  check("a blank code is not a discount", expectedAmount(event, 5, reg({ amountDue: 450, discountCode: "" })) === 450);
+  check(
+    "a code with no value is not a discount (half-written row)",
+    expectedAmount(event, 5, reg({ amountDue: 450, discountCode: "X", discountType: "PERCENT" })) === 450,
+  );
+
+  // Parity with lib/discounts.discountedPrice, which this module deliberately
+  // duplicates (that module imports Prisma; this one is pure).
+  check("100% off floors at zero", applyRegistrationDiscount(450, { code: "FREE", type: "PERCENT", value: 100 }).net === 0);
+  check(
+    "a fixed code larger than the price floors at zero, never negative",
+    applyRegistrationDiscount(40, { code: "BIG", type: "FIXED", value: 50 }).net === 0,
+  );
+  check("rounding lands on cents", applyRegistrationDiscount(99.99, { code: "P", type: "PERCENT", value: 33 }).net === 66.99);
+
+  // The breakdown the roster / invoice / cash prompt render must add up.
+  const bd = collectionBreakdown(event, tenOff, 5);
+  check("breakdown adds up", bd.gross === 450 && bd.discountOff === 45 && bd.net === 405, bd);
+  const bdFixed = collectionBreakdown(event, fifty, 5);
+  check("fixed breakdown adds up", bdFixed.gross === 450 && bdFixed.discountOff === 50 && bdFixed.net === 400, bdFixed);
+  check("no discount means no discount line", collectionBreakdown(event, plain, 5).discountOff === 0);
+}
+
+console.log("\n— committed money still wins, discount or not —");
+{
+  // A discount must never reopen a row whose money is already committed.
+  const event: PricingEvent = { ...FIXED_CAMP, memberPrice: 450 };
+  const paid = reg({
+    amountDue: 405, status: "PAID", discountCode: "COMBINE10", discountType: "PERCENT", discountValue: 10,
+  });
+  check("a paid discounted row is locked", pricingLockReason(paid) === "already paid");
+  check("and is never repriced", planReprice({ ...event, memberPrice: 400 }, [paid]).changed.length === 0);
 }
 
 console.log("\n— pricing-change detection (what triggers the preview) —");

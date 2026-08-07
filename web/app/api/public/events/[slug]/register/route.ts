@@ -5,6 +5,8 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicFixedPrice } from "@/lib/eventPricing";
+import { findValidDiscountFor, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
+import { registrationDiscountFields, discountLineLabel } from "@/lib/eventDiscounts";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import {
   eventAllowedPaymentMethods,
@@ -23,6 +25,10 @@ const schema = z.object({
   // The registrant's payment decision. AUTO_CARD is never offered publicly
   // (it needs an authenticated member with a saved card).
   paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional(),
+  // Optional discount code (EVENT scope, narrowed to this event). Re-resolved
+  // here against the server-derived price — whatever the page previewed is
+  // never trusted. An invalid code is a hard 400, never silently dropped.
+  discountCode: z.string().max(50).optional().nullable(),
   // Ticked when the event has ACKNOWLEDGE/SIGN-level documents. Anonymous
   // visitors can't produce an audited signature, so acknowledgement (stored on
   // the registration) is the strongest gate available here.
@@ -149,8 +155,26 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     estimatedShare = +(varTotal / event.variableCostEstimatedSignups).toFixed(2);
   }
 
+  // Optional discount code. Resolved against the SERVER's price, scoped to
+  // this event, before the payment decision and before Stripe sees a number.
+  // A bad code blocks the registration rather than quietly charging full
+  // price — the visitor typed it because they were told it applies.
+  let discount: ValidDiscount | null = null;
+  if (body.discountCode?.trim()) {
+    const check = await findValidDiscountFor(event.clubId, body.discountCode, {
+      type: "EVENT",
+      eventId: event.id,
+    });
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+    discount = check.discount;
+  }
+
   // Immediate (charge-now) amount only applies to non-variable fixed pricing.
-  const amountDue = isVariableCost ? 0 : publicFixedPrice(event);
+  // NET of the discount — every downstream number (the processing fee, the
+  // Stripe line item, the cash amount, the roster) derives from this.
+  const grossDue = isVariableCost ? 0 : publicFixedPrice(event);
+  const discountFields = registrationDiscountFields(discount, grossDue);
+  const amountDue = isVariableCost ? 0 : discountFields.amountDue;
 
   // Payment decision. Money owed ⇒ the registrant must pick a method the owner
   // allows (AUTO_CARD is member-only, so it's never selectable here). Cash and
@@ -208,8 +232,23 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       status: method === "CARD" ? "PENDING_PAYMENT" : method ? offlineStatusForMethod(method) : "REGISTERED",
       paymentMethod: method,
       amountDue: isVariableCost ? estimatedShare : amountDue > 0 ? amountDue : null,
+      // The rule, not just the result. On a variable-cost event amountDue is
+      // only an estimate, but the code still binds — bill-registrants applies
+      // it to the real split when the invoice goes out.
+      discountId: discountFields.discountId,
+      discountCode: discountFields.discountCode,
+      discountType: discountFields.discountType,
+      discountValue: discountFields.discountValue,
+      discountAmount: isVariableCost ? null : discountFields.discountAmount,
     },
   });
+
+  // Redemption counts once, here, for every public path below (free, offline,
+  // and card). The card branch counts at checkout creation rather than on
+  // webhook confirmation, matching how the member and staff paths already
+  // behave — an abandoned checkout burns a use, which is the existing
+  // trade-off across the whole engine, not something new here.
+  if (discount) await recordDiscountUse(discount.id);
 
   // Variable cost — registered now, billed later by the owner.
   if (isVariableCost) {
@@ -226,9 +265,19 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     });
   }
 
-  // Free registration — done.
+  // Free registration — done. A 100%-off code lands here too: the spot is
+  // confirmed outright rather than sent to a $0 Stripe checkout (Stripe
+  // refuses charges under $0.50 anyway). Same shape as the member path.
   if (amountDue <= 0) {
-    return NextResponse.json({ ok: true, free: true, registrationId: registration.id });
+    return NextResponse.json({
+      ok: true,
+      free: true,
+      registrationId: registration.id,
+      ...(discount ? { discountCode: discount.code, discountOff: discountFields.discountAmount } : {}),
+      ...(discount && grossDue > 0
+        ? { message: `You're registered — ${discountLineLabel(discount)} covered the full $${grossDue.toFixed(2)}.` }
+        : {}),
+    });
   }
 
   // Cash / check — the spot is confirmed now; the money is recorded as due.
@@ -253,7 +302,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       offline: true,
       paymentMethod: method,
       amountDue,
-      message: `You're registered. Please bring $${amountDue.toFixed(2)} in ${method.toLowerCase()} to the event.`,
+      ...(discount ? { discountCode: discount.code, discountOff: discountFields.discountAmount } : {}),
+      // The amount named here is the discounted one, and it's the same figure
+      // the PENDING Transaction carries and the roster shows staff at the door.
+      message: `You're registered. Please bring $${amountDue.toFixed(2)} in ${method.toLowerCase()} to the event.${
+        discount ? ` (${discountLineLabel(discount)} applied — $${(discountFields.discountAmount ?? 0).toFixed(2)} off.)` : ""
+      }`,
     });
   }
 
@@ -266,10 +320,16 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     );
   }
 
+  // amountDue is already NET, so the platform fee and the passed-through
+  // processing fee are both computed on the discounted amount — never on the
+  // list price.
   const amountCents = Math.round(amountDue * 100);
   const platformFee = calculatePlatformFee(amountCents, event.club.tier);
   const baseUrl = getAppBaseUrl();
   const feeItem = processingFeeLineItem(amountCents, event.club.passProcessingFees);
+  const discountMetadata: Record<string, string> = discount
+    ? { discountCode: discount.code, discountAmount: String(discountFields.discountAmount ?? 0) }
+    : {};
 
   const checkout = await stripe.checkout.sessions.create(
     {
@@ -283,7 +343,11 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
             unit_amount: amountCents,
             product_data: {
               name: event.name,
-              description: event.isTournament ? "Tournament registration" : "Event registration",
+              // The payer sees the code on the Stripe page, so the reduced
+              // number is explained rather than looking like a wrong price.
+              description: `${event.isTournament ? "Tournament registration" : "Event registration"}${
+                discount ? ` · ${discountLineLabel(discount)} — $${(discountFields.discountAmount ?? 0).toFixed(2)} off` : ""
+              }`,
             },
           },
         },
@@ -297,12 +361,17 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
           eventRegistrationId: registration.id,
           eventId: event.id,
           clubId: event.clubId,
+          ...discountMetadata,
         },
       },
+      // The webhook stamps discountCode/discountAmount from session metadata
+      // onto the Transaction, so the receipt and Financials say which code
+      // applied without re-reading the registration.
       metadata: {
         eventRegistrationId: registration.id,
         eventId: event.id,
         clubId: event.clubId,
+        ...discountMetadata,
       },
     },
     { stripeAccount: event.club.stripeAccountId }

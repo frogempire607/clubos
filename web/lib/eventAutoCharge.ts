@@ -91,7 +91,12 @@ async function recordSuccess(reg: RegForCharge, pi: Stripe.PaymentIntent, totalC
       ? (charge.balance_transaction as Stripe.BalanceTransaction)
       : null;
 
-  const discountCode = consentField(reg, "discountCode");
+  // The registration's own columns are the record of which code applied; the
+  // autoChargeConsent blob is the legacy fallback for rows written before
+  // those columns existed. Never re-read the Discount row here — the owner may
+  // have edited or expired the code since this registrant accepted it.
+  const discountCode = reg.discountCode ?? consentField(reg, "discountCode");
+  const rowDiscountAmount = reg.discountAmount == null ? null : Number(reg.discountAmount);
   const consentDiscountAmount = (reg.autoChargeConsent as Record<string, unknown> | null)?.discountAmount;
 
   const existing = await prisma.transaction.findFirst({
@@ -110,7 +115,8 @@ async function recordSuccess(reg: RegForCharge, pi: Stripe.PaymentIntent, totalC
         stripeChargeId: charge?.id ?? null,
         description: `Event registration — ${reg.event.name} — ${reg.name} (scheduled card charge)`,
         discountCode,
-        discountAmount: typeof consentDiscountAmount === "number" ? consentDiscountAmount : null,
+        discountAmount:
+          rowDiscountAmount ?? (typeof consentDiscountAmount === "number" ? consentDiscountAmount : null),
         type: "EVENT",
         eventId: reg.eventId,
         category: "events",

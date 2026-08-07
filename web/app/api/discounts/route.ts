@@ -27,6 +27,9 @@ const schema = z.object({
   membershipIds: z.array(z.string()).optional(),
   // Item types the code covers ([] = all purchase types).
   appliesTo:     z.array(z.enum(["MEMBERSHIP", "EVENT", "CLASS", "PRODUCT", "PRIVATE_PACK"])).optional(),
+  // Events the code covers when it applies to EVENT purchases ([] = all
+  // events, including ones created later). Mirrors membershipIds.
+  eventIds:      z.array(z.string()).optional(),
 });
 
 export async function POST(req: Request) {
@@ -57,6 +60,7 @@ export async function POST(req: Request) {
         expiresAt:     body.expiresAt ? new Date(body.expiresAt) : null,
         membershipIds: body.membershipIds ?? [],
         appliesTo:     body.appliesTo ?? [],
+        eventIds:      body.eventIds ?? [],
       },
     });
 

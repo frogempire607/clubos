@@ -38,7 +38,43 @@ export type PricingRegistration = {
   amountPaid?: unknown;
   transactionId?: string | null;
   createdAt?: Date | string | null;
+  // The discount RULE this registrant accepted (see schema.prisma
+  // EventRegistration). Read here, never re-read from the Discount row: the
+  // owner may edit or expire a code afterwards, and that must not change what
+  // someone already agreed to owe.
+  discountCode?: string | null;
+  discountType?: string | null;
+  discountValue?: unknown;
 };
+
+/** The stored rule, normalized — or null when this row carries no discount. */
+export type RegistrationDiscount = { code: string; type: "PERCENT" | "FIXED"; value: number };
+
+export function registrationDiscount(reg: PricingRegistration): RegistrationDiscount | null {
+  const code = (reg.discountCode || "").trim();
+  if (!code) return null;
+  const type = reg.discountType === "FIXED" ? "FIXED" : "PERCENT";
+  const value = Number(reg.discountValue);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return { code, type, value };
+}
+
+/**
+ * Apply a stored rule to a gross price. Mirrors `discountedPrice` in
+ * lib/discounts.ts exactly — duplicated rather than imported because that
+ * module pulls in the Prisma client and this one is pure. Parity is asserted
+ * in scripts/event-repricing-tests.ts; change both or neither.
+ */
+export function applyRegistrationDiscount(
+  gross: number,
+  d: RegistrationDiscount | null,
+): { net: number; amountOff: number } {
+  const base = Math.max(0, Math.round(gross * 100) / 100);
+  if (!d) return { net: base, amountOff: 0 };
+  const cut = d.type === "PERCENT" ? (base * d.value) / 100 : d.value;
+  const net = Math.max(0, Math.round((base - cut) * 100) / 100);
+  return { net, amountOff: Math.round((base - net) * 100) / 100 };
+}
 
 export type RepriceRow = {
   id: string;
@@ -46,8 +82,12 @@ export type RepriceRow = {
   status: string;
   /** What the row says today. */
   current: number;
-  /** What the event's CURRENT pricing says it should be. */
+  /** What the event's CURRENT pricing says it should be, after this row's
+   *  discount. */
   expected: number;
+  /** The discount code riding on this row, so the preview can show WHY it
+   *  expects less than the list price. */
+  discountCode: string | null;
   /** current !== expected and the row is repriceable. */
   changed: boolean;
   /** Non-null when the amount must not be touched — money is committed. */
@@ -146,11 +186,10 @@ export function variablePerHead(
 }
 
 /**
- * What the event's CURRENT pricing says this registrant owes — ignoring
- * whatever stale figure the row is carrying. This is the number the reprice
- * preview compares against, and the number a fixed-price event should collect.
+ * The event's CURRENT pricing before any per-registrant discount. This is the
+ * list price / the raw per-head split — the "before" side of a discount line.
  */
-export function expectedAmount(
+export function grossExpectedAmount(
   event: PricingEvent,
   activeCount: number,
 ): number {
@@ -162,24 +201,76 @@ export function expectedAmount(
 }
 
 /**
+ * What the event's CURRENT pricing says this registrant owes — ignoring
+ * whatever stale figure the row is carrying, but HONORING the discount rule
+ * stored on the row. This is the number the reprice preview compares against,
+ * and the number a fixed-price event should collect.
+ *
+ * Passing `reg` is what stops a discount from reading as a stale snapshot. A
+ * $450 camp with a 10%-off code expects $405 for that registrant, so the row
+ * matches, `planReprice` leaves it alone, and bill-registrants doesn't flag it.
+ * Reprice a discounted row only when the EVENT's price moved: $450→$400 makes
+ * the expectation $360, and the discount rides along instead of being erased.
+ *
+ * Called without `reg` it returns the list price — the event-level headline
+ * figure, not any one person's bill.
+ */
+export function expectedAmount(
+  event: PricingEvent,
+  activeCount: number,
+  reg?: PricingRegistration,
+): number {
+  const gross = grossExpectedAmount(event, activeCount);
+  if (!reg) return gross;
+  return applyRegistrationDiscount(gross, registrationDiscount(reg)).net;
+}
+
+/**
  * What to actually collect from this registration today.
  *
- * Variable-cost: always the live split (the snapshot is only ever a preview).
+ * Variable-cost: always the live split (the snapshot is only ever a preview),
+ * with the row's discount applied on top of the fresh per-head figure.
  * Fixed-price: the recorded amountDue wins — it may legitimately differ per
  * registrant (member vs non-member price, a staff discount) — EXCEPT when it
- * is zero/absent, where the event's flat price fills in. Callers must pair
- * this with `amountMismatch` and refuse to send money on a mismatch without an
- * explicit confirmation; a snapshot the owner has never seen is exactly how
- * $533.33 got emailed to five families.
+ * is zero/absent, where the event's flat price (discounted) fills in. Callers
+ * must pair this with `amountMismatch` and refuse to send money on a mismatch
+ * without an explicit confirmation; a snapshot the owner has never seen is
+ * exactly how $533.33 got emailed to five families.
+ *
+ * ALWAYS NET. Every fee, every Stripe line item, every "owes" figure, and every
+ * cash prompt is computed from this number — never from the list price. That
+ * is what keeps the 2.9% off the discounted amount instead of the original.
  */
 export function amountToCollect(
   event: PricingEvent,
   reg: PricingRegistration,
   activeCount: number,
 ): number {
-  if (event.variableCostEnabled) return expectedAmount(event, activeCount);
+  if (event.variableCostEnabled) return expectedAmount(event, activeCount, reg);
   const recorded = num(reg.amountDue);
-  return recorded > 0 ? recorded : publicFixedPrice(event);
+  if (recorded > 0) return recorded;
+  return applyRegistrationDiscount(publicFixedPrice(event), registrationDiscount(reg)).net;
+}
+
+/** The list price and dollars-off behind `amountToCollect`, for display. */
+export function collectionBreakdown(
+  event: PricingEvent,
+  reg: PricingRegistration,
+  activeCount: number,
+): { gross: number; discountOff: number; net: number; code: string | null } {
+  const net = amountToCollect(event, reg, activeCount);
+  const d = registrationDiscount(reg);
+  if (!d) return { gross: net, discountOff: 0, net, code: null };
+  // Reconstruct the "before" figure from the net we're actually collecting, so
+  // the two lines always add up on screen even when amountDue was recorded at
+  // a per-registrant price the event's own pricing never produced.
+  const gross =
+    d.type === "FIXED"
+      ? money(net + d.value)
+      : d.value >= 100
+        ? money(grossExpectedAmount(event, activeCount))
+        : money(net / (1 - d.value / 100));
+  return { gross, discountOff: money(Math.max(0, gross - net)), net, code: d.code };
 }
 
 /** True when what we'd collect differs from what the event's pricing says. */
@@ -189,7 +280,7 @@ export function amountMismatch(
   activeCount: number,
 ): boolean {
   const collect = amountToCollect(event, reg, activeCount);
-  const expected = expectedAmount(event, activeCount);
+  const expected = expectedAmount(event, activeCount, reg);
   return Math.round(collect * 100) !== Math.round(expected * 100);
 }
 
@@ -210,17 +301,21 @@ export function planReprice(
   const variable = !!event.variableCostEnabled;
   const { perHead, divisor } = variablePerHead(event, activeCount);
   const fixedPrice = variable ? null : publicFixedPrice(event);
-  const expected = expectedAmount(event, activeCount);
 
   const rows: RepriceRow[] = active.map((r) => {
     const current = money(num(r.amountDue));
     const lockReason = pricingLockReason(r, now);
+    // Per-row, not per-event: a registrant carrying a discount is expected to
+    // owe LESS than the list price. Comparing them against the list price is
+    // what made repricing delete discounts.
+    const expected = money(expectedAmount(event, activeCount, r));
     return {
       id: r.id,
       name: r.name ?? "",
       status: r.status,
       current,
-      expected: money(expected),
+      expected,
+      discountCode: r.discountCode || null,
       changed: !lockReason && Math.round(current * 100) !== Math.round(expected * 100),
       lockReason,
     };

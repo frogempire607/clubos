@@ -8,7 +8,7 @@ import { processingFeeLineItem, computeProcessingFeeCents } from "@/lib/fees";
 import { sendEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicFixedPrice } from "@/lib/eventPricing";
-import { amountToCollect, expectedAmount } from "@/lib/eventRepricing";
+import { amountToCollect, expectedAmount, collectionBreakdown } from "@/lib/eventRepricing";
 import { requirePermission } from "@/lib/apiGuard";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 
@@ -186,13 +186,26 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // address, whose guardian email was on the member record the whole time.
   const recipients = await resolveRegistrationRecipients(event.clubId, targets);
 
+  // The event's LIST price — the headline figure, not any one person's bill.
   const eventExpected = isVariable ? (perHead as number) : expectedAmount(event, activeCount);
   const lines = targets.map((reg) => {
     const recipient = recipients.get(reg.id) ?? null;
-    const amount = isVariable ? (perHead as number) : amountToCollect(event, reg, activeCount);
+    // A discounted registrant legitimately owes less than the list price, so
+    // the comparison is against THEIR expectation, not the event's. Without
+    // this every discounted row 409s as an AMOUNT_MISMATCH and trains the
+    // owner to click past the one warning that caught the $533.33 bug.
+    const rowExpected = isVariable
+      ? Math.round(
+          (perHead as number) * 100 -
+            (collectionBreakdown(event, reg, activeCount).discountOff * 100),
+        ) / 100
+      : expectedAmount(event, activeCount, reg);
+    const amount = isVariable ? rowExpected : amountToCollect(event, reg, activeCount);
+    // Fee on the DISCOUNTED amount, never the list price.
     const feeCents = event.club.passProcessingFees
       ? computeProcessingFeeCents(Math.round(amount * 100))
       : 0;
+    const bd = collectionBreakdown(event, reg, activeCount);
     return {
       registrationId: reg.id,
       name: reg.name,
@@ -203,8 +216,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       status: reg.status,
       recorded: reg.amountDue == null ? null : Number(reg.amountDue),
       amount,
-      expected: eventExpected,
-      mismatch: Math.round(amount * 100) !== Math.round(eventExpected * 100),
+      expected: rowExpected,
+      listPrice: eventExpected,
+      discountCode: reg.discountCode ?? null,
+      discountOff: bd.discountOff,
+      mismatch: Math.round(amount * 100) !== Math.round(rowExpected * 100),
       processingFee: feeCents / 100,
       // What the Stripe page will actually total — the club passes fees, so
       // this is higher than the figure in the email body.
@@ -300,8 +316,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
     // Resolved above (one model for every surface) — never recomputed here,
     // so the preview the owner approved is exactly what gets sent.
-    const amount = lines.find((l) => l.registrationId === reg.id)?.amount ?? 0;
+    const line = lines.find((l) => l.registrationId === reg.id);
+    const amount = line?.amount ?? 0;
     const amountCents = Math.round(amount * 100);
+    // The code the registrant already holds rides into the Stripe page and the
+    // email, so the reduced figure is explained rather than looking wrong.
+    const regCode = line?.discountCode ?? null;
+    const regDiscountOff = line?.discountOff ?? 0;
+    const discountNote = regCode
+      ? ` · ${regCode} applied — $${regDiscountOff.toFixed(2)} off`
+      : "";
     if (amountCents <= 0) {
       errors.push(`${reg.name}: no price to collect — set a price on the event first`);
       continue;
@@ -319,11 +343,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                 unit_amount: amountCents,
                 product_data: {
                   name: isVariable ? `${event.name} — cost share` : event.name,
-                  description: isVariable
-                    ? splitNote
-                    : event.isTournament
-                      ? "Tournament registration"
-                      : "Event registration",
+                  description:
+                    (isVariable
+                      ? splitNote
+                      : event.isTournament
+                        ? "Tournament registration"
+                        : "Event registration") + discountNote,
                 },
               },
             },
@@ -338,7 +363,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             application_fee_amount: calculatePlatformFee(amountCents, event.club.tier),
             metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: event.clubId },
           },
-          metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: event.clubId },
+          metadata: {
+            eventRegistrationId: reg.id,
+            eventId: event.id,
+            clubId: event.clubId,
+            ...(regCode ? { discountCode: regCode, discountAmount: String(regDiscountOff) } : {}),
+          },
         },
         { stripeAccount: event.club.stripeAccountId },
       );
@@ -365,6 +395,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                 Hi ${esc(reg.name)}, your ${isVariable ? "share" : "registration fee"} for <strong>${esc(event.name)}</strong> is
                 <strong>$${amount.toFixed(2)}</strong>${isVariable ? ` (${splitNote})` : ""}.
               </p>
+              ${
+                regCode
+                  ? `<p style="color:#4d7c0f;line-height:1.6;margin:-8px 0 16px">Discount <strong>${esc(regCode)}</strong> applied — $${regDiscountOff.toFixed(2)} off.</p>`
+                  : ""
+              }
               ${breakdownHtml}
               <p><a href="${checkout.url}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Pay now</a></p>
             </div>`,

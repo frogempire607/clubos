@@ -46,7 +46,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
     // Resolve the discount up front — an invalid code blocks the request even
     // if the flow later turns out to be membership-covered / variable-cost.
-    const discountCheck = await resolveStaffDiscount(club.id, discountCode, { type: "EVENT" });
+    const discountCheck = await resolveStaffDiscount(club.id, discountCode, {
+      type: "EVENT",
+      eventId: params.id,
+    });
     if (!discountCheck.ok) return NextResponse.json({ error: discountCheck.error }, { status: 400 });
     const discount = discountCheck.discount;
     // Stripe is only required for the online-checkout path. Cash/terminal
@@ -257,6 +260,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           { status: 409 },
         );
       }
+      // The discount RULE goes on the registration, not just the Transaction —
+      // the roster, a later reprice, and any re-invoice all read it from here.
+      const regDiscount = {
+        discountId: discount?.id ?? null,
+        discountCode: discount?.code ?? null,
+        discountType: discount?.type ?? null,
+        discountValue: discount?.value ?? null,
+        discountAmount: discount ? quote.discountAmount : null,
+      };
       if (!reg) {
         reg = await prisma.eventRegistration.create({
           data: {
@@ -267,14 +279,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             email: member.email ?? member.guardianEmail ?? "",
             status: "REGISTERED",
             amountDue: amount,
+            ...regDiscount,
           },
           select: { id: true, status: true },
         });
       } else {
-        // Settle at the price quoted at the door (discount included).
+        // Settle at the price quoted at the door (discount included). Staff
+        // applying a code to an existing registration replaces whatever was
+        // there — one discount per registration, never two stacked.
         await prisma.eventRegistration.update({
           where: { id: reg.id },
-          data: { amountDue: amount },
+          data: { amountDue: amount, ...regDiscount },
         });
       }
 
