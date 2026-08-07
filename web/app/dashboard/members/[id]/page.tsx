@@ -15,7 +15,7 @@ import {
   type FamilyPerson,
   type ProfileTracks,
 } from "@/components/members/MemberProfileHeader";
-import { EditMemberDrawer, type EditableMember } from "@/components/members/EditMemberDrawer";
+import { EditMemberDrawer, type EditableMember, type MemberCustomField } from "@/components/members/EditMemberDrawer";
 import { MemberActionsMenu } from "@/components/members/MemberActionsMenu";
 import { PasswordResetDialog, type ResetState } from "@/components/members/PasswordResetDialog";
 import { NextActionBanner, NextActionButton } from "@/components/members/MemberTracks";
@@ -95,6 +95,15 @@ type MemberDetail = {
   /** Every club document plus this member's signature state. See the API note. */
   documents?: MemberDocument[];
   migrationEvents?: MigrationEvent[];
+  // Session D, D-4 — the rest of what PATCH already accepts, so the drawer can
+  // edit everything except birthday and password.
+  gender?: string | null;
+  streetAddress?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  customFieldValues?: string | null;
+  guardianRelationship?: string | null;
   // Phase 4B — the access edges the profile never loaded. `relationships`
   // above are descriptive labels and grant nothing; `family` is the real thing.
   family?: FamilyPayload;
@@ -197,6 +206,17 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
 
   useEffect(() => { load(); }, [load]);
 
+  // Session D, D-4 — club-defined fields for the edit drawer. Fetched once and
+  // separately: most clubs define none, and a failure here must not stop the
+  // profile rendering or the drawer opening (it just has no Club fields group).
+  const [customFields, setCustomFields] = useState<MemberCustomField[]>([]);
+  useEffect(() => {
+    fetch("/api/custom-fields")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setCustomFields(Array.isArray(d) ? d : (d?.customFields ?? [])))
+      .catch(() => setCustomFields([]));
+  }, []);
+
   // Moving a membership between siblings is its own sub-scope, not billing:full
   // — a front-desk lead may need it without prices, cards and plans.
   const [canTransfer, setCanTransfer] = useState(false);
@@ -257,7 +277,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   }, [id]);
 
   const saveEdit = useCallback(
-    async (patch: Record<string, string | null>) => {
+    // `unknown` because customFieldValues travels as an object, not a string.
+    async (patch: Record<string, unknown>) => {
       setSaving(true);
       setSaveError(null);
       try {
@@ -802,13 +823,24 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             email: m.email,
             phone: m.phone,
             dateOfBirth: m.dateOfBirth,
+            gender: m.gender ?? null,
+            streetAddress: m.streetAddress ?? null,
+            city: m.city ?? null,
+            state: m.state ?? null,
+            zipCode: m.zipCode ?? null,
+            tags: m.tags ?? null,
+            notes: m.notes ?? null,
+            profileImageUrl: m.profileImageUrl,
+            customFieldValues: m.customFieldValues ?? null,
             guardianName: m.guardianName,
             guardianEmail: m.guardianEmail,
             guardianPhone: m.guardianPhone,
+            guardianRelationship: m.guardianRelationship ?? null,
             isMinor: m.isMinor,
             midMigration: !!m.migrationStatus && m.migrationStatus !== "COMPLETED",
             hasPendingInvitation: !!m.migrationStatus && m.migrationStatus === "INVITED",
           }}
+          customFields={customFields}
           staffName={staffName}
           saving={saving}
           error={saveError}

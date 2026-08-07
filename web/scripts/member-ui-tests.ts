@@ -365,6 +365,18 @@ const editable = {
   guardianName: "Michael Lister",
   guardianEmail: "michael@example.com",
   guardianPhone: null,
+  // Session D, D-4 — the drawer now covers everything PATCH accepts except
+  // birthday and password.
+  guardianRelationship: "Parent",
+  gender: null,
+  streetAddress: "14 Rill Lane",
+  city: "Bellingham",
+  state: "WA",
+  zipCode: "98225",
+  tags: "competition",
+  notes: "Prefers the 6pm session.",
+  profileImageUrl: null,
+  customFieldValues: JSON.stringify({ cf_emergency: "Michael Lister · 555-0101" }),
   isMinor: true,
   midMigration: true,
   hasPendingInvitation: true,
@@ -376,12 +388,29 @@ const drawer = renders(
   React.createElement(EditMemberDrawer, {
     member: editable,
     staffName: "Dana R.",
+    customFields: [
+      { id: "cf_emergency", label: "Emergency contact", fieldType: "text", required: false, options: "[]" },
+    ],
     onClose: () => {},
     onSave: () => {},
     onSendReset: () => {},
     onCopyPortalLink: () => {},
   }),
-  ["Edit Cameron Lister", "Identity", "Contact", "Relationship"],
+  ["Edit Cameron Lister", "Identity", "Contact", "Address", "Relationship", "Club fields", "Admin"],
+);
+
+// D-4: Julian asked to edit "everything about a member except birthday and
+// password". Pin the whole field set, so a future refactor cannot quietly drop
+// one back out again.
+for (const label of [
+  "Gender", "Street address", "City", "State", "Zip code",
+  "Relationship to member", "Tags", "Staff notes", "Emergency contact", "Photo",
+]) {
+  check(`edit drawer covers "${label}"`, drawer.includes(label));
+}
+check(
+  "edit drawer still refuses birthday and password",
+  drawer.includes("Not editable by anyone at the club") && !/<input[^>]*type="date"/.test(drawer),
 );
 check("says edits will NOT restart setup — the fear that stopped staff fixing anything", drawer.includes("won\u2019t restart their setup"));
 check("warns that an email edit re-points rather than re-sends", drawer.includes("does not re-send"));

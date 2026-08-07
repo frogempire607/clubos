@@ -17,10 +17,35 @@
 // enough on its own — staff read a grey field as "I lack permission" and filed
 // a ticket. Naming who CAN change it, and where, ends that.
 
+// ── Scope (Session D, D-4) ───────────────────────────────────────────────────
+// Julian: "I need to edit everything about a member except birthday and
+// password." The drawer shipped with seven fields — name, email, phone and the
+// three guardian fields — while PATCH /api/members/[id] already accepted street
+// address, city, state, zip, gender, tags, notes, custom field values and the
+// profile photo. That was a UI gap only; no API or migration work was needed.
+//
+// The two exclusions are deliberate and stay:
+//   • Birthday — guardian-owned (birthdayLockedAt). The locked block below says
+//     who changes it and where, because greying a field out reads as "I lack
+//     permission" and generates a support ticket instead of a fix.
+//   • Password — never settable by staff. The reset flow is the only path.
+//
+// "Emergency contact" is not a column on Member; at Frog Empire it is a custom
+// field, which is why custom fields are here rather than a hardcoded row.
+
 "use client";
 
 import { useEffect, useState } from "react";
 import { History, Lock, X } from "lucide-react";
+import ImageUpload from "@/components/ImageUpload";
+
+export type MemberCustomField = {
+  id: string;
+  label: string;
+  fieldType: string;
+  required: boolean;
+  options: string;
+};
 
 export type EditableMember = {
   id: string;
@@ -29,9 +54,20 @@ export type EditableMember = {
   email: string | null;
   phone: string | null;
   dateOfBirth: string | null;
+  gender: string | null;
+  streetAddress: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+  tags: string | null;
+  notes: string | null;
+  profileImageUrl: string | null;
+  /** JSON blob keyed by CustomField id, exactly as the API stores it. */
+  customFieldValues: string | null;
   guardianName: string | null;
   guardianEmail: string | null;
   guardianPhone: string | null;
+  guardianRelationship: string | null;
   isMinor: boolean;
   /** Values that arrived in the import, so a correction can be shown + reverted. */
   imported?: Record<string, { value: string; correctedBy?: string; correctedAt?: string }>;
@@ -39,25 +75,59 @@ export type EditableMember = {
   hasPendingInvitation: boolean;
 };
 
-type Field = { key: keyof EditableMember & string; label: string; type?: string; helper?: string };
+type Field = {
+  key: keyof EditableMember & string;
+  label: string;
+  type?: string;
+  helper?: string;
+  /** Rendered as a <select> with these options; "" is always offered first. */
+  options?: { value: string; label: string }[];
+  multiline?: boolean;
+  /** Half-width on a two-column row at >= sm. */
+  half?: boolean;
+};
 
 const IDENTITY: Field[] = [
-  { key: "firstName", label: "First name" },
-  { key: "lastName", label: "Last name" },
+  { key: "firstName", label: "First name", half: true },
+  { key: "lastName", label: "Last name", half: true },
+  {
+    key: "gender",
+    label: "Gender",
+    options: [
+      { value: "Male", label: "Male" },
+      { value: "Female", label: "Female" },
+      { value: "Non-binary", label: "Non-binary" },
+      { value: "Other", label: "Other" },
+    ],
+  },
 ];
 const CONTACT: Field[] = [
   { key: "email", label: "Email", type: "email", helper: "Changing this re-points any pending invitation. It does not re-send it." },
   { key: "phone", label: "Phone", type: "tel" },
 ];
+const ADDRESS: Field[] = [
+  { key: "streetAddress", label: "Street address" },
+  { key: "city", label: "City", half: true },
+  { key: "state", label: "State", half: true },
+  { key: "zipCode", label: "Zip code", half: true },
+];
 const RELATIONSHIP: Field[] = [
   { key: "guardianName", label: "Guardian name" },
   { key: "guardianEmail", label: "Guardian email", type: "email" },
   { key: "guardianPhone", label: "Guardian phone", type: "tel" },
+  { key: "guardianRelationship", label: "Relationship to member", helper: "Parent, grandparent, coach — whatever they are." },
 ];
+const ADMIN: Field[] = [
+  { key: "tags", label: "Tags", helper: "Comma separated." },
+  { key: "notes", label: "Staff notes", multiline: true, helper: "Only staff can see this. Members and guardians never do." },
+];
+
+const TEXT_FIELDS: Field[] = [...IDENTITY, ...CONTACT, ...ADDRESS, ...RELATIONSHIP, ...ADMIN];
 
 export function EditMemberDrawer({
   member,
   staffName,
+  customFields = [],
   saving,
   error,
   onClose,
@@ -67,22 +137,29 @@ export function EditMemberDrawer({
 }: {
   member: EditableMember;
   staffName: string;
+  /** Club-defined extra fields. Empty is normal — most clubs define none. */
+  customFields?: MemberCustomField[];
   saving?: boolean;
   error?: string | null;
   onClose: () => void;
-  onSave: (patch: Record<string, string | null>) => void;
+  onSave: (patch: Record<string, unknown>) => void;
   onSendReset: () => void;
   onCopyPortalLink: () => void;
 }) {
-  const [draft, setDraft] = useState<Record<string, string>>(() => ({
-    firstName: member.firstName ?? "",
-    lastName: member.lastName ?? "",
-    email: member.email ?? "",
-    phone: member.phone ?? "",
-    guardianName: member.guardianName ?? "",
-    guardianEmail: member.guardianEmail ?? "",
-    guardianPhone: member.guardianPhone ?? "",
-  }));
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      TEXT_FIELDS.map((f) => [f.key, ((member as unknown as Record<string, string | null>)[f.key] ?? "") as string]),
+    ),
+  );
+  const [photo, setPhoto] = useState<string>(member.profileImageUrl ?? "");
+  const [custom, setCustom] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(member.customFieldValues || "{}") as Record<string, string>;
+    } catch {
+      // A malformed blob must not blank the whole drawer.
+      return {};
+    }
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -99,11 +176,20 @@ export function EditMemberDrawer({
   }
 
   function submit() {
-    const patch: Record<string, string | null> = {};
+    const patch: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(draft)) {
       const original = (member as unknown as Record<string, string | null>)[k] ?? "";
       if (v !== original) patch[k] = v === "" ? null : v;
     }
+    if (photo !== (member.profileImageUrl ?? "")) patch.profileImageUrl = photo || null;
+
+    // Custom values travel as one object because that is the shape PATCH
+    // accepts (customFieldValues: Record<string,string>). Sent whole rather
+    // than diffed — a partial object would drop the keys it omits.
+    let originalCustom: Record<string, string> = {};
+    try { originalCustom = JSON.parse(member.customFieldValues || "{}"); } catch { originalCustom = {}; }
+    if (JSON.stringify(custom) !== JSON.stringify(originalCustom)) patch.customFieldValues = custom;
+
     onSave(patch);
   }
 
@@ -140,9 +226,11 @@ export function EditMemberDrawer({
           )}
 
           <Group title="Identity">
-            {IDENTITY.map((f) => (
-              <FieldRow key={f.key} f={f} value={draft[f.key] ?? ""} imported={member.imported?.[f.key]} onChange={set} />
-            ))}
+            <div>
+              <span className="mb-[5px] block text-[12px] font-medium text-text-primary">Photo</span>
+              <ImageUpload label="" value={photo || null} onChange={(url) => setPhoto(url ?? "")} />
+            </div>
+            <Rows fields={IDENTITY} draft={draft} member={member} onChange={set} />
           </Group>
 
           <Group title="Contact">
@@ -155,6 +243,10 @@ export function EditMemberDrawer({
                 Resend when you want it to go out.
               </p>
             )}
+          </Group>
+
+          <Group title="Address">
+            <Rows fields={ADDRESS} draft={draft} member={member} onChange={set} />
           </Group>
 
           {/* ── Locked block ─────────────────────────────────────────── */}
@@ -211,6 +303,25 @@ export function EditMemberDrawer({
             ))}
           </Group>
 
+          {customFields.length > 0 && (
+            <Group title="Club fields">
+              {customFields.map((cf) => (
+                <CustomFieldRow
+                  key={cf.id}
+                  field={cf}
+                  value={custom[cf.id] ?? ""}
+                  onChange={(v) => setCustom((c) => ({ ...c, [cf.id]: v }))}
+                />
+              ))}
+            </Group>
+          )}
+
+          <Group title="Admin">
+            {ADMIN.map((f) => (
+              <FieldRow key={f.key} f={f} value={draft[f.key] ?? ""} imported={member.imported?.[f.key]} onChange={set} />
+            ))}
+          </Group>
+
           {error && (
             <p className="rounded-lg p-2.5 text-[12.5px]" style={{ background: "var(--color-danger-surface)", color: "var(--color-danger-text)" }}>
               {error}
@@ -253,6 +364,84 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
+/**
+ * Lays a field list out, pairing consecutive `half` fields onto one row at
+ * >= sm and stacking everything at < sm (the 4.5.4 mobile criterion).
+ */
+function Rows({
+  fields,
+  draft,
+  member,
+  onChange,
+}: {
+  fields: Field[];
+  draft: Record<string, string>;
+  member: EditableMember;
+  onChange: (k: string, v: string) => void;
+}) {
+  const out: React.ReactNode[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const f = fields[i];
+    const next = fields[i + 1];
+    if (f.half && next?.half) {
+      out.push(
+        <div key={f.key} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <FieldRow f={f} value={draft[f.key] ?? ""} imported={member.imported?.[f.key]} onChange={onChange} />
+          <FieldRow f={next} value={draft[next.key] ?? ""} imported={member.imported?.[next.key]} onChange={onChange} />
+        </div>,
+      );
+      i++;
+      continue;
+    }
+    out.push(<FieldRow key={f.key} f={f} value={draft[f.key] ?? ""} imported={member.imported?.[f.key]} onChange={onChange} />);
+  }
+  return <>{out}</>;
+}
+
+const INPUT_CLS =
+  "min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand";
+
+function CustomFieldRow({
+  field,
+  value,
+  onChange,
+}: {
+  field: MemberCustomField;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const opts: string[] = (() => {
+    try {
+      const parsed = JSON.parse(field.options || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+  const inputType =
+    field.fieldType === "number" ? "number"
+    : field.fieldType === "date" ? "date"
+    : field.fieldType === "email" ? "email"
+    : field.fieldType === "phone" ? "tel"
+    : "text";
+
+  return (
+    <label className="block">
+      <span className="mb-[5px] block text-[12px] font-medium text-text-primary">{field.label}</span>
+      {field.fieldType === "textarea" ? (
+        <textarea rows={3} value={value} onChange={(e) => onChange(e.target.value)} className={`${INPUT_CLS} resize-none`} />
+      ) : field.fieldType === "select" ? (
+        <select value={value} onChange={(e) => onChange(e.target.value)} className={INPUT_CLS}>
+          <option value="">Select…</option>
+          {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : (
+        <input type={inputType} value={value} onChange={(e) => onChange(e.target.value)} className={INPUT_CLS} />
+      )}
+    </label>
+  );
+}
+
 function FieldRow({
   f,
   value,
@@ -268,12 +457,21 @@ function FieldRow({
   return (
     <label className="block">
       <span className="mb-[5px] block text-[12px] font-medium text-text-primary">{f.label}</span>
-      <input
-        type={f.type ?? "text"}
-        value={value}
-        onChange={(e) => onChange(f.key, e.target.value)}
-        className="min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
-      />
+      {f.options ? (
+        <select value={value} onChange={(e) => onChange(f.key, e.target.value)} className={INPUT_CLS}>
+          <option value="">Prefer not to say</option>
+          {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      ) : f.multiline ? (
+        <textarea rows={4} value={value} onChange={(e) => onChange(f.key, e.target.value)} className={`${INPUT_CLS} resize-none`} />
+      ) : (
+        <input
+          type={f.type ?? "text"}
+          value={value}
+          onChange={(e) => onChange(f.key, e.target.value)}
+          className={INPUT_CLS}
+        />
+      )}
       {f.helper && <span className="mt-1 block text-[11px] text-text-muted">{f.helper}</span>}
       {corrected && (
         // The corrected-field affordance. Showing the original is what lets a
