@@ -215,6 +215,61 @@ async function main() {
     },
   });
 
+  // ── Duplicate-detection fixtures (Session D, D-1 / D-2) ────────────────
+  // Session 3's fixture contained no duplicate pair at all, which is why "the
+  // merge button does nothing" was never reproduced. Three shapes now exist.
+  //
+  // 1. TWO SIBLINGS carrying their guardian's contact in their OWN columns —
+  //    the exact production shape (27 of 34 live minors). Before the D-1 fix
+  //    these collide on email: AND on phone:+lastName and get flagged as the
+  //    same person. They must NOT appear in duplicates.
+  for (const [id, first, dob] of [
+    ["m_bleed_a", "Iris", "2013-02-04"],
+    ["m_bleed_b", "Otto", "2015-09-19"],
+  ] as [string, string, string][]) {
+    await prisma.member.create({
+      data: {
+        id, clubId, firstName: first, lastName: "Nakamura", status: "ACTIVE", isMinor: true,
+        dateOfBirth: new Date(dob), joinedAt: ago(200),
+        // The bleed: guardian contact copied onto the child's own row.
+        email: "kenji.nakamura@local.test", phone: "555-0142",
+        guardianName: "Kenji Nakamura", guardianEmail: "kenji.nakamura@local.test", guardianPhone: "555-0142",
+      },
+    });
+  }
+
+  // 2. A GENUINE duplicate — same person entered twice. Same name + same DOB,
+  //    which is the key the D-1 fix deliberately leaves intact. Neither has a
+  //    login, so this pair is mergeable and Merge must actually work.
+  for (const [id, days] of [["m_dupe_keep", 240], ["m_dupe_drop", 30]] as [string, number][]) {
+    await prisma.member.create({
+      data: {
+        id, clubId, firstName: "Marcus", lastName: "Delacroix", status: "PROSPECT",
+        dateOfBirth: new Date("1996-11-23"), joinedAt: ago(days),
+        email: id === "m_dupe_keep" ? "marcus.d@local.test" : null,
+        phone: id === "m_dupe_drop" ? "555-0188" : null,
+      },
+    });
+  }
+
+  // 3. A duplicate pair where BOTH rows have their own login — the 409 the
+  //    merge API returns by design. This is the case whose error message had
+  //    nowhere visible to render, so the button read as dead.
+  for (const [id, email] of [
+    ["m_dupe_login_a", "twin.a@local.test"],
+    ["m_dupe_login_b", "twin.b@local.test"],
+  ] as [string, string][]) {
+    const u = await prisma.user.create({
+      data: { clubId, email, passwordHash: hash, firstName: "Wren", lastName: "Halloway", role: "MEMBER" },
+    });
+    await prisma.member.create({
+      data: {
+        id, clubId, firstName: "Wren", lastName: "Halloway", status: "ACTIVE",
+        dateOfBirth: new Date("1990-04-02"), joinedAt: ago(150), userId: u.id,
+      },
+    });
+  }
+
   // ── Documents, so the Waivers & documents tab has all three states ──────
   // Session 3's fixture had no documents at all, which is why a Documents tab
   // that rendered literally nothing looked the same as one that was empty.

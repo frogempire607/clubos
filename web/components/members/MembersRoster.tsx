@@ -100,11 +100,20 @@ type Counts = {
   midMigration: number;
 };
 
+/** The four §1a work-queue cards. See lib/membersQuery.ts workQueueCounts. */
+type WorkQueue = {
+  neverInvited: number | null;
+  blocked: number | null;
+  missingContact: number | null;
+  duplicates: number | null;
+};
+
 type Payload = {
   members: RosterMember[];
   pagination: { total: number; page: number; pageSize: number; pages: number };
   counts: Counts | null;
   countsCapped: boolean;
+  workQueue?: WorkQueue;
   /** Rows the roster deliberately never shows — see MemberListResult. */
   excluded?: { archived: number; historical: number };
 };
@@ -577,7 +586,7 @@ export default function MembersRoster({
         </div>
       )}
 
-      <WorkQueueStrip counts={counts} active={q.queue} onPick={(k) => setQuery({ queue: k === q.queue ? null : k })} />
+      <WorkQueueStrip workQueue={data?.workQueue ?? null} active={q.queue} onPick={(k) => setQuery({ queue: k === q.queue ? null : k })} />
 
       <div className="overflow-hidden rounded-xl border border-app-border bg-surface">
         {/* ── Toolbar ─────────────────────────────────────────────────── */}
@@ -1039,33 +1048,41 @@ function PersonCell({ m }: { m: RosterMember }) {
 }
 
 function WorkQueueStrip({
-  counts,
+  workQueue,
   active,
   onPick,
 }: {
-  counts: Counts | null;
+  workQueue: WorkQueue | null;
   active: string;
   onPick: (key: string) => void;
 }) {
-  // Each card is a saved filter that also arms the matching bulk action — not a
-  // statistic. The counts shown are the roster's own segment counts; the exact
-  // per-queue numbers come from the server when the card is clicked.
+  // Each card is a saved filter that also arms the matching bulk action.
+  //
+  // Session D, D-3: three cards rendered a literal "—" and the fourth showed
+  // `counts.midMigration`, which is not the number of never-invited people. All
+  // four now come from `workQueueCounts()` on the server, which builds them from
+  // the SAME memberWhere() clauses the click applies — so the card and the list
+  // it opens cannot disagree.
   const cards = [
     { key: "neverInvited", label: "never invited", accent: "var(--color-orange-accent)", action: "Send invitations" },
     { key: "blocked", label: "blocked", accent: "#DC2626", action: "Fix contact details" },
     { key: "missingContact", label: "missing contact", accent: "var(--color-warn-text)", action: "Add an address" },
     { key: "duplicates", label: "possible duplicates", accent: "var(--color-brand)", action: "Review duplicates" },
-  ];
+  ] as const;
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {cards.map((c) => {
         const isActive = active === c.key;
         const href = c.key === "duplicates" ? "/dashboard/members/duplicates" : null;
+        // `duplicates` is the one count that is not a WHERE clause, so past the
+        // roster cap the server returns null and the card says "—" honestly
+        // rather than reporting a truncated scan as a total.
+        const n = workQueue ? workQueue[c.key] : null;
         const body = (
           <>
             <div className="text-[22px] font-semibold leading-none tabular-nums text-text-primary">
-              {counts && c.key === "neverInvited" ? counts.midMigration.toLocaleString() : "—"}
+              {n == null ? "—" : n.toLocaleString()}
             </div>
             <div className="mt-1 text-[12.5px] text-text-primary">{c.label}</div>
             <div className="mt-1 text-[12px] font-medium" style={{ color: "var(--color-prospect-text)" }}>

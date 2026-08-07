@@ -29,6 +29,19 @@ import {
 } from "@/lib/memberDisplay";
 import { membershipTrackFor, nextAction, rolesFor, type MemberTrackInput } from "@/lib/memberTracks";
 import { toTrackInput } from "@/lib/memberDisplay";
+import { duplicateKeysOf } from "@/lib/memberDuplicates";
+
+/**
+ * The four §1a work-queue cards. `duplicates` is nullable because it is the one
+ * count that cannot be a WHERE clause — past COUNT_CAP the card says so rather
+ * than showing a number derived from a truncated scan.
+ */
+export type WorkQueueCounts = {
+  neverInvited: number;
+  blocked: number;
+  missingContact: number;
+  duplicates: number | null;
+};
 
 /**
  * Resolve the owner-typed source labels for a page of members in one query.
@@ -282,6 +295,78 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
   }
 
   return { attendanceByMember, invitationsByMember, now };
+}
+
+/**
+ * Counts for the 4-card work-queue strip (§1a).
+ *
+ * Session D, D-3: three of the four cards rendered a literal "—", and the one
+ * number shown was `midMigration` borrowed from the segment counts — so even
+ * the working card was counting the wrong thing.
+ *
+ * Every count below is produced by `memberWhere(clubId, { queue })` — the SAME
+ * clause the card's click applies. That identity is the requirement: a card
+ * that advertises 8 and opens a list of 5 is worse than a card showing nothing,
+ * because it looks authoritative. Do not reimplement these predicates here.
+ *
+ * Counted over the base roster, deliberately ignoring any filter the staffer
+ * currently has applied: these are standing work queues, and a "never invited"
+ * figure that shifts every time someone types in the search box is not a queue.
+ * Clicking a card replaces the current filter, matching that reading.
+ */
+export async function workQueueCounts(clubId: string): Promise<WorkQueueCounts> {
+  const base: MemberListFilters = {
+    search: "", personType: "everyone", setupState: null, membership: null,
+    tag: null, gender: null, queue: null, sort: "lastSeen", page: 1, pageSize: 1,
+  };
+  const forQueue = (queue: MemberListFilters["queue"]) =>
+    prisma.member.count({ where: memberWhere(clubId, { ...base, queue }) });
+
+  const [neverInvited, blocked, missingContact, duplicates] = await Promise.all([
+    forQueue("neverInvited"),
+    forQueue("blocked"),
+    forQueue("missingContact"),
+    countPossibleDuplicates(clubId),
+  ]);
+
+  return { neverInvited, blocked, missingContact, duplicates };
+}
+
+/**
+ * Possible-duplicate members, using the SAME keys as
+ * `GET /api/members/duplicates` — including the D-1 rule that a contact value
+ * equal to the row's own guardian contact is not a duplicate signal.
+ *
+ * Counting people-in-a-duplicate-group rather than groups, because "3 possible
+ * duplicates" opening a page with 3 highlighted records is the reading an owner
+ * expects. Capped like the roster's other derived work: at very large rosters
+ * this returns null rather than a number it cannot compute honestly.
+ */
+async function countPossibleDuplicates(clubId: string): Promise<number | null> {
+  const total = await prisma.member.count({ where: { clubId, deletedAt: null } });
+  if (total > COUNT_CAP) return null;
+
+  const rows = await prisma.member.findMany({
+    where: { clubId, deletedAt: null },
+    select: {
+      id: true, firstName: true, lastName: true, dateOfBirth: true,
+      email: true, phone: true, guardianEmail: true, guardianPhone: true,
+    },
+  });
+
+  const byKey = new Map<string, string[]>();
+  for (const m of rows) {
+    for (const k of duplicateKeysOf(m).keys) {
+      const list = byKey.get(k) ?? [];
+      list.push(m.id);
+      byKey.set(k, list);
+    }
+  }
+  const flagged = new Set<string>();
+  for (const ids of byKey.values()) {
+    if (ids.length > 1) for (const id of ids) flagged.add(id);
+  }
+  return flagged.size;
 }
 
 export async function listMembers(clubId: string, f: MemberListFilters): Promise<MemberListResult> {

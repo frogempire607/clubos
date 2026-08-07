@@ -10,7 +10,7 @@ import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { validateMemberContact } from "@/lib/memberValidation";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
-import { listMembers, parseMemberFilters } from "@/lib/membersQuery";
+import { listMembers, parseMemberFilters, workQueueCounts } from "@/lib/membersQuery";
 
 /**
  * Phase 4.5.2 — the new roster payload. Opt-in via `?paginated=1`; see the note
@@ -18,8 +18,15 @@ import { listMembers, parseMemberFilters } from "@/lib/membersQuery";
  */
 async function listMembersPaginated(req: Request, clubId: string) {
   const filters = parseMemberFilters(new URL(req.url));
-  const result = await listMembers(clubId, filters);
-  return NextResponse.json(result);
+  // Session D, D-3 — the work-queue strip's four counts. Fetched alongside the
+  // page rather than derived from it: three cards showed "—" and the fourth
+  // borrowed an unrelated number, so all four were wrong in different ways.
+  // They come from the same predicates the cards apply — see workQueueCounts.
+  const [result, workQueue] = await Promise.all([
+    listMembers(clubId, filters),
+    workQueueCounts(clubId),
+  ]);
+  return NextResponse.json({ ...result, workQueue });
 }
 
 export async function GET(req: Request) {

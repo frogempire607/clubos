@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { duplicateKeysOf } from "@/lib/memberDuplicates";
 
 // GET /api/members/duplicates
 //
@@ -12,12 +13,16 @@ import { requirePermission } from "@/lib/apiGuard";
 //
 // Matching is high-precision on purpose — false positives scare owners. Members
 // are clustered only when they share a STRONG signal:
-//   • same email (a real person, not a shared guardian email — minors carry the
-//     guardian's email on guardianEmail, not their own email)
+//   • same email, unless that email is the row's own guardianEmail
 //   • same first+last name AND same date of birth
-//   • same phone AND same last name
-// Siblings (same guardianEmail, different name/DOB) share none of these, so they
-// are never flagged as duplicates.
+//   • same phone AND same last name, unless that phone is the row's guardianPhone
+//
+// The two "unless" clauses are the D-1 fix and are load-bearing. See the long
+// note in lib/memberDuplicates.ts: import copied guardian contact into children's
+// OWN email/phone columns for most live minors, so siblings collided on both
+// contact keys. A contact value equal to the same row's guardian contact is
+// evidence of a shared GUARDIAN, never of a shared PERSON — and that must hold
+// structurally, because the next import can reintroduce the same data shape.
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,20 +44,7 @@ export async function GET() {
   });
   type M = (typeof members)[number];
 
-  const norm = (s: string | null) => (s ? s.trim().toLowerCase() : "");
-  const dobKey = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
-  const keysOf = (m: M): string[] => {
-    const keys: string[] = [];
-    const email = norm(m.email);
-    if (email) keys.push("email:" + email);
-    const first = norm(m.firstName);
-    const last = norm(m.lastName);
-    const dk = dobKey(m.dateOfBirth);
-    if (first && last && dk) keys.push("namedob:" + first + "|" + last + "|" + dk);
-    const phone = (m.phone || "").replace(/\D/g, "");
-    if (phone.length >= 10 && last) keys.push("phone:" + phone + "|" + last);
-    return keys;
-  };
+  const keysOf = (m: M): string[] => duplicateKeysOf(m).keys;
 
   // Union-find: merge any two members that share a strong key.
   const parent = new Map<string, string>();

@@ -96,6 +96,17 @@ export default function DuplicatesPage() {
   // survives. Nothing merges until the owner confirms inside the modal.
   const [preview, setPreview] = useState<{ winner: DupMember; loser: DupMember } | null>(null);
   const [choices, setChoices] = useState<Record<string, "winner" | "loser">>({});
+  // Session D, D-2 — "the Merge button does nothing".
+  //
+  // Reproduced: on a refusal (e.g. the 409 when both records own a login) the
+  // handler put the server's message in `msg`, which renders near the TOP of
+  // the page — underneath this modal's own overlay. The modal stayed open, the
+  // button reset from "Merging…" back to "Confirm merge", and from the owner's
+  // seat absolutely nothing happened. The request was being made and answered
+  // correctly the whole time; the answer had nowhere visible to land.
+  //
+  // So a failure raised from inside the modal is shown inside the modal.
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
 
   function openPreview(winner: DupMember, loser: DupMember) {
     // Default per differing field: keep the survivor's value; fall back to the
@@ -108,6 +119,7 @@ export default function DuplicatesPage() {
       defaults[f.label] = w ? "winner" : "loser";
     }
     setChoices(defaults);
+    setPreviewErr(null);
     setPreview({ winner, loser });
   }
 
@@ -120,7 +132,7 @@ export default function DuplicatesPage() {
     for (const f of PREVIEW_FIELDS) {
       if (choices[f.label] === "loser") for (const k of f.keys) fields[k] = "loser";
     }
-    setBusy(loser.id); setMsg("");
+    setBusy(loser.id); setMsg(""); setPreviewErr(null);
     try {
       const res = await fetch("/api/members/merge", {
         method: "POST",
@@ -128,13 +140,19 @@ export default function DuplicatesPage() {
         body: JSON.stringify({ winnerId: winner.id, loserId: loser.id, fields }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(d.error || "Merge failed."); setBusy(null); return; }
+      if (!res.ok) {
+        // Stays in the modal, where the owner is actually looking. Writing to
+        // `msg` alone put this behind the overlay — see the note on previewErr.
+        setPreviewErr(d.error || `Merge failed (${res.status}).`);
+        setBusy(null);
+        return;
+      }
       setMsg(`Merged ${loser.name} into ${winner.name}.`);
       setBusy(null);
       setPreview(null);
       load();
     } catch {
-      setMsg("Merge failed — please try again.");
+      setPreviewErr("Merge failed — the request did not reach the server. Please try again.");
       setBusy(null);
     }
   }
@@ -344,6 +362,31 @@ export default function DuplicatesPage() {
                   <p className="text-[11px] text-text-muted mt-2">
                     Pick which value survives for each field. Everything not shown is identical on both records.
                   </p>
+                </div>
+              )}
+
+              {previewErr && (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-lg border px-3 py-2 text-sm"
+                  style={{
+                    background: "var(--color-danger-surface)",
+                    borderColor: "var(--color-danger-text)",
+                    color: "var(--color-danger-text)",
+                  }}
+                >
+                  {previewErr}
+                  {/* The 409 has a concrete next step, so name it rather than
+                      leaving the owner to guess what "remove one login" means. */}
+                  {/login/i.test(previewErr) && (
+                    <div className="mt-1 text-[12px] opacity-90">
+                      Open{" "}
+                      <Link href={`/dashboard/members/${loser.id}`} className="underline">
+                        {loser.name}
+                      </Link>{" "}
+                      and archive that record, or merge the other direction with &ldquo;Keep this one&rdquo;.
+                    </div>
+                  )}
                 </div>
               )}
 
