@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { MigrationFunnel } from "@/components/members/MigrationFunnel";
+import { MigrationMeterBar } from "@/components/members/MemberTracks";
 import { MigrationDetailDrawer } from "@/components/members/MigrationDetailDrawer";
 import MembersTabs from "@/components/MembersTabs";
 
@@ -129,17 +130,21 @@ type Row = {
   // log). null when setup was implied (e.g. invite sent) rather than configured.
   setupBy: string | null;
   setupAt: string | null;
-  // Billing-control triage + derived readiness (server-side, DB facts only).
-  migrationGroup: string | null;
-  migrationFinalAction: string | null;
+  // 4.5.7 — the migration meter, derived server-side by the SAME resolver the
+  // funnel and the roster use. Replaces the migrationGroup + readiness chips.
+  meter: {
+    step: number;
+    total: number;
+    applicable: boolean;
+    waitingOn: "NOBODY" | "STAFF" | "MEMBER" | "BLOCKED";
+    steps: { index: number; label: string; done: boolean; current: boolean }[];
+  } | null;
   migrationGroupNote: string | null;
   migrationFinalBillingDate: string | null;
   hasCapturedCard: boolean;
   resolvedPrice: number | null;
   resolvedPeriod: string | null;
   readiness: string;
-  readinessLabel: string;
-  readinessReasons: string[];
   reactivationStatus: string | null;
 };
 
@@ -155,7 +160,7 @@ const FILTERS = [
   { key: "invited", label: "Invited" },
   { key: "activated", label: "Profile completed" },
   { key: "payment_required", label: "Payment Required" },
-  { key: "completed", label: "Profile completed (reviewed)" },
+  { key: "completed", label: "Membership confirmed" },
   { key: "needs_review", label: "Failed / Needs Review" },
 ];
 
@@ -174,40 +179,15 @@ const STATUS_LABEL: Record<string, string> = {
   IMPORTED: "Imported",
   INVITED: "Invited",
   ACTIVATED: "Profile completed",
-  COMPLETED: "Profile completed (reviewed)",
+  COMPLETED: "Membership confirmed",
   NEEDS_REVIEW: "Needs review",
   FAILED: "Failed",
 };
 const statusLabel = (s: string | null | undefined) =>
   s ? STATUS_LABEL[s] ?? s.replace(/_/g, " ") : "—";
 
-// Operational triage states (planning only — never charge/mutate Stripe).
-// The one-time Group A/B/C planning shorthand is deprecated and hidden; rows
-// still carrying a letter group simply show no state chip.
-const GROUP_FILTERS = [
-  { key: "", label: "All states" },
-  { key: "LEAVE_ALONE", label: "Leave alone" },
-  { key: "FUTURE_FOLLOW_UP", label: "Follow-up" },
-  { key: "NEEDS_PAYMENT_METHOD", label: "Needs card" },
-  { key: "none", label: "Unclassified" },
-];
 // Deprecated letter groups render as nothing in the UI/exports.
 const groupDisplay = (g: string | null) => (!g || g === "A" || g === "B" || g === "C" ? "" : g.replace(/_/g, " "));
-const READINESS_FILTERS = [
-  { key: "", label: "Any readiness" },
-  { key: "READY", label: "Ready" },
-  { key: "WAITING_OWNER", label: "Waiting on owner" },
-  { key: "WAITING_CLIENT", label: "Waiting on client" },
-  { key: "HOLD", label: "Hold" },
-  { key: "LEAVE_ALONE", label: "Active / leave alone" },
-];
-const READINESS_STYLE: Record<string, string> = {
-  READY: "bg-lime-accent/25 text-text-primary",
-  WAITING_OWNER: "bg-orange-accent/20 text-text-primary",
-  WAITING_CLIENT: "bg-brand/10 text-brand",
-  HOLD: "bg-red-50 text-red-700",
-  LEAVE_ALONE: "bg-app-bg text-text-muted",
-};
 
 export default function MigrationPage() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -396,7 +376,7 @@ export default function MigrationPage() {
       };
       const header = [
         "Name", "Minor", "Contact", "Plan", "Price", "Frequency", "Owner state", "Final action",
-        "Final billing date", "Readiness", "Readiness notes", "Saved card", "Status", "Approval",
+        "Final billing date", "Step", "Waiting on", "Saved card", "Status", "Approval",
         "Reactivation", "Triage note",
       ];
       const lines = [header.join(",")].concat(
@@ -408,15 +388,13 @@ export default function MigrationPage() {
             r.legacyMembershipName || "",
             r.resolvedPrice != null ? r.resolvedPrice.toFixed(2) : "",
             r.resolvedPeriod || r.legacyBillingFrequency || "",
-            groupDisplay(r.migrationGroup),
-            r.migrationFinalAction || "",
+            r.meter?.applicable ? `Step ${r.meter.step} of ${r.meter.total}` : "",
             r.migrationFinalBillingDate
               ? new Date(r.migrationFinalBillingDate).toLocaleDateString()
               : r.billingAnchorDate
                 ? new Date(r.billingAnchorDate).toLocaleDateString()
                 : "",
-            r.readinessLabel || "",
-            (r.readinessReasons || []).join("; "),
+            r.meter?.applicable ? r.meter.waitingOn.toLowerCase() : "",
             r.hasCapturedCard ? "yes" : "no",
             r.migrationStatus || "",
             r.approvalStatus || "",
@@ -471,7 +449,7 @@ export default function MigrationPage() {
 
       autoTable(doc, {
         startY: 28,
-        head: [["Name", "Contact", "Plan", "Price", "Final billing", "State", "Readiness", "Status", "Notes"]],
+        head: [["Name", "Contact", "Plan", "Price", "Final billing", "Step", "Waiting on", "Status", "Notes"]],
         body: all.map((r) => [
           `${r.firstName} ${r.lastName}`.trim() + (r.isMinor ? " (minor)" : ""),
           r.email || r.guardianEmail || "—",
@@ -486,8 +464,8 @@ export default function MigrationPage() {
             : r.billingAnchorDate
               ? new Date(r.billingAnchorDate).toLocaleDateString()
               : "—",
-          groupDisplay(r.migrationGroup) || "—",
-          r.readinessLabel || "—",
+          r.meter?.applicable ? `Step ${r.meter.step}/${r.meter.total}` : "—",
+          r.meter?.applicable ? r.meter.waitingOn.toLowerCase() : "—",
           statusLabel(r.migrationStatus) +
             (r.approvalStatus === "PENDING_APPROVAL" ? " · needs approval" : ""),
           r.migrationGroupNote || "",
@@ -530,13 +508,13 @@ export default function MigrationPage() {
         <div className="flex gap-2 flex-shrink-0">
           <button
             onClick={() => setShowMembershipImport(true)}
-            className="text-sm px-4 py-2 border border-app-border text-text-primary rounded-lg hover:bg-app-bg transition"
+            className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 border border-app-border text-text-primary rounded-lg hover:bg-app-bg transition"
           >
             Match Memberships CSV
           </button>
           <button
             onClick={() => setShowImport(true)}
-            className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition"
+            className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover transition"
           >
             Import / Migrate Members
           </button>
@@ -559,7 +537,7 @@ export default function MigrationPage() {
           </p>
           <button
             onClick={() => setShowImport(true)}
-            className="mt-3 self-start text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover"
+            className="mt-3 self-start inline-flex min-h-[44px] items-center text-sm px-3 py-1.5 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover"
           >
             Import / Migrate Members
           </button>
@@ -577,7 +555,7 @@ export default function MigrationPage() {
           </p>
           <button
             onClick={() => setShowMembershipImport(true)}
-            className="mt-3 self-start text-sm px-3 py-1.5 border border-app-border text-text-primary rounded-lg hover:bg-app-bg"
+            className="mt-3 self-start inline-flex min-h-[44px] items-center text-sm px-3 py-1.5 md:min-h-0 border border-app-border text-text-primary rounded-lg hover:bg-app-bg"
           >
             Match Memberships CSV
           </button>
@@ -615,7 +593,7 @@ export default function MigrationPage() {
           <button
             key={f.key}
             onClick={() => { setFilter(f.key); setPage(1); }}
-            className={`text-xs px-3 py-1.5 rounded-full border transition ${
+            className={`inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-full border md:min-h-0 transition ${
               filter === f.key ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted hover:bg-app-bg"
             }`}
           >
@@ -624,7 +602,7 @@ export default function MigrationPage() {
         ))}
         <Link
           href="/dashboard/members/duplicates"
-          className="text-xs px-3 py-1.5 rounded-full border border-brand/40 text-brand hover:bg-brand/5 font-medium"
+          className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-full border md:min-h-0 border-brand/40 text-brand hover:bg-brand/5 font-medium"
         >
           Review duplicates
         </Link>
@@ -632,7 +610,7 @@ export default function MigrationPage() {
           onClick={downloadPdf}
           disabled={pdfBusy || loading}
           title="Download the full migrated roster (current filter) as a PDF."
-          className="text-xs px-3 py-1.5 rounded-full border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50 font-medium"
+          className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-full border md:min-h-0 border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50 font-medium"
         >
           {pdfBusy ? "Building PDF…" : "Download migration PDF"}
         </button>
@@ -640,7 +618,7 @@ export default function MigrationPage() {
           onClick={downloadCsv}
           disabled={pdfBusy || loading}
           title="Download the reviewed plan (current filter) as CSV — groups, readiness, dates, notes."
-          className="text-xs px-3 py-1.5 rounded-full border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50 font-medium"
+          className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-full border md:min-h-0 border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50 font-medium"
         >
           Export plan CSV
         </button>
@@ -652,55 +630,39 @@ export default function MigrationPage() {
         />
       </div>
 
-      {/* Triage group + readiness filters (planning layer — never charges) */}
-      <div className="flex flex-wrap items-center gap-2 mb-4 -mt-2">
-        {GROUP_FILTERS.map((f) => (
-          <button
-            key={f.key || "allg"}
-            onClick={() => { setGroup(f.key); setPage(1); }}
-            className={`text-xs px-3 py-1 rounded-full border transition ${
-              group === f.key ? "border-charcoal bg-charcoal text-white" : "border-app-border text-text-muted hover:bg-app-bg"
-            }`}
-          >
-            {f.label}
-            {f.key && stats && (stats as unknown as { groups?: Record<string, number> }).groups?.[f.key] != null
-              ? ` (${(stats as unknown as { groups: Record<string, number> }).groups[f.key]})`
-              : ""}
-          </button>
-        ))}
-        <span className="text-app-border">|</span>
-        {READINESS_FILTERS.map((f) => (
-          <button
-            key={f.key || "allr"}
-            onClick={() => { setReadiness(f.key); setPage(1); }}
-            className={`text-xs px-3 py-1 rounded-full border transition ${
-              readiness === f.key ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted hover:bg-app-bg"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {/* ── 4.5.7: the deprecated triage layer, removed from the UI ─────────
+          `migrationGroup` (A/B/C, LEAVE_ALONE / FUTURE_FOLLOW_UP /
+          NEEDS_PAYMENT_METHOD) and server-derived `readiness` were a one-time
+          planning shorthand from the WellnessLiving cut-over. They asked the
+          staffer to classify a member on two axes that the migration meter now
+          answers from facts: which of the 7 steps they are on, and whose turn
+          it is. Two vocabularies for one question is the exact problem Phase
+          4.5 exists to fix, so the chips are gone.
+
+          The COLUMNS stay — nothing is dropped, existing values are still
+          returned by the API and still honoured by deriveReadiness for the
+          billing centre. This removes the second vocabulary from the screen,
+          not the data. Segment the queue from the funnel above instead. */}
 
       {/* Bulk actions */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
           onClick={() => postSend([...selected], false)}
           disabled={busy || selected.size === 0}
-          className="text-xs px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+          className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-hover disabled:opacity-50 md:min-h-0"
         >
           Send Activation Links ({selected.size})
         </button>
         <button
           onClick={() => sendAllPending(true)}
           disabled={busy}
-          className="text-xs px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+          className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border px-3 py-1.5 text-xs text-text-primary hover:bg-app-bg disabled:opacity-50 md:min-h-0"
         >
           Send reminders to all pending
         </button>
         <button
           onClick={() => setShowFamilies((v) => !v)}
-          className={`text-xs px-3 py-1.5 rounded-lg border transition ${
+          className={`inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-lg border md:min-h-0 transition ${
             showFamilies ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"
           }`}
         >
@@ -773,7 +735,7 @@ export default function MigrationPage() {
                 <th className="px-3 py-2.5 font-medium">Member</th>
                 <th className="px-3 py-2.5 font-medium">Membership</th>
                 <th className="px-3 py-2.5 font-medium">Next billing</th>
-                <th className="px-3 py-2.5 font-medium">State / readiness</th>
+                <th className="px-3 py-2.5 font-medium">Step</th>
                 <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 font-medium">Emails</th>
                 <th className="px-3 py-2.5 font-medium"></th>
@@ -822,20 +784,30 @@ export default function MigrationPage() {
                           ? <span title="Imported anchor — no owner-approved final date yet">{new Date(r.billingAnchorDate).toLocaleDateString("en-US", { timeZone: "UTC" })}*</span>
                           : "—"}
                     </td>
+                    {/* 4.5.7 — the meter replaces the group + readiness chips.
+                        Two vocabularies for "where is this person up to" is the
+                        problem the phase exists to fix; this is the one that is
+                        derived from facts and shared with the roster row. */}
                     <td className="px-3 py-3">
-                      {groupDisplay(r.migrationGroup) && (
-                        <span className="inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium bg-charcoal text-white mr-1">
-                          {groupDisplay(r.migrationGroup)}
-                        </span>
+                      {r.meter?.applicable ? (
+                        <div className="min-w-[150px]">
+                          <MigrationMeterBar meter={r.meter} />
+                          <div className="mt-1 text-[11px] text-text-muted">
+                            Step {r.meter.step} of {r.meter.total} ·{" "}
+                            {r.meter.waitingOn === "STAFF"
+                              ? "waiting on you"
+                              : r.meter.waitingOn === "MEMBER"
+                                ? "waiting on member"
+                                : r.meter.waitingOn === "BLOCKED"
+                                  ? "blocked"
+                                  : "nobody"}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-text-muted">—</span>
                       )}
-                      <span
-                        className={`inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium ${READINESS_STYLE[r.readiness] || "bg-app-bg text-text-muted"}`}
-                        title={(r.readinessReasons || []).join("; ") || undefined}
-                      >
-                        {r.readinessLabel}
-                      </span>
                       {r.reactivationStatus && (
-                        <span className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand/10 text-brand">
+                        <span className="mt-1 inline-flex items-center whitespace-nowrap rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand">
                           Offer {r.reactivationStatus.toLowerCase()}
                         </span>
                       )}
@@ -874,7 +846,7 @@ export default function MigrationPage() {
                       {r.approvalStatus === "PENDING_APPROVAL" ? (
                         <button
                           onClick={() => setDrawerFor(r)}
-                          className="text-xs px-2 py-1 bg-brand text-white rounded-lg hover:bg-brand-hover"
+                          className="inline-flex min-h-[44px] items-center text-xs px-2 py-1 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover"
                         >
                           Review &amp; approve
                         </button>
@@ -889,7 +861,7 @@ export default function MigrationPage() {
                                 : "Already set up — open to review or edit"
                               : "Set up this member's plan & billing"
                           }
-                          className="text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
+                          className="inline-flex min-h-[44px] items-center text-xs px-2 py-1 md:min-h-0 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
                         >
                           {r.setupComplete ? "Edit setup" : "Set up"}
                         </button>
@@ -897,26 +869,26 @@ export default function MigrationPage() {
                       <button
                         onClick={() => setDetailFor(r.id)}
                         title="Where this member is in the 7 steps, and what we imported"
-                        className="ml-1 text-xs px-2 py-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
+                        className="ml-1 inline-flex min-h-[44px] items-center text-xs px-2 py-1 md:min-h-0 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
                       >
                         Details
                       </button>
                       <button
                         onClick={() => resendOne(r.id)}
                         disabled={busy || noEmail || r.migrationStatus === "COMPLETED"}
-                        className="text-xs px-2 py-1 ml-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
+                        className="inline-flex min-h-[44px] items-center text-xs px-2 py-1 md:min-h-0 ml-1 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-40"
                       >
                         Resend
                       </button>
                       <button
                         onClick={() => setHistoryFor(r)}
-                        className="text-xs px-2 py-1 ml-1 text-text-muted hover:text-text-primary"
+                        className="inline-flex min-h-[44px] items-center text-xs px-2 py-1 md:min-h-0 ml-1 text-text-muted hover:text-text-primary"
                       >
                         History
                       </button>
                       <Link
                         href={`/dashboard/members/${r.id}/billing`}
-                        className="text-xs px-2 py-1 ml-1 text-brand hover:underline"
+                        className="inline-flex min-h-[44px] items-center text-xs px-2 py-1 md:min-h-0 ml-1 text-brand hover:underline"
                         title="Open the billing control center — plan, dates, payment methods, reactivation."
                       >
                         Billing
@@ -935,10 +907,10 @@ export default function MigrationPage() {
         <span>{totalInFilter} member(s)</span>
         <div className="flex items-center gap-2">
           <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}
-            className="px-2 py-1 border border-app-border rounded disabled:opacity-40">Prev</button>
+            className="inline-flex min-h-[44px] items-center px-2 py-1 border border-app-border rounded disabled:opacity-40 md:min-h-0">Prev</button>
           <span>Page {page} / {pageCount}</span>
           <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount}
-            className="px-2 py-1 border border-app-border rounded disabled:opacity-40">Next</button>
+            className="inline-flex min-h-[44px] items-center px-2 py-1 border border-app-border rounded disabled:opacity-40 md:min-h-0">Next</button>
         </div>
       </div>
 
@@ -1308,7 +1280,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                         className="inp" style={{ width: 160 }} />
                     </div>
                     <button onClick={() => approve(false)} disabled={saving}
-                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
                       {saving ? "Approving…" : "Approve & schedule billing"}
                     </button>
                     {d.requestedBillingDate && (
@@ -1461,8 +1433,8 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
               {msg && <p className="text-sm text-text-muted">{msg}</p>}
 
               <div className="flex gap-2 justify-end border-t border-app-border pt-4">
-                <button onClick={onClose} className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Close</button>
-                <button onClick={saveSetup} disabled={saving} className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+                <button onClick={onClose} className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Close</button>
+                <button onClick={saveSetup} disabled={saving} className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
                   {saving ? "Saving…" : "Save setup"}
                 </button>
               </div>
@@ -1767,8 +1739,8 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
               </div>
               {!hasName && <p className="text-xs text-red-600 mt-3">Map at least one of: Athlete name, First name, or Last name.</p>}
               <div className="flex justify-end gap-2 mt-5">
-                <button onClick={() => setStep("upload")} className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Back</button>
-                <button disabled={!hasName} onClick={() => setStep("review")} className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">Review</button>
+                <button onClick={() => setStep("upload")} className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Back</button>
+                <button disabled={!hasName} onClick={() => setStep("review")} className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">Review</button>
               </div>
             </div>
           )}
@@ -1816,8 +1788,8 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                 </table>
               </div>
               <div className="flex justify-end gap-2">
-                <button onClick={() => setStep("map")} className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Back</button>
-                <button disabled={busy || built.length === 0} onClick={doImport} className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+                <button onClick={() => setStep("map")} className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Back</button>
+                <button disabled={busy || built.length === 0} onClick={doImport} className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
                   {busy ? "Importing…" : `Import ${built.length} member(s)`}
                 </button>
               </div>

@@ -207,6 +207,8 @@ export default function MembersRoster({
 
   // ── Modal + dialog state ────────────────────────────────────────────────
   const [adding, setAdding] = useState(false);
+  /** §1a mobile — the header's `⋯` overflow, which only exists below `sm`. */
+  const [headerMenu, setHeaderMenu] = useState(false);
   const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<FullMember | null>(null);
   const [purchasing, setPurchasing] = useState<FullMember | null>(null);
@@ -604,30 +606,83 @@ export default function MembersRoster({
               }`
         }
         actions={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Link
-              href="/api/export/members"
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
-            >
-              <Download className="h-4 w-4" /> Export
-            </Link>
-            <button
-              onClick={() => setImporting(true)}
-              disabled={!canEdit}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Upload className="h-4 w-4" /> Import CSV
-            </button>
-            <Link
-              href="/dashboard/members/migration"
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
-            >
-              Migrate
-            </Link>
+          // §1a mobile: below `sm`, Export / Import / Migrate collapse behind a
+          // ⋯ overflow and only Add member — the primary — keeps its own pill.
+          // Four wrapped buttons pushed the work-queue strip off the first
+          // screen at 390, which is where the actual work is.
+          <div className="flex items-center gap-2.5">
+            <div className="hidden items-center gap-2.5 sm:flex">
+              <Link
+                href="/api/export/members"
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg lg:min-h-[38px]"
+              >
+                <Download className="h-4 w-4" /> Export
+              </Link>
+              <button
+                onClick={() => setImporting(true)}
+                disabled={!canEdit}
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[38px]"
+              >
+                <Upload className="h-4 w-4" /> Import CSV
+              </button>
+              <Link
+                href="/dashboard/members/migration"
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg lg:min-h-[38px]"
+              >
+                Migrate
+              </Link>
+            </div>
+
+            <div className="relative sm:hidden">
+              <button
+                onClick={() => setHeaderMenu((v) => !v)}
+                aria-label="More member actions"
+                aria-expanded={headerMenu}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-app-border bg-surface text-text-primary transition-colors hover:bg-app-bg"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+              {headerMenu && (
+                <>
+                  {/* Backdrop, so a tap anywhere closes it — a menu you can only
+                      dismiss by hitting the same 44px button is a trap on a phone. */}
+                  <button
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setHeaderMenu(false)}
+                    className="fixed inset-0 z-40 cursor-default"
+                  />
+                  <div className="absolute right-0 z-50 mt-1 w-[220px] rounded-[10px] border border-app-border bg-surface p-[5px] shadow-lg">
+                    <Link
+                      href="/api/export/members"
+                      onClick={() => setHeaderMenu(false)}
+                      className="flex min-h-[44px] items-center gap-2.5 rounded-md px-2.5 text-[13px] text-text-primary hover:bg-app-bg"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Export
+                    </Link>
+                    <button
+                      onClick={() => { setHeaderMenu(false); setImporting(true); }}
+                      disabled={!canEdit}
+                      className="flex min-h-[44px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      <Upload className="h-3.5 w-3.5" /> Import CSV
+                    </button>
+                    <Link
+                      href="/dashboard/members/migration"
+                      onClick={() => setHeaderMenu(false)}
+                      className="flex min-h-[44px] items-center gap-2.5 rounded-md px-2.5 text-[13px] text-text-primary hover:bg-app-bg"
+                    >
+                      Migrate
+                    </Link>
+                  </div>
+                </>
+              )}
+            </div>
+
             <button
               onClick={() => setAdding(true)}
               disabled={!canEdit}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[38px]"
             >
               <UserPlus className="h-4 w-4" /> Add member
             </button>
@@ -664,14 +719,14 @@ export default function MembersRoster({
             >
               <button
                 onClick={() => applyView(v)}
-                className="min-h-[32px] rounded-l-md py-1 pl-2.5 pr-1 text-text-primary transition-opacity hover:opacity-80"
+                className="min-h-[44px] rounded-l-md py-1 pl-2.5 pr-1 text-text-primary transition-opacity hover:opacity-80 sm:min-h-[32px]"
               >
                 {v.name}
               </button>
               <button
                 onClick={() => deleteView(v)}
                 aria-label={`Delete the view ${v.name}`}
-                className="flex min-h-[32px] min-w-[28px] items-center justify-center rounded-r-md text-text-muted transition-colors hover:text-text-primary"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-r-md text-text-muted transition-colors hover:text-text-primary sm:min-h-[32px] sm:min-w-[28px]"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -697,7 +752,7 @@ export default function MembersRoster({
                     role="tab"
                     aria-selected={active}
                     onClick={() => setQuery({ personType: p.key })}
-                    className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12.5px] transition-colors ${
+                    className={`min-h-[44px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12.5px] transition-colors lg:min-h-0 ${
                       active ? "bg-surface font-medium text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
                     }`}
                   >
@@ -723,7 +778,7 @@ export default function MembersRoster({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setFiltersOpen(true)}
-              className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors ${
+              className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors lg:min-h-[34px] ${
                 filterCount ? "border-brand text-brand" : "border-app-border text-text-primary hover:bg-app-bg"
               }`}
             >
@@ -736,7 +791,7 @@ export default function MembersRoster({
               value={q.sort}
               onChange={(e) => setQuery({ sort: e.target.value })}
               aria-label="Sort by"
-              className="h-[34px] rounded-lg border border-app-border bg-surface px-2 text-[13px] text-text-primary"
+              className="h-11 rounded-lg border border-app-border bg-surface px-2 text-[13px] text-text-primary lg:h-[34px]"
             >
               {SORTS.map((s) => (
                 <option key={s.key} value={s.key}>
@@ -748,7 +803,7 @@ export default function MembersRoster({
               onClick={() => setDensity((d) => (d === "comfortable" ? "compact" : "comfortable"))}
               aria-label="Toggle row density"
               title={density === "comfortable" ? "Compact rows" : "Comfortable rows"}
-              className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-app-border text-text-muted transition-colors hover:bg-app-bg"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-app-border text-text-muted transition-colors hover:bg-app-bg lg:h-[34px] lg:w-[34px]"
             >
               <Users className="h-4 w-4" />
             </button>
@@ -1220,7 +1275,7 @@ function BulkButton({
       disabled={disabled || busy}
       onClick={onClick}
       title={disabled ? "You do not have permission for this action" : undefined}
-      className={`inline-flex min-h-[34px] items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors ${
+      className={`inline-flex min-h-[44px] items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors lg:min-h-[34px] ${
         disabled
           ? "cursor-not-allowed border border-app-border bg-surface text-[#9CA3AF]"
           : primary
@@ -1246,7 +1301,7 @@ function PageBtn({
     <button
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex min-h-[32px] items-center gap-1 rounded-lg border border-app-border bg-surface px-2 text-[12.5px] text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-app-border bg-surface px-2.5 text-[12.5px] text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-40 lg:min-h-[32px] lg:px-2"
     >
       {children}
     </button>

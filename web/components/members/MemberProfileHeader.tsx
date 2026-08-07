@@ -127,7 +127,7 @@ export function FamilySwitcher({
                 key={p.id}
                 href={`/dashboard/members/${p.id}`}
                 aria-current={current ? "page" : undefined}
-                className={`inline-flex min-h-[36px] items-center gap-2 rounded-lg border px-2 py-1 text-[12.5px] transition-colors ${
+                className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-2 py-1 text-[12.5px] transition-colors md:min-h-[36px] ${
                   current ? "border-brand bg-surface font-medium text-text-primary" : "border-transparent text-text-muted hover:bg-app-bg"
                 }`}
               >
@@ -183,7 +183,7 @@ export function ProfileTabs({
               role="tab"
               aria-selected={isActive}
               onClick={() => onSelect(t.key)}
-              className={`relative whitespace-nowrap px-2.5 py-2.5 text-[13.5px] transition-colors ${
+              className={`relative inline-flex min-h-[44px] items-center whitespace-nowrap px-2.5 py-2.5 text-[13.5px] transition-colors md:min-h-0 ${
                 isActive ? "font-medium text-brand" : "text-text-muted hover:text-text-primary"
               }`}
             >
@@ -323,7 +323,7 @@ export function AccountSecurityCard({
         <button
           onClick={onSendReset}
           disabled={!canReset}
-          className="mt-2 min-h-[38px] rounded-lg bg-charcoal px-3 text-[13px] font-medium text-white transition-colors hover:bg-charcoal-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-2 min-h-[44px] rounded-lg bg-charcoal px-3 text-[13px] font-medium text-white transition-colors hover:bg-charcoal-hover disabled:cursor-not-allowed disabled:opacity-50 md:min-h-[38px]"
         >
           Send reset link
         </button>

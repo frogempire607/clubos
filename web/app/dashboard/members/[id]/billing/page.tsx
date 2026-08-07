@@ -674,25 +674,9 @@ function PaymentMethodRow({ pm, memberId, hasPendingCharge, onChanged, onMsg }: 
 // Group A/B/C were one-time migration-planning shorthand — DEPRECATED and no
 // longer offered. A member still carrying one shows it as a legacy value so
 // the owner can move them to an operational state.
-const GROUPS: ReadonlyArray<readonly [string, string]> = [
-  ["", "— Unclassified —"], ["LEAVE_ALONE", "Leave alone"], ["FUTURE_FOLLOW_UP", "Future follow-up"],
-  ["NEEDS_PAYMENT_METHOD", "Needs payment method"],
-];
-const LEGACY_GROUP_LABELS: Record<string, string> = {
-  A: "Group A (legacy — pick a new state)",
-  B: "Group B (legacy — pick a new state)",
-  C: "Group C (legacy — pick a new state)",
-};
-const ACTIONS = [
-  ["", "— None —"], ["MANUAL_APPROVE", "Manual approve"], ["ACTIVATION_EMAIL", "Reactivation email"],
-  ["LEAVE_ALONE", "Leave alone"], ["FUTURE_FOLLOW_UP", "Future follow-up"], ["NEEDS_CARD", "Needs card"],
-  ["OWNER_REVIEW", "Owner review"],
-] as const;
 
 function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string; onSaved: () => void }) {
   const mig = data.migration;
-  const [group, setGroup] = useState(mig.group ?? "");
-  const [action, setAction] = useState(mig.finalAction ?? "");
   const [note, setNote] = useState(mig.groupNote ?? "");
   const [finalDate, setFinalDate] = useState(dateInput(data.billing.finalBillingDate));
   const [busy, setBusy] = useState(false);
@@ -704,8 +688,12 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
     const r = await fetch(`/api/members/${memberId}/billing-admin`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        migrationGroup: group || null,
-        migrationFinalAction: action || null,
+        // 4.5.1 — migrationGroup and migrationFinalAction are retired from the
+        // UI. The COLUMNS and the PATCH field both survive: existing values are
+        // untouched, deriveReadiness still honours them, and the billing
+        // centre's own readiness chip still reads them. What is gone is the
+        // second place a staffer was asked to classify someone by hand, which
+        // the 7-step meter now answers from facts.
         migrationGroupNote: note || null,
         migrationFinalBillingDate: finalDate || null,
       }),
@@ -724,18 +712,7 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
         {mig.migrationStatus ? ` Migration status: ${mig.migrationStatus}${mig.approvalStatus ? ` · ${mig.approvalStatus}` : ""}.` : ""}
         {mig.activationEmailSentAt ? ` Activation email sent ${mig.activationEmailSendCount}× (last ${fmtDate(mig.activationEmailSentAt)}).` : " No activation email sent yet."}
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <label className="text-xs text-text-muted">Owner state
-          <select value={group} onChange={(e) => setGroup(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary">
-            {LEGACY_GROUP_LABELS[group] && <option value={group}>{LEGACY_GROUP_LABELS[group]}</option>}
-            {GROUPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
-        <label className="text-xs text-text-muted">Final action
-          <select value={action} onChange={(e) => setAction(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary">
-            {ACTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="text-xs text-text-muted">Final billing date
           <input type="date" value={finalDate} onChange={(e) => setFinalDate(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
         </label>

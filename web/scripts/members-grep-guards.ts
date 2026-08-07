@@ -120,11 +120,20 @@ const DEPRECATED = [
 ];
 
 /**
- * Baseline measured 2026-08-04, before 4.5.2 and 4.5.7 rewrite the members list
- * and the migration dashboard. Lower this every time one is removed; it must
- * reach 0 for the Phase 4.5 exit criteria. Never raise it.
+ * Baseline was 8 when measured on 2026-08-04, before 4.5.2 and 4.5.7 rewrote
+ * the members list and the migration dashboard. It reached 0 on 2026-08-07,
+ * which is the Phase 4.5 exit criterion, so this is now a HARD FAIL rather
+ * than a ratchet: any reintroduction of the old vocabulary breaks the build.
+ *
+ * The SCHEMA COLUMNS are all still present and still populated — this guard is
+ * about what a staffer is shown and asked to maintain, not about dropping data.
+ * `deriveReadiness` still reads migrationGroup for the billing centre's own
+ * readiness chip; what went is the second place a human was asked to classify
+ * somebody by hand, which the 7-step meter now answers from facts.
+ *
+ * Never raise it.
  */
-const DEPRECATED_BASELINE = 8;
+const DEPRECATED_BASELINE = 0;
 
 note("\nGUARD 2 — deprecated migration vocabulary in .tsx (ratchet)");
 let deprecatedCount = 0;

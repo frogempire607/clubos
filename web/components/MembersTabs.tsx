@@ -23,7 +23,8 @@ export default function MembersTabs() {
           <Link
             key={t.href}
             href={t.href}
-            className={`px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors ${
+            // 4.5.9 — 44px on a phone, unchanged density on desktop.
+            className={`inline-flex min-h-[44px] items-center px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors md:min-h-0 ${
               active
                 ? "border-brand text-brand font-medium"
                 : "border-transparent text-text-muted hover:text-text-primary"

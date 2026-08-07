@@ -697,7 +697,7 @@ export default function MembersApprovalsPage() {
                   <div className="flex flex-wrap items-center gap-2 mt-3">
                     <button
                       onClick={() => setReviewOpen((m) => ({ ...m, [a.id]: !m[a.id] }))}
-                      className="inline-flex items-center gap-1.5 text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
+                      className="inline-flex min-h-[44px] items-center gap-1.5 text-sm px-3 py-2 md:min-h-0 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
                     >
                       Review billing
                       {reviewOpen[a.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -717,7 +717,7 @@ export default function MembersApprovalsPage() {
                       <button
                         onClick={() => approveProfileOnly(a)}
                         disabled={busyId === a.id}
-                        className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                        className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                       >
                         {busyId === a.id ? "Working…" : "Approve profile (no membership)"}
                       </button>
@@ -725,7 +725,7 @@ export default function MembersApprovalsPage() {
                       <button
                         onClick={() => approveMigration(a)}
                         disabled={busyId === a.id}
-                        className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                        className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                       >
                         {busyId === a.id ? "Working…" : "Activate now (charges per timing above)"}
                       </button>
@@ -769,7 +769,7 @@ export default function MembersApprovalsPage() {
                     <button
                       onClick={() => actChangeRequest(a, "APPROVE")}
                       disabled={busyId === a.id}
-                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                     >
                       {busyId === a.id ? "Working…" : "Approve & regenerate offer"}
                     </button>
@@ -819,7 +819,7 @@ export default function MembersApprovalsPage() {
                     <button
                       onClick={() => actPurchase(a, "APPROVE")}
                       disabled={busyId === a.id}
-                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                     >
                       {busyId === a.id ? "Working…" : isPack ? "Approve & add credits" : "Approve & start membership"}
                     </button>
@@ -864,7 +864,7 @@ export default function MembersApprovalsPage() {
                     <button
                       onClick={() => actSplit(a, "APPROVE")}
                       disabled={busyId === a.id}
-                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                     >
                       {busyId === a.id ? "Working…" : "Approve split"}
                     </button>
@@ -911,7 +911,7 @@ export default function MembersApprovalsPage() {
                     <button
                       onClick={() => actTransfer(a, "APPROVE")}
                       disabled={busyId === a.id}
-                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                     >
                       {busyId === a.id ? "Working…" : "Approve transfer"}
                     </button>
@@ -945,7 +945,7 @@ export default function MembersApprovalsPage() {
                     <button
                       onClick={() => actGuardian(a, "APPROVE")}
                       disabled={busyId === a.id}
-                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                     >
                       {busyId === a.id ? "Working…" : "Approve access"}
                     </button>
@@ -995,7 +995,7 @@ export default function MembersApprovalsPage() {
                     <button
                       onClick={() => actCancel(a, "APPROVE")}
                       disabled={busyId === a.id}
-                      className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                     >
                       {busyId === a.id ? "Working…" : "Approve cancellation"}
                     </button>

@@ -264,7 +264,7 @@ export default function DuplicatesPage() {
                             <button
                               onClick={() => setPrimaryPick((p) => ({ ...p, [gk]: m.id }))}
                               disabled={busy === m.id}
-                              className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+                              className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-lg md:min-h-0 border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
                               title="Keep this record as the main account instead"
                             >
                               Keep this one
@@ -272,7 +272,7 @@ export default function DuplicatesPage() {
                             <button
                               onClick={() => openPreview(primary, m)}
                               disabled={busy === m.id}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
+                              className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-lg md:min-h-0 bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
                             >
                               {busy === m.id ? "Merging…" : `Merge into ${primary.name.split(" ")[0]}…`}
                             </button>
@@ -280,7 +280,7 @@ export default function DuplicatesPage() {
                               <button
                                 onClick={() => remove(m)}
                                 disabled={busy === m.id}
-                                className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-lg md:min-h-0 border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
                                 title="Archive this empty duplicate (reversible)"
                               >
                                 {busy === m.id ? "Removing…" : "Remove"}
@@ -394,14 +394,14 @@ export default function DuplicatesPage() {
                 <button
                   onClick={() => setPreview(null)}
                   disabled={busy === loser.id}
-                  className="text-sm px-4 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+                  className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 rounded-lg md:min-h-0 border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmMerge}
                   disabled={busy === loser.id}
-                  className="text-sm px-4 py-2 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
+                  className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 rounded-lg md:min-h-0 bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {busy === loser.id ? "Merging…" : "Confirm merge"}
                 </button>

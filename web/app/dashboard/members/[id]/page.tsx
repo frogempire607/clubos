@@ -573,13 +573,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             <>
               <button
                 onClick={() => setEditOpen(true)}
-                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
               >
                 <Pencil className="h-4 w-4" /> Edit
               </button>
               <Link
                 href={`/dashboard/members/${id}/billing`}
-                className="inline-flex min-h-[38px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
               >
                 Manage billing
               </Link>
@@ -589,7 +589,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                 canBill={canBill}
                 isOwner={isOwner}
                 onAction={onMenuAction}
-                size={38}
+                size={44}
               />
             </>
           }
@@ -630,7 +630,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             {canEdit && m.nextAction.waitingOn === "STAFF" && !m.nextAction.snoozed && (
               <button
                 onClick={() => onMenuAction("snooze", { id: m.id, fullName: `${m.firstName} ${m.lastName}` })}
-                className="inline-flex min-h-[38px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
               >
                 Snooze 7 days
               </button>
@@ -638,7 +638,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             {canEdit && m.nextAction.snoozed && (
               <button
                 onClick={() => onMenuAction("unsnooze", { id: m.id, fullName: `${m.firstName} ${m.lastName}` })}
-                className="inline-flex min-h-[38px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
               >
                 Bring back now
               </button>
@@ -687,7 +687,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             )}
             <button
               onClick={() => setEditOpen(true)}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
             >
               <Pencil className="h-4 w-4" /> Edit details
             </button>
@@ -747,7 +747,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         <Card
           title="Family labels"
           className="lg:col-span-2"
-          action={<button onClick={() => setAddingRel(true)} className="text-xs text-brand hover:underline">+ Add label</button>}
+          action={<button onClick={() => setAddingRel(true)} className="inline-flex min-h-[44px] items-center text-xs text-brand hover:underline md:min-h-0">+ Add label</button>}
         >
           <p className="text-xs text-text-muted -mt-1 mb-2.5">
             Notes about who is related to whom. These do <strong>not</strong> give anyone access —
@@ -773,7 +773,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                       await fetch(`/api/members/${id}/relationships?relationshipId=${r.id}`, { method: "DELETE" });
                       load();
                     }}
-                    className="text-xs text-red-600 hover:bg-red-50 px-2 py-0.5 rounded"
+                    className="inline-flex min-h-[44px] items-center rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 md:min-h-0"
                   >
                     Remove
                   </button>
@@ -1100,7 +1100,7 @@ function DocumentsCard({ documents, memberName }: { documents?: MemberDocument[]
                 {isMissing && (
                   <Link
                     href={`/dashboard/documents?document=${d.id}`}
-                    className="shrink-0 rounded-lg border border-app-border bg-surface px-2.5 py-1 text-[12px] text-text-primary transition-colors hover:bg-app-bg"
+                    className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-app-border bg-surface px-2.5 py-1 text-[12px] text-text-primary transition-colors hover:bg-app-bg md:min-h-0"
                   >
                     Request
                   </Link>
@@ -1216,7 +1216,7 @@ function StaffNotesCard({
             <button
               onClick={save}
               disabled={!dirty || saving}
-              className="inline-flex min-h-[38px] items-center rounded-lg bg-brand px-3 text-sm text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-3 text-sm text-white transition-colors hover:bg-brand-hover disabled:opacity-50 md:min-h-[38px]"
             >
               {saving ? "Saving…" : "Save notes"}
             </button>
@@ -1471,13 +1471,13 @@ function SubRow({
         {onTransfer && ["active", "past_due", "pending"].includes(sub.status) && (
           <button
             onClick={onTransfer}
-            className="text-xs text-brand hover:underline px-2 py-1 rounded whitespace-nowrap"
+            className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded px-2 py-1 text-xs text-brand hover:underline md:min-h-0"
             title="Move this membership to another family member — the payer doesn't change"
           >
             Assign to family member
           </button>
         )}
-        <button onClick={onEdit} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg whitespace-nowrap">
+        <button onClick={onEdit} className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded px-2 py-1 text-xs text-text-muted hover:bg-app-bg hover:text-text-primary md:min-h-0">
           Edit dates
         </button>
       </div>
