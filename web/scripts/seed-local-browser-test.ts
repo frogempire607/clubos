@@ -232,8 +232,8 @@ async function main() {
         id, clubId, firstName: first, lastName: "Nakamura", status: "ACTIVE", isMinor: true,
         dateOfBirth: new Date(dob), joinedAt: ago(200),
         // The bleed: guardian contact copied onto the child's own row.
-        email: "kenji.nakamura@local.test", phone: "555-0142",
-        guardianName: "Kenji Nakamura", guardianEmail: "kenji.nakamura@local.test", guardianPhone: "555-0142",
+        email: "kenji.nakamura@local.test", phone: "(555) 010-0142",
+        guardianName: "Kenji Nakamura", guardianEmail: "kenji.nakamura@local.test", guardianPhone: "(555) 010-0142",
       },
     });
   }

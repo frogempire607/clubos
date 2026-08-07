@@ -18,6 +18,7 @@
 //        intended to invite, which read as an outstanding task that did not
 //        exist.
 
+import { duplicateKeysOf } from "../lib/memberDuplicates";
 import {
   ACTION_KIND,
   MEMBERSHIP_LABELS,
@@ -480,6 +481,59 @@ check("no blockedReason → nothing is falsely blocked", setupTrackFor(preMigrat
 check("no snoozedUntil → nothing is falsely snoozed", nextAction(preMigration, NOW).snoozed !== true);
 check("no invitation rollup → falls back to the Member counter", derivedBlockedReason(member({ migrationStatus: "INVITED", email: "a@b.com", activationEmailSendCount: 3 })) === "REPEATED_NO_OPEN");
 check("the resolver still returns a real action", nextAction(preMigration, NOW).kind === ACTION_KIND.REVIEW_INFO);
+
+// ═══════════════════════════════════════════════════════════════════════════
+group("§20 Duplicate keys — the sibling bug (Session D, D-1)");
+
+// The detector's header used to claim siblings could never collide because
+// minors carry guardian contact on guardianEmail/guardianPhone. Production
+// disagreed: 27 of the 34 live minors with an own email had their GUARDIAN's,
+// and 42 had their guardian's phone. Siblings then shared an `email:` key AND
+// a `phone:`+lastName key, because siblings share a surname.
+//
+// These fixtures pin the rule structurally, so it holds whether or not the
+// data-correction script has run — the next import can reintroduce the shape.
+const sibA = {
+  firstName: "Iris", lastName: "Nakamura", dateOfBirth: new Date("2013-02-04"),
+  email: "kenji@x.com", phone: "(555) 010-0142",
+  guardianEmail: "kenji@x.com", guardianPhone: "(555) 010-0142",
+};
+const sibB = { ...sibA, firstName: "Otto", dateOfBirth: new Date("2015-09-19") };
+
+const keysA = duplicateKeysOf(sibA);
+const keysB = duplicateKeysOf(sibB);
+check(
+  "a child's email that IS the guardian's is not a duplicate key",
+  !keysA.keys.some((k) => k.startsWith("email:")),
+);
+check(
+  "a child's phone that IS the guardian's is not a duplicate key",
+  !keysA.keys.some((k) => k.startsWith("phone:")),
+);
+check(
+  "the skip is reported, not silent",
+  keysA.skipped.length === 2 && keysA.skipped.every((s) => s.reason === "matches-guardian-contact"),
+);
+check(
+  "two siblings sharing a guardian share NO key",
+  keysA.keys.filter((k) => keysB.keys.includes(k)).length === 0,
+);
+
+// The keys that must still work, or the fix would have traded one bug for a worse one.
+const twinA = { ...sibA, email: "iris.own@x.com", guardianEmail: "kenji@x.com" };
+check(
+  "a child's OWN email (different from the guardian's) is still a key",
+  duplicateKeysOf(twinA).keys.some((k) => k === "email:iris.own@x.com"),
+);
+const dupe1 = {
+  firstName: "Marcus", lastName: "Delacroix", dateOfBirth: new Date("1996-11-23"),
+  email: "m@x.com", phone: null, guardianEmail: null, guardianPhone: null,
+};
+const dupe2 = { ...dupe1, email: null, phone: "555-0188" };
+check(
+  "the same person entered twice still collides on name + date of birth",
+  duplicateKeysOf(dupe1).keys.some((k) => duplicateKeysOf(dupe2).keys.includes(k)),
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log(`\n${"─".repeat(62)}`);

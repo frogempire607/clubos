@@ -633,7 +633,7 @@ export default function MigrationPage() {
       {/* ── 4.5.7: the deprecated triage layer, removed from the UI ─────────
           `migrationGroup` (A/B/C, LEAVE_ALONE / FUTURE_FOLLOW_UP /
           NEEDS_PAYMENT_METHOD) and server-derived `readiness` were a one-time
-          planning shorthand from the WellnessLiving cut-over. They asked the
+          planning shorthand from the original cut-over. They asked the
           staffer to classify a member on two axes that the migration meter now
           answers from facts: which of the 7 steps they are on, and whose turn
           it is. Two vocabularies for one question is the exact problem Phase
