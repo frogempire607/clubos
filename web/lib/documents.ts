@@ -25,6 +25,34 @@ export function missingRequiredDocumentIds(
     .map((doc) => doc.id);
 }
 
+/**
+ * Where a member stands on one document.
+ *
+ * Extracted in session 4 so the staff-facing profile tab and the member portal
+ * agree by construction. The expiry arithmetic lived inline in
+ * `/api/member/documents`; a second copy on the staff side would eventually
+ * disagree about whether a waiver is still valid, and "the office says I'm
+ * covered, the app says I'm not" is the worst possible version of that bug.
+ *
+ *   SIGNED   — a valid signature is on file
+ *   EXPIRED  — signed, but past `signatureValidForDays`. Still evidence they
+ *              once signed, which is why it is not the same as MISSING.
+ *   MISSING  — no signature at all
+ */
+export type DocumentStatus = "SIGNED" | "EXPIRED" | "MISSING";
+
+export function documentSignatureStatus(
+  doc: { signatureValidForDays?: number | null },
+  sig: { signedAt: Date | string } | null | undefined,
+  now: Date = new Date(),
+): { status: DocumentStatus; expiresAt: Date | null } {
+  if (!sig) return { status: "MISSING", expiresAt: null };
+  if (!doc.signatureValidForDays) return { status: "SIGNED", expiresAt: null };
+  const expiresAt = new Date(sig.signedAt);
+  expiresAt.setDate(expiresAt.getDate() + doc.signatureValidForDays);
+  return { status: expiresAt < now ? "EXPIRED" : "SIGNED", expiresAt };
+}
+
 export function requiredDocumentSurfaceWhere(surface: RequiredDocumentSurface) {
   return {
     OR: [

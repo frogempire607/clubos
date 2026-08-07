@@ -113,6 +113,16 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       // login exists, which address it signs in with, and when it was last
       // used. Scalars only: never the password hash, never the reset token.
       user: { select: { id: true, email: true, lastLoginAt: true } },
+      // Session 4 — the Migration activity tab rendered nothing. The rows have
+      // existed all along (every mutation on a migrating member writes one) and
+      // `/api/members/migration/[id]` already returns them, but the profile
+      // never asked and this payload never carried them. Capped at 50: this is
+      // an activity feed, not an export.
+      migrationEvents: {
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { id: true, type: true, message: true, createdAt: true, actorUserId: true },
+      },
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });

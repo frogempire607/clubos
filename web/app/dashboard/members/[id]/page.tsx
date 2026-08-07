@@ -17,6 +17,7 @@ import {
 } from "@/components/members/MemberProfileHeader";
 import { EditMemberDrawer, type EditableCustomField } from "@/components/members/EditMemberDrawer";
 import { MemberActionsMenu } from "@/components/members/MemberActionsMenu";
+import { MemberDocumentsCard } from "@/components/members/MemberDocumentsCard";
 import { PasswordResetDialog, type ResetState } from "@/components/members/PasswordResetDialog";
 import { NextActionBanner, NextActionButton } from "@/components/members/MemberTracks";
 import type { NextAction } from "@/lib/memberTracks";
@@ -93,6 +94,8 @@ type MemberDetail = {
   legacyMemberId?: string | null;
   birthdayLockedAt?: string | null;
   user?: { id: string; email: string; lastLoginAt: string | null } | null;
+  /** Attributed history for an imported member — see the API note. */
+  migrationEvents?: { id: string; type: string; message: string | null; createdAt: string; actorUserId: string | null }[];
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -734,6 +737,59 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             level on messages.analytics; a coach without the sub-scope
             gets a 403 and the card renders a permissive empty state. */}
         {on("messages") && <CommunicationsCard memberId={id} className="lg:col-span-2" />}
+
+        {/* ── The three tabs that rendered nothing (session 4) ──────────────
+            PROFILE_TABS declared eleven keys; the body only answered to eight.
+            Documents, Migration activity and Notes were selectable, produced an
+            empty page, and gave no clue whether that meant "no data" or "not
+            built". Notes was returned by the API all along and simply had
+            nowhere to render; migration events existed in the database and in
+            another route but were never requested here; documents had neither a
+            card nor an endpoint. */}
+        {on("documents") && <MemberDocumentsCard memberId={id} className="lg:col-span-2" />}
+
+        {on("migration") && (
+          <Card title="Migration activity" className="lg:col-span-2">
+            {!m.migrationEvents?.length ? (
+              <p className="text-sm text-text-muted">
+                {m.migrationStatus
+                  ? "Nothing recorded yet. Reviewing, inviting or editing this member will appear here."
+                  : "This member wasn’t imported, so they have no migration history."}
+              </p>
+            ) : (
+              <ul className="flex flex-col divide-y" style={{ borderColor: "var(--color-hairline)" }}>
+                {m.migrationEvents.map((e) => (
+                  <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2">
+                    <span className="min-w-0 flex-1 text-[13px] text-text-primary">
+                      {e.message || e.type}
+                    </span>
+                    <span className="shrink-0 text-[11.5px] tabular-nums text-text-muted">
+                      {new Date(e.createdAt).toLocaleString("en-US", {
+                        month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+                      })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+
+        {on("notes") && (
+          <Card title="Staff notes" className="lg:col-span-2">
+            {m.notes?.trim() ? (
+              // Staff-authored plain text — rendered as text, never as HTML.
+              <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-text-primary">{m.notes}</p>
+            ) : (
+              <p className="text-sm text-text-muted">
+                No notes yet. Add them from <button onClick={() => setEditOpen(true)} className="text-brand underline">Edit member</button>.
+              </p>
+            )}
+            <p className="mt-3 text-[11.5px] text-text-muted">
+              Visible to club staff only — members never see these.
+            </p>
+          </Card>
+        )}
       </div>
 
       {editingSub && (
