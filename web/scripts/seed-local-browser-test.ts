@@ -215,6 +215,73 @@ async function main() {
     },
   });
 
+  // ── Documents, so the Waivers & documents tab has all three states ──────
+  // Session 3's fixture had no documents at all, which is why a Documents tab
+  // that rendered literally nothing looked the same as one that was empty.
+  const waiver = await prisma.document.create({
+    data: {
+      clubId, title: "Liability waiver", type: "WAIVER", required: true,
+      requiredAt: ["ONBOARDING"], requiresGuardianSignature: true, signatureValidForDays: 365,
+      body: "<p>Standard liability waiver.</p>",
+    },
+  });
+  const codeOfConduct = await prisma.document.create({
+    data: {
+      clubId, title: "Athlete code of conduct", type: "POLICY", required: true,
+      requiredAt: ["ONBOARDING"], body: "<p>Code of conduct.</p>",
+    },
+  });
+  await prisma.document.create({
+    data: { clubId, title: "Newsletter (optional)", type: "INFO", required: false, requiredAt: [], body: "<p>Info.</p>" },
+  });
+  // Signed, but 400 days ago against a 365-day window → EXPIRED, and therefore
+  // still missing. This is the case that blocks a check-in while the profile
+  // says "signed", and it needs to be visible.
+  await prisma.documentSignature.create({
+    data: {
+      documentId: waiver.id, memberId: "m_active", signerUserId: guardian.id,
+      signerName: "Michael Lister", relationship: "GUARDIAN", signedAt: ago(400),
+    },
+  });
+  // Signed and current.
+  await prisma.documentSignature.create({
+    data: {
+      documentId: codeOfConduct.id, memberId: "m_active", signerUserId: guardian.id,
+      signerName: "Michael Lister", relationship: "GUARDIAN", signedAt: ago(20),
+    },
+  });
+  // Cameron has signed neither → 2 missing, red dot on the Documents tab.
+
+  // ── Migration activity, so the timeline has attributed rows ─────────────
+  for (const [memberId, rows] of Object.entries({
+    m_import_unreviewed: [
+      ["IMPORT", "Imported from the previous system", 60],
+      ["NOTE", "Corrected legacy ID 607329885 after the import", 40],
+    ],
+    m_invited: [
+      ["IMPORT", "Imported from the previous system", 55],
+      ["NOTE", "Information reviewed", 30],
+      ["ACTIVATION_SENT", "Invitation sent to diego@local.test", 12],
+    ],
+    m_blocked: [
+      ["IMPORT", "Imported from the previous system", 55],
+      ["ACTIVATION_SENT", "Invitation sent — bounced", 21],
+      ["ACTIVATION_SENT", "Invitation resent — bounced", 14],
+    ],
+  } as Record<string, [string, string, number][]>)) {
+    for (const [type, message, daysAgo] of rows) {
+      await prisma.memberMigrationEvent.create({
+        data: { clubId, memberId, type, message, actorUserId: owner.id, createdAt: ago(daysAgo) },
+      });
+    }
+  }
+
+  // A staff note, so the Notes tab renders content rather than only an editor.
+  await prisma.member.update({
+    where: { id: "m_active" },
+    data: { notes: "Prefers the 6pm session. Mum handles all billing questions." },
+  });
+
   const total = await prisma.member.count({ where: { clubId } });
   const visible = await prisma.member.count({ where: { clubId, deletedAt: null, isHistoricalOnly: false } });
   console.log(`\nSeeded. members table rows: ${total} · roster-visible: ${visible}`);

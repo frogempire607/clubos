@@ -46,6 +46,29 @@ type Relationship = {
   other: { id: string; firstName: string; lastName: string; status: string };
 };
 
+/** §1c "Waivers & documents". `expired` is why a signed doc can still be missing. */
+type MemberDocument = {
+  id: string;
+  title: string;
+  type: string;
+  requiredAt: string[];
+  requiresGuardianSignature: boolean;
+  signedAt: string | null;
+  signerName: string | null;
+  relationship: string | null;
+  expiresAt: string | null;
+  expired: boolean;
+};
+
+/** §1c "Full migration activity" — MemberMigrationEvent, actor already resolved. */
+type MigrationEvent = {
+  id: string;
+  type: string;
+  message: string | null;
+  createdAt: string;
+  actor: string | null;
+};
+
 type MemberDetail = {
   id: string;
   firstName: string;
@@ -69,6 +92,9 @@ type MemberDetail = {
   attendanceRecords: { id: string; status: string; createdAt: string; classSession: { startsAt: string; recurringClass: { name: string } | null } | null }[];
   eventRegistrations: { id: string; status: string; amountDue: string | null; amountPaid: string | null; event: { id: string; name: string; startsAt: string } | null }[];
   relationships: Relationship[];
+  /** Every club document plus this member's signature state. See the API note. */
+  documents?: MemberDocument[];
+  migrationEvents?: MigrationEvent[];
   // Phase 4B — the access edges the profile never loaded. `relationships`
   // above are descriptive labels and grant nothing; `family` is the real thing.
   family?: FamilyPayload;
@@ -375,17 +401,27 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
       })),
   ];
 
+  // §1c — a required document that is unsigned OR past its validity window.
+  // Both block the same things, so both count as missing.
+  const missingDocs = (m.documents ?? []).filter(
+    (d) => d.requiredAt.length > 0 && (!d.signedAt || d.expired),
+  ).length;
+
   const tabCounts: Partial<Record<string, number>> = {
     memberships: m.subscriptions.length,
     family: (m.family?.guardians.length ?? 0) + (m.family?.managedAthletes.length ?? 0),
     attendance: m.attendanceRecords.length,
     payments: m.transactions.length,
     bookings: m.bookings.length + m.eventRegistrations.length,
+    documents: m.documents?.length ?? 0,
+    migration: m.migrationEvents?.length ?? 0,
   };
   // A red dot means someone has to do something, not merely that a tab is
-  // empty. Pending guardian requests are the case that was invisible before.
+  // empty. Pending guardian requests are the case that was invisible before;
+  // a missing waiver is the case the handoff names explicitly.
   const tabProblems: string[] = [
     (m.family?.pendingGuardianRequests.length ?? 0) > 0 ? "family" : null,
+    missingDocs > 0 ? "documents" : null,
   ].filter(Boolean) as string[];
 
   /** Show a card only on Overview and its own tab. */
@@ -715,6 +751,31 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             level on messages.analytics; a coach without the sub-scope
             gets a 403 and the card renders a permissive empty state. */}
         {on("messages") && <CommunicationsCard memberId={id} className="lg:col-span-2" />}
+
+        {/* ── Waivers & documents (4.5.3 right column, §1c) ───────────────
+            Was declared in PROFILE_TABS and handled nowhere: selecting
+            Documents rendered an empty grid. "N missing" counts unsigned AND
+            expired required documents — an expired waiver is exactly as
+            missing as one never signed, which is what signatureValidForDays
+            is for. */}
+        {on("documents") && (
+          <DocumentsCard documents={m.documents} memberName={m.firstName} />
+        )}
+
+        {/* ── Migration activity (4.5.3 left column footer link target) ──── */}
+        {on("migration") && (
+          <MigrationActivityCard events={m.migrationEvents} sourceLabel={m.sourceLabel ?? null} />
+        )}
+
+        {/* ── Staff notes (4.5.3 right column) — staff-only, attributed ──── */}
+        {on("notes") && (
+          <StaffNotesCard
+            memberId={m.id}
+            notes={m.notes}
+            canEdit={canEdit}
+            onSaved={load}
+          />
+        )}
       </div>
 
       {editingSub && (
@@ -827,6 +888,208 @@ function Card({ title, action, children, className = "" }: { title: string; acti
       </div>
       {children}
     </div>
+  );
+}
+
+// ── 4.5.3 — the three tabs that selected and showed nothing ────────────
+//
+// PROFILE_TABS has declared eleven tabs since session 2. The body's `on()`
+// helper handled eight of them, so Documents, Migration activity and Notes
+// each highlighted correctly and then rendered an empty grid — the failure
+// mode that reads as "the page is broken" rather than "this is empty".
+
+/**
+ * Waivers & documents (§1c right column).
+ *
+ * The handoff asks for `<N> missing` in #B91C1C plus a Request action. Missing
+ * means "required here and not covered", and a signature past its
+ * signatureValidForDays window is not covered — so an expired waiver counts,
+ * which is the case that actually blocks a check-in.
+ */
+function DocumentsCard({ documents, memberName }: { documents?: MemberDocument[]; memberName: string }) {
+  const docs = documents ?? [];
+  const required = docs.filter((d) => d.requiredAt.length > 0);
+  const missing = required.filter((d) => !d.signedAt || d.expired);
+
+  return (
+    <Card
+      title="Waivers &amp; documents"
+      className="lg:col-span-2"
+      action={
+        missing.length > 0 ? (
+          <span className="text-[12px] font-semibold" style={{ color: "#B91C1C" }}>
+            {missing.length} missing
+          </span>
+        ) : required.length > 0 ? (
+          <span className="text-[12px] text-text-muted">All required documents signed</span>
+        ) : null
+      }
+    >
+      {docs.length === 0 ? (
+        <p className="text-sm text-text-muted">
+          This club has no documents yet. Add one under Documents and it will appear here for every member.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {docs.map((d) => {
+            const isMissing = d.requiredAt.length > 0 && (!d.signedAt || d.expired);
+            return (
+              <div
+                key={d.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[13px]"
+                style={isMissing ? { background: "var(--color-danger-surface)" } : undefined}
+              >
+                <div className="min-w-0">
+                  <span className="text-text-primary">{d.title}</span>
+                  {d.requiredAt.length > 0 && (
+                    <span className="ml-2 text-[11px] uppercase tracking-wide text-text-muted">
+                      required · {d.requiredAt.join(", ").toLowerCase()}
+                    </span>
+                  )}
+                  <div className="text-[11.5px] text-text-muted">
+                    {d.signedAt
+                      ? d.expired
+                        ? `Signed ${fmtDate(d.signedAt)} by ${d.signerName ?? "—"} · expired ${fmtDate(d.expiresAt)}`
+                        : `Signed ${fmtDate(d.signedAt)} by ${d.signerName ?? "—"}${
+                            d.relationship === "GUARDIAN" ? " (guardian)" : ""
+                          }${d.expiresAt ? ` · valid to ${fmtDate(d.expiresAt)}` : ""}`
+                      : d.requiresGuardianSignature
+                        ? "Not signed — needs a guardian signature"
+                        : "Not signed"}
+                  </div>
+                </div>
+                {isMissing && (
+                  <Link
+                    href={`/dashboard/documents?document=${d.id}`}
+                    className="shrink-0 rounded-lg border border-app-border bg-surface px-2.5 py-1 text-[12px] text-text-primary transition-colors hover:bg-app-bg"
+                  >
+                    Request
+                  </Link>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {missing.length > 0 && (
+        <p className="mt-3 text-[11.5px] text-text-muted">
+          {memberName} can sign these from the member portal under Documents. Nothing here changes their membership or
+          billing.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Migration activity (§1c — the "Full migration activity →" destination).
+ *
+ * Same MemberMigrationEvent rows the 4.5.8 drawer reads. Every write on a
+ * migrating member is already attributed; this is the surface that shows it.
+ */
+function MigrationActivityCard({ events, sourceLabel }: { events?: MigrationEvent[]; sourceLabel: string | null }) {
+  const rows = events ?? [];
+  return (
+    <Card title="Migration activity" className="lg:col-span-2">
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-muted">
+          Nothing recorded yet. This log fills in as staff review, invite and activate someone
+          {sourceLabel ? ` who came over from ${sourceLabel}` : " who came over from your previous system"}.
+        </p>
+      ) : (
+        <ol className="space-y-2.5">
+          {rows.map((e) => (
+            <li key={e.id} className="flex gap-2.5 text-[13px]">
+              <span
+                aria-hidden
+                className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: "var(--color-muted)" }}
+              />
+              <div className="min-w-0">
+                <div className="text-text-primary">{e.message || e.type.replace(/_/g, " ").toLowerCase()}</div>
+                <div className="text-[11.5px] text-text-muted">
+                  {new Date(e.createdAt).toLocaleString("en-US", {
+                    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+                  })}
+                  {e.actor ? ` · ${e.actor}` : ""}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Staff notes (§1c right column) — staff-only, attributed.
+ *
+ * `Member.notes` already existed and was writable through PATCH; nothing on
+ * the profile ever showed it, so a note typed in the old member modal became
+ * invisible the moment the roster cut over.
+ */
+function StaffNotesCard({
+  memberId, notes, canEdit, onSaved,
+}: { memberId: string; notes: string | null; canEdit: boolean; onSaved: () => void }) {
+  const [draft, setDraft] = useState(notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const dirty = draft !== (notes ?? "");
+
+  // A reload (e.g. after saving) must not strand a stale draft on screen.
+  useEffect(() => { setDraft(notes ?? ""); }, [notes]);
+
+  const save = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/members/${memberId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: draft }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Could not save");
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card title="Staff notes" className="lg:col-span-2">
+      <p className="mb-2 text-[11.5px] text-text-muted">
+        Only staff can see this. Members and guardians never do.
+      </p>
+      {canEdit ? (
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={5}
+            placeholder="Anything the next person at the desk should know."
+            className="w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
+          />
+          {err && <p className="mt-1.5 text-[12px] text-red-600">{err}</p>}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={!dirty || saving}
+              className="inline-flex min-h-[38px] items-center rounded-lg bg-brand px-3 text-sm text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save notes"}
+            </button>
+            {dirty && !saving && <span className="text-[12px] text-text-muted">Unsaved changes</span>}
+          </div>
+        </>
+      ) : notes?.trim() ? (
+        <p className="whitespace-pre-wrap text-[14px] text-text-primary">{notes}</p>
+      ) : (
+        <p className="text-sm text-text-muted">No notes. You need Members · edit to add one.</p>
+      )}
+    </Card>
   );
 }
 

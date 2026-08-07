@@ -234,11 +234,109 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     console.error("[members/[id]] track derivation failed", e);
   }
 
+  // ── Phase 4.5.3 — the three tabs that had no data behind them ───────────
+  // PROFILE_TABS declared eleven tabs; the body handled eight. Documents,
+  // Migration activity and Notes selected and rendered an empty grid, because
+  // this endpoint never returned anything for them. Each block below is
+  // wrapped: a tab that cannot load its data degrades to an explanatory empty
+  // state, never to a blank page.
+
+  // Waivers & documents (§1c right column). "N missing" is the number the
+  // handoff asks for, so this needs the club's required documents as well as
+  // what this member has signed — a signature that has EXPIRED counts as
+  // missing, which is the whole point of signatureValidForDays.
+  let documents: {
+    id: string;
+    title: string;
+    type: string;
+    requiredAt: string[];
+    requiresGuardianSignature: boolean;
+    signedAt: string | null;
+    signerName: string | null;
+    relationship: string | null;
+    expiresAt: string | null;
+    expired: boolean;
+  }[] = [];
+  try {
+    const [clubDocs, sigs] = await Promise.all([
+      prisma.document.findMany({
+        where: { clubId: session.user.clubId, deletedAt: null },
+        orderBy: [{ required: "desc" }, { title: "asc" }],
+        select: {
+          id: true, title: true, type: true, requiredAt: true,
+          requiresGuardianSignature: true, signatureValidForDays: true,
+        },
+      }),
+      prisma.documentSignature.findMany({
+        where: { memberId: params.id },
+        select: {
+          documentId: true, signedAt: true, signerName: true, relationship: true,
+        },
+      }),
+    ]);
+    const sigByDoc = new Map(sigs.map((s) => [s.documentId, s]));
+    documents = clubDocs.map((d) => {
+      const sig = sigByDoc.get(d.id);
+      // A signature with a validity window expires; one without is permanent.
+      const expiresAt =
+        sig && d.signatureValidForDays != null
+          ? new Date(sig.signedAt.getTime() + d.signatureValidForDays * 86_400_000)
+          : null;
+      return {
+        id: d.id,
+        title: d.title,
+        type: d.type,
+        requiredAt: d.requiredAt,
+        requiresGuardianSignature: d.requiresGuardianSignature,
+        signedAt: sig ? sig.signedAt.toISOString() : null,
+        signerName: sig?.signerName ?? null,
+        relationship: sig?.relationship ?? null,
+        expiresAt: expiresAt ? expiresAt.toISOString() : null,
+        expired: !!expiresAt && expiresAt.getTime() < Date.now(),
+      };
+    });
+  } catch (e) {
+    console.error("[members/[id]] document load failed", e);
+  }
+
+  // Migration activity (§1c "Full migration activity"). The same
+  // MemberMigrationEvent rows the 4.5.8 drawer reads, resolved to actor names
+  // here so the profile does not have to make a second request.
+  let migrationEvents: {
+    id: string; type: string; message: string | null; createdAt: string; actor: string | null;
+  }[] = [];
+  try {
+    const evts = await prisma.memberMigrationEvent.findMany({
+      where: { memberId: params.id, clubId: session.user.clubId },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: { id: true, type: true, message: true, createdAt: true, actorUserId: true },
+    });
+    const ids = Array.from(new Set(evts.map((e) => e.actorUserId).filter((x): x is string => !!x)));
+    const users = ids.length
+      ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const nameById = new Map(
+      users.map((u) => [u.id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "staff"]),
+    );
+    migrationEvents = evts.map((e) => ({
+      id: e.id,
+      type: e.type,
+      message: e.message,
+      createdAt: e.createdAt.toISOString(),
+      actor: e.actorUserId ? nameById.get(e.actorUserId) ?? "staff" : null,
+    }));
+  } catch (e) {
+    console.error("[members/[id]] migration event load failed", e);
+  }
+
   return NextResponse.json({
     ...rest,
     relationships,
     family,
     familyMembers,
+    documents,
+    migrationEvents,
     passProcessingFees: _c.passProcessingFees,
     tracks: tracks?.tracks ?? null,
     nextAction: tracks?.nextAction ?? null,
