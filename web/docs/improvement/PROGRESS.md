@@ -684,7 +684,78 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 ---
 
-### Session D — QUEUED (Julian's local testing, 2026-08-05)
+### Session E — 2026-08-07 · Session D closed, the open routes built, the handoff audited
+
+**Branch `claude/phase-4-5-members-audit-1e73ba`, worktree
+`/Users/cubano/Desktop/clubos/web/.claude/worktrees/nifty-pasteur-1ecb47`.
+No migration created or modified. Not merged.**
+
+Full write-up: **`docs/improvement/PHASE-4.5-DELIVERABLE.md`**, which contains
+the element-by-element handoff audit (68 built · 13 partial · 16 missing) and
+the two decisions still waiting on Julian.
+
+#### The eleven tabs
+
+`PROFILE_TABS` declared eleven; the body handled eight. Documents, Migration
+activity and Notes selected and rendered an empty grid. Bookings and Messages
+were fine — verified in the browser. All three now have data behind them; the
+documents count treats an EXPIRED signature as missing, because it blocks a
+check-in exactly as hard as one never given.
+
+#### Session D
+
+| # | Outcome |
+|---|---|
+| D-1 | Detector keys moved to `lib/memberDuplicates.ts` and now skip a contact value equal to the same row's guardian contact — structural, so it survives the next import. `namedob:` untouched. Correction script `scripts/fix-guardian-contact-bleed.ts` is Julian's to run. |
+| D-2 | Not a dead button. On a refusal the message went to `msg`, which renders above the fold **underneath the modal's own overlay**. Errors raised in the modal now show in the modal. |
+| D-3 | All four counts from `workQueueCounts()`, built from the same `memberWhere()` clauses the click applies. |
+| D-4 | Edit drawer now covers everything PATCH accepts except birthday and password. |
+
+#### Open routes, all built
+
+Saved views (`/api/members/views`), triage (`PATCH /api/members/[id]/triage` —
+review/snooze, both columns were read and written by nothing), invitation
+deliveries (written on every send, address frozen), the Balance column
+(`PENDING` transactions only, VOID excluded).
+
+**Bounce ≠ ignore.** Both used to say "Fix email". For an ignore the address is
+fine, so that told staff to break the one working address they had. Now
+`Call <guardian>`, which §1j already specifies.
+
+**A banner button that sent email.** The next-action banner picked its handler
+from the action's PERMISSION, so "Review info" sent an invitation and "Fix
+email" sent one to the bouncing address. Maps by action kind now.
+
+#### 4.5.7 / 4.5.9 / 4.5.10
+
+- Deprecated vocabulary **removed from the UI**: the queue's Step column renders
+  the 7-step meter instead of the group + readiness chips, and the billing
+  centre's triage card keeps Final billing date + Note and loses the two
+  deprecated selects. Columns and PATCH fields all survive. **Guard 2: 8 → 0**,
+  now a hard fail rather than a ratchet.
+- Mobile measured (not eyeballed) per surface per width at 375/390/414/768/1280.
+  Header actions collapse behind `⋯` below `sm`; every members-surface target
+  reaches 44px through `lg`; zero horizontal overflow anywhere. Shared dashboard
+  chrome (topbar 40px, Back 20px) is under target on every page in the product —
+  flagged, not silently changed.
+- `MemberSubscriptionEvent` written on real transitions. Reports flips
+  ESTIMATED → COMPLETE **per club, only once BF-B has run** — an empty log reads
+  as "nothing ever happened".
+
+#### Still open
+
+| # | Item |
+|---|---|
+| E-1 | 16 missing handoff elements, clustered in §1h queue chrome, §1j mobile-native interactions (FAB, sticky bar, bottom sheet, walk-in flow) and §1k result states. Table in the deliverable. |
+| E-2 | Family collapse on the roster (§1a) — a 3-child family still costs 4 rows. |
+| E-3 | Four of the six `<select>`s (tags, gender, age, custom field) are still not in the Filters panel. |
+| E-4 | Person-type labels + whether Prospect is renamed — options and recommendations in the deliverable §7. |
+| E-5 | Default staff permissions — never raised with the owner. |
+| E-6 | Capacitor shell regression — responsive widths were tested in a browser, which is not the same thing. |
+
+---
+
+### Session D — CLOSED 2026-08-07 (Julian's local testing, 2026-08-05)
 
 Julian merged after session 3. He confirmed working: roster cutover, profile
 tabs, family switcher, and the ⋯ menu on lower rows. **Finding #1 (password
