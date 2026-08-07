@@ -100,6 +100,15 @@ type Counts = {
   midMigration: number;
 };
 
+/** A per-user saved filter set (§1e). `filters` is the roster's own query string. */
+type SavedView = {
+  id: string;
+  name: string;
+  filters: Record<string, string>;
+  sort: string | null;
+  scope: string;
+};
+
 /** The four §1a work-queue cards. See lib/membersQuery.ts workQueueCounts. */
 type WorkQueue = {
   neverInvited: number | null;
@@ -336,6 +345,60 @@ export default function MembersRoster({
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not resolve the selection");
     return (await r.json()).ids as string[];
   }, [params, selected, selectAllMatching]);
+
+  // ── Saved views (§1e) ───────────────────────────────────────────────────
+  // Per user, not per club — a view is somebody's working set. The filter is
+  // stored as the URL carries it, so applying one is just replaying its query
+  // string; see app/api/members/views/route.ts for why that shape was chosen.
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [savingView, setSavingView] = useState(false);
+  const loadViews = useCallback(() => {
+    fetch("/api/members/views?scope=MEMBERS")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setViews(d?.views ?? []))
+      .catch(() => setViews([]));
+  }, []);
+  useEffect(() => { loadViews(); }, [loadViews]);
+
+  const saveCurrentView = useCallback(async () => {
+    const name = window.prompt("Name this view");
+    if (!name?.trim()) return;
+    setSavingView(true);
+    try {
+      const r = await fetch("/api/members/views", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          scope: "MEMBERS",
+          filters: Object.fromEntries(params.entries()),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not save the view");
+      loadViews();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Could not save the view");
+    } finally {
+      setSavingView(false);
+    }
+  }, [params, loadViews]);
+
+  const applyView = useCallback(
+    (v: SavedView) => {
+      const next = new URLSearchParams(v.filters as Record<string, string>);
+      router.replace(next.toString() ? `?${next.toString()}` : "?", { scroll: false });
+    },
+    [router],
+  );
+
+  const deleteView = useCallback(
+    async (v: SavedView) => {
+      if (!window.confirm(`Delete the view "${v.name}"? This removes the shortcut, not any member.`)) return;
+      await fetch(`/api/members/views?id=${encodeURIComponent(v.id)}`, { method: "DELETE" });
+      loadViews();
+    },
+    [loadViews],
+  );
 
   const members = data?.members ?? [];
   const counts = data?.counts ?? null;
@@ -588,6 +651,35 @@ export default function MembersRoster({
 
       <WorkQueueStrip workQueue={data?.workQueue ?? null} active={q.queue} onPick={(k) => setQuery({ queue: k === q.queue ? null : k })} />
 
+      {/* Saved views. Hidden entirely until the staffer has saved one — an
+          empty row labelled "Your views" is noise on every other roster. */}
+      {views.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[12px] text-text-muted">Your views</span>
+          {views.map((v) => (
+            <span
+              key={v.id}
+              className="inline-flex items-center rounded-md text-[12px]"
+              style={{ background: "var(--color-chip-surface)" }}
+            >
+              <button
+                onClick={() => applyView(v)}
+                className="min-h-[32px] rounded-l-md py-1 pl-2.5 pr-1 text-text-primary transition-opacity hover:opacity-80"
+              >
+                {v.name}
+              </button>
+              <button
+                onClick={() => deleteView(v)}
+                aria-label={`Delete the view ${v.name}`}
+                className="flex min-h-[32px] min-w-[28px] items-center justify-center rounded-r-md text-text-muted transition-colors hover:text-text-primary"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-app-border bg-surface">
         {/* ── Toolbar ─────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3 border-b border-app-border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -682,10 +774,12 @@ export default function MembersRoster({
               Clear all
             </button>
             <button
-              className="ml-auto inline-flex items-center gap-1 text-[12px] text-text-muted hover:text-text-primary"
-              title="Saved views are stored per user (saved_member_views)"
+              onClick={saveCurrentView}
+              disabled={savingView}
+              className="ml-auto inline-flex items-center gap-1 text-[12px] text-text-muted transition-colors hover:text-text-primary disabled:opacity-60"
+              title="Save these filters as a shortcut. Views are yours alone."
             >
-              <Bookmark className="h-3.5 w-3.5" /> Save as view
+              <Bookmark className="h-3.5 w-3.5" /> {savingView ? "Saving…" : "Save as view"}
             </button>
           </div>
         )}

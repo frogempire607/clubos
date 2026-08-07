@@ -134,6 +134,31 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
 
 const REL_TYPES = ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "PARENT", "CHILD", "SPOUSE", "OTHER"];
 
+/**
+ * Which handler the next-action banner's primary button runs, keyed by the
+ * resolver's action KIND.
+ *
+ * This used to be inferred from the action's PERMISSION — billing → assign,
+ * everything else → resend. That is wrong for exactly the actions that matter
+ * most: REVIEW_INFO and FIX_EMAIL are both members:edit, and both would have
+ * sent an invitation, the second one to an address already known to bounce.
+ * A missing entry falls back to "resend", which is only correct for the invite
+ * kinds — so add new kinds here when the resolver grows one.
+ */
+const BANNER_ACTION: Record<string, string> = {
+  REVIEW_INFO: "review",
+  FIX_EMAIL: "edit",
+  ADD_CONTACT: "edit",
+  MAKE_CONTACT: "edit",
+  SEND_INVITATION: "resend",
+  RESEND_INVITE: "resend",
+  ASSIGN_MEMBERSHIP: "assign",
+  CONFIRM_MEMBERSHIP: "assign",
+  WIN_BACK: "assign",
+  COMPLETE_MIGRATION: "assign",
+  LEAVE_ALONE: "none",
+};
+
 function fmtDate(d: string | null) {
   return d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 }
@@ -322,6 +347,51 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           case "relationship":
             setTab("family");
             break;
+          case "edit":
+            setEditOpen(true);
+            break;
+          case "none":
+            break;
+          // The two triage writes. Both go through PATCH …/triage, which is
+          // also what stamps the attributed MemberMigrationEvent — see that
+          // route for why an unattributed "reviewed" tick is worse than none.
+          case "review": {
+            const r = await fetch(`/api/members/${mm.id}/triage`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "review" }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || "Could not mark this as reviewed");
+            setToast({
+              kind: "ok",
+              text: d.alreadyReviewed ? "Already marked reviewed." : "Marked as reviewed.",
+            });
+            load();
+            break;
+          }
+          case "snooze": {
+            const r = await fetch(`/api/members/${mm.id}/triage`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "snooze", days: 7 }),
+            });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not snooze");
+            setToast({ kind: "ok", text: `${mm.fullName.split(" ")[0]} is set aside for 7 days.` });
+            load();
+            break;
+          }
+          case "unsnooze": {
+            const r = await fetch(`/api/members/${mm.id}/triage`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "unsnooze" }),
+            });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not un-snooze");
+            setToast({ kind: "ok", text: "Back in the queue." });
+            load();
+            break;
+          }
           case "checkin":
             router.push(`/dashboard/attendance?member=${mm.id}`);
             break;
@@ -521,7 +591,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         </div>
       )}
 
-      {/* The next action, stated once, from the same resolver as the list. */}
+      {/* The next action, stated once, from the same resolver as the list.
+
+          The button used to pick its handler from the PERMISSION — billing went
+          to Assign membership, everything else to Resend invitation. So the
+          button labelled "Review info" sent an invitation email, and "Fix
+          email" sent one to the address that was already bouncing. Both are
+          members:edit, and neither is a send. It maps by action KIND now. */}
       {m.nextAction && m.nextAction.kind !== "NONE" && (
         <div className="mt-4">
           <NextActionBanner action={m.nextAction} memberName={m.firstName}>
@@ -530,12 +606,31 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
               allowed={m.nextAction.permission?.startsWith("billing") ? canBill : canEdit}
               requiredRoleLabel={m.nextAction.permission?.startsWith("billing") ? "Billing" : "Members"}
               onClick={() =>
-                onMenuAction(
-                  m.nextAction?.permission?.startsWith("billing") ? "assign" : "resend",
-                  { id: m.id, fullName: `${m.firstName} ${m.lastName}` },
-                )
+                onMenuAction(BANNER_ACTION[m.nextAction!.kind] ?? "resend", {
+                  id: m.id,
+                  fullName: `${m.firstName} ${m.lastName}`,
+                })
               }
             />
+            {/* §1c offers Snooze alongside the primary action whenever the ball
+                is in the club's court. A snoozed member keeps their real state
+                and simply stops asking — see nextAction(). */}
+            {canEdit && m.nextAction.waitingOn === "STAFF" && !m.nextAction.snoozed && (
+              <button
+                onClick={() => onMenuAction("snooze", { id: m.id, fullName: `${m.firstName} ${m.lastName}` })}
+                className="inline-flex min-h-[38px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg"
+              >
+                Snooze 7 days
+              </button>
+            )}
+            {canEdit && m.nextAction.snoozed && (
+              <button
+                onClick={() => onMenuAction("unsnooze", { id: m.id, fullName: `${m.firstName} ${m.lastName}` })}
+                className="inline-flex min-h-[38px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg"
+              >
+                Bring back now
+              </button>
+            )}
           </NextActionBanner>
         </div>
       )}
