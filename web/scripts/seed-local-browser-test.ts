@@ -337,6 +337,53 @@ async function main() {
     data: { notes: "Prefers the 6pm session. Mum handles all billing questions." },
   });
 
+  // ── Money owed, so the Balance column has all three of its states ───────
+  // A PENDING offline Transaction is "the amount due, never revenue" per the
+  // offline-payment rules. The VOID and SUCCEEDED rows below exist to prove
+  // the column excludes them — a written-off charge must not reappear as debt.
+  await prisma.transaction.create({
+    data: {
+      clubId, memberId: "m_active", amount: 175, type: "MEMBERSHIP", category: "memberships",
+      status: "PENDING", paymentSource: "CHECK", reconciliationStatus: "OFFLINE", manual: true,
+      description: "Competition Team — check due", createdAt: ago(65),
+    },
+  });
+  await prisma.transaction.create({
+    data: {
+      clubId, memberId: "m_active", amount: 40, type: "CLASS", category: "classes",
+      status: "PENDING", paymentSource: "CASH", reconciliationStatus: "VOID", manual: true,
+      description: "Written off — must NOT count toward balance", createdAt: ago(30),
+    },
+  });
+  await prisma.transaction.create({
+    data: {
+      clubId, memberId: "m_active", amount: 175, type: "MEMBERSHIP", category: "memberships",
+      status: "SUCCEEDED", paymentSource: "STRIPE", reconciliationStatus: "VERIFIED",
+      description: "Settled — must NOT count toward balance", createdAt: ago(95),
+    },
+  });
+
+  // ── Invitation deliveries, so Blocked can tell a bounce from an ignore ──
+  // Tomas bounced twice (address wrong → fix it); Diego was sent three and
+  // never opened one (address fine → phone the parent). The counter alone
+  // could not distinguish these, and they need opposite actions.
+  for (const [memberId, email, rows] of [
+    ["m_blocked", "bounce@local.test", [[21, true], [14, true]]],
+    ["m_invited", "diego@local.test", [[30, false], [20, false], [12, false]]],
+  ] as [string, string, [number, boolean][]][]) {
+    for (const [daysAgo, bounced] of rows) {
+      await prisma.memberInvitationDelivery.create({
+        data: {
+          clubId, memberId, sentToEmail: email, recipientKind: "SELF",
+          sentAt: ago(daysAgo), sentByUserId: owner.id, trigger: "STAFF", provider: "RESEND",
+          deliveredAt: bounced ? null : ago(daysAgo),
+          bouncedAt: bounced ? ago(daysAgo) : null,
+          bounceReason: bounced ? "mailbox does not exist" : null,
+        },
+      });
+    }
+  }
+
   const total = await prisma.member.count({ where: { clubId } });
   const visible = await prisma.member.count({ where: { clubId, deletedAt: null, isHistoricalOnly: false } });
   console.log(`\nSeeded. members table rows: ${total} · roster-visible: ${visible}`);

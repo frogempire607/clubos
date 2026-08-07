@@ -360,7 +360,10 @@ const CANONICAL: [string, MemberTrackInput, string][] = [
   ["migration complete, membership live", member({ migrationStatus: "COMPLETED", migrationCompletedAt: daysAgo(1), userId: "u1", subscriptions: [{ status: "active" }] }), ACTION_KIND.LEAVE_ALONE],
   ["bounced invitation", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), invitationBouncedCount: 1 }), ACTION_KIND.FIX_EMAIL],
   ["imported with no address at all", member({ migrationStatus: "IMPORTED" }), ACTION_KIND.ADD_CONTACT],
-  ["three sends, never opened", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(9), activationEmailSentAt: daysAgo(2), invitationSendCount: 3, invitationOpenedCount: 0 }), ACTION_KIND.FIX_EMAIL],
+  // A BOUNCE and an IGNORE are different problems with opposite fixes. Both
+  // used to render "Fix email"; for the ignore case the address is fine, so
+  // that told staff to break the one working address they had.
+  ["three sends, never opened", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(9), activationEmailSentAt: daysAgo(2), invitationSendCount: 3, invitationOpenedCount: 0 }), ACTION_KIND.CALL_GUARDIAN],
   ["a walk-in who trialled", member({ userId: "u2", hasAttendance: true }), ACTION_KIND.ASSIGN_MEMBERSHIP],
   ["an untouched lead", member(), ACTION_KIND.MAKE_CONTACT],
   ["a lapsed member", member({ status: "INACTIVE", userId: "u3", subscriptions: [{ status: "canceled", canceledAt: daysAgo(60) }] }), ACTION_KIND.WIN_BACK],
@@ -415,6 +418,29 @@ eq(
   "a BLOCKED member is still surfaced even when snoozed",
   nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationBouncedCount: 1, snoozedUntil: daysAhead(5) }), NOW).kind,
   ACTION_KIND.FIX_EMAIL,
+);
+
+// The bounce/ignore split, stated directly rather than only through CANONICAL.
+eq(
+  "a bounced address says fix the address",
+  nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationBouncedCount: 1, invitationSendCount: 3 }), NOW).kind,
+  ACTION_KIND.FIX_EMAIL,
+);
+eq(
+  "an ignored-but-delivered invitation says call, not fix",
+  nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationSendCount: 3, invitationOpenedCount: 0 }), NOW).kind,
+  ACTION_KIND.CALL_GUARDIAN,
+);
+check(
+  "the ignore case tells staff NOT to change a working address",
+  /will not help/.test(
+    nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationSendCount: 3, invitationOpenedCount: 0 }), NOW).detail ?? "",
+  ),
+);
+eq(
+  "calling a guardian is not an edit, so it needs only members:view",
+  nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationSendCount: 3, invitationOpenedCount: 0 }), NOW).permission,
+  "members:view",
 );
 
 group("§12 'Needs you' membership");

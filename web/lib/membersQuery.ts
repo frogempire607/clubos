@@ -30,6 +30,7 @@ import {
 import { membershipTrackFor, nextAction, rolesFor, type MemberTrackInput } from "@/lib/memberTracks";
 import { toTrackInput } from "@/lib/memberDisplay";
 import { duplicateKeysOf } from "@/lib/memberDuplicates";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
 
 /**
  * The four §1a work-queue cards. `duplicates` is nullable because it is the one
@@ -244,7 +245,7 @@ export type MemberListResult = {
 export async function buildTrackContext(memberIds: string[], now?: Date): Promise<MemberTrackContext> {
   if (memberIds.length === 0) return { now };
 
-  const [attendance, deliveries] = await Promise.all([
+  const [attendance, deliveries, owed] = await Promise.all([
     prisma.attendanceRecord.groupBy({
       by: ["memberId"],
       where: { memberId: { in: memberIds } },
@@ -264,7 +265,43 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
       },
       orderBy: { sentAt: "desc" },
     }),
+    // ── Balance owed (§1a Balance column) ────────────────────────────────
+    //
+    // The column has read "—" for everyone since it shipped, because nothing
+    // populated ctx.balanceByMember.
+    //
+    // "Owed" is deliberately narrow: a PENDING Transaction. That is exactly
+    // what the offline-payment rules in CLAUDE.md define as "the amount due,
+    // never revenue" — a cash/check/invoice record created at acceptance and
+    // flipped to SUCCEEDED when staff record the physical receipt. It is the
+    // one figure the club can act on at the desk.
+    //
+    // What is NOT counted, and why:
+    //   • SUCCEEDED / REFUNDED — settled, in either direction.
+    //   • VOID — a correction; counting it would resurrect money that was
+    //     explicitly written off (EXCLUDE_VOID exists for this).
+    //   • A future subscription renewal — not owed, just scheduled. Showing it
+    //     would put a balance against every active member in the club.
+    prisma.transaction.groupBy({
+      by: ["memberId"],
+      where: {
+        memberId: { in: memberIds },
+        status: "PENDING",
+        ...EXCLUDE_VOID,
+      },
+      _sum: { amount: true },
+    }),
   ]);
+
+  const balanceByMember = new Map<string, number>();
+  for (const t of owed) {
+    if (!t.memberId) continue;
+    const n = Number(t._sum.amount ?? 0);
+    // A zero or negative total is not a balance; leave it null so the column
+    // renders "—" rather than "$0.00", which reads as a fact rather than an
+    // absence.
+    if (n > 0) balanceByMember.set(t.memberId, n);
+  }
 
   const attendanceByMember = new Map<string, number>();
   for (const a of attendance) {
@@ -294,7 +331,7 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
     invitationsByMember.set(d.memberId, cur);
   }
 
-  return { attendanceByMember, invitationsByMember, now };
+  return { attendanceByMember, invitationsByMember, balanceByMember, now };
 }
 
 /**

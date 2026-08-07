@@ -148,6 +148,10 @@ const REL_TYPES = ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "PARENT", "CHILD",
 const BANNER_ACTION: Record<string, string> = {
   REVIEW_INFO: "review",
   FIX_EMAIL: "edit",
+  // Delivery worked and nobody read it — the address is fine. Opening the
+  // record is where the phone number is; sending again would burn a fourth
+  // invitation on an inbox that has ignored three.
+  CALL_GUARDIAN: "call",
   ADD_CONTACT: "edit",
   MAKE_CONTACT: "edit",
   SEND_INVITATION: "resend",
@@ -350,6 +354,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           case "edit":
             setEditOpen(true);
             break;
+          case "call": {
+            // tel: on the number we actually hold — the guardian's for a minor.
+            const num = (m?.isMinor ? m?.guardianPhone : m?.phone) || m?.phone || m?.guardianPhone;
+            if (num) window.location.href = `tel:${num.replace(/[^\d+]/g, "")}`;
+            else setToast({ kind: "err", text: "No phone number on file. Add one on the Personal info tab." });
+            break;
+          }
           case "none":
             break;
           // The two triage writes. Both go through PATCH …/triage, which is
@@ -412,7 +423,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         setToast({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
       }
     },
-    [load, openReset, router, setTab],
+    // `m` is read by the "call" branch for the phone number it dials.
+    [load, openReset, router, setTab, m],
   );
 
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
