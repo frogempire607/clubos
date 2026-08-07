@@ -1582,6 +1582,22 @@ Ordered from strongest existing coverage to weakest.
 - A new coach roster. `EventStaffAssignment` + `RecurringClass.assignedStaffIds` + `CompensationAssignment` already model coach↔event. Add ONE optional `Event.responsibleCoachUserId` scalar for "who owns approving this event"; if unset, any staff with `events:edit` can approve. Do not build a separate approver table.
 - A per-event "final invoice date". `Event.registrationDeadline`, `Event.autoChargeDate`, and `Event.startsAt` already give the escalation cron three natural anchors. The `EventRegistrationPolicy` block below picks which anchor each escalation uses; no new date columns needed on `Event`.
 
+### 5.0.1 Ownership boundary — what Phase 5 does NOT own
+
+Phase 5 shares `EventRegistration`, `bill-registrants`, the roster, and the Stripe Checkout call with other workstreams. The table below records who owns each concern **so Phase 5 does not re-spec it**. "Phase 5 obligation" is the only thing this phase must do about that row.
+
+| Concern | Owner | Status | Phase 5 obligation |
+|---|---|---|---|
+| **Event discount codes** — `EventRegistration.discount{Id,Code,Type,Value,Amount}`, `Discount.eventIds`, discount-aware `lib/eventRepricing`, code entry on `/e/[slug]` + member + staff paths, survival into `bill-registrants` and the Stripe session | **Event discount codes workstream** (branch `claude/event-discount-codes-*`; migration `20260807000000_event_discount_codes`) | Migration written 2026-08-07; implementation pending | **Do not re-spec, do not add a second discount surface, do not add discount columns.** Phase 5 consumes it in exactly two places: `RegistrationRenderContext.meta.discountLabel` (§5.2.2) reads `reg.discountCode`/`reg.discountAmount`, and the coach **propose-change** price-delta (§5.4.7) is computed on the **net** amount from `amountToCollect`, never on the event's list price. |
+| **What a registration owes today** — `amountToCollect` / `expectedAmount` / `planReprice` in `lib/eventRepricing.ts` | Event repricing (shipped 2026-08-03, Frog Empire fix) | Live; being extended to be discount-aware by the row above | Never read `Event.memberPrice`/`nonMemberPrice`/`publicFixedPrice` directly to decide what someone owes. Every Phase 5 surface — roster, confirmation page, reminder email, escalation cron, `APPROVAL_CHARGE` — resolves through `amountToCollect`. |
+| **Processing fee** — `lib/fees.ts` | Fees module | Live | Always compute the fee on the **discounted** amount (`amountToCollect`), never on the list price. `quotePayment` already does this; new Phase 5 charge paths must too. |
+| **One discount maximum** | `lib/discounts.ts` + `lib/staffPayments.resolveStaffDiscount` | Live — structural | Stacking is refused by construction (one nullable code per registration; the engine has no stacking configuration). Phase 5 must not introduce a second discount slot, a "sibling discount" field, or an additive adjustment on top of a code. A second discount **replaces** the first. |
+| **Owner-facing discount setup** | The existing discount admin (`/dashboard/memberships` → discount modal, `/api/discounts`) | Live; gains an `eventIds` checklist | Phase 5 adds **no** discount management UI anywhere in the event editor. Per-event scoping is a checklist on the existing Discount row. |
+| **Off-session charge engine** — `chargeEventRegistration`, per-reg idempotency key, PI recovery | `lib/eventAutoCharge.ts` | Live | §5.1's `APPROVAL_CHARGE` reuses it verbatim. It stamps discount identity onto the `Transaction` from the registration row (today it reads the `autoChargeConsent` JSON blob — the discount workstream moves that read to the real columns). |
+| **Offline settlement** — cash/check/terminal → one `Transaction` | `lib/eventOfflinePayments.settleEventRegistrationOffline` | Live | The cash prompt collects `amountDue` (net). Phase 5 must not compute its own "amount to collect at the door". |
+
+**The invariant this table exists to protect:** the roster's "owes" figure, the invoice preview, the Stripe line item, the cash/check prompt, and every Phase 5 confirmation surface and reminder email must all print the number one resolver produced. Any Phase 5 route that computes a price itself is a bug, regardless of whether a discount is involved.
+
 ---
 
 ## 5.1 The Stripe recommendation (read this before anything else)
