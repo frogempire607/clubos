@@ -684,6 +684,39 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 ---
 
+### Session F — 2026-08-07 · five from real use
+
+**Branch `claude/phase-4-5-members-audit-1e73ba`. No migration. Not merged.**
+
+| # | Reported | Outcome |
+|---|---|---|
+| 1 | **REGRESSION** — cannot email from the Members page | Phase 3A's composer was still MOUNTED; the roster cutover dropped the only thing that opened it (`setBulkEmailing` called with null in three places, a value in none). "Email selected" restored on the bulk bar, opening the same modal with the QUERY-SCOPED ids. Resolver, preview and send path untouched — they were already right. |
+| 2 | Need an explicit **Change login email** | `PATCH /api/members/[id]/login-email`, members:full. Rejects taken addresses — with a DISTINCT message when an archived login is holding the slot, because `users (clubId,email)` ignores `deletedAt` and a blind update would 500. Notifies old + new, writes an attributed MemberMigrationEvent. Account & security also names the contact/login mismatch instead of leaving it to be discovered. |
+| 3 | **D-1 gap** — Cameron still flags against his father | The column-only rule was not enough: his `guardianEmail` held a stale phantom while his own `members.email` held his father's real address. The skip now matches every address belonging to a CONFIRMED guardian link (login email + their own member contact), via `lib/guardianContacts.ts`, shared by the duplicates page and the roster count so they cannot disagree. PENDING links excluded — an unconfirmed link grants nothing. |
+| 4 | Engagement 0 opened / 0 clicked | Webhook VERIFIED end to end with Svix-signed payloads: bad signature 401, delivered/opened/opened-again/clicked all applied, first-open timestamp preserved while the counter increments. It will populate. One honest label fixed — `trackingCapable` only means "sent via Resend", not "tracking is on", so rows read "Delivered · not yet opened" when no open could ever arrive. If the club has never recorded a single open they now read "opens not being tracked". |
+| 5 | Edit drawer disappears | **Not Fast Refresh.** The drawer is a right-hand panel in a full-screen backdrop, so at 1280px the leftmost 720px — 56% of the window — silently closed it and discarded everything typed; Esc did the same. Backdrop/Esc/Cancel now confirm when dirty. Typing itself never unmounted anything (tested programmatic + real keystrokes across input, select and textarea). |
+
+#### Also found while there
+
+- **The profile page could blank an open drawer.** `load()` set `loading` on
+  every call and `loading` early-returns the whole page. Nothing reaches it
+  today; it would have the first time a background refresh landed mid-edit.
+  Only the first load may blank now.
+- **Local dev was reaching a real mail provider.** The worktree `.env` carries
+  production SMTP credentials, so a local test that triggered a send hit Resend
+  (which refused — test mode only allows the account owner's own address).
+  `scripts/dev-local.sh` now blanks `SMTP_HOST` and `RESEND_API_KEY`.
+
+#### Open after this session
+
+| # | Item |
+|---|---|
+| F-1 | **Accounts with no member row AND no confirmed guardian link cannot be emailed from the roster.** Confirmed guardians ARE reachable through their athletes (proven — two Lister children resolve to one guardian inbox). What is left is e.g. a co-parent whose link is still PENDING. Reaching them directly needs a guardian/account directory — a feature, not a regression fix, so it is flagged rather than invented. |
+| F-2 | **Resend open/click tracking needs TWO switches.** Enabling tracking on the domain is necessary but not sufficient — the webhook endpoint must also be SUBSCRIBED to `email.opened` and `email.clicked` in the Resend/Svix dashboard. Until both are on, no event is sent and the new label will keep (correctly) saying opens are not tracked. |
+| — | Everything in Session E's E-1…E-6 still stands. |
+
+---
+
 ### Session E — 2026-08-07 · Session D closed, the open routes built, the handoff audited
 
 **Branch `claude/phase-4-5-members-audit-1e73ba`, worktree
