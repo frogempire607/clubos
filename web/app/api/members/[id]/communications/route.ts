@@ -91,8 +91,37 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const eventById = new Map(events.map((e) => [e.id, e.name]));
   const membershipById = new Map(memberships.map((m) => [m.id, m.name]));
 
+  // ── Has this club EVER received an open event? ──────────────────────────
+  //
+  // `trackingCapable` above only says the send went through Resend. It does
+  // NOT say Resend's open/click tracking is switched on for the domain — that
+  // is a provider-side setting we cannot read from here. With tracking off,
+  // every row is "capable", no open event will ever arrive, and the UI happily
+  // reports "Delivered · not yet opened" for all of them. That is a confident
+  // claim the data does not support, and it is exactly what 21 delivered / 0
+  // opened looked like.
+  //
+  // One club-wide fact separates the two readings: if NOTHING has ever been
+  // recorded as opened, "not yet opened" is unwarranted and the UI should say
+  // it cannot tell. The moment a single open lands, the flag flips for good and
+  // per-row zeroes become meaningful again.
+  let clubHasEverTrackedAnOpen = false;
+  try {
+    const anyOpen = await prisma.emailSend.findFirst({
+      where: { clubId: session.user.clubId, openedAt: { not: null } },
+      select: { id: true },
+    });
+    clubHasEverTrackedAnOpen = !!anyOpen;
+  } catch (e) {
+    // Assume tracking works rather than plastering a caveat over a working
+    // club because one extra query failed.
+    console.error("[communications] open-tracking probe failed", e);
+    clubHasEverTrackedAnOpen = true;
+  }
+
   return NextResponse.json({
     memberId: member.id,
+    clubHasEverTrackedAnOpen,
     sends: rows.map((r) => ({
       id: r.id,
       kind: r.kind,

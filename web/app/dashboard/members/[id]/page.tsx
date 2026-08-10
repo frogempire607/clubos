@@ -1274,6 +1274,9 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [reader, setReader] = useState<CommSend | null>(null);
+  // Club-wide: has a single open event ever arrived? Separates "nobody has read
+  // it" from "we are not being told" — see the communications route.
+  const [clubTracksOpens, setClubTracksOpens] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -1289,6 +1292,7 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
         if (!r.ok) throw new Error((await r.json()).error ?? "Failed to load");
         const data = await r.json();
         setRows(data.sends);
+        setClubTracksOpens(data.clubHasEverTrackedAnOpen !== false);
       })
       .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)))
       .finally(() => alive && setLoading(false));
@@ -1323,7 +1327,7 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
                     </div>
                   </div>
                   <div className="flex-shrink-0 text-right">
-                    <DeliveryBadge row={r} />
+                    <DeliveryBadge row={r} clubTracksOpens={clubTracksOpens} />
                     <div className="text-[11px] text-text-muted mt-0.5">{fmtDate(r.sentAt ?? r.queuedAt)}</div>
                   </div>
                 </div>
@@ -1350,16 +1354,21 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
 //   deliveredAt set + not tracking-capable → "Delivered · open tracking unavailable"
 //   bouncedAt                           → "Bounced"    (red)
 //   FAILED / SKIPPED                    → reason       (red / orange)
-function DeliveryBadge({ row }: { row: CommSend }) {
+function DeliveryBadge({ row, clubTracksOpens }: { row: CommSend; clubTracksOpens: boolean }) {
   if (row.status === "FAILED") return <Pill tone="red">Failed</Pill>;
   if (row.status === "SKIPPED") return <Pill tone="orange">Skipped · {row.skippedReason ?? "unknown"}</Pill>;
   if (row.bouncedAt) return <Pill tone="red">Bounced</Pill>;
   if (row.clickedAt) return <Pill tone="lime">Clicked {row.clickCount > 1 ? `${row.clickCount}×` : ""}</Pill>;
   if (row.openedAt) return <Pill tone="lime">Opened {row.openCount > 1 ? `${row.openCount}×` : ""}</Pill>;
   if (row.deliveredAt) {
-    return row.trackingCapable
+    // "not yet opened" is only sayable when open events actually reach us. If
+    // this club has never recorded a single open, the provider's tracking is
+    // almost certainly off and a zero means "we cannot tell", not "nobody read
+    // it" — see the note in the communications route.
+    if (!row.trackingCapable) return <Pill tone="blue">Delivered · open tracking unavailable</Pill>;
+    return clubTracksOpens
       ? <Pill tone="blue">Delivered · not yet opened</Pill>
-      : <Pill tone="blue">Delivered · open tracking unavailable</Pill>;
+      : <Pill tone="blue">Delivered · opens not being tracked</Pill>;
   }
   if (row.status === "SENT") {
     // Provider accepted, no delivery callback yet. Resend may take a
