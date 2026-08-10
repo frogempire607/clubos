@@ -506,7 +506,7 @@ export default function MembersRoster({
 
   /** Bulk bar. Resolves the selection server-side first, always. */
   const onBulk = useCallback(
-    async (kind: "invite" | "resend" | "assign" | "message" | "tag") => {
+    async (kind: "invite" | "resend" | "assign" | "message" | "email" | "tag") => {
       try {
         setBusy(`bulk:${kind}`);
         const ids = await resolveIds();
@@ -516,6 +516,20 @@ export default function MembersRoster({
         }
         if (kind === "message") {
           setBulkMessaging(ids);
+          return;
+        }
+        // REGRESSION FIX. Phase 3A shipped "Email selected" on the members
+        // page — composer, recipient preview and household modes, all resolved
+        // by lib/emailRecipients.ts. The roster cutover kept BulkEmailModal
+        // mounted and dropped the only thing that opened it, so `bulkEmailing`
+        // was set to null in three places and to a value in none. The remaining
+        // path was Announcements, which can only reach people who have already
+        // been emailed.
+        //
+        // The ids are the QUERY-SCOPED resolution, so "Select all N matching"
+        // emails all N, not the page.
+        if (kind === "email") {
+          setBulkEmailing(ids);
           return;
         }
         if (kind === "assign") {
@@ -869,6 +883,7 @@ export default function MembersRoster({
               <BulkButton disabled={!canEdit} busy={busy === "bulk:resend"} label="Resend" onClick={() => onBulk("resend")} />
               <BulkButton disabled={!canBill} busy={busy === "bulk:assign"} label="Assign membership" onClick={() => onBulk("assign")} />
               <BulkButton disabled={!canEdit} busy={busy === "bulk:message"} label="Message" onClick={() => onBulk("message")} />
+              <BulkButton disabled={!canEdit} busy={busy === "bulk:email"} label="Email selected" onClick={() => onBulk("email")} />
             </div>
           </div>
         )}
