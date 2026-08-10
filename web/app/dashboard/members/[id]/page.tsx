@@ -313,6 +313,48 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     });
   }, [id]);
 
+  /**
+   * Change the address this member SIGNS IN with.
+   *
+   * A prompt rather than a drawer on purpose: this is a rare, deliberate
+   * reconciliation, and the confirm step below is what carries the weight —
+   * it names both addresses so the staffer reads what they are about to do.
+   * The server does the real validation (taken / archived-holder / no login).
+   */
+  const changeLoginEmail = useCallback(async () => {
+    const current = m?.user?.email ?? "";
+    const next = window.prompt(
+      `Change the sign-in email for ${m?.firstName ?? "this member"}.\n\n` +
+        `They currently sign in with ${current}.\n` +
+        `Both the old and the new address will be told, and the change is logged against you.`,
+      current,
+    );
+    if (!next || next.trim().toLowerCase() === current.toLowerCase()) return;
+    if (
+      !window.confirm(
+        `Move the sign-in email from\n\n  ${current}\n\nto\n\n  ${next.trim()}\n\n` +
+          `${current} will stop working as a login. No password is reset and nothing about their membership changes.`,
+      )
+    )
+      return;
+    try {
+      const r = await fetch(`/api/members/${id}/login-email`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: next.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not change the login email");
+      setToast({
+        kind: "ok",
+        text: d.unchanged ? "That is already their sign-in email." : `Sign-in email changed to ${d.email}. Both addresses were notified.`,
+      });
+      load();
+    } catch (e) {
+      setToast({ kind: "err", text: e instanceof Error ? e.message : "Could not change the login email" });
+    }
+  }, [id, m, load]);
+
   const saveEdit = useCallback(
     // `unknown` because customFieldValues travels as an object, not a string.
     async (patch: Record<string, unknown>) => {
@@ -459,6 +501,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   const isOwner = me?.role === "OWNER";
   const canEdit = isOwner || hasPermission(me?.permissions ?? null, "members", "edit");
   const canBill = isOwner || hasPermission(me?.permissions ?? null, "billing", "full");
+  // Moving a credential is a bigger action than editing a phone number, so it
+  // needs members:full rather than members:edit.
+  const canChangeLoginEmail = isOwner || hasPermission(me?.permissions ?? null, "members", "full");
   const staffName = me?.name || "you";
 
   // The header needs tracks. When derivation failed server-side the API sends
@@ -713,6 +758,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             guardianName={m.family?.guardians[0]?.name ?? null}
             canReset={canEdit && !!(m.user || m.family?.guardians.length)}
             onSendReset={openReset}
+            contactEmail={m.email}
+            canChangeLoginEmail={canChangeLoginEmail}
+            onChangeLoginEmail={changeLoginEmail}
           />
         )}
 
