@@ -519,6 +519,38 @@ check(
   keysA.keys.filter((k) => keysB.keys.includes(k)).length === 0,
 );
 
+// ── The Cameron shape: a STALE guardianEmail column ────────────────────────
+// The column-only rule was not enough. Cameron's guardianEmail held a phantom
+// address nobody uses, while his OWN email held his father's real one — so the
+// equality test never fired and he clustered with his dad. The confirmed
+// guardian LINKS are the live truth; the column is one field that goes stale.
+const staleGuardianCol = {
+  firstName: "Ivo", lastName: "Varga", dateOfBirth: new Date("2011-08-22"),
+  email: "hal.varga@x.com", phone: null,
+  guardianEmail: "old-hal@dead-domain.test", guardianPhone: null,
+};
+check(
+  "a stale guardianEmail column alone does NOT protect the child",
+  duplicateKeysOf(staleGuardianCol).keys.some((k) => k === "email:hal.varga@x.com"),
+);
+check(
+  "…but the confirmed guardian's real address does",
+  !duplicateKeysOf({ ...staleGuardianCol, guardianContacts: ["hal.varga@x.com"] })
+    .keys.some((k) => k.startsWith("email:")),
+);
+check(
+  "a guardian's PHONE from the links is skipped too",
+  !duplicateKeysOf({
+    ...staleGuardianCol, email: null, phone: "(555) 010-0199",
+    guardianContacts: ["555-010-0199"],
+  }).keys.some((k) => k.startsWith("phone:")),
+);
+check(
+  "an unrelated address in the guardian list changes nothing",
+  duplicateKeysOf({ ...staleGuardianCol, guardianContacts: ["someone.else@x.com"] })
+    .keys.some((k) => k === "email:hal.varga@x.com"),
+);
+
 // The keys that must still work, or the fix would have traded one bug for a worse one.
 const twinA = { ...sibA, email: "iris.own@x.com", guardianEmail: "kenji@x.com" };
 check(

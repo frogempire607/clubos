@@ -39,6 +39,29 @@ export type DuplicateKeyInput = {
   phone: string | null;
   guardianEmail: string | null;
   guardianPhone: string | null;
+  /**
+   * Every address that belongs to somebody who manages this member — the login
+   * email and the contact email/phone of each CONFIRMED guardian, plus the
+   * account-holder's.
+   *
+   * ── Why the guardianEmail column alone was not enough (D-1 follow-up) ─────
+   *
+   * The first fix skipped a contact key when it equalled the row's own
+   * `guardianEmail`. Cameron Lister still flagged against his father, because
+   * his `guardianEmail` is a stale address nobody uses while his `members.email`
+   * holds his dad's REAL one. Two different guardian addresses on one row, so
+   * the equality test never fired, and the shared-with-dad address became a
+   * duplicate key.
+   *
+   * `guardianEmail` is one owner-typed field that goes stale the moment a parent
+   * changes their address. The confirmed guardian LINKS are the live truth about
+   * who manages this athlete. Matching against all of them is what actually
+   * answers the question the rule is asking: "is this address evidence of a
+   * shared guardian rather than a shared person?"
+   *
+   * Empty is safe — the rule degrades to the guardianEmail/guardianPhone check.
+   */
+  guardianContacts?: (string | null)[];
 };
 
 const norm = (s: string | null) => (s ? s.trim().toLowerCase() : "");
@@ -56,10 +79,22 @@ export function duplicateKeysOf(m: DuplicateKeyInput): { keys: string[]; skipped
   const keys: string[] = [];
   const skipped: SkippedKeyReason[] = [];
 
-  // Email — but never when it is the guardian's address on this same row.
+  // Every address that belongs to somebody who manages this athlete. The
+  // guardianEmail/guardianPhone columns are included, but they are no longer
+  // the whole answer — see the note on `guardianContacts`.
+  const guardianEmails = new Set<string>();
+  const guardianPhones = new Set<string>();
+  for (const raw of [m.guardianEmail, m.guardianPhone, ...(m.guardianContacts ?? [])]) {
+    const e = norm(raw);
+    if (e && e.includes("@")) guardianEmails.add(e);
+    const p = digits(raw);
+    if (p.length >= 10) guardianPhones.add(p);
+  }
+
+  // Email — but never when it belongs to one of this athlete's guardians.
   const email = norm(m.email);
   if (email) {
-    if (email === norm(m.guardianEmail)) skipped.push({ field: "email", reason: "matches-guardian-contact" });
+    if (guardianEmails.has(email)) skipped.push({ field: "email", reason: "matches-guardian-contact" });
     else keys.push("email:" + email);
   }
 
@@ -76,7 +111,7 @@ export function duplicateKeysOf(m: DuplicateKeyInput): { keys: string[]; skipped
   // so a shared guardian phone number alone was enough to cluster them.
   const phone = digits(m.phone);
   if (phone.length >= 10 && last) {
-    if (phone === digits(m.guardianPhone)) skipped.push({ field: "phone", reason: "matches-guardian-contact" });
+    if (guardianPhones.has(phone)) skipped.push({ field: "phone", reason: "matches-guardian-contact" });
     else keys.push("phone:" + phone + "|" + last);
   }
 

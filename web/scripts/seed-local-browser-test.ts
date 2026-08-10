@@ -238,6 +238,43 @@ async function main() {
     });
   }
 
+  // 1b. The CAMERON SHAPE (D-1 follow-up). The child's own email holds his
+  //     father's REAL address, while his guardianEmail column holds a stale
+  //     phantom nobody uses. The column-only rule never fired, so the child
+  //     clustered with his father on `email:`. The father is a real adult member
+  //     with a login, so this is a parent<->child collision, not sibling<->sibling.
+  const dadUser = await prisma.user.create({
+    data: {
+      clubId, email: "hal.varga@local.test", passwordHash: hash,
+      firstName: "Hal", lastName: "Varga", role: "MEMBER",
+    },
+  });
+  await prisma.member.create({
+    data: {
+      id: "m_dad", clubId, firstName: "Hal", lastName: "Varga", status: "ACTIVE",
+      email: "hal.varga@local.test", userId: dadUser.id, joinedAt: ago(500),
+    },
+  });
+  await prisma.member.create({
+    data: {
+      id: "m_kid_stale_guardian", clubId, firstName: "Ivo", lastName: "Varga",
+      status: "ACTIVE", isMinor: true, dateOfBirth: new Date("2011-08-22"),
+      // His OWN email is his father's real address …
+      email: "hal.varga@local.test",
+      // … while the guardianEmail column is a stale address nobody reads.
+      guardianName: "Hal Varga", guardianEmail: "old-hal@dead-domain.test",
+      joinedAt: ago(320),
+    },
+  });
+  await prisma.memberGuardianUser.create({
+    data: {
+      clubId, userId: dadUser.id, memberId: "m_kid_stale_guardian",
+      relationship: "PARENT", status: "CONFIRMED", isPrimary: true,
+      source: "OWNER_VOUCHED", confirmedAt: ago(320),
+      canBook: true, canPay: true, canSignWaivers: true, canReceiveEmails: true,
+    },
+  });
+
   // 2. A GENUINE duplicate — same person entered twice. Same name + same DOB,
   //    which is the key the D-1 fix deliberately leaves intact. Neither has a
   //    login, so this pair is mergeable and Merge must actually work.

@@ -30,6 +30,7 @@ import {
 import { membershipTrackFor, nextAction, rolesFor, type MemberTrackInput } from "@/lib/memberTracks";
 import { toTrackInput } from "@/lib/memberDisplay";
 import { duplicateKeysOf } from "@/lib/memberDuplicates";
+import { loadGuardianContacts } from "@/lib/guardianContacts";
 import { EXCLUDE_VOID } from "@/lib/paymentSources";
 
 /**
@@ -391,9 +392,13 @@ async function countPossibleDuplicates(clubId: string): Promise<number | null> {
     },
   });
 
+  // Same guardian map the duplicates page uses, so the card's number and the
+  // list it opens cannot disagree.
+  const guardianContacts = await loadGuardianContacts(clubId, rows.map((r) => r.id));
+
   const byKey = new Map<string, string[]>();
   for (const m of rows) {
-    for (const k of duplicateKeysOf(m).keys) {
+    for (const k of duplicateKeysOf({ ...m, guardianContacts: guardianContacts.get(m.id) }).keys) {
       const list = byKey.get(k) ?? [];
       list.push(m.id);
       byKey.set(k, list);

@@ -35,7 +35,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { History, Lock, X } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 
@@ -161,13 +161,33 @@ export function EditMemberDrawer({
     }
   });
 
+  // ── Losing typed edits to a stray click ─────────────────────────────────
+  //
+  // Reported as "the edit drawer disappears when I try to edit a field", and
+  // reproduced: the drawer is a right-hand panel inside a full-screen backdrop,
+  // so at 1280px the leftmost 720px — 56% of the window — closes it. Reaching
+  // for a field and landing slightly wide discarded everything typed, with no
+  // warning and nothing to undo it. Esc did the same.
+  //
+  // Closing is still one click. It just asks first, and only when there is
+  // something to lose, so the common case (open, look, close) is unchanged.
+  const dirty =
+    TEXT_FIELDS.some((f) => (draft[f.key] ?? "") !== (((member as unknown as Record<string, string | null>)[f.key] ?? "") as string)) ||
+    photo !== (member.profileImageUrl ?? "") ||
+    JSON.stringify(custom) !== JSON.stringify((() => { try { return JSON.parse(member.customFieldValues || "{}"); } catch { return {}; } })());
+
+  const requestClose = useCallback(() => {
+    if (dirty && !window.confirm("Discard your unsaved changes to this member?")) return;
+    onClose();
+  }, [dirty, onClose]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") requestClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   const emailChanged = (draft.email || "") !== (member.email || "");
 
@@ -196,7 +216,7 @@ export function EditMemberDrawer({
   const age = member.dateOfBirth ? ageOf(member.dateOfBirth) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={requestClose} role="dialog" aria-modal="true">
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-surface md:max-w-[560px] md:rounded-l-[14px]"
@@ -210,7 +230,7 @@ export function EditMemberDrawer({
             </h2>
             <p className="text-[12.5px] text-text-muted">Corrections save straight away and are logged against you.</p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-app-bg">
+          <button onClick={requestClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-app-bg">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -338,7 +358,7 @@ export function EditMemberDrawer({
             Saved as <strong className="font-medium text-text-primary">{staffName}</strong> · logged to migration activity
           </span>
           <div className="flex gap-2">
-            <button onClick={onClose} className="min-h-[44px] flex-1 rounded-lg border border-app-border px-4 text-sm text-text-primary sm:min-h-[38px] sm:flex-none">
+            <button onClick={requestClose} className="min-h-[44px] flex-1 rounded-lg border border-app-border px-4 text-sm text-text-primary sm:min-h-[38px] sm:flex-none">
               Cancel
             </button>
             <button

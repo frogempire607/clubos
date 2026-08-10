@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
@@ -176,6 +176,10 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   const router = useRouter();
   const search = useSearchParams();
   const [m, setM] = useState<MemberDetail | null>(null);
+  // Read inside `load` without making it a dependency — otherwise every
+  // refetch would rebuild the callback and re-fire the effect that calls it.
+  const mRef = useRef<MemberDetail | null>(null);
+  useEffect(() => { mRef.current = m; }, [m]);
   const [loading, setLoading] = useState(true);
   const [editingSub, setEditingSub] = useState<Sub | null>(null);
   const [addingRel, setAddingRel] = useState(false);
@@ -226,8 +230,12 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     return () => clearTimeout(t);
   }, [toast]);
 
+  // `loading` blanks the WHOLE page (see the early return below), so a refetch
+  // while a drawer or dialog is open would unmount it mid-edit and throw away
+  // whatever the staffer had typed. Only the FIRST load is allowed to blank;
+  // every later refresh swaps the data underneath the rendered page.
   const load = useCallback(() => {
-    setLoading(true);
+    setLoading((prev) => prev || mRef.current == null);
     fetch(`/api/members/${id}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { setM(d); setLoading(false); });

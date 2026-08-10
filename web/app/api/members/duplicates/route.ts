@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { duplicateKeysOf } from "@/lib/memberDuplicates";
+import { loadGuardianContacts } from "@/lib/guardianContacts";
 
 // GET /api/members/duplicates
 //
@@ -13,16 +14,22 @@ import { duplicateKeysOf } from "@/lib/memberDuplicates";
 //
 // Matching is high-precision on purpose — false positives scare owners. Members
 // are clustered only when they share a STRONG signal:
-//   • same email, unless that email is the row's own guardianEmail
+//   • same email, unless it belongs to one of this athlete's guardians
 //   • same first+last name AND same date of birth
-//   • same phone AND same last name, unless that phone is the row's guardianPhone
+//   • same phone AND same last name, unless it belongs to one of their guardians
 //
-// The two "unless" clauses are the D-1 fix and are load-bearing. See the long
-// note in lib/memberDuplicates.ts: import copied guardian contact into children's
-// OWN email/phone columns for most live minors, so siblings collided on both
-// contact keys. A contact value equal to the same row's guardian contact is
-// evidence of a shared GUARDIAN, never of a shared PERSON — and that must hold
-// structurally, because the next import can reintroduce the same data shape.
+// The two "unless" clauses are load-bearing. See the long note in
+// lib/memberDuplicates.ts: import copied guardian contact into children's OWN
+// email/phone columns for most live minors, so siblings collided on both
+// contact keys. A contact value belonging to a guardian is evidence of a shared
+// GUARDIAN, never of a shared PERSON — and that must hold structurally, because
+// the next import can reintroduce the same data shape.
+//
+// "One of their guardians" means the CONFIRMED guardian links, not just the
+// guardianEmail column. The column is one owner-typed field that goes stale;
+// the links are the live truth. Cameron Lister still flagged against his father
+// under the column-only rule because his guardianEmail held a phantom address
+// while his own email held his father's real one.
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -44,7 +51,13 @@ export async function GET() {
   });
   type M = (typeof members)[number];
 
-  const keysOf = (m: M): string[] => duplicateKeysOf(m).keys;
+  // D-1 follow-up: the guardianEmail COLUMN is one owner-typed field that goes
+  // stale; the confirmed guardian LINKS are the live truth about who manages
+  // this athlete. Cameron's column held a phantom address while his own email
+  // held his father's real one, so the column-only check never fired.
+  const guardianContacts = await loadGuardianContacts(clubId, members.map((m) => m.id));
+  const keysOf = (m: M): string[] =>
+    duplicateKeysOf({ ...m, guardianContacts: guardianContacts.get(m.id) }).keys;
 
   // Union-find: merge any two members that share a strong key.
   const parent = new Map<string, string>();
