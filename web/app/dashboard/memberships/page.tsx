@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Ticket } from "lucide-react";
+import BulkPriceChangeModal from "@/components/BulkPriceChangeModal";
 
 type BillingPeriod = "WEEKLY" | "MONTHLY" | "QUADRIMESTRAL" | "QUARTERLY" | "SEMI_ANNUAL" | "ANNUAL" | "ONE_TIME";
 
@@ -467,11 +468,30 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
   const [trialDays, setTrialDays] = useState(membership?.trialDays ? String(membership.trialDays) : "14");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Which option (by index) the "who's on this price" review screen is open
+  // for. Review is read-only and available only when editing an existing plan
+  // — a plan being created has no subscribers to review.
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
 
   function updateOption(i: number, key: keyof Option, value: any) {
     const copy = [...options];
     (copy[i] as any)[key] = value;
     setOptions(copy);
+  }
+
+  // The price this option had when the modal opened — the figure existing
+  // subscribers were signed up against. Editing the input changes the plan's
+  // FUTURE price; it does not touch anybody's `member_subscriptions.price`,
+  // which is the whole reason the review screen exists.
+  function originalPriceFor(i: number): number | null {
+    const o = initialOptions[i];
+    return o ? Number(o.price) : null;
+  }
+  function priceChangedFor(i: number): boolean {
+    const before = originalPriceFor(i);
+    if (before == null) return false;
+    const after = Number(options[i]?.price);
+    return Number.isFinite(after) && after !== before;
   }
   function addOption() { setOptions([...options, { label: "", price: 0, billingPeriod: "MONTHLY" }]); }
   function removeOption(i: number) { setOptions(options.filter((_, idx) => idx !== i)); }
@@ -511,6 +531,7 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
   }
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
@@ -642,6 +663,25 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
                       <option value="ONE_TIME">One-time payment</option>
                     </select>
                   </div>
+
+                  {/* Existing subscribers keep their own price — editing this
+                      field changes the price list only. The review screen is
+                      how the owner sees who that leaves behind. */}
+                  {isEdit && priceChangedFor(i) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                      <span className="text-xs text-amber-900">
+                        Existing members stay on {`$${(originalPriceFor(i) ?? 0).toFixed(2)}`} — saving changes the
+                        price list only.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReviewIndex(i)}
+                        className="text-xs font-medium text-brand hover:underline"
+                      >
+                        Review members on this price
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
               <button type="button" onClick={addOption} className="text-xs text-text-muted hover:text-text-primary">+ Add another option</button>
@@ -659,6 +699,21 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
         </form>
       </div>
     </div>
+
+    {/* Read-only review of who currently sits on the option being repriced.
+        The label the modal sends is the ORIGINAL one — renaming the option and
+        changing its price in the same edit must still look up the option that
+        exists on the saved plan, not the unsaved one. */}
+    {isEdit && reviewIndex !== null && initialOptions[reviewIndex] && (
+      <BulkPriceChangeModal
+        membershipId={membership!.id}
+        optionLabel={initialOptions[reviewIndex].label}
+        billingPeriod={initialOptions[reviewIndex].billingPeriod}
+        newPrice={Number(options[reviewIndex]?.price) || 0}
+        onClose={() => setReviewIndex(null)}
+      />
+    )}
+    </>
   );
 }
 
