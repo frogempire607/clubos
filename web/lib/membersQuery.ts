@@ -19,6 +19,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { groupDuplicates } from "@/lib/memberDuplicates";
 import {
   MEMBER_TRACK_SELECT,
   countsFrom,
@@ -146,17 +147,39 @@ export function memberWhere(clubId: string, f: MemberListFilters): Prisma.Member
 
   // Work-queue cards. Each is a saved filter that also arms a bulk action, so
   // the set it selects has to be exactly the set the action will operate on.
-  if (f.queue === "neverInvited") {
-    and.push({ migrationStatus: { not: null }, activationEmailSentAt: null });
-  } else if (f.queue === "blocked") {
-    and.push({ blockedReason: { not: null } });
-  } else if (f.queue === "missingContact") {
-    and.push({ email: null, guardianEmail: null, phone: null, guardianPhone: null });
-  }
+  const queueClause = f.queue ? QUEUE_CLAUSES[f.queue] : null;
+  if (queueClause) and.push(queueClause);
 
   if (and.length) where.AND = and;
   return where;
 }
+
+/**
+ * The three SQL-expressible work-queue predicates, defined ONCE.
+ *
+ * D-3: the strip rendered a real number for one card and a literal em-dash for
+ * the other three, and even the one number was `midMigration` borrowed from the
+ * segment counts rather than a count of never-invited people. So the card said
+ * one thing and the list it opened said another.
+ *
+ * Counting these with hand-written clauses would have reproduced that gap in a
+ * new place, so the card counts and the filter both read this map. Change a
+ * predicate and both move together, by construction.
+ */
+export const QUEUE_CLAUSES: Record<
+  Exclude<MemberListFilters["queue"], null>,
+  Prisma.MemberWhereInput
+> = {
+  // Someone the club imported and has never once written to. Not "no
+  // invitation recorded" in general — a manually-added walk-in was never
+  // supposed to get one, and putting them in this queue makes the number
+  // un-actionable.
+  neverInvited: { migrationStatus: { not: null }, activationEmailSentAt: null },
+  blocked: { blockedReason: { not: null } },
+  // Nothing to reach them on, theirs or a guardian's. Any one channel is enough
+  // to not be in this queue.
+  missingContact: { email: null, guardianEmail: null, phone: null, guardianPhone: null },
+};
 
 const ORDER_BY: Record<MemberListFilters["sort"], Prisma.MemberOrderByWithRelationInput[]> = {
   // "Last seen" has no single column — the closest true fact is the linked
@@ -219,6 +242,15 @@ export type MemberListResult = {
    * staff" and "imported as history" are different answers to the same question.
    */
   excluded: { archived: number; historical: number };
+  /**
+   * The work-queue strip's four numbers (D-3).
+   *
+   * Counted against the same base `where` a staffer would see with no filters —
+   * so clicking a card lands on exactly the rows it counted — and null past
+   * COUNT_CAP, matching `counts`. A wrong number here sends staff to chase work
+   * that isn't there; no number at all is the honest answer at that scale.
+   */
+  queueCounts: { neverInvited: number; blocked: number; missingContact: number; duplicates: number } | null;
 };
 
 /**
@@ -309,6 +341,8 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
   // that honest at scale.
   const capped = total > COUNT_CAP;
 
+  const queueCounts = capped ? null : await countQueues(clubId, f);
+
   if (!capped) {
     const all = await prisma.member.findMany({
       where,
@@ -337,6 +371,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
       counts,
       countsCapped: false,
       excluded: { archived, historical },
+      queueCounts,
     };
   }
 
@@ -365,7 +400,50 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
     counts: null,
     countsCapped: true,
     excluded: { archived, historical },
+    queueCounts,
   };
+}
+
+/**
+ * The four work-queue numbers.
+ *
+ * Search and the other chips are deliberately excluded from the base: the strip
+ * answers "what needs doing in this club", and having it shrink as someone
+ * types in the search box would make it useless as a to-do list. Only the queue
+ * clause itself varies per card.
+ */
+async function countQueues(clubId: string, f: MemberListFilters) {
+  const base = memberWhere(clubId, { ...f, queue: null, search: "", tag: "", gender: "" });
+  const [neverInvited, blocked, missingContact, duplicates] = await Promise.all([
+    prisma.member.count({ where: { AND: [base, QUEUE_CLAUSES.neverInvited] } }),
+    prisma.member.count({ where: { AND: [base, QUEUE_CLAUSES.blocked] } }),
+    prisma.member.count({ where: { AND: [base, QUEUE_CLAUSES.missingContact] } }),
+    countDuplicateGroups(clubId),
+  ]);
+  return { neverInvited, blocked, missingContact, duplicates };
+}
+
+/**
+ * How many duplicate GROUPS exist — the same number `/api/members/duplicates`
+ * would show, because it runs the same `groupDuplicates`.
+ *
+ * Groups, not rows: "9 possible duplicates" means nine decisions to make, which
+ * is what an owner is budgeting time against. Counting rows would say 18 for
+ * the same nine pairs.
+ *
+ * Note the `where` deliberately matches the duplicates route (`deletedAt: null`,
+ * no `isHistoricalOnly` filter) rather than the roster's — the card links to
+ * that page, and the two must agree with each other.
+ */
+async function countDuplicateGroups(clubId: string): Promise<number> {
+  const rows = await prisma.member.findMany({
+    where: { clubId, deletedAt: null },
+    select: {
+      id: true, firstName: true, lastName: true, dateOfBirth: true,
+      email: true, phone: true, guardianEmail: true, guardianPhone: true,
+    },
+  });
+  return groupDuplicates(rows).length;
 }
 
 /**

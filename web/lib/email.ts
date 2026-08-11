@@ -153,6 +153,74 @@ export async function sendPasswordResetEmail({
   });
 }
 
+// Sign-in address changed by club staff (session 4, D-0).
+//
+// Sent to BOTH the old and the new address, deliberately. The old address is
+// the only channel the person still controls if this was a mistake or an abuse
+// of staff access — telling only the new one would make a takeover silent. The
+// old-address copy therefore names the club and the new address; the
+// new-address copy confirms the change and points at sign-in.
+export async function sendLoginEmailChangedEmail({
+  to,
+  audience,
+  firstName,
+  clubName,
+  oldEmail,
+  newEmail,
+  changedBy,
+  loginUrl,
+}: {
+  to: string;
+  audience: "old" | "new";
+  firstName: string;
+  clubName: string;
+  oldEmail: string;
+  newEmail: string;
+  changedBy: string;
+  loginUrl: string;
+}) {
+  const isOld = audience === "old";
+  await sendEmail({
+    to,
+    subject: isOld
+      ? `Your sign-in email for ${clubName} was changed`
+      : `You now sign in to ${clubName} with this email`,
+    html: baseLayout(`
+      <h2 style="color:#1c1917;margin:0 0 8px">
+        ${isOld ? "Your sign-in email was changed" : "This is now your sign-in email"}
+      </h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 4px">Hi ${firstName},</p>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        ${changedBy} at <strong>${clubName}</strong> updated the email address used to sign in to the
+        member portal.
+      </p>
+      <table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px">
+        <tr>
+          <td style="color:#a8a29e;padding:6px 0;width:110px">Previously</td>
+          <td style="color:#57534e;padding:6px 0"><s>${oldEmail}</s></td>
+        </tr>
+        <tr>
+          <td style="color:#a8a29e;padding:6px 0">Now</td>
+          <td style="color:#1c1917;padding:6px 0;font-weight:600">${newEmail}</td>
+        </tr>
+      </table>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 20px">
+        Your password has not changed${isOld ? ", and nothing about your membership, bookings or payments has changed" : ""}.
+      </p>
+      <a href="${loginUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        Go to sign in
+      </a>
+      <p style="color:#a8a29e;font-size:13px;margin:20px 0 0">
+        ${
+          isOld
+            ? "If you did not expect this, contact your club straight away — this message was sent to your previous address so you would hear about it either way."
+            : "If you were not expecting this, contact your club."
+        }
+      </p>
+    `),
+  });
+}
+
 // Emailed COPPA consent link. Sent to a minor's parent/guardian so they can
 // review and record their explicit consent before the child's account is used.
 export async function sendGuardianConsentRequestEmail({

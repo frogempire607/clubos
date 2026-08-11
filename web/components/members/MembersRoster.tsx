@@ -100,6 +100,14 @@ type Counts = {
   midMigration: number;
 };
 
+/** The work-queue strip's four numbers. Null past COUNT_CAP. */
+type QueueCounts = {
+  neverInvited: number;
+  blocked: number;
+  missingContact: number;
+  duplicates: number;
+};
+
 type Payload = {
   members: RosterMember[];
   pagination: { total: number; page: number; pageSize: number; pages: number };
@@ -107,6 +115,7 @@ type Payload = {
   countsCapped: boolean;
   /** Rows the roster deliberately never shows — see MemberListResult. */
   excluded?: { archived: number; historical: number };
+  queueCounts?: QueueCounts | null;
 };
 
 const PERSON_TYPES: { key: string; label: string; countKey: keyof Counts }[] = [
@@ -330,6 +339,7 @@ export default function MembersRoster({
 
   const members = data?.members ?? [];
   const counts = data?.counts ?? null;
+  const queueCounts = data?.queueCounts ?? null;
   const total = data?.pagination.total ?? 0;
   const archived = data?.excluded?.archived ?? 0;
   const historical = data?.excluded?.historical ?? 0;
@@ -577,7 +587,11 @@ export default function MembersRoster({
         </div>
       )}
 
-      <WorkQueueStrip counts={counts} active={q.queue} onPick={(k) => setQuery({ queue: k === q.queue ? null : k })} />
+      <WorkQueueStrip
+        queueCounts={queueCounts}
+        active={q.queue}
+        onPick={(k) => setQuery({ queue: k === q.queue ? null : k })}
+      />
 
       <div className="overflow-hidden rounded-xl border border-app-border bg-surface">
         {/* ── Toolbar ─────────────────────────────────────────────────── */}
@@ -1039,17 +1053,28 @@ function PersonCell({ m }: { m: RosterMember }) {
 }
 
 function WorkQueueStrip({
-  counts,
+  queueCounts,
   active,
   onPick,
 }: {
-  counts: Counts | null;
+  queueCounts: QueueCounts | null;
   active: string;
   onPick: (key: string) => void;
 }) {
   // Each card is a saved filter that also arms the matching bulk action — not a
-  // statistic. The counts shown are the roster's own segment counts; the exact
-  // per-queue numbers come from the server when the card is clicked.
+  // statistic.
+  //
+  // D-3: three of these rendered a literal em-dash and the fourth borrowed
+  // `midMigration` from the segment counts, so the one number on screen was not
+  // even a count of never-invited people. All four now come from the server,
+  // derived from the SAME predicates the filter uses (`QUEUE_CLAUSES`), so a
+  // card and the list it opens cannot disagree. The duplicates count runs the
+  // same `groupDuplicates` as the duplicates page and counts GROUPS — nine
+  // decisions to make, not eighteen rows.
+  //
+  // Past COUNT_CAP the server sends null and the cards render an em-dash again.
+  // That is deliberate: at that scale the honest answer is "not counted here",
+  // never a number that is quietly wrong.
   const cards = [
     { key: "neverInvited", label: "never invited", accent: "var(--color-orange-accent)", action: "Send invitations" },
     { key: "blocked", label: "blocked", accent: "#DC2626", action: "Fix contact details" },
@@ -1065,7 +1090,7 @@ function WorkQueueStrip({
         const body = (
           <>
             <div className="text-[22px] font-semibold leading-none tabular-nums text-text-primary">
-              {counts && c.key === "neverInvited" ? counts.midMigration.toLocaleString() : "—"}
+              {queueCounts ? queueCounts[c.key as keyof QueueCounts].toLocaleString() : "—"}
             </div>
             <div className="mt-1 text-[12.5px] text-text-primary">{c.label}</div>
             <div className="mt-1 text-[12px] font-medium" style={{ color: "var(--color-prospect-text)" }}>

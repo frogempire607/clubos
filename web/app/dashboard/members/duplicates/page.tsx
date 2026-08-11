@@ -96,6 +96,13 @@ export default function DuplicatesPage() {
   // survives. Nothing merges until the owner confirms inside the modal.
   const [preview, setPreview] = useState<{ winner: DupMember; loser: DupMember } | null>(null);
   const [choices, setChoices] = useState<Record<string, "winner" | "loser">>({});
+  // Session 4, D-2. The merge API was answering correctly the whole time — a
+  // 409 with a readable reason — but `msg` renders at the TOP OF THE PAGE, so
+  // with the modal open the operator got a dimmed backdrop, an unchanged
+  // button, and an explanation they could not see. Reproduced in a browser
+  // against a real database before anything here changed. Merge errors now
+  // render inside the modal, next to the button that produced them.
+  const [mergeError, setMergeError] = useState("");
 
   function openPreview(winner: DupMember, loser: DupMember) {
     // Default per differing field: keep the survivor's value; fall back to the
@@ -108,6 +115,7 @@ export default function DuplicatesPage() {
       defaults[f.label] = w ? "winner" : "loser";
     }
     setChoices(defaults);
+    setMergeError("");
     setPreview({ winner, loser });
   }
 
@@ -120,7 +128,7 @@ export default function DuplicatesPage() {
     for (const f of PREVIEW_FIELDS) {
       if (choices[f.label] === "loser") for (const k of f.keys) fields[k] = "loser";
     }
-    setBusy(loser.id); setMsg("");
+    setBusy(loser.id); setMsg(""); setMergeError("");
     try {
       const res = await fetch("/api/members/merge", {
         method: "POST",
@@ -128,13 +136,19 @@ export default function DuplicatesPage() {
         body: JSON.stringify({ winnerId: winner.id, loserId: loser.id, fields }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(d.error || "Merge failed."); setBusy(null); return; }
+      if (!res.ok) {
+        // Stay on the modal and say why, right here. Anything that lands on the
+        // page banner while the modal is open is invisible.
+        setMergeError(d.error || `Merge failed (${res.status}).`);
+        setBusy(null);
+        return;
+      }
       setMsg(`Merged ${loser.name} into ${winner.name}.`);
       setBusy(null);
       setPreview(null);
       load();
     } catch {
-      setMsg("Merge failed — please try again.");
+      setMergeError("Couldn't reach the server. Check your connection and try again.");
       setBusy(null);
     }
   }
@@ -288,6 +302,7 @@ export default function DuplicatesPage() {
           .map((f) => ({ f, w: fieldDisplay(f, winner), l: fieldDisplay(f, loser) }))
           .filter((r) => r.w !== r.l);
         const c = loser.counts;
+        const bothHaveLogin = winner.hasLogin && loser.hasLogin;
         return (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => { if (!busy) setPreview(null); }}>
             <div
@@ -347,18 +362,44 @@ export default function DuplicatesPage() {
                 </div>
               )}
 
-              <div className="flex gap-2 justify-end mt-5">
+              {/* Two logins is a precondition the server enforces, so say it
+                  BEFORE the click rather than after. Previously this only
+                  surfaced as an invisible 409. */}
+              {bothHaveLogin && (
+                <div
+                  className="mt-4 rounded-lg border p-3 text-[12.5px]"
+                  style={{ background: "var(--color-warn-surface)", borderColor: "var(--color-warn-border)", color: "var(--color-warn-text)" }}
+                >
+                  <strong className="font-semibold">Both records have their own portal login.</strong>{" "}
+                  Merging would decide which person keeps access, so it&apos;s blocked. Open{" "}
+                  <Link href={`/dashboard/members/${loser.id}`} className="underline">{loser.name}</Link>{" "}
+                  and archive that record — it releases the login — then merge.
+                </div>
+              )}
+
+              {mergeError && (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-lg border p-3 text-[12.5px]"
+                  style={{ background: "var(--color-danger-surface)", borderColor: "var(--color-danger-border)", color: "var(--color-danger-text)" }}
+                >
+                  {mergeError}
+                </div>
+              )}
+
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end mt-5">
                 <button
                   onClick={() => setPreview(null)}
                   disabled={busy === loser.id}
-                  className="text-sm px-4 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+                  className="text-sm px-4 py-2 min-h-[44px] sm:min-h-0 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmMerge}
-                  disabled={busy === loser.id}
-                  className="text-sm px-4 py-2 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
+                  disabled={busy === loser.id || bothHaveLogin}
+                  title={bothHaveLogin ? "Archive one of the two logins first." : undefined}
+                  className="text-sm px-4 py-2 min-h-[44px] sm:min-h-0 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {busy === loser.id ? "Merging…" : "Confirm merge"}
                 </button>

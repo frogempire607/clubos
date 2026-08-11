@@ -13,6 +13,8 @@ import { resolveIsMinor } from "@/lib/parentalConsent";
 import { loadFamilyForMember } from "@/lib/familyAccess";
 import { MEMBER_TRACK_SELECT, serializeMemberForList, type SerializedMember } from "@/lib/memberDisplay";
 import { buildTrackContext, loadSourceLabels } from "@/lib/membersQuery";
+import { sendLoginEmailChangedEmail } from "@/lib/email";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -111,6 +113,16 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       // login exists, which address it signs in with, and when it was last
       // used. Scalars only: never the password hash, never the reset token.
       user: { select: { id: true, email: true, lastLoginAt: true } },
+      // Session 4 — the Migration activity tab rendered nothing. The rows have
+      // existed all along (every mutation on a migrating member writes one) and
+      // `/api/members/migration/[id]` already returns them, but the profile
+      // never asked and this payload never carried them. Capped at 50: this is
+      // an activity feed, not an export.
+      migrationEvents: {
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { id: true, type: true, message: true, createdAt: true, actorUserId: true },
+      },
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -303,6 +315,77 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       return NextResponse.json({ error: contactError }, { status: 400 });
     }
 
+    // ── D-0: an email edit moves the LOGIN too, but only when the member owns
+    // that login (session 4) ─────────────────────────────────────────────────
+    //
+    // Julian: "When I change a member's email it should become their email
+    // everywhere, including their login. But not blindly: if the account is
+    // held by a guardian, editing the child's contact email must NOT move the
+    // guardian's login."
+    //
+    // `Member.userId` is the member's OWN portal login and nothing else. A
+    // guardian reaches a child through `MemberGuardianUser`, never through the
+    // child's `userId` (CLAUDE.md — pointing a minor's userId at the guardian
+    // inverts parental controls and hides siblings). So `member.userId` is
+    // exactly the right test: set means "this address is their sign-in", null
+    // means the account is held by somebody else and `members.email` is a
+    // contact field only.
+    //
+    // Session 3 established the previous behaviour: a contact edit wrote
+    // `members.email` alone and never touched `users.email`. That was correct
+    // for the guardian-held case and wrong for the own-login case, where the
+    // profile then advertised one address while sign-in and password resets
+    // used another — the exact confusion that produced Julian's finding #1.
+    const emailChanging =
+      data.email !== undefined &&
+      (data.email ? data.email.toLowerCase() : null) !== (member.email ? member.email.toLowerCase() : null);
+    const nextEmail = data.email ? data.email.toLowerCase() : null;
+
+    let loginMove: { userId: string; from: string; to: string } | null = null;
+    if (emailChanging && member.userId && nextEmail) {
+      const ownLogin = await prisma.user.findFirst({
+        where: { id: member.userId },
+        select: { id: true, email: true, deletedAt: true },
+      });
+      // A member row can point at a login that has since been archived. Nothing
+      // to move in that case; the contact edit proceeds on its own.
+      if (ownLogin && !ownLogin.deletedAt && ownLogin.email.toLowerCase() !== nextEmail) {
+        // The (clubId, email) unique index is GLOBAL — it ignores deletedAt
+        // (CLAUDE.md). So both a live and an archived account block the move,
+        // and they need different explanations because they need different
+        // fixes.
+        const holder = await prisma.user.findFirst({
+          where: { clubId: session.user.clubId, email: nextEmail, id: { not: ownLogin.id } },
+          select: { id: true, firstName: true, lastName: true, role: true, deletedAt: true },
+        });
+        if (holder) {
+          const who = `${holder.firstName ?? ""} ${holder.lastName ?? ""}`.trim() || nextEmail;
+          // Refuse the WHOLE patch, not just the login half. Saving the contact
+          // address while leaving the login on the old one is precisely the
+          // split-brain this change exists to remove — better to change nothing
+          // and say why.
+          return NextResponse.json(
+            holder.deletedAt
+              ? {
+                  error:
+                    `${nextEmail} is still held by an archived account (${who}). Archived logins keep their address, ` +
+                    `so it can't be reused yet. Nothing was saved — pick a different address, or ask an owner to free that one.`,
+                  code: "EMAIL_HELD_BY_ARCHIVED",
+                }
+              : {
+                  error:
+                    `${nextEmail} is already the sign-in address for ${who}` +
+                    `${holder.role && holder.role !== "MEMBER" ? ` (${holder.role.toLowerCase()})` : ""}. ` +
+                    `Two people can't share one login, so nothing was saved.`,
+                  code: "EMAIL_IN_USE",
+                },
+            { status: 409 },
+          );
+        }
+        loginMove = { userId: ownLogin.id, from: ownLogin.email, to: nextEmail };
+      }
+    }
+
     // Upsert/relink guardian profile when guardian fields change
     let guardianIdUpdate: { guardianId?: string | null } = {};
     if (data.guardianName !== undefined || data.guardianEmail !== undefined || data.guardianPhone !== undefined || data.isMinor !== undefined) {
@@ -348,10 +431,57 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       customFieldValues: data.customFieldValues ? JSON.stringify(data.customFieldValues) : undefined,
     };
 
-    const updated = await prisma.member.update({
-      where: { id: params.id },
-      data: updateData,
-    });
+    // One transaction: the contact address and the sign-in address must never
+    // end up disagreeing because one of the two writes failed.
+    const updated = loginMove
+      ? await prisma.$transaction(async (tx) => {
+          await tx.user.update({ where: { id: loginMove!.userId }, data: { email: loginMove!.to } });
+          return tx.member.update({ where: { id: params.id }, data: updateData });
+        })
+      : await prisma.member.update({ where: { id: params.id }, data: updateData });
+
+    if (loginMove) {
+      // Attributed in migration activity like every other write on this route.
+      try {
+        await prisma.memberMigrationEvent.create({
+          data: {
+            clubId: session.user.clubId,
+            memberId: params.id,
+            type: "NOTE",
+            message: `Sign-in email moved from ${loginMove.from} to ${loginMove.to}.`,
+            actorUserId: session.user.id,
+          },
+        });
+      } catch (e) {
+        console.error("[members/[id]] login-move audit failed", e);
+      }
+
+      // Notify BOTH addresses. The old one is the only channel the person still
+      // controls if this was a mistake, so telling only the new address would
+      // make a takeover silent. Failures never break the save.
+      try {
+        const club = await prisma.club.findUnique({
+          where: { id: session.user.clubId },
+          select: { name: true },
+        });
+        const loginUrl = `${baseUrlFromRequest(req)}/login`;
+        const changedBy = session.user.name || session.user.email || "A staff member";
+        const common = {
+          firstName: updated.firstName,
+          clubName: club?.name ?? "your club",
+          oldEmail: loginMove.from,
+          newEmail: loginMove.to,
+          changedBy,
+          loginUrl,
+        };
+        await Promise.allSettled([
+          sendLoginEmailChangedEmail({ ...common, to: loginMove.from, audience: "old" }),
+          sendLoginEmailChangedEmail({ ...common, to: loginMove.to, audience: "new" }),
+        ]);
+      } catch (e) {
+        console.error("[members/[id]] login-move notification failed", e);
+      }
+    }
 
     // Owner-vouched guardian link (same as the create path): when a minor has a
     // guardian email matching an existing portal account, link them so the child

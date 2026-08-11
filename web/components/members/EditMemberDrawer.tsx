@@ -16,11 +16,29 @@
 // headed NOT EDITABLE BY ANYONE AT THE CLUB. Greying the fields out was not
 // enough on its own — staff read a grey field as "I lack permission" and filed
 // a ticket. Naming who CAN change it, and where, ends that.
+//
+// ── Session 4 ────────────────────────────────────────────────────────────────
+// D-4: the field list is no longer defined here. It comes from
+// `lib/memberEditableFields.ts`, shared with `MemberModal`, so the drawer can
+// edit everything the modal can — address, gender, status, tags, notes, custom
+// fields, photo — and cannot silently fall behind when a field is added.
+//
+// D-0: when the member owns their own portal login, changing the email MOVES
+// THAT LOGIN. That is a different act from correcting a contact address and the
+// drawer says which one is about to happen, before save, naming the current
+// sign-in address.
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { History, Lock, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { History, KeyRound, Lock, X } from "lucide-react";
+import {
+  MEMBER_EDITABLE_FIELDS,
+  MEMBER_FIELD_GROUPS,
+  type MemberEditableField,
+} from "@/lib/memberEditableFields";
+
+export type EditableCustomField = { id: string; label: string; fieldType: string; options: string };
 
 export type EditableMember = {
   id: string;
@@ -29,35 +47,40 @@ export type EditableMember = {
   email: string | null;
   phone: string | null;
   dateOfBirth: string | null;
+  gender?: string | null;
+  streetAddress?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  status?: string | null;
+  tags?: string | null;
+  notes?: string | null;
+  customFieldValues?: string | null;
   guardianName: string | null;
   guardianEmail: string | null;
   guardianPhone: string | null;
+  guardianRelationship?: string | null;
   isMinor: boolean;
   /** Values that arrived in the import, so a correction can be shown + reverted. */
   imported?: Record<string, { value: string; correctedBy?: string; correctedAt?: string }>;
   midMigration: boolean;
   hasPendingInvitation: boolean;
+  /**
+   * D-0. The address this person actually signs in with, or null when they have
+   * no login of their own — which is the normal case for a minor whose guardian
+   * holds the account. `Member.userId` is the member's OWN login and nothing
+   * else; a guardian is linked through `MemberGuardianUser`. So "no own login"
+   * genuinely means an email edit here cannot touch anybody's sign-in.
+   */
+  loginEmail?: string | null;
+  /** Who holds the account when the member does not (for the copy below). */
+  accountHolderName?: string | null;
 };
-
-type Field = { key: keyof EditableMember & string; label: string; type?: string; helper?: string };
-
-const IDENTITY: Field[] = [
-  { key: "firstName", label: "First name" },
-  { key: "lastName", label: "Last name" },
-];
-const CONTACT: Field[] = [
-  { key: "email", label: "Email", type: "email", helper: "Changing this re-points any pending invitation. It does not re-send it." },
-  { key: "phone", label: "Phone", type: "tel" },
-];
-const RELATIONSHIP: Field[] = [
-  { key: "guardianName", label: "Guardian name" },
-  { key: "guardianEmail", label: "Guardian email", type: "email" },
-  { key: "guardianPhone", label: "Guardian phone", type: "tel" },
-];
 
 export function EditMemberDrawer({
   member,
   staffName,
+  customFields = [],
   saving,
   error,
   onClose,
@@ -67,22 +90,32 @@ export function EditMemberDrawer({
 }: {
   member: EditableMember;
   staffName: string;
+  customFields?: EditableCustomField[];
   saving?: boolean;
   error?: string | null;
   onClose: () => void;
-  onSave: (patch: Record<string, string | null>) => void;
+  onSave: (patch: Record<string, unknown>) => void;
   onSendReset: () => void;
   onCopyPortalLink: () => void;
 }) {
-  const [draft, setDraft] = useState<Record<string, string>>(() => ({
-    firstName: member.firstName ?? "",
-    lastName: member.lastName ?? "",
-    email: member.email ?? "",
-    phone: member.phone ?? "",
-    guardianName: member.guardianName ?? "",
-    guardianEmail: member.guardianEmail ?? "",
-    guardianPhone: member.guardianPhone ?? "",
-  }));
+  const asRecord = member as unknown as Record<string, unknown>;
+
+  const [draft, setDraft] = useState<Record<string, string>>(() => {
+    const d: Record<string, string> = {};
+    for (const f of MEMBER_EDITABLE_FIELDS) {
+      const v = asRecord[f.key];
+      d[f.key] = v == null ? "" : String(v);
+    }
+    return d;
+  });
+  const [isMinor, setIsMinor] = useState(member.isMinor);
+  const [customValues, setCustomValues] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(member.customFieldValues || "{}");
+    } catch {
+      return {};
+    }
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -93,17 +126,48 @@ export function EditMemberDrawer({
   }, [onClose]);
 
   const emailChanged = (draft.email || "") !== (member.email || "");
+  const ownsLogin = !!member.loginEmail;
+
+  // Everything except the locked block, always.
+  //
+  // The first cut gated this on the club's `memberFormConfig`, and browser
+  // testing immediately showed why that is wrong: the default config enables
+  // only athlete-name and email, so the drawer rendered three fields and Julian
+  // still could not edit an address. That config describes what the INTAKE form
+  // asks a new member for. It is not a statement about what a staffer may
+  // repair on an existing record — and a field switched off after import is
+  // exactly the one holding data nobody can otherwise reach.
+  //
+  // `minorOnly` is the only filter, because guardian fields on an adult are
+  // meaningless rather than merely unasked-for.
+  const visible = useMemo(
+    () => MEMBER_EDITABLE_FIELDS.filter((f) => !(f.minorOnly && !isMinor)),
+    [isMinor],
+  );
 
   function set(k: string, v: string) {
     setDraft((d) => ({ ...d, [k]: v }));
   }
 
   function submit() {
-    const patch: Record<string, string | null> = {};
-    for (const [k, v] of Object.entries(draft)) {
-      const original = (member as unknown as Record<string, string | null>)[k] ?? "";
-      if (v !== original) patch[k] = v === "" ? null : v;
+    const patch: Record<string, unknown> = {};
+    for (const f of MEMBER_EDITABLE_FIELDS) {
+      if (f.minorOnly && !isMinor) continue;
+      const before = asRecord[f.key];
+      const original = before == null ? "" : String(before);
+      const next = draft[f.key] ?? "";
+      // `tags` is a non-null column with a "" default — sending null 400s.
+      if (next !== original) patch[f.key] = next === "" ? (f.key === "tags" ? "" : null) : next;
     }
+    if (isMinor !== member.isMinor) patch.isMinor = isMinor;
+    const originalCustom = (() => {
+      try {
+        return JSON.stringify(JSON.parse(member.customFieldValues || "{}"));
+      } catch {
+        return "{}";
+      }
+    })();
+    if (JSON.stringify(customValues) !== originalCustom) patch.customFieldValues = customValues;
     onSave(patch);
   }
 
@@ -139,23 +203,83 @@ export function EditMemberDrawer({
             </div>
           )}
 
-          <Group title="Identity">
-            {IDENTITY.map((f) => (
-              <FieldRow key={f.key} f={f} value={draft[f.key] ?? ""} imported={member.imported?.[f.key]} onChange={set} />
-            ))}
-          </Group>
+          {MEMBER_FIELD_GROUPS.map((g) => {
+            const fields = visible.filter((f) => f.group === g.id);
+            if (!fields.length) return null;
+            return (
+              <Group key={g.id} title={g.title}>
+                {fields.map((f) => (
+                  <FieldRow
+                    key={f.key}
+                    f={f}
+                    value={draft[f.key] ?? ""}
+                    imported={member.imported?.[f.key]}
+                    onChange={set}
+                  />
+                ))}
 
-          <Group title="Contact">
-            {CONTACT.map((f) => (
-              <FieldRow key={f.key} f={f} value={draft[f.key] ?? ""} imported={member.imported?.[f.key]} onChange={set} />
-            ))}
-            {emailChanged && member.hasPendingInvitation && (
-              <p className="rounded-lg p-2.5 text-[12px]" style={{ background: "var(--color-warn-surface)", color: "var(--color-warn-text)" }}>
-                Their pending invitation will now point at this address. It will <strong>not</strong> be re-sent — use
-                Resend when you want it to go out.
-              </p>
-            )}
-          </Group>
+                {/* ── D-0: which address is about to change ───────────────── */}
+                {g.id === "contact" && emailChanged && (
+                  <EmailConsequence
+                    ownsLogin={ownsLogin}
+                    loginEmail={member.loginEmail ?? null}
+                    accountHolderName={member.accountHolderName ?? null}
+                    firstName={member.firstName}
+                    nextEmail={draft.email ?? ""}
+                    hasPendingInvitation={member.hasPendingInvitation}
+                  />
+                )}
+
+                {/* The minor toggle gates the relationship group, so it belongs
+                    at the end of Identity where it is read before that group. */}
+                {g.id === "identity" && (
+                  <label className="flex min-h-[44px] cursor-pointer items-center gap-2.5 text-[13px] text-text-primary">
+                    <input
+                      type="checkbox"
+                      checked={isMinor}
+                      onChange={(e) => setIsMinor(e.target.checked)}
+                      className="h-4 w-4 accent-current"
+                    />
+                    Minor — guardian details required
+                    {member.dateOfBirth && (
+                      <span className="text-[11.5px] text-text-muted">
+                        (date of birth decides this on save)
+                      </span>
+                    )}
+                  </label>
+                )}
+              </Group>
+            );
+          })}
+
+          {customFields.length > 0 && (
+            <Group title="Custom fields">
+              {customFields.map((cf) => (
+                <label key={cf.id} className="block">
+                  <span className="mb-[5px] block text-[12px] font-medium text-text-primary">{cf.label}</span>
+                  {cf.fieldType === "SELECT" ? (
+                    <select
+                      value={customValues[cf.id] ?? ""}
+                      onChange={(e) => setCustomValues({ ...customValues, [cf.id]: e.target.value })}
+                      className="min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                    >
+                      <option value="">—</option>
+                      {(cf.options || "").split(",").map((o) => o.trim()).filter(Boolean).map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={cf.fieldType === "NUMBER" ? "number" : cf.fieldType === "DATE" ? "date" : "text"}
+                      value={customValues[cf.id] ?? ""}
+                      onChange={(e) => setCustomValues({ ...customValues, [cf.id]: e.target.value })}
+                      className="min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                    />
+                  )}
+                </label>
+              ))}
+            </Group>
+          )}
 
           {/* ── Locked block ─────────────────────────────────────────── */}
           <div className="mb-5 rounded-[10px] p-3.5" style={{ background: "var(--color-table-chrome)", border: "1px solid var(--color-inset-border)" }}>
@@ -199,17 +323,12 @@ export function EditMemberDrawer({
                 ••••••••
               </div>
               <p className="mt-1.5 text-[11.5px] text-text-muted">Never visible or settable by staff.</p>
-              <button onClick={onSendReset} className="mt-2 min-h-[44px] rounded-lg border border-app-border px-3 text-[12.5px] text-text-primary">
+              <button onClick={onSendReset} className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-[12.5px] text-text-primary">
+                <KeyRound className="h-3.5 w-3.5" />
                 Send password reset link
               </button>
             </div>
           </div>
-
-          <Group title="Relationship">
-            {RELATIONSHIP.map((f) => (
-              <FieldRow key={f.key} f={f} value={draft[f.key] ?? ""} imported={member.imported?.[f.key]} onChange={set} />
-            ))}
-          </Group>
 
           {error && (
             <p className="rounded-lg p-2.5 text-[12.5px]" style={{ background: "var(--color-danger-surface)", color: "var(--color-danger-text)" }}>
@@ -244,6 +363,55 @@ export function EditMemberDrawer({
   );
 }
 
+/**
+ * D-0 — say which address is about to change, before the save.
+ *
+ * Two genuinely different acts share one input:
+ *
+ *  · The member owns their login → the contact address and the sign-in address
+ *    are the same address, and changing it moves sign-in. Both the old and the
+ *    new address are emailed about it.
+ *  · A guardian holds the account → this is contact information only. Moving
+ *    the guardian's login from a child's profile would change the address the
+ *    parent signs in with and, because one guardian holds several children,
+ *    would do it from a page that names only one of them. Never.
+ */
+function EmailConsequence({
+  ownsLogin,
+  loginEmail,
+  accountHolderName,
+  firstName,
+  nextEmail,
+  hasPendingInvitation,
+}: {
+  ownsLogin: boolean;
+  loginEmail: string | null;
+  accountHolderName: string | null;
+  firstName: string;
+  nextEmail: string;
+  hasPendingInvitation: boolean;
+}) {
+  if (ownsLogin) {
+    return (
+      <p
+        className="rounded-lg p-2.5 text-[12px] leading-relaxed"
+        style={{ background: "var(--color-warn-surface)", color: "var(--color-warn-text)" }}
+      >
+        {firstName} signs in with <strong>{loginEmail}</strong>. Saving moves their sign-in to{" "}
+        <strong>{nextEmail || "the new address"}</strong> as well as their contact details — their password does not
+        change, and we email both addresses so they know.
+      </p>
+    );
+  }
+  return (
+    <p className="rounded-lg p-2.5 text-[12px] leading-relaxed" style={{ background: "var(--color-info-surface)" }}>
+      This is {firstName}&rsquo;s contact email only. {accountHolderName ?? "Their guardian"} holds the portal account,
+      so this does <strong>not</strong> change how anyone signs in.
+      {hasPendingInvitation && " Their pending invitation will now point at this address — it will not be re-sent."}
+    </p>
+  );
+}
+
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
@@ -259,21 +427,28 @@ function FieldRow({
   imported,
   onChange,
 }: {
-  f: Field;
+  f: MemberEditableField;
   value: string;
   imported?: { value: string; correctedBy?: string; correctedAt?: string };
   onChange: (k: string, v: string) => void;
 }) {
   const corrected = imported && imported.value !== value;
+  const cls =
+    "min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand";
   return (
     <label className="block">
       <span className="mb-[5px] block text-[12px] font-medium text-text-primary">{f.label}</span>
-      <input
-        type={f.type ?? "text"}
-        value={value}
-        onChange={(e) => onChange(f.key, e.target.value)}
-        className="min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
-      />
+      {f.input === "select" ? (
+        <select value={value} onChange={(e) => onChange(f.key, e.target.value)} className={cls}>
+          {(f.options ?? []).map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      ) : f.input === "textarea" ? (
+        <textarea rows={3} value={value} onChange={(e) => onChange(f.key, e.target.value)} className={cls} />
+      ) : (
+        <input type={f.input} value={value} onChange={(e) => onChange(f.key, e.target.value)} className={cls} />
+      )}
       {f.helper && <span className="mt-1 block text-[11px] text-text-muted">{f.helper}</span>}
       {corrected && (
         // The corrected-field affordance. Showing the original is what lets a
@@ -283,7 +458,10 @@ function FieldRow({
           Imported as &ldquo;{imported!.value}&rdquo;
           {imported!.correctedBy && <> · corrected by {imported!.correctedBy}</>}
           {imported!.correctedAt && <> {imported!.correctedAt}</>}
-          <button onClick={() => onChange(f.key, imported!.value)} className="min-h-[24px] text-brand underline">
+          <button
+            onClick={(e) => { e.preventDefault(); onChange(f.key, imported!.value); }}
+            className="min-h-[24px] text-brand underline"
+          >
             Revert
           </button>
         </span>
