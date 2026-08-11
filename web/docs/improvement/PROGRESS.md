@@ -684,7 +684,111 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 ---
 
-### Session D — QUEUED (Julian's local testing, 2026-08-05)
+### Session F — 2026-08-07 · five from real use
+
+**Branch `claude/phase-4-5-members-audit-1e73ba`. No migration. Not merged.**
+
+| # | Reported | Outcome |
+|---|---|---|
+| 1 | **REGRESSION** — cannot email from the Members page | Phase 3A's composer was still MOUNTED; the roster cutover dropped the only thing that opened it (`setBulkEmailing` called with null in three places, a value in none). "Email selected" restored on the bulk bar, opening the same modal with the QUERY-SCOPED ids. Resolver, preview and send path untouched — they were already right. |
+| 2 | Need an explicit **Change login email** | `PATCH /api/members/[id]/login-email`, members:full. Rejects taken addresses — with a DISTINCT message when an archived login is holding the slot, because `users (clubId,email)` ignores `deletedAt` and a blind update would 500. Notifies old + new, writes an attributed MemberMigrationEvent. Account & security also names the contact/login mismatch instead of leaving it to be discovered. |
+| 3 | **D-1 gap** — Cameron still flags against his father | The column-only rule was not enough: his `guardianEmail` held a stale phantom while his own `members.email` held his father's real address. The skip now matches every address belonging to a CONFIRMED guardian link (login email + their own member contact), via `lib/guardianContacts.ts`, shared by the duplicates page and the roster count so they cannot disagree. PENDING links excluded — an unconfirmed link grants nothing. |
+| 4 | Engagement 0 opened / 0 clicked | Webhook VERIFIED end to end with Svix-signed payloads: bad signature 401, delivered/opened/opened-again/clicked all applied, first-open timestamp preserved while the counter increments. It will populate. One honest label fixed — `trackingCapable` only means "sent via Resend", not "tracking is on", so rows read "Delivered · not yet opened" when no open could ever arrive. If the club has never recorded a single open they now read "opens not being tracked". |
+| 5 | Edit drawer disappears | **Not Fast Refresh.** The drawer is a right-hand panel in a full-screen backdrop, so at 1280px the leftmost 720px — 56% of the window — silently closed it and discarded everything typed; Esc did the same. Backdrop/Esc/Cancel now confirm when dirty. Typing itself never unmounted anything (tested programmatic + real keystrokes across input, select and textarea). |
+
+#### Also found while there
+
+- **The profile page could blank an open drawer.** `load()` set `loading` on
+  every call and `loading` early-returns the whole page. Nothing reaches it
+  today; it would have the first time a background refresh landed mid-edit.
+  Only the first load may blank now.
+- **Local dev was reaching a real mail provider.** The worktree `.env` carries
+  production SMTP credentials, so a local test that triggered a send hit Resend
+  (which refused — test mode only allows the account owner's own address).
+  `scripts/dev-local.sh` now blanks `SMTP_HOST` and `RESEND_API_KEY`.
+
+#### Open after this session
+
+| # | Item |
+|---|---|
+| F-1 | **Accounts with no member row AND no confirmed guardian link cannot be emailed from the roster.** Confirmed guardians ARE reachable through their athletes (proven — two Lister children resolve to one guardian inbox). What is left is e.g. a co-parent whose link is still PENDING. Reaching them directly needs a guardian/account directory — a feature, not a regression fix, so it is flagged rather than invented. |
+| F-2 | **Resend open/click tracking needs TWO switches.** Enabling tracking on the domain is necessary but not sufficient — the webhook endpoint must also be SUBSCRIBED to `email.opened` and `email.clicked` in the Resend/Svix dashboard. Until both are on, no event is sent and the new label will keep (correctly) saying opens are not tracked. |
+| — | Everything in Session E's E-1…E-6 still stands. |
+
+---
+
+### Session E — 2026-08-07 · Session D closed, the open routes built, the handoff audited
+
+**Branch `claude/phase-4-5-members-audit-1e73ba`, worktree
+`/Users/cubano/Desktop/clubos/web/.claude/worktrees/nifty-pasteur-1ecb47`.
+No migration created or modified. Not merged.**
+
+Full write-up: **`docs/improvement/PHASE-4.5-DELIVERABLE.md`**, which contains
+the element-by-element handoff audit (68 built · 13 partial · 16 missing) and
+the two decisions still waiting on Julian.
+
+#### The eleven tabs
+
+`PROFILE_TABS` declared eleven; the body handled eight. Documents, Migration
+activity and Notes selected and rendered an empty grid. Bookings and Messages
+were fine — verified in the browser. All three now have data behind them; the
+documents count treats an EXPIRED signature as missing, because it blocks a
+check-in exactly as hard as one never given.
+
+#### Session D
+
+| # | Outcome |
+|---|---|
+| D-1 | Detector keys moved to `lib/memberDuplicates.ts` and now skip a contact value equal to the same row's guardian contact — structural, so it survives the next import. `namedob:` untouched. Correction script `scripts/fix-guardian-contact-on-minors.ts` is Julian's to run. |
+| D-2 | Not a dead button. On a refusal the message went to `msg`, which renders above the fold **underneath the modal's own overlay**. Errors raised in the modal now show in the modal. |
+| D-3 | All four counts from `workQueueCounts()`, built from the same `memberWhere()` clauses the click applies. |
+| D-4 | Edit drawer now covers everything PATCH accepts except birthday and password. |
+
+#### Open routes, all built
+
+Saved views (`/api/members/views`), triage (`PATCH /api/members/[id]/triage` —
+review/snooze, both columns were read and written by nothing), invitation
+deliveries (written on every send, address frozen), the Balance column
+(`PENDING` transactions only, VOID excluded).
+
+**Bounce ≠ ignore.** Both used to say "Fix email". For an ignore the address is
+fine, so that told staff to break the one working address they had. Now
+`Call <guardian>`, which §1j already specifies.
+
+**A banner button that sent email.** The next-action banner picked its handler
+from the action's PERMISSION, so "Review info" sent an invitation and "Fix
+email" sent one to the bouncing address. Maps by action kind now.
+
+#### 4.5.7 / 4.5.9 / 4.5.10
+
+- Deprecated vocabulary **removed from the UI**: the queue's Step column renders
+  the 7-step meter instead of the group + readiness chips, and the billing
+  centre's triage card keeps Final billing date + Note and loses the two
+  deprecated selects. Columns and PATCH fields all survive. **Guard 2: 8 → 0**,
+  now a hard fail rather than a ratchet.
+- Mobile measured (not eyeballed) per surface per width at 375/390/414/768/1280.
+  Header actions collapse behind `⋯` below `sm`; every members-surface target
+  reaches 44px through `lg`; zero horizontal overflow anywhere. Shared dashboard
+  chrome (topbar 40px, Back 20px) is under target on every page in the product —
+  flagged, not silently changed.
+- `MemberSubscriptionEvent` written on real transitions. Reports flips
+  ESTIMATED → COMPLETE **per club, only once BF-B has run** — an empty log reads
+  as "nothing ever happened".
+
+#### Still open
+
+| # | Item |
+|---|---|
+| E-1 | 16 missing handoff elements, clustered in §1h queue chrome, §1j mobile-native interactions (FAB, sticky bar, bottom sheet, walk-in flow) and §1k result states. Table in the deliverable. |
+| E-2 | Family collapse on the roster (§1a) — a 3-child family still costs 4 rows. |
+| E-3 | Four of the six `<select>`s (tags, gender, age, custom field) are still not in the Filters panel. |
+| E-4 | Person-type labels + whether Prospect is renamed — options and recommendations in the deliverable §7. |
+| E-5 | Default staff permissions — never raised with the owner. |
+| E-6 | Capacitor shell regression — responsive widths were tested in a browser, which is not the same thing. |
+
+---
+
+### Session D — CLOSED 2026-08-07 (Julian's local testing, 2026-08-05)
 
 Julian merged after session 3. He confirmed working: roster cutover, profile
 tabs, family switcher, and the ⋯ menu on lower rows. **Finding #1 (password

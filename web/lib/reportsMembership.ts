@@ -14,6 +14,7 @@
 
 import { prisma } from "@/lib/prisma";
 import type { ResolvedRange } from "@/lib/reportsRange";
+import { subscriptionHistoryIsComplete } from "@/lib/subscriptionEvents";
 
 export const CHURN_GRACE_DAYS = 14;
 
@@ -146,6 +147,11 @@ export async function buildMembership(
   // Anchor: for "all time", make sure we have a bounded window.
   const rangeStart = r.start ?? new Date("2000-01-01T00:00:00Z");
   const rangeEnd = r.end;
+
+  // Phase 4.5.10 — whether this club's event log can back a COMPLETE answer.
+  // See the reliability note at the bottom of this function for why the test
+  // is coverage rather than mere existence.
+  const historyComplete = await subscriptionHistoryIsComplete(clubId);
 
   // ── Fetch everything we need in parallel ────────────────────────────
   const [activeAtStart, activeAtEnd, newSubs, endedSubsRaw, allSubsForMembers, memberships] = await Promise.all([
@@ -435,10 +441,22 @@ export async function buildMembership(
     trend,
     breakdown,
     topMovers,
-    reliability: "ESTIMATED",
-    reliabilityNotes: [
-      "Movement + churn are estimated from subscription snapshots. Exact figures require the subscription-event history that ships in Phase 4.5.",
-    ],
+    // ── Phase 4.5.10 — the ESTIMATED caveat, closed conditionally ──────────
+    //
+    // The test is NOT "does member_subscription_events exist". Creating the
+    // table changes nothing: an empty log reads as "nothing ever happened",
+    // which is a confident wrong answer where the caveat was an honest one.
+    //
+    // COMPLETE requires that every subscription this club holds has at least
+    // one event — which is exactly what BF-B guarantees, and stays true
+    // afterwards because every creation path records CREATED. Until the
+    // backfill has run for THIS club, the caveat stands.
+    reliability: historyComplete ? "COMPLETE" : "ESTIMATED",
+    reliabilityNotes: historyComplete
+      ? []
+      : [
+          "Movement + churn are estimated from subscription snapshots. Exact figures need the subscription-event history — run scripts/members-experience-backfill.ts for this club.",
+        ],
     groupBy,
     notes,
   };

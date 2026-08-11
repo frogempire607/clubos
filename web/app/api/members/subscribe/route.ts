@@ -12,6 +12,13 @@ import { discountedPrice, recordDiscountUse } from "@/lib/discounts";
 import { resolveStaffDiscount, discountAppliedLabel, type ResolvedStaffDiscount } from "@/lib/staffPayments";
 import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
 import { sendEmail } from "@/lib/email";
+import {
+  recordSubscriptionCreated,
+  recordSubscriptionEvent,
+  SUBSCRIPTION_EVENT_KIND,
+  SUBSCRIPTION_EVENT_SOURCE,
+} from "@/lib/subscriptionEvents";
+
 
 const schema = z.object({
   memberId:      z.string(),
@@ -140,6 +147,26 @@ export async function POST(req: Request) {
         },
       });
       if (discount) await recordDiscountUse(discount.id);
+      // 4.5.10 — a MANUAL assignment is live immediately, so it is both a
+      // CREATED and an ACTIVATED transition. Reports counts activations, not
+      // rows, so both have to exist.
+      await recordSubscriptionCreated(memberSub, {
+        clubId: session.user.clubId,
+        source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+        actorUserId: session.user.id,
+        detail: { route: "POST /api/members/subscribe", billingType: "MANUAL" },
+      });
+      await recordSubscriptionEvent({
+        clubId: session.user.clubId,
+        memberSubscriptionId: memberSub.id,
+        memberId,
+        kind: SUBSCRIPTION_EVENT_KIND.ACTIVATED,
+        toPlan: optionLabel,
+        toAmount: String(finalPrice),
+        actorUserId: session.user.id,
+        source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+        detail: { route: "POST /api/members/subscribe", billingType: "MANUAL" },
+      });
       // Manual assignment is active immediately — flip member status to ACTIVE
       await recomputeMemberStatus(memberId, session.user.clubId);
 
@@ -207,6 +234,16 @@ export async function POST(req: Request) {
         discountCode: discount?.code || null,
         discountAmount,
       },
+    });
+
+    // 4.5.10 — CREATED only. This row is `pending`; the ACTIVATED transition
+    // belongs to the webhook that confirms the money, not to opening a
+    // checkout page the client may abandon.
+    await recordSubscriptionCreated(memberSub, {
+      clubId: session.user.clubId,
+      source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      actorUserId: session.user.id,
+      detail: { route: "POST /api/members/subscribe", billingType: resolvedBillingType },
     });
 
     const baseUrl = getAppBaseUrl();

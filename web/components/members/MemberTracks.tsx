@@ -327,7 +327,7 @@ export function NextActionButton({
       // 44px min height keeps the mobile card's target legal without a second
       // component; desktop rows override with the 12px text size.
       className={[
-        "inline-flex min-h-[32px] items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] font-medium transition-colors",
+        "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] font-medium transition-colors md:min-h-[32px]",
         locked ? "cursor-not-allowed border-app-border bg-surface text-[#9CA3AF]" : tone,
         className ?? "",
       ].join(" ")}

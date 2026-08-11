@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
@@ -47,6 +47,29 @@ type Relationship = {
   other: { id: string; firstName: string; lastName: string; status: string };
 };
 
+/** §1c "Waivers & documents". `expired` is why a signed doc can still be missing. */
+type MemberDocument = {
+  id: string;
+  title: string;
+  type: string;
+  requiredAt: string[];
+  requiresGuardianSignature: boolean;
+  signedAt: string | null;
+  signerName: string | null;
+  relationship: string | null;
+  expiresAt: string | null;
+  expired: boolean;
+};
+
+/** §1c "Full migration activity" — MemberMigrationEvent, actor already resolved. */
+type MigrationEvent = {
+  id: string;
+  type: string;
+  message: string | null;
+  createdAt: string;
+  actor: string | null;
+};
+
 type MemberDetail = {
   id: string;
   firstName: string;
@@ -77,6 +100,9 @@ type MemberDetail = {
   attendanceRecords: { id: string; status: string; createdAt: string; classSession: { startsAt: string; recurringClass: { name: string } | null } | null }[];
   eventRegistrations: { id: string; status: string; amountDue: string | null; amountPaid: string | null; event: { id: string; name: string; startsAt: string } | null }[];
   relationships: Relationship[];
+  /** Every club document plus this member's signature state. See the API note. */
+  documents?: MemberDocument[];
+  migrationEvents?: MigrationEvent[];
   // Phase 4B — the access edges the profile never loaded. `relationships`
   // above are descriptive labels and grant nothing; `family` is the real thing.
   family?: FamilyPayload;
@@ -95,7 +121,6 @@ type MemberDetail = {
   birthdayLockedAt?: string | null;
   user?: { id: string; email: string; lastLoginAt: string | null } | null;
   /** Attributed history for an imported member — see the API note. */
-  migrationEvents?: { id: string; type: string; message: string | null; createdAt: string; actorUserId: string | null }[];
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -108,6 +133,35 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
 };
 
 const REL_TYPES = ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "PARENT", "CHILD", "SPOUSE", "OTHER"];
+
+/**
+ * Which handler the next-action banner's primary button runs, keyed by the
+ * resolver's action KIND.
+ *
+ * This used to be inferred from the action's PERMISSION — billing → assign,
+ * everything else → resend. That is wrong for exactly the actions that matter
+ * most: REVIEW_INFO and FIX_EMAIL are both members:edit, and both would have
+ * sent an invitation, the second one to an address already known to bounce.
+ * A missing entry falls back to "resend", which is only correct for the invite
+ * kinds — so add new kinds here when the resolver grows one.
+ */
+const BANNER_ACTION: Record<string, string> = {
+  REVIEW_INFO: "review",
+  FIX_EMAIL: "edit",
+  // Delivery worked and nobody read it — the address is fine. Opening the
+  // record is where the phone number is; sending again would burn a fourth
+  // invitation on an inbox that has ignored three.
+  CALL_GUARDIAN: "call",
+  ADD_CONTACT: "edit",
+  MAKE_CONTACT: "edit",
+  SEND_INVITATION: "resend",
+  RESEND_INVITE: "resend",
+  ASSIGN_MEMBERSHIP: "assign",
+  CONFIRM_MEMBERSHIP: "assign",
+  WIN_BACK: "assign",
+  COMPLETE_MIGRATION: "assign",
+  LEAVE_ALONE: "none",
+};
 
 function fmtDate(d: string | null) {
   return d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
@@ -122,6 +176,10 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   const router = useRouter();
   const search = useSearchParams();
   const [m, setM] = useState<MemberDetail | null>(null);
+  // Read inside `load` without making it a dependency — otherwise every
+  // refetch would rebuild the callback and re-fire the effect that calls it.
+  const mRef = useRef<MemberDetail | null>(null);
+  useEffect(() => { mRef.current = m; }, [m]);
   const [loading, setLoading] = useState(true);
   const [editingSub, setEditingSub] = useState<Sub | null>(null);
   const [addingRel, setAddingRel] = useState(false);
@@ -172,8 +230,12 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     return () => clearTimeout(t);
   }, [toast]);
 
+  // `loading` blanks the WHOLE page (see the early return below), so a refetch
+  // while a drawer or dialog is open would unmount it mid-edit and throw away
+  // whatever the staffer had typed. Only the FIRST load is allowed to blank;
+  // every later refresh swaps the data underneath the rendered page.
   const load = useCallback(() => {
-    setLoading(true);
+    setLoading((prev) => prev || mRef.current == null);
     fetch(`/api/members/${id}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { setM(d); setLoading(false); });
@@ -252,6 +314,48 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     });
   }, [id]);
 
+  /**
+   * Change the address this member SIGNS IN with.
+   *
+   * A prompt rather than a drawer on purpose: this is a rare, deliberate
+   * reconciliation, and the confirm step below is what carries the weight —
+   * it names both addresses so the staffer reads what they are about to do.
+   * The server does the real validation (taken / archived-holder / no login).
+   */
+  const changeLoginEmail = useCallback(async () => {
+    const current = m?.user?.email ?? "";
+    const next = window.prompt(
+      `Change the sign-in email for ${m?.firstName ?? "this member"}.\n\n` +
+        `They currently sign in with ${current}.\n` +
+        `Both the old and the new address will be told, and the change is logged against you.`,
+      current,
+    );
+    if (!next || next.trim().toLowerCase() === current.toLowerCase()) return;
+    if (
+      !window.confirm(
+        `Move the sign-in email from\n\n  ${current}\n\nto\n\n  ${next.trim()}\n\n` +
+          `${current} will stop working as a login. No password is reset and nothing about their membership changes.`,
+      )
+    )
+      return;
+    try {
+      const r = await fetch(`/api/members/${id}/login-email`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: next.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not change the login email");
+      setToast({
+        kind: "ok",
+        text: d.unchanged ? "That is already their sign-in email." : `Sign-in email changed to ${d.email}. Both addresses were notified.`,
+      });
+      load();
+    } catch (e) {
+      setToast({ kind: "err", text: e instanceof Error ? e.message : "Could not change the login email" });
+    }
+  }, [id, m, load]);
+
   const saveEdit = useCallback(
     async (patch: Record<string, unknown>) => {
       setSaving(true);
@@ -297,6 +401,58 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           case "relationship":
             setTab("family");
             break;
+          case "edit":
+            setEditOpen(true);
+            break;
+          case "call": {
+            // tel: on the number we actually hold — the guardian's for a minor.
+            const num = (m?.isMinor ? m?.guardianPhone : m?.phone) || m?.phone || m?.guardianPhone;
+            if (num) window.location.href = `tel:${num.replace(/[^\d+]/g, "")}`;
+            else setToast({ kind: "err", text: "No phone number on file. Add one on the Personal info tab." });
+            break;
+          }
+          case "none":
+            break;
+          // The two triage writes. Both go through PATCH …/triage, which is
+          // also what stamps the attributed MemberMigrationEvent — see that
+          // route for why an unattributed "reviewed" tick is worse than none.
+          case "review": {
+            const r = await fetch(`/api/members/${mm.id}/triage`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "review" }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || "Could not mark this as reviewed");
+            setToast({
+              kind: "ok",
+              text: d.alreadyReviewed ? "Already marked reviewed." : "Marked as reviewed.",
+            });
+            load();
+            break;
+          }
+          case "snooze": {
+            const r = await fetch(`/api/members/${mm.id}/triage`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "snooze", days: 7 }),
+            });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not snooze");
+            setToast({ kind: "ok", text: `${mm.fullName.split(" ")[0]} is set aside for 7 days.` });
+            load();
+            break;
+          }
+          case "unsnooze": {
+            const r = await fetch(`/api/members/${mm.id}/triage`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "unsnooze" }),
+            });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not un-snooze");
+            setToast({ kind: "ok", text: "Back in the queue." });
+            load();
+            break;
+          }
           case "checkin":
             router.push(`/dashboard/attendance?member=${mm.id}`);
             break;
@@ -317,7 +473,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         setToast({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
       }
     },
-    [load, openReset, router, setTab],
+    // `m` is read by the "call" branch for the phone number it dials.
+    [load, openReset, router, setTab, m],
   );
 
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
@@ -344,6 +501,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   const isOwner = me?.role === "OWNER";
   const canEdit = isOwner || hasPermission(me?.permissions ?? null, "members", "edit");
   const canBill = isOwner || hasPermission(me?.permissions ?? null, "billing", "full");
+  // Moving a credential is a bigger action than editing a phone number, so it
+  // needs members:full rather than members:edit.
+  const canChangeLoginEmail = isOwner || hasPermission(me?.permissions ?? null, "members", "full");
   const staffName = me?.name || "you";
 
   // The header needs tracks. When derivation failed server-side the API sends
@@ -397,17 +557,27 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
       })),
   ];
 
+  // §1c — a required document that is unsigned OR past its validity window.
+  // Both block the same things, so both count as missing.
+  const missingDocs = (m.documents ?? []).filter(
+    (d) => d.requiredAt.length > 0 && (!d.signedAt || d.expired),
+  ).length;
+
   const tabCounts: Partial<Record<string, number>> = {
     memberships: m.subscriptions.length,
     family: (m.family?.guardians.length ?? 0) + (m.family?.managedAthletes.length ?? 0),
     attendance: m.attendanceRecords.length,
     payments: m.transactions.length,
     bookings: m.bookings.length + m.eventRegistrations.length,
+    documents: m.documents?.length ?? 0,
+    migration: m.migrationEvents?.length ?? 0,
   };
   // A red dot means someone has to do something, not merely that a tab is
-  // empty. Pending guardian requests are the case that was invisible before.
+  // empty. Pending guardian requests are the case that was invisible before;
+  // a missing waiver is the case the handoff names explicitly.
   const tabProblems: string[] = [
     (m.family?.pendingGuardianRequests.length ?? 0) > 0 ? "family" : null,
+    missingDocs > 0 ? "documents" : null,
   ].filter(Boolean) as string[];
 
   /** Show a card only on Overview and its own tab. */
@@ -456,13 +626,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             <>
               <button
                 onClick={() => setEditOpen(true)}
-                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
               >
                 <Pencil className="h-4 w-4" /> Edit
               </button>
               <Link
                 href={`/dashboard/members/${id}/billing`}
-                className="inline-flex min-h-[38px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
               >
                 Manage billing
               </Link>
@@ -472,7 +642,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                 canBill={canBill}
                 isOwner={isOwner}
                 onAction={onMenuAction}
-                size={38}
+                size={44}
               />
             </>
           }
@@ -486,7 +656,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         </div>
       )}
 
-      {/* The next action, stated once, from the same resolver as the list. */}
+      {/* The next action, stated once, from the same resolver as the list.
+
+          The button used to pick its handler from the PERMISSION — billing went
+          to Assign membership, everything else to Resend invitation. So the
+          button labelled "Review info" sent an invitation email, and "Fix
+          email" sent one to the address that was already bouncing. Both are
+          members:edit, and neither is a send. It maps by action KIND now. */}
       {m.nextAction && m.nextAction.kind !== "NONE" && (
         <div className="mt-4">
           <NextActionBanner action={m.nextAction} memberName={m.firstName}>
@@ -495,12 +671,31 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
               allowed={m.nextAction.permission?.startsWith("billing") ? canBill : canEdit}
               requiredRoleLabel={m.nextAction.permission?.startsWith("billing") ? "Billing" : "Members"}
               onClick={() =>
-                onMenuAction(
-                  m.nextAction?.permission?.startsWith("billing") ? "assign" : "resend",
-                  { id: m.id, fullName: `${m.firstName} ${m.lastName}` },
-                )
+                onMenuAction(BANNER_ACTION[m.nextAction!.kind] ?? "resend", {
+                  id: m.id,
+                  fullName: `${m.firstName} ${m.lastName}`,
+                })
               }
             />
+            {/* §1c offers Snooze alongside the primary action whenever the ball
+                is in the club's court. A snoozed member keeps their real state
+                and simply stops asking — see nextAction(). */}
+            {canEdit && m.nextAction.waitingOn === "STAFF" && !m.nextAction.snoozed && (
+              <button
+                onClick={() => onMenuAction("snooze", { id: m.id, fullName: `${m.firstName} ${m.lastName}` })}
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
+              >
+                Snooze 7 days
+              </button>
+            )}
+            {canEdit && m.nextAction.snoozed && (
+              <button
+                onClick={() => onMenuAction("unsnooze", { id: m.id, fullName: `${m.firstName} ${m.lastName}` })}
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
+              >
+                Bring back now
+              </button>
+            )}
           </NextActionBanner>
         </div>
       )}
@@ -545,7 +740,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             )}
             <button
               onClick={() => setEditOpen(true)}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
             >
               <Pencil className="h-4 w-4" /> Edit details
             </button>
@@ -563,6 +758,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             guardianName={m.family?.guardians[0]?.name ?? null}
             canReset={canEdit && !!(m.user || m.family?.guardians.length)}
             onSendReset={openReset}
+            contactEmail={m.email}
+            canChangeLoginEmail={canChangeLoginEmail}
+            onChangeLoginEmail={changeLoginEmail}
           />
         )}
 
@@ -605,7 +803,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         <Card
           title="Family labels"
           className="lg:col-span-2"
-          action={<button onClick={() => setAddingRel(true)} className="text-xs text-brand hover:underline">+ Add label</button>}
+          action={<button onClick={() => setAddingRel(true)} className="inline-flex min-h-[44px] items-center text-xs text-brand hover:underline md:min-h-0">+ Add label</button>}
         >
           <p className="text-xs text-text-muted -mt-1 mb-2.5">
             Notes about who is related to whom. These do <strong>not</strong> give anyone access —
@@ -631,7 +829,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                       await fetch(`/api/members/${id}/relationships?relationshipId=${r.id}`, { method: "DELETE" });
                       load();
                     }}
-                    className="text-xs text-red-600 hover:bg-red-50 px-2 py-0.5 rounded"
+                    className="inline-flex min-h-[44px] items-center rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 md:min-h-0"
                   >
                     Remove
                   </button>
@@ -767,6 +965,10 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                       {new Date(e.createdAt).toLocaleString("en-US", {
                         month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
                       })}
+                      {/* Who did it, not just when. The API already resolves the
+                          name, and "reviewed" with no reviewer is the kind of
+                          fact a second staffer cannot act on. */}
+                      {e.actor ? ` · ${e.actor}` : ""}
                     </span>
                   </li>
                 ))}
@@ -815,6 +1017,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             lastName: m.lastName,
             email: m.email,
             phone: m.phone,
+            profileImageUrl: m.profileImageUrl,
             dateOfBirth: m.dateOfBirth,
             gender: m.gender,
             streetAddress: m.streetAddress,
@@ -922,6 +1125,208 @@ function Card({ title, action, children, className = "" }: { title: string; acti
   );
 }
 
+// ── 4.5.3 — the three tabs that selected and showed nothing ────────────
+//
+// PROFILE_TABS has declared eleven tabs since session 2. The body's `on()`
+// helper handled eight of them, so Documents, Migration activity and Notes
+// each highlighted correctly and then rendered an empty grid — the failure
+// mode that reads as "the page is broken" rather than "this is empty".
+
+/**
+ * Waivers & documents (§1c right column).
+ *
+ * The handoff asks for `<N> missing` in #B91C1C plus a Request action. Missing
+ * means "required here and not covered", and a signature past its
+ * signatureValidForDays window is not covered — so an expired waiver counts,
+ * which is the case that actually blocks a check-in.
+ */
+function DocumentsCard({ documents, memberName }: { documents?: MemberDocument[]; memberName: string }) {
+  const docs = documents ?? [];
+  const required = docs.filter((d) => d.requiredAt.length > 0);
+  const missing = required.filter((d) => !d.signedAt || d.expired);
+
+  return (
+    <Card
+      title="Waivers &amp; documents"
+      className="lg:col-span-2"
+      action={
+        missing.length > 0 ? (
+          <span className="text-[12px] font-semibold" style={{ color: "#B91C1C" }}>
+            {missing.length} missing
+          </span>
+        ) : required.length > 0 ? (
+          <span className="text-[12px] text-text-muted">All required documents signed</span>
+        ) : null
+      }
+    >
+      {docs.length === 0 ? (
+        <p className="text-sm text-text-muted">
+          This club has no documents yet. Add one under Documents and it will appear here for every member.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {docs.map((d) => {
+            const isMissing = d.requiredAt.length > 0 && (!d.signedAt || d.expired);
+            return (
+              <div
+                key={d.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[13px]"
+                style={isMissing ? { background: "var(--color-danger-surface)" } : undefined}
+              >
+                <div className="min-w-0">
+                  <span className="text-text-primary">{d.title}</span>
+                  {d.requiredAt.length > 0 && (
+                    <span className="ml-2 text-[11px] uppercase tracking-wide text-text-muted">
+                      required · {d.requiredAt.join(", ").toLowerCase()}
+                    </span>
+                  )}
+                  <div className="text-[11.5px] text-text-muted">
+                    {d.signedAt
+                      ? d.expired
+                        ? `Signed ${fmtDate(d.signedAt)} by ${d.signerName ?? "—"} · expired ${fmtDate(d.expiresAt)}`
+                        : `Signed ${fmtDate(d.signedAt)} by ${d.signerName ?? "—"}${
+                            d.relationship === "GUARDIAN" ? " (guardian)" : ""
+                          }${d.expiresAt ? ` · valid to ${fmtDate(d.expiresAt)}` : ""}`
+                      : d.requiresGuardianSignature
+                        ? "Not signed — needs a guardian signature"
+                        : "Not signed"}
+                  </div>
+                </div>
+                {isMissing && (
+                  <Link
+                    href={`/dashboard/documents?document=${d.id}`}
+                    className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-app-border bg-surface px-2.5 py-1 text-[12px] text-text-primary transition-colors hover:bg-app-bg md:min-h-0"
+                  >
+                    Request
+                  </Link>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {missing.length > 0 && (
+        <p className="mt-3 text-[11.5px] text-text-muted">
+          {memberName} can sign these from the member portal under Documents. Nothing here changes their membership or
+          billing.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Migration activity (§1c — the "Full migration activity →" destination).
+ *
+ * Same MemberMigrationEvent rows the 4.5.8 drawer reads. Every write on a
+ * migrating member is already attributed; this is the surface that shows it.
+ */
+function MigrationActivityCard({ events, sourceLabel }: { events?: MigrationEvent[]; sourceLabel: string | null }) {
+  const rows = events ?? [];
+  return (
+    <Card title="Migration activity" className="lg:col-span-2">
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-muted">
+          Nothing recorded yet. This log fills in as staff review, invite and activate someone
+          {sourceLabel ? ` who came over from ${sourceLabel}` : " who came over from your previous system"}.
+        </p>
+      ) : (
+        <ol className="space-y-2.5">
+          {rows.map((e) => (
+            <li key={e.id} className="flex gap-2.5 text-[13px]">
+              <span
+                aria-hidden
+                className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: "var(--color-muted)" }}
+              />
+              <div className="min-w-0">
+                <div className="text-text-primary">{e.message || e.type.replace(/_/g, " ").toLowerCase()}</div>
+                <div className="text-[11.5px] text-text-muted">
+                  {new Date(e.createdAt).toLocaleString("en-US", {
+                    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+                  })}
+                  {e.actor ? ` · ${e.actor}` : ""}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Staff notes (§1c right column) — staff-only, attributed.
+ *
+ * `Member.notes` already existed and was writable through PATCH; nothing on
+ * the profile ever showed it, so a note typed in the old member modal became
+ * invisible the moment the roster cut over.
+ */
+function StaffNotesCard({
+  memberId, notes, canEdit, onSaved,
+}: { memberId: string; notes: string | null; canEdit: boolean; onSaved: () => void }) {
+  const [draft, setDraft] = useState(notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const dirty = draft !== (notes ?? "");
+
+  // A reload (e.g. after saving) must not strand a stale draft on screen.
+  useEffect(() => { setDraft(notes ?? ""); }, [notes]);
+
+  const save = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/members/${memberId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: draft }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Could not save");
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card title="Staff notes" className="lg:col-span-2">
+      <p className="mb-2 text-[11.5px] text-text-muted">
+        Only staff can see this. Members and guardians never do.
+      </p>
+      {canEdit ? (
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={5}
+            placeholder="Anything the next person at the desk should know."
+            className="w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
+          />
+          {err && <p className="mt-1.5 text-[12px] text-red-600">{err}</p>}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={!dirty || saving}
+              className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-3 text-sm text-white transition-colors hover:bg-brand-hover disabled:opacity-50 md:min-h-[38px]"
+            >
+              {saving ? "Saving…" : "Save notes"}
+            </button>
+            {dirty && !saving && <span className="text-[12px] text-text-muted">Unsaved changes</span>}
+          </div>
+        </>
+      ) : notes?.trim() ? (
+        <p className="whitespace-pre-wrap text-[14px] text-text-primary">{notes}</p>
+      ) : (
+        <p className="text-sm text-text-muted">No notes. You need Members · edit to add one.</p>
+      )}
+    </Card>
+  );
+}
+
 // ── 3G — Communications tab (per-member email history) ─────────────────
 
 interface CommSend {
@@ -956,6 +1361,9 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [reader, setReader] = useState<CommSend | null>(null);
+  // Club-wide: has a single open event ever arrived? Separates "nobody has read
+  // it" from "we are not being told" — see the communications route.
+  const [clubTracksOpens, setClubTracksOpens] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -971,6 +1379,7 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
         if (!r.ok) throw new Error((await r.json()).error ?? "Failed to load");
         const data = await r.json();
         setRows(data.sends);
+        setClubTracksOpens(data.clubHasEverTrackedAnOpen !== false);
       })
       .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)))
       .finally(() => alive && setLoading(false));
@@ -1005,7 +1414,7 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
                     </div>
                   </div>
                   <div className="flex-shrink-0 text-right">
-                    <DeliveryBadge row={r} />
+                    <DeliveryBadge row={r} clubTracksOpens={clubTracksOpens} />
                     <div className="text-[11px] text-text-muted mt-0.5">{fmtDate(r.sentAt ?? r.queuedAt)}</div>
                   </div>
                 </div>
@@ -1032,16 +1441,21 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
 //   deliveredAt set + not tracking-capable → "Delivered · open tracking unavailable"
 //   bouncedAt                           → "Bounced"    (red)
 //   FAILED / SKIPPED                    → reason       (red / orange)
-function DeliveryBadge({ row }: { row: CommSend }) {
+function DeliveryBadge({ row, clubTracksOpens }: { row: CommSend; clubTracksOpens: boolean }) {
   if (row.status === "FAILED") return <Pill tone="red">Failed</Pill>;
   if (row.status === "SKIPPED") return <Pill tone="orange">Skipped · {row.skippedReason ?? "unknown"}</Pill>;
   if (row.bouncedAt) return <Pill tone="red">Bounced</Pill>;
   if (row.clickedAt) return <Pill tone="lime">Clicked {row.clickCount > 1 ? `${row.clickCount}×` : ""}</Pill>;
   if (row.openedAt) return <Pill tone="lime">Opened {row.openCount > 1 ? `${row.openCount}×` : ""}</Pill>;
   if (row.deliveredAt) {
-    return row.trackingCapable
+    // "not yet opened" is only sayable when open events actually reach us. If
+    // this club has never recorded a single open, the provider's tracking is
+    // almost certainly off and a zero means "we cannot tell", not "nobody read
+    // it" — see the note in the communications route.
+    if (!row.trackingCapable) return <Pill tone="blue">Delivered · open tracking unavailable</Pill>;
+    return clubTracksOpens
       ? <Pill tone="blue">Delivered · not yet opened</Pill>
-      : <Pill tone="blue">Delivered · open tracking unavailable</Pill>;
+      : <Pill tone="blue">Delivered · opens not being tracked</Pill>;
   }
   if (row.status === "SENT") {
     // Provider accepted, no delivery callback yet. Resend may take a
@@ -1161,13 +1575,13 @@ function SubRow({
         {onTransfer && ["active", "past_due", "pending"].includes(sub.status) && (
           <button
             onClick={onTransfer}
-            className="text-xs text-brand hover:underline px-2 py-1 rounded whitespace-nowrap"
+            className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded px-2 py-1 text-xs text-brand hover:underline md:min-h-0"
             title="Move this membership to another family member — the payer doesn't change"
           >
             Assign to family member
           </button>
         )}
-        <button onClick={onEdit} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg whitespace-nowrap">
+        <button onClick={onEdit} className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded px-2 py-1 text-xs text-text-muted hover:bg-app-bg hover:text-text-primary md:min-h-0">
           Edit dates
         </button>
       </div>

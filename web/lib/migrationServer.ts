@@ -103,7 +103,69 @@ export async function sendActivation(
     },
   });
 
+  await recordInvitationDelivery({
+    clubId,
+    memberId: member.id,
+    sentToEmail: to,
+    recipientKind: member.isMinor && member.guardianEmail === to ? "GUARDIAN" : "SELF",
+    sentByUserId: actorUserId,
+    trigger: actorUserId ? "STAFF" : "SYSTEM",
+  });
+
   return { ok: true };
+}
+
+/**
+ * One row per invitation actually sent.
+ *
+ * ── Why this exists (4.5.1, and B-4 in PROGRESS.md) ─────────────────────────
+ *
+ * Before this, the only record of an invitation was
+ * `Member.activationEmailSendCount` — a counter. A counter cannot tell a BOUNCE
+ * from an IGNORE, and those need opposite actions: a bounce means the address
+ * is wrong and staff must fix it; an ignore means the address is fine and the
+ * parent needs a phone call. `derivedBlockedReason` was falling back to "3
+ * sends, never opened" for both, so the roster told staff to fix an address
+ * that was correct.
+ *
+ * The address is frozen at send time on purpose: editing a member's email later
+ * must not rewrite the history of where invitations actually went. That history
+ * is what the password-reset dialog's bounce list reads.
+ *
+ * Failures here are swallowed. A delivery row is observability; losing one must
+ * never turn a successfully-sent invitation into a failed one, which is the
+ * error the caller would otherwise report to a staffer who watched it send.
+ *
+ * `deliveredAt` / `openedAt` / `bouncedAt` stay null on the SMTP path, which
+ * gives no lifecycle callbacks — the UI must read that as "sent", never as
+ * "not delivered". Populating them is the Resend webhook's job.
+ */
+export async function recordInvitationDelivery(input: {
+  clubId: string;
+  memberId: string;
+  sentToEmail: string;
+  recipientKind: "SELF" | "GUARDIAN";
+  sentByUserId: string | null;
+  trigger: "STAFF" | "BULK" | "SYSTEM" | "MEMBER_REQUEST";
+  provider?: string | null;
+  providerMessageId?: string | null;
+}): Promise<void> {
+  try {
+    await prisma.memberInvitationDelivery.create({
+      data: {
+        clubId: input.clubId,
+        memberId: input.memberId,
+        sentToEmail: input.sentToEmail,
+        recipientKind: input.recipientKind,
+        sentByUserId: input.sentByUserId,
+        trigger: input.trigger,
+        provider: input.provider ?? (process.env.RESEND_API_KEY ? "RESEND" : "SMTP"),
+        providerMessageId: input.providerMessageId ?? null,
+      },
+    });
+  } catch (e) {
+    console.error("[migrationServer] invitation delivery row failed", e);
+  }
 }
 
 // Ensure a member has a valid activation token + INVITED status WITHOUT sending
@@ -230,6 +292,15 @@ export async function sendJoinInvite(
       message: `Registration link sent to ${to}`,
       actorUserId,
     },
+  });
+
+  await recordInvitationDelivery({
+    clubId,
+    memberId: member.id,
+    sentToEmail: to,
+    recipientKind: member.isMinor && member.guardianEmail === to ? "GUARDIAN" : "SELF",
+    sentByUserId: actorUserId,
+    trigger: actorUserId ? "STAFF" : "SYSTEM",
   });
 
   return { ok: true };

@@ -1,11 +1,11 @@
 // Duplicate detection — the rules, with no Prisma in sight.
 //
-// Extracted in session 4 (D-1 + D-3). The logic lived inside
-// `app/api/members/duplicates/route.ts`, which meant the work-queue card that
-// advertises "<N> possible duplicates" had no way to reach it. Reimplementing
-// the matching for the count would have guaranteed the card and the page it
-// opens eventually disagree — and a count that disagrees with its own list is
-// worse than no count, because staff act on it.
+// Extracted from `app/api/members/duplicates/route.ts` for two reasons: the
+// work-queue card that advertises "<N> possible duplicates" needs the same
+// matching the page uses (reimplementing it would guarantee the card and the
+// list it opens eventually disagree, and a count that disagrees with its own
+// list is worse than no count, because staff act on it), and the rules below
+// deserve to be pinned by fixtures rather than asserted in a comment.
 //
 // ── The one rule that matters ────────────────────────────────────────────────
 // Matching is high-precision on purpose; false positives scare owners. Members
@@ -23,11 +23,30 @@
 // carried their guardian's, and 42 carried the guardian's phone. The importer
 // had copied it into the child's own columns.
 //
-// So the guard is on the VALUE, not the column: an email or phone that equals
-// the same row's guardian field is dropped as a key. That holds after the data
-// is cleaned too, because the next import can reintroduce the same shape.
+// So the guard is on the VALUE, not the column. That holds after the data is
+// cleaned too, because the next import can reintroduce the same shape.
 // `scripts/fix-guardian-contact-on-minors.ts` is the data half; neither half
 // replaces the other.
+//
+// ── Why the guardianEmail COLUMN alone was not enough either ─────────────────
+//
+// The first version of the guard compared a contact value to the same row's
+// `guardianEmail`. Cameron Lister still clustered with his father: his
+// `guardianEmail` holds a stale address nobody uses, while his `members.email`
+// holds his father's REAL one. Two different guardian addresses on one row, so
+// the equality never fired.
+//
+// `guardianEmail` is one owner-typed field that goes stale the moment a parent
+// changes their address. The CONFIRMED guardian links are the live truth about
+// who manages an athlete, so callers pass every address belonging to one of
+// them (see lib/guardianContacts.ts) and the guard matches against all of them.
+// PENDING links are excluded by that loader on purpose — an unconfirmed link
+// grants nothing, and honouring it would let anyone suppress duplicate
+// detection by proposing one.
+//
+// `namedob` is deliberately untouched by all of this: siblings do not share a
+// birthday, and twins do not share a first name. It is what still catches a
+// genuinely duplicated minor once the contact keys are correctly withheld.
 
 export type DuplicateCandidate = {
   id: string;
@@ -38,20 +57,63 @@ export type DuplicateCandidate = {
   phone: string | null;
   guardianEmail: string | null;
   guardianPhone: string | null;
+  /**
+   * Every address belonging to somebody who manages this member — each
+   * CONFIRMED guardian's login email plus their own member contact email and
+   * phone. Optional: empty degrades to the guardianEmail/guardianPhone columns,
+   * which is the previous behaviour — worse, but not wrong.
+   */
+  guardianContacts?: (string | null)[];
 };
 
 export type DuplicateKeyPrefix = "email" | "namedob" | "phone";
+
+/**
+ * Why a contact value was NOT used as a key. Returned by the diagnostics
+ * helper so the rule can explain itself, rather than silently finding fewer
+ * matches than an owner expects.
+ */
+export type SkippedKeyReason = { field: "email" | "phone"; reason: "matches-guardian-contact" };
 
 const norm = (s: string | null) => (s ? s.trim().toLowerCase() : "");
 const digits = (s: string | null) => (s || "").replace(/\D/g, "");
 const dobKey = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
 
-/** The strong keys this row participates in. Guardian-equal values excluded. */
+/** Every address that belongs to one of this member's guardians. */
+function guardianContactSets(m: DuplicateCandidate): { emails: Set<string>; phones: Set<string> } {
+  const emails = new Set<string>();
+  const phones = new Set<string>();
+  for (const raw of [m.guardianEmail, m.guardianPhone, ...(m.guardianContacts ?? [])]) {
+    const e = norm(raw);
+    if (e && e.includes("@")) emails.add(e);
+    const p = digits(raw);
+    if (p.length >= 10) phones.add(p);
+  }
+  return { emails, phones };
+}
+
+/**
+ * The strong keys this row participates in, with guardian-owned contact
+ * values excluded. See `duplicateKeyDiagnostics` when you need to know WHY a
+ * value was withheld.
+ */
 export function duplicateKeysOf(m: DuplicateCandidate): string[] {
+  return duplicateKeyDiagnostics(m).keys;
+}
+
+/** `duplicateKeysOf` plus the reason each withheld contact value was withheld. */
+export function duplicateKeyDiagnostics(
+  m: DuplicateCandidate,
+): { keys: string[]; skipped: SkippedKeyReason[] } {
   const keys: string[] = [];
+  const skipped: SkippedKeyReason[] = [];
+  const guardian = guardianContactSets(m);
 
   const email = norm(m.email);
-  if (email && email !== norm(m.guardianEmail)) keys.push("email:" + email);
+  if (email) {
+    if (guardian.emails.has(email)) skipped.push({ field: "email", reason: "matches-guardian-contact" });
+    else keys.push("email:" + email);
+  }
 
   const first = norm(m.firstName);
   const last = norm(m.lastName);
@@ -59,11 +121,12 @@ export function duplicateKeysOf(m: DuplicateCandidate): string[] {
   if (first && last && dk) keys.push("namedob:" + first + "|" + last + "|" + dk);
 
   const phone = digits(m.phone);
-  if (phone.length >= 10 && last && phone !== digits(m.guardianPhone)) {
-    keys.push("phone:" + phone + "|" + last);
+  if (phone.length >= 10 && last) {
+    if (guardian.phones.has(phone)) skipped.push({ field: "phone", reason: "matches-guardian-contact" });
+    else keys.push("phone:" + phone + "|" + last);
   }
 
-  return keys;
+  return { keys, skipped };
 }
 
 export type DuplicateGroup<T extends DuplicateCandidate> = {

@@ -150,7 +150,7 @@ function PendingPaymentRow({
         {!open && (
           <button
             onClick={() => setOpen(true)}
-            className="text-xs border border-app-border rounded-lg px-2.5 py-1.5 text-text-primary hover:bg-app-bg whitespace-nowrap"
+            className="inline-flex min-h-[44px] items-center text-xs border border-app-border rounded-lg px-2.5 py-1.5 text-text-primary hover:bg-app-bg md:min-h-0 whitespace-nowrap"
           >
             Record payment received
           </button>

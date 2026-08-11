@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { groupDuplicates, duplicateReasonLabel } from "@/lib/memberDuplicates";
+import { loadGuardianContacts } from "@/lib/guardianContacts";
 
 // GET /api/members/duplicates
 //
@@ -27,11 +28,22 @@ import { groupDuplicates, duplicateReasonLabel } from "@/lib/memberDuplicates";
 // share a surname) — the detector was keying on guardian contact after all,
 // just laundered through the wrong column.
 //
-// `keysOf` now drops an email/phone key whenever that value equals the SAME
-// ROW's guardianEmail/guardianPhone. A shared address is evidence of a shared
+// The detector now drops an email/phone key whenever that value belongs to one
+// of this athlete's guardians. A shared address is evidence of a shared
 // guardian, never of a shared person. This is deliberately independent of the
 // data-correction script: cleaning the rows is not enough, because the next
 // import can reintroduce the same shape. Both halves are required.
+//
+// ── And the guardianEmail COLUMN alone was not enough either ────────────────
+// Comparing against the row's own guardianEmail still left Cameron Lister
+// clustered with his father: his guardianEmail holds a stale address nobody
+// uses while his members.email holds his father's REAL one, so the equality
+// never fired. The column is one owner-typed field that goes stale; the
+// CONFIRMED guardian links are the live truth. loadGuardianContacts supplies
+// every address belonging to one of them (login email + their own member
+// contact), and PENDING links are excluded there — an unconfirmed link grants
+// nothing, and honouring it would let anyone suppress detection by proposing
+// one.
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -53,7 +65,12 @@ export async function GET() {
   });
   type M = (typeof members)[number];
 
-  const groups0 = groupDuplicates(members);
+  // Same guardian map the roster's possible-duplicates count uses, so the card
+  // and the list it opens cannot disagree.
+  const guardianContacts = await loadGuardianContacts(clubId, members.map((m) => m.id));
+  const groups0 = groupDuplicates(
+    members.map((m) => ({ ...m, guardianContacts: guardianContacts.get(m.id) })),
+  );
 
   // Higher score = better "keep" candidate (has a login, completed onboarding,
   // carries the most real data).

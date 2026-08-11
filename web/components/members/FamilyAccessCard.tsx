@@ -244,7 +244,7 @@ function PermCells({
               aria-checked={on}
               aria-label={`${p.label} — ${label}`}
               title={`${label}. Click to change.`}
-              className={`min-h-[30px] rounded px-1.5 text-[10px] font-medium transition-colors disabled:opacity-60 md:min-h-[26px] ${
+              className={`min-h-[44px] min-w-[44px] rounded px-1.5 text-[10px] font-medium transition-colors disabled:opacity-60 md:min-h-[26px] md:min-w-0 ${
                 on
                   ? "bg-lime-accent/25 text-charcoal hover:bg-lime-accent/40"
                   : "bg-app-bg text-text-muted line-through hover:bg-app-border"
@@ -387,7 +387,7 @@ export default function FamilyAccessCard({
         {canAdd && !adding && (
           <button
             onClick={() => setAdding(true)}
-            className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-brand hover:underline"
+            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 text-xs font-medium text-brand hover:underline md:min-h-0"
           >
             <UserPlus className="h-3.5 w-3.5" strokeWidth={2} />
             {caps?.canGrantLink ? "Give someone access" : "Suggest access"}
@@ -463,7 +463,7 @@ export default function FamilyAccessCard({
                   <button
                     disabled={busy}
                     onClick={() => call("POST", { userId: c.userId, relationship: relationship || null }).then((ok) => ok && setAdding(false))}
-                    className="shrink-0 text-xs px-2 py-1 rounded-md bg-charcoal text-white hover:bg-charcoal-hover disabled:opacity-50"
+                    className="inline-flex min-h-[44px] shrink-0 items-center rounded-md bg-charcoal px-2 py-1 text-xs text-white hover:bg-charcoal-hover disabled:opacity-50 md:min-h-0"
                   >
                     {caps?.canGrantLink ? "Give access" : "Suggest"}
                   </button>
@@ -536,27 +536,27 @@ export default function FamilyAccessCard({
                   </div>
                   <div className="shrink-0 flex flex-wrap justify-end gap-x-2.5 gap-y-1">
                     {g.memberId && (
-                      <Link href={`/dashboard/members/${g.memberId}`} className="text-xs text-text-muted hover:text-text-primary inline-flex items-center gap-1">
+                      <Link href={`/dashboard/members/${g.memberId}`} className="inline-flex min-h-[44px] items-center gap-1 text-xs text-text-muted hover:text-text-primary md:min-h-0">
                         <ExternalLink className="h-3 w-3" strokeWidth={2} /> View profile
                       </Link>
                     )}
                     {canManage && pending && (
-                      <button disabled={busy} onClick={() => call("PATCH", { linkId: g.linkId, confirm: true })} className="text-xs text-brand hover:underline disabled:opacity-50">
+                      <button disabled={busy} onClick={() => call("PATCH", { linkId: g.linkId, confirm: true })} className="inline-flex min-h-[44px] items-center text-xs text-brand hover:underline disabled:opacity-50 md:min-h-0">
                         Confirm
                       </button>
                     )}
                     {canManage && !pending && (
-                      <button disabled={busy} onClick={() => setEditing(editing === g.linkId ? null : g.linkId)} className="text-xs text-text-muted hover:text-text-primary inline-flex items-center gap-1">
+                      <button disabled={busy} onClick={() => setEditing(editing === g.linkId ? null : g.linkId)} className="inline-flex min-h-[44px] items-center gap-1 text-xs text-text-muted hover:text-text-primary md:min-h-0">
                         <Pencil className="h-3 w-3" strokeWidth={2} /> Edit
                       </button>
                     )}
                     {canManage && !pending && !g.isPrimary && (
-                      <button disabled={busy} onClick={() => call("PATCH", { linkId: g.linkId, makePrimary: true })} className="text-xs text-text-muted hover:text-text-primary disabled:opacity-50" title="Parental controls move to this guardian">
+                      <button disabled={busy} onClick={() => call("PATCH", { linkId: g.linkId, makePrimary: true })} className="inline-flex min-h-[44px] items-center text-xs text-text-muted hover:text-text-primary disabled:opacity-50 md:min-h-0" title="Parental controls move to this guardian">
                         Make primary guardian
                       </button>
                     )}
                     {canManage && (
-                      <button disabled={busy} onClick={() => revoke(g.linkId, g.name, pending)} className="text-xs text-red-600 hover:bg-red-50 px-1.5 py-0.5 rounded disabled:opacity-50 inline-flex items-center gap-1">
+                      <button disabled={busy} onClick={() => revoke(g.linkId, g.name, pending)} className="inline-flex min-h-[44px] items-center gap-1 rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 md:min-h-0">
                         <UserMinus className="h-3 w-3" strokeWidth={2} /> {pending ? "Withdraw" : "Remove"}
                       </button>
                     )}
@@ -623,7 +623,7 @@ export default function FamilyAccessCard({
                     </div>
                     <div className="shrink-0 flex flex-wrap justify-end gap-x-2.5 gap-y-1">
                       {caps?.canBookForAthlete && (
-                        <Link href={`/dashboard/attendance?memberId=${m.memberId}`} className="text-xs text-text-muted hover:text-text-primary inline-flex items-center gap-1">
+                        <Link href={`/dashboard/attendance?memberId=${m.memberId}`} className="inline-flex min-h-[44px] items-center gap-1 text-xs text-text-muted hover:text-text-primary md:min-h-0">
                           <CalendarPlus className="h-3 w-3" strokeWidth={2} /> Book a class
                         </Link>
                       )}

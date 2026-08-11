@@ -260,7 +260,7 @@ export default function DuplicatesPage() {
                             <button
                               onClick={() => setPrimaryPick((p) => ({ ...p, [gk]: m.id }))}
                               disabled={busy === m.id}
-                              className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+                              className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-lg md:min-h-0 border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
                               title="Keep this record as the main account instead"
                             >
                               Keep this one
@@ -268,7 +268,7 @@ export default function DuplicatesPage() {
                             <button
                               onClick={() => openPreview(primary, m)}
                               disabled={busy === m.id}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
+                              className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-lg md:min-h-0 bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
                             >
                               {busy === m.id ? "Merging…" : `Merge into ${primary.name.split(" ")[0]}…`}
                             </button>
@@ -276,7 +276,7 @@ export default function DuplicatesPage() {
                               <button
                                 onClick={() => remove(m)}
                                 disabled={busy === m.id}
-                                className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                className="inline-flex min-h-[44px] items-center text-xs px-3 py-1.5 rounded-lg md:min-h-0 border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
                                 title="Archive this empty duplicate (reversible)"
                               >
                                 {busy === m.id ? "Removing…" : "Remove"}
@@ -373,7 +373,9 @@ export default function DuplicatesPage() {
                   <strong className="font-semibold">Both records have their own portal login.</strong>{" "}
                   Merging would decide which person keeps access, so it&apos;s blocked. Open{" "}
                   <Link href={`/dashboard/members/${loser.id}`} className="underline">{loser.name}</Link>{" "}
-                  and archive that record — it releases the login — then merge.
+                  and archive that record — it releases the login — then merge. Or, if that
+                  record is the one worth keeping, use &ldquo;Keep this one&rdquo; and merge the
+                  other direction instead.
                 </div>
               )}
 
@@ -391,7 +393,7 @@ export default function DuplicatesPage() {
                 <button
                   onClick={() => setPreview(null)}
                   disabled={busy === loser.id}
-                  className="text-sm px-4 py-2 min-h-[44px] sm:min-h-0 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+                  className="text-sm px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -399,7 +401,7 @@ export default function DuplicatesPage() {
                   onClick={confirmMerge}
                   disabled={busy === loser.id || bothHaveLogin}
                   title={bothHaveLogin ? "Archive one of the two logins first." : undefined}
-                  className="text-sm px-4 py-2 min-h-[44px] sm:min-h-0 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
+                  className="text-sm px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg bg-text-primary text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {busy === loser.id ? "Merging…" : "Confirm merge"}
                 </button>

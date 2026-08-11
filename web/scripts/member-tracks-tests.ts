@@ -18,6 +18,7 @@
 //        intended to invite, which read as an outstanding task that did not
 //        exist.
 
+import { duplicateKeyDiagnostics, duplicateKeysOf, groupDuplicates } from "../lib/memberDuplicates";
 import {
   ACTION_KIND,
   MEMBERSHIP_LABELS,
@@ -360,7 +361,10 @@ const CANONICAL: [string, MemberTrackInput, string][] = [
   ["migration complete, membership live", member({ migrationStatus: "COMPLETED", migrationCompletedAt: daysAgo(1), userId: "u1", subscriptions: [{ status: "active" }] }), ACTION_KIND.LEAVE_ALONE],
   ["bounced invitation", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), invitationBouncedCount: 1 }), ACTION_KIND.FIX_EMAIL],
   ["imported with no address at all", member({ migrationStatus: "IMPORTED" }), ACTION_KIND.ADD_CONTACT],
-  ["three sends, never opened", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(9), activationEmailSentAt: daysAgo(2), invitationSendCount: 3, invitationOpenedCount: 0 }), ACTION_KIND.FIX_EMAIL],
+  // A BOUNCE and an IGNORE are different problems with opposite fixes. Both
+  // used to render "Fix email"; for the ignore case the address is fine, so
+  // that told staff to break the one working address they had.
+  ["three sends, never opened", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(9), activationEmailSentAt: daysAgo(2), invitationSendCount: 3, invitationOpenedCount: 0 }), ACTION_KIND.CALL_GUARDIAN],
   ["a walk-in who trialled", member({ userId: "u2", hasAttendance: true }), ACTION_KIND.ASSIGN_MEMBERSHIP],
   ["an untouched lead", member(), ACTION_KIND.MAKE_CONTACT],
   ["a lapsed member", member({ status: "INACTIVE", userId: "u3", subscriptions: [{ status: "canceled", canceledAt: daysAgo(60) }] }), ACTION_KIND.WIN_BACK],
@@ -417,6 +421,29 @@ eq(
   ACTION_KIND.FIX_EMAIL,
 );
 
+// The bounce/ignore split, stated directly rather than only through CANONICAL.
+eq(
+  "a bounced address says fix the address",
+  nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationBouncedCount: 1, invitationSendCount: 3 }), NOW).kind,
+  ACTION_KIND.FIX_EMAIL,
+);
+eq(
+  "an ignored-but-delivered invitation says call, not fix",
+  nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationSendCount: 3, invitationOpenedCount: 0 }), NOW).kind,
+  ACTION_KIND.CALL_GUARDIAN,
+);
+check(
+  "the ignore case tells staff NOT to change a working address",
+  /will not help/.test(
+    nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationSendCount: 3, invitationOpenedCount: 0 }), NOW).detail ?? "",
+  ),
+);
+eq(
+  "calling a guardian is not an edit, so it needs only members:view",
+  nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationSendCount: 3, invitationOpenedCount: 0 }), NOW).permission,
+  "members:view",
+);
+
 group("§12 'Needs you' membership");
 eq("unreviewed import needs you", needsStaffAttention(member({ migrationStatus: "IMPORTED", email: "a@b.com" }), NOW), true);
 eq("waiting on the member does not need you", needsStaffAttention(CANONICAL[2][1], NOW), false);
@@ -454,6 +481,99 @@ check("no blockedReason → nothing is falsely blocked", setupTrackFor(preMigrat
 check("no snoozedUntil → nothing is falsely snoozed", nextAction(preMigration, NOW).snoozed !== true);
 check("no invitation rollup → falls back to the Member counter", derivedBlockedReason(member({ migrationStatus: "INVITED", email: "a@b.com", activationEmailSendCount: 3 })) === "REPEATED_NO_OPEN");
 check("the resolver still returns a real action", nextAction(preMigration, NOW).kind === ACTION_KIND.REVIEW_INFO);
+
+// ═══════════════════════════════════════════════════════════════════════════
+group("§20 Duplicate keys — the sibling bug (Session D, D-1)");
+
+// The detector's header used to claim siblings could never collide because
+// minors carry guardian contact on guardianEmail/guardianPhone. Production
+// disagreed: 27 of the 34 live minors with an own email had their GUARDIAN's,
+// and 42 had their guardian's phone. Siblings then shared an `email:` key AND
+// a `phone:`+lastName key, because siblings share a surname.
+//
+// These fixtures pin the rule structurally, so it holds whether or not the
+// data-correction script has run — the next import can reintroduce the shape.
+const sibA = {
+  id: "sibA",
+  firstName: "Iris", lastName: "Nakamura", dateOfBirth: new Date("2013-02-04"),
+  email: "kenji@x.com", phone: "(555) 010-0142",
+  guardianEmail: "kenji@x.com", guardianPhone: "(555) 010-0142",
+};
+const sibB = { ...sibA, id: "sibB", firstName: "Otto", dateOfBirth: new Date("2015-09-19") };
+
+const keysA = duplicateKeyDiagnostics(sibA);
+const keysB = duplicateKeyDiagnostics(sibB);
+check(
+  "a child's email that IS the guardian's is not a duplicate key",
+  !keysA.keys.some((k) => k.startsWith("email:")),
+);
+check(
+  "a child's phone that IS the guardian's is not a duplicate key",
+  !keysA.keys.some((k) => k.startsWith("phone:")),
+);
+check(
+  "the skip is reported, not silent",
+  keysA.skipped.length === 2 && keysA.skipped.every((s) => s.reason === "matches-guardian-contact"),
+);
+check(
+  "two siblings sharing a guardian share NO key",
+  keysA.keys.filter((k) => keysB.keys.includes(k)).length === 0,
+);
+
+// ── The Cameron shape: a STALE guardianEmail column ────────────────────────
+// The column-only rule was not enough. Cameron's guardianEmail held a phantom
+// address nobody uses, while his OWN email held his father's real one — so the
+// equality test never fired and he clustered with his dad. The confirmed
+// guardian LINKS are the live truth; the column is one field that goes stale.
+const staleGuardianCol = {
+  id: "ivo",
+  firstName: "Ivo", lastName: "Varga", dateOfBirth: new Date("2011-08-22"),
+  email: "hal.varga@x.com", phone: null,
+  guardianEmail: "old-hal@dead-domain.test", guardianPhone: null,
+};
+check(
+  "a stale guardianEmail column alone does NOT protect the child",
+  duplicateKeysOf(staleGuardianCol)
+    .some((k) => k === "email:hal.varga@x.com"),
+);
+check(
+  "…but the confirmed guardian's real address does",
+  !duplicateKeysOf({ ...staleGuardianCol, guardianContacts: ["hal.varga@x.com"] })
+    .some((k) => k.startsWith("email:")),
+);
+check(
+  "a guardian's PHONE from the links is skipped too",
+  !duplicateKeysOf({
+    ...staleGuardianCol, email: null, phone: "(555) 010-0199",
+    guardianContacts: ["555-010-0199"],
+  })
+    .some((k) => k.startsWith("phone:")),
+);
+check(
+  "an unrelated address in the guardian list changes nothing",
+  duplicateKeysOf({ ...staleGuardianCol, guardianContacts: ["someone.else@x.com"] })
+    .some((k) => k === "email:hal.varga@x.com"),
+);
+
+// The keys that must still work, or the fix would have traded one bug for a worse one.
+const twinA = { ...sibA, id: "twinA", email: "iris.own@x.com", guardianEmail: "kenji@x.com" };
+check(
+  "a child's OWN email (different from the guardian's) is still a key",
+  duplicateKeysOf(twinA)
+    .some((k) => k === "email:iris.own@x.com"),
+);
+const dupe1 = {
+  id: "dupe1",
+  firstName: "Marcus", lastName: "Delacroix", dateOfBirth: new Date("1996-11-23"),
+  email: "m@x.com", phone: null, guardianEmail: null, guardianPhone: null,
+};
+const dupe2 = { ...dupe1, id: "dupe2", email: null, phone: "555-0188" };
+check(
+  "the same person entered twice still collides on name + date of birth",
+  duplicateKeysOf(dupe1)
+    .some((k) => duplicateKeysOf(dupe2)
+    .includes(k)),
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log(`\n${"─".repeat(62)}`);

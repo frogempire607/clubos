@@ -18,6 +18,8 @@ import { listMembers, parseMemberFilters } from "@/lib/membersQuery";
  */
 async function listMembersPaginated(req: Request, clubId: string) {
   const filters = parseMemberFilters(new URL(req.url));
+  // D-3's four work-queue counts ride along inside listMembers (`queueCounts`),
+  // built from the same predicates the cards apply — see countQueues.
   const result = await listMembers(clubId, filters);
   return NextResponse.json(result);
 }

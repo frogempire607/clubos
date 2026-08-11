@@ -9,6 +9,11 @@ import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
 import { sendCancellationDecisionEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import {
+  recordSubscriptionEvent,
+  SUBSCRIPTION_EVENT_KIND,
+  SUBSCRIPTION_EVENT_SOURCE,
+} from "@/lib/subscriptionEvents";
 
 // POST /api/approvals/membership-cancel
 //
@@ -97,7 +102,9 @@ export async function POST(req: Request) {
   const sub = payload.subscriptionId
     ? await prisma.memberSubscription.findFirst({
         where: { id: payload.subscriptionId, member: { clubId } },
-        select: { id: true, stripeSubscriptionId: true, memberId: true },
+        // optionLabel + price feed the 4.5.10 CANCELED event: a churn row
+        // that cannot name the plan it lost is unusable in a breakdown.
+        select: { id: true, stripeSubscriptionId: true, memberId: true, optionLabel: true, price: true },
       })
     : null;
   if (!sub) return NextResponse.json({ error: "That membership no longer exists." }, { status: 404 });
@@ -155,6 +162,23 @@ export async function POST(req: Request) {
       ? { autoRenew: false, notes: "Cancellation approved — ends at period end" }
       : { status: "canceled", canceledAt: new Date(), autoRenew: false },
   });
+  // 4.5.10 — PERIOD_END has not ended anything yet, so it is not a
+  // cancellation event; the sweep or the webhook will record the real
+  // transition when it happens. Recording it here would date the churn to the
+  // day the request was approved rather than the day the membership stopped.
+  if (!periodEnd) {
+    await recordSubscriptionEvent({
+      clubId,
+      memberSubscriptionId: sub.id,
+      memberId: sub.memberId,
+      kind: SUBSCRIPTION_EVENT_KIND.CANCELED,
+      fromPlan: sub.optionLabel,
+      fromAmount: sub.price == null ? null : String(sub.price),
+      actorUserId: session!.user.id,
+      source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      detail: { route: "POST /api/approvals/membership-cancel", mode, refunded },
+    });
+  }
   await recomputeMemberStatus(sub.memberId, clubId);
 
   await prisma.pendingApproval.update({

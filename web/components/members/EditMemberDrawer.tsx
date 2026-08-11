@@ -30,8 +30,9 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { History, KeyRound, Lock, X } from "lucide-react";
+import ImageUpload from "@/components/ImageUpload";
 import {
   MEMBER_EDITABLE_FIELDS,
   MEMBER_FIELD_GROUPS,
@@ -42,6 +43,8 @@ export type EditableCustomField = { id: string; label: string; fieldType: string
 
 export type EditableMember = {
   id: string;
+  /** Bespoke: rendered by the upload widget, not the shared field renderer. */
+  profileImageUrl: string | null;
   firstName: string;
   lastName: string;
   email: string | null;
@@ -109,6 +112,11 @@ export function EditMemberDrawer({
     return d;
   });
   const [isMinor, setIsMinor] = useState(member.isMinor);
+  // `profileImageUrl` is listed in MEMBER_BESPOKE_FIELDS as "needs an upload
+  // widget" — it was declared there and then never rendered, so the one field
+  // that list exists to stop being forgotten was forgotten. It is part of
+  // "everything except birthday and password".
+  const [photo, setPhoto] = useState<string>(member.profileImageUrl ?? "");
   const [customValues, setCustomValues] = useState<Record<string, string>>(() => {
     try {
       return JSON.parse(member.customFieldValues || "{}");
@@ -117,13 +125,42 @@ export function EditMemberDrawer({
     }
   });
 
+  // ── Losing typed edits to a stray click ─────────────────────────────────
+  //
+  // Reported as "the edit drawer disappears when I try to edit a field", and
+  // reproduced in a browser: this is a right-hand panel inside a FULL-SCREEN
+  // backdrop, so at 1280px the leftmost 720px — 56% of the window — closes it.
+  // Reaching for a field and landing slightly wide discarded everything typed,
+  // with no warning and nothing to undo it. Esc did the same.
+  //
+  // Typing itself was never the trigger; programmatic input and real keystrokes
+  // across text, select and textarea all left the drawer mounted. It was always
+  // the click that missed.
+  //
+  // Closing is still one click. It just asks first, and only when there is
+  // something to lose, so open-look-close is unchanged.
+  const dirty =
+    MEMBER_EDITABLE_FIELDS.some((f) => {
+      const original = asRecord[f.key];
+      return (draft[f.key] ?? "") !== (original == null ? "" : String(original));
+    }) ||
+    isMinor !== member.isMinor ||
+    photo !== (member.profileImageUrl ?? "") ||
+    JSON.stringify(customValues) !==
+      JSON.stringify((() => { try { return JSON.parse(member.customFieldValues || "{}"); } catch { return {}; } })());
+
+  const requestClose = useCallback(() => {
+    if (dirty && !window.confirm("Discard your unsaved changes to this member?")) return;
+    onClose();
+  }, [dirty, onClose]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") requestClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   const emailChanged = (draft.email || "") !== (member.email || "");
   const ownsLogin = !!member.loginEmail;
@@ -160,6 +197,7 @@ export function EditMemberDrawer({
       if (next !== original) patch[f.key] = next === "" ? (f.key === "tags" ? "" : null) : next;
     }
     if (isMinor !== member.isMinor) patch.isMinor = isMinor;
+    if (photo !== (member.profileImageUrl ?? "")) patch.profileImageUrl = photo || null;
     const originalCustom = (() => {
       try {
         return JSON.stringify(JSON.parse(member.customFieldValues || "{}"));
@@ -174,7 +212,7 @@ export function EditMemberDrawer({
   const age = member.dateOfBirth ? ageOf(member.dateOfBirth) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={requestClose} role="dialog" aria-modal="true">
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-surface md:max-w-[560px] md:rounded-l-[14px]"
@@ -188,7 +226,7 @@ export function EditMemberDrawer({
             </h2>
             <p className="text-[12.5px] text-text-muted">Corrections save straight away and are logged against you.</p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-app-bg">
+          <button onClick={requestClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-app-bg">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -208,6 +246,12 @@ export function EditMemberDrawer({
             if (!fields.length) return null;
             return (
               <Group key={g.id} title={g.title}>
+                {g.id === "identity" && (
+                  <div>
+                    <span className="mb-[5px] block text-[12px] font-medium text-text-primary">Photo</span>
+                    <ImageUpload label="" value={photo || null} onChange={(url) => setPhoto(url ?? "")} />
+                  </div>
+                )}
                 {fields.map((f) => (
                   <FieldRow
                     key={f.key}
@@ -346,7 +390,7 @@ export function EditMemberDrawer({
             Saved as <strong className="font-medium text-text-primary">{staffName}</strong> · logged to migration activity
           </span>
           <div className="flex gap-2">
-            <button onClick={onClose} className="min-h-[44px] flex-1 rounded-lg border border-app-border px-4 text-sm text-text-primary sm:min-h-[38px] sm:flex-none">
+            <button onClick={requestClose} className="min-h-[44px] flex-1 rounded-lg border border-app-border px-4 text-sm text-text-primary sm:min-h-[38px] sm:flex-none">
               Cancel
             </button>
             <button

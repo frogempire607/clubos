@@ -100,6 +100,15 @@ type Counts = {
   midMigration: number;
 };
 
+/** A per-user saved filter set (§1e). `filters` is the roster's own query string. */
+type SavedView = {
+  id: string;
+  name: string;
+  filters: Record<string, string>;
+  sort: string | null;
+  scope: string;
+};
+
 /** The work-queue strip's four numbers. Null past COUNT_CAP. */
 type QueueCounts = {
   neverInvited: number;
@@ -198,6 +207,8 @@ export default function MembersRoster({
 
   // ── Modal + dialog state ────────────────────────────────────────────────
   const [adding, setAdding] = useState(false);
+  /** §1a mobile — the header's `⋯` overflow, which only exists below `sm`. */
+  const [headerMenu, setHeaderMenu] = useState(false);
   const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<FullMember | null>(null);
   const [purchasing, setPurchasing] = useState<FullMember | null>(null);
@@ -337,6 +348,60 @@ export default function MembersRoster({
     return (await r.json()).ids as string[];
   }, [params, selected, selectAllMatching]);
 
+  // ── Saved views (§1e) ───────────────────────────────────────────────────
+  // Per user, not per club — a view is somebody's working set. The filter is
+  // stored as the URL carries it, so applying one is just replaying its query
+  // string; see app/api/members/views/route.ts for why that shape was chosen.
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [savingView, setSavingView] = useState(false);
+  const loadViews = useCallback(() => {
+    fetch("/api/members/views?scope=MEMBERS")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setViews(d?.views ?? []))
+      .catch(() => setViews([]));
+  }, []);
+  useEffect(() => { loadViews(); }, [loadViews]);
+
+  const saveCurrentView = useCallback(async () => {
+    const name = window.prompt("Name this view");
+    if (!name?.trim()) return;
+    setSavingView(true);
+    try {
+      const r = await fetch("/api/members/views", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          scope: "MEMBERS",
+          filters: Object.fromEntries(params.entries()),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not save the view");
+      loadViews();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Could not save the view");
+    } finally {
+      setSavingView(false);
+    }
+  }, [params, loadViews]);
+
+  const applyView = useCallback(
+    (v: SavedView) => {
+      const next = new URLSearchParams(v.filters as Record<string, string>);
+      router.replace(next.toString() ? `?${next.toString()}` : "?", { scroll: false });
+    },
+    [router],
+  );
+
+  const deleteView = useCallback(
+    async (v: SavedView) => {
+      if (!window.confirm(`Delete the view "${v.name}"? This removes the shortcut, not any member.`)) return;
+      await fetch(`/api/members/views?id=${encodeURIComponent(v.id)}`, { method: "DELETE" });
+      loadViews();
+    },
+    [loadViews],
+  );
+
   const members = data?.members ?? [];
   const counts = data?.counts ?? null;
   const queueCounts = data?.queueCounts ?? null;
@@ -442,7 +507,7 @@ export default function MembersRoster({
 
   /** Bulk bar. Resolves the selection server-side first, always. */
   const onBulk = useCallback(
-    async (kind: "invite" | "resend" | "assign" | "message" | "tag") => {
+    async (kind: "invite" | "resend" | "assign" | "message" | "email" | "tag") => {
       try {
         setBusy(`bulk:${kind}`);
         const ids = await resolveIds();
@@ -452,6 +517,20 @@ export default function MembersRoster({
         }
         if (kind === "message") {
           setBulkMessaging(ids);
+          return;
+        }
+        // REGRESSION FIX. Phase 3A shipped "Email selected" on the members
+        // page — composer, recipient preview and household modes, all resolved
+        // by lib/emailRecipients.ts. The roster cutover kept BulkEmailModal
+        // mounted and dropped the only thing that opened it, so `bulkEmailing`
+        // was set to null in three places and to a value in none. The remaining
+        // path was Announcements, which can only reach people who have already
+        // been emailed.
+        //
+        // The ids are the QUERY-SCOPED resolution, so "Select all N matching"
+        // emails all N, not the page.
+        if (kind === "email") {
+          setBulkEmailing(ids);
           return;
         }
         if (kind === "assign") {
@@ -542,30 +621,83 @@ export default function MembersRoster({
               }`
         }
         actions={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Link
-              href="/api/export/members"
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
-            >
-              <Download className="h-4 w-4" /> Export
-            </Link>
-            <button
-              onClick={() => setImporting(true)}
-              disabled={!canEdit}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Upload className="h-4 w-4" /> Import CSV
-            </button>
-            <Link
-              href="/dashboard/members/migration"
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg"
-            >
-              Migrate
-            </Link>
+          // §1a mobile: below `sm`, Export / Import / Migrate collapse behind a
+          // ⋯ overflow and only Add member — the primary — keeps its own pill.
+          // Four wrapped buttons pushed the work-queue strip off the first
+          // screen at 390, which is where the actual work is.
+          <div className="flex items-center gap-2.5">
+            <div className="hidden items-center gap-2.5 sm:flex">
+              <Link
+                href="/api/export/members"
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg lg:min-h-[38px]"
+              >
+                <Download className="h-4 w-4" /> Export
+              </Link>
+              <button
+                onClick={() => setImporting(true)}
+                disabled={!canEdit}
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[38px]"
+              >
+                <Upload className="h-4 w-4" /> Import CSV
+              </button>
+              <Link
+                href="/dashboard/members/migration"
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg lg:min-h-[38px]"
+              >
+                Migrate
+              </Link>
+            </div>
+
+            <div className="relative sm:hidden">
+              <button
+                onClick={() => setHeaderMenu((v) => !v)}
+                aria-label="More member actions"
+                aria-expanded={headerMenu}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-app-border bg-surface text-text-primary transition-colors hover:bg-app-bg"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+              {headerMenu && (
+                <>
+                  {/* Backdrop, so a tap anywhere closes it — a menu you can only
+                      dismiss by hitting the same 44px button is a trap on a phone. */}
+                  <button
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setHeaderMenu(false)}
+                    className="fixed inset-0 z-40 cursor-default"
+                  />
+                  <div className="absolute right-0 z-50 mt-1 w-[220px] rounded-[10px] border border-app-border bg-surface p-[5px] shadow-lg">
+                    <Link
+                      href="/api/export/members"
+                      onClick={() => setHeaderMenu(false)}
+                      className="flex min-h-[44px] items-center gap-2.5 rounded-md px-2.5 text-[13px] text-text-primary hover:bg-app-bg"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Export
+                    </Link>
+                    <button
+                      onClick={() => { setHeaderMenu(false); setImporting(true); }}
+                      disabled={!canEdit}
+                      className="flex min-h-[44px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      <Upload className="h-3.5 w-3.5" /> Import CSV
+                    </button>
+                    <Link
+                      href="/dashboard/members/migration"
+                      onClick={() => setHeaderMenu(false)}
+                      className="flex min-h-[44px] items-center gap-2.5 rounded-md px-2.5 text-[13px] text-text-primary hover:bg-app-bg"
+                    >
+                      Migrate
+                    </Link>
+                  </div>
+                </>
+              )}
+            </div>
+
             <button
               onClick={() => setAdding(true)}
               disabled={!canEdit}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[38px]"
             >
               <UserPlus className="h-4 w-4" /> Add member
             </button>
@@ -593,6 +725,35 @@ export default function MembersRoster({
         onPick={(k) => setQuery({ queue: k === q.queue ? null : k })}
       />
 
+      {/* Saved views. Hidden entirely until the staffer has saved one — an
+          empty row labelled "Your views" is noise on every other roster. */}
+      {views.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[12px] text-text-muted">Your views</span>
+          {views.map((v) => (
+            <span
+              key={v.id}
+              className="inline-flex items-center rounded-md text-[12px]"
+              style={{ background: "var(--color-chip-surface)" }}
+            >
+              <button
+                onClick={() => applyView(v)}
+                className="min-h-[44px] rounded-l-md py-1 pl-2.5 pr-1 text-text-primary transition-opacity hover:opacity-80 sm:min-h-[32px]"
+              >
+                {v.name}
+              </button>
+              <button
+                onClick={() => deleteView(v)}
+                aria-label={`Delete the view ${v.name}`}
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-r-md text-text-muted transition-colors hover:text-text-primary sm:min-h-[32px] sm:min-w-[28px]"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-app-border bg-surface">
         {/* ── Toolbar ─────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3 border-b border-app-border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -610,7 +771,7 @@ export default function MembersRoster({
                     role="tab"
                     aria-selected={active}
                     onClick={() => setQuery({ personType: p.key })}
-                    className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12.5px] transition-colors ${
+                    className={`min-h-[44px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12.5px] transition-colors lg:min-h-0 ${
                       active ? "bg-surface font-medium text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
                     }`}
                   >
@@ -636,7 +797,7 @@ export default function MembersRoster({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setFiltersOpen(true)}
-              className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors ${
+              className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors lg:min-h-[34px] ${
                 filterCount ? "border-brand text-brand" : "border-app-border text-text-primary hover:bg-app-bg"
               }`}
             >
@@ -649,7 +810,7 @@ export default function MembersRoster({
               value={q.sort}
               onChange={(e) => setQuery({ sort: e.target.value })}
               aria-label="Sort by"
-              className="h-[34px] rounded-lg border border-app-border bg-surface px-2 text-[13px] text-text-primary"
+              className="h-11 rounded-lg border border-app-border bg-surface px-2 text-[13px] text-text-primary lg:h-[34px]"
             >
               {SORTS.map((s) => (
                 <option key={s.key} value={s.key}>
@@ -661,7 +822,7 @@ export default function MembersRoster({
               onClick={() => setDensity((d) => (d === "comfortable" ? "compact" : "comfortable"))}
               aria-label="Toggle row density"
               title={density === "comfortable" ? "Compact rows" : "Comfortable rows"}
-              className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-app-border text-text-muted transition-colors hover:bg-app-bg"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-app-border text-text-muted transition-colors hover:bg-app-bg lg:h-[34px] lg:w-[34px]"
             >
               <Users className="h-4 w-4" />
             </button>
@@ -687,10 +848,12 @@ export default function MembersRoster({
               Clear all
             </button>
             <button
-              className="ml-auto inline-flex items-center gap-1 text-[12px] text-text-muted hover:text-text-primary"
-              title="Saved views are stored per user (saved_member_views)"
+              onClick={saveCurrentView}
+              disabled={savingView}
+              className="ml-auto inline-flex items-center gap-1 text-[12px] text-text-muted transition-colors hover:text-text-primary disabled:opacity-60"
+              title="Save these filters as a shortcut. Views are yours alone."
             >
-              <Bookmark className="h-3.5 w-3.5" /> Save as view
+              <Bookmark className="h-3.5 w-3.5" /> {savingView ? "Saving…" : "Save as view"}
             </button>
           </div>
         )}
@@ -725,6 +888,7 @@ export default function MembersRoster({
               <BulkButton disabled={!canEdit} busy={busy === "bulk:resend"} label="Resend" onClick={() => onBulk("resend")} />
               <BulkButton disabled={!canBill} busy={busy === "bulk:assign"} label="Assign membership" onClick={() => onBulk("assign")} />
               <BulkButton disabled={!canEdit} busy={busy === "bulk:message"} label="Message" onClick={() => onBulk("message")} />
+              <BulkButton disabled={!canEdit} busy={busy === "bulk:email"} label="Email selected" onClick={() => onBulk("email")} />
             </div>
           </div>
         )}
@@ -1080,7 +1244,7 @@ function WorkQueueStrip({
     { key: "blocked", label: "blocked", accent: "#DC2626", action: "Fix contact details" },
     { key: "missingContact", label: "missing contact", accent: "var(--color-warn-text)", action: "Add an address" },
     { key: "duplicates", label: "possible duplicates", accent: "var(--color-brand)", action: "Review duplicates" },
-  ];
+  ] as const;
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1134,7 +1298,7 @@ function BulkButton({
       disabled={disabled || busy}
       onClick={onClick}
       title={disabled ? "You do not have permission for this action" : undefined}
-      className={`inline-flex min-h-[34px] items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors ${
+      className={`inline-flex min-h-[44px] items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors lg:min-h-[34px] ${
         disabled
           ? "cursor-not-allowed border border-app-border bg-surface text-[#9CA3AF]"
           : primary
@@ -1160,7 +1324,7 @@ function PageBtn({
     <button
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex min-h-[32px] items-center gap-1 rounded-lg border border-app-border bg-surface px-2 text-[12.5px] text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-app-border bg-surface px-2.5 text-[12.5px] text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-40 lg:min-h-[32px] lg:px-2"
     >
       {children}
     </button>

@@ -127,7 +127,7 @@ export function FamilySwitcher({
                 key={p.id}
                 href={`/dashboard/members/${p.id}`}
                 aria-current={current ? "page" : undefined}
-                className={`inline-flex min-h-[36px] items-center gap-2 rounded-lg border px-2 py-1 text-[12.5px] transition-colors ${
+                className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-2 py-1 text-[12.5px] transition-colors md:min-h-[36px] ${
                   current ? "border-brand bg-surface font-medium text-text-primary" : "border-transparent text-text-muted hover:bg-app-bg"
                 }`}
               >
@@ -183,7 +183,7 @@ export function ProfileTabs({
               role="tab"
               aria-selected={isActive}
               onClick={() => onSelect(t.key)}
-              className={`relative whitespace-nowrap px-2.5 py-2.5 text-[13.5px] transition-colors ${
+              className={`relative inline-flex min-h-[44px] items-center whitespace-nowrap px-2.5 py-2.5 text-[13.5px] transition-colors md:min-h-0 ${
                 isActive ? "font-medium text-brand" : "text-text-muted hover:text-text-primary"
               }`}
             >
@@ -275,6 +275,10 @@ export function AccountSecurityCard({
   guardianName,
   onSendReset,
   canReset,
+  /** members:full. Moving a credential is a bigger action than editing a phone. */
+  canChangeLoginEmail = false,
+  onChangeLoginEmail,
+  contactEmail,
 }: {
   hasLogin: boolean;
   loginEmail: string | null;
@@ -284,7 +288,16 @@ export function AccountSecurityCard({
   guardianName?: string | null;
   onSendReset: () => void;
   canReset: boolean;
+  canChangeLoginEmail?: boolean;
+  onChangeLoginEmail?: () => void;
+  /** The profile's contact address, so a mismatch can be named rather than left to be noticed. */
+  contactEmail?: string | null;
 }) {
+  // The two columns are allowed to differ, and a live case had them differing
+  // with no way to reconcile. Saying so beats leaving staff to discover it when
+  // a reset lands somewhere they did not expect.
+  const mismatch =
+    hasLogin && !!loginEmail && !!contactEmail && loginEmail.toLowerCase() !== contactEmail.toLowerCase();
   return (
     <div className="rounded-xl border border-app-border bg-surface p-[18px]">
       <h3 className="text-[15px] font-semibold text-text-primary">Account &amp; security</h3>
@@ -303,6 +316,7 @@ export function AccountSecurityCard({
           }
         />
         {hasLogin && <Row label="Logs in as" value={loginEmail ?? "—"} />}
+        {mismatch && <Row label="Contact email" value={contactEmail ?? "—"} muted />}
         <Row label="Last login" value={lastLoginAt ? fmt(lastLoginAt) : "Never"} />
         <Row label="Password" value="Never visible to staff" muted />
       </dl>
@@ -320,14 +334,40 @@ export function AccountSecurityCard({
             <>No email on file, so there is nowhere to send a link.</>
           )}
         </p>
+        {mismatch && (
+          <p className="mt-2 text-[12px]" style={{ color: "var(--color-warn-text)" }}>
+            This account signs in with a different address from the contact email on the profile. Both are legitimate —
+            but a reset goes to the sign-in address, not the contact one.
+          </p>
+        )}
         <button
           onClick={onSendReset}
           disabled={!canReset}
-          className="mt-2 min-h-[38px] rounded-lg bg-charcoal px-3 text-[13px] font-medium text-white transition-colors hover:bg-charcoal-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-2 min-h-[44px] rounded-lg bg-charcoal px-3 text-[13px] font-medium text-white transition-colors hover:bg-charcoal-hover disabled:cursor-not-allowed disabled:opacity-50 md:min-h-[38px]"
         >
           Send reset link
         </button>
       </div>
+
+      {/* The explicit control. Separate block from the reset tint, because it
+          changes a credential rather than sending a link, and it should not
+          look like a variant of the same action. */}
+      {hasLogin && canChangeLoginEmail && (
+        <div className="mt-3 border-t border-app-border pt-3">
+          <div className="text-[12.5px] font-medium text-text-primary">Change login email</div>
+          <p className="mt-0.5 text-[12px] text-text-muted">
+            Moves which address this member signs in with. Both the old and the new address are told, and the change is
+            recorded against your name in migration activity. The password is not reset and nothing about their
+            membership moves.
+          </p>
+          <button
+            onClick={onChangeLoginEmail}
+            className="mt-2 inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
+          >
+            Change login email
+          </button>
+        </div>
+      )}
     </div>
   );
 }

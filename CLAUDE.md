@@ -50,6 +50,39 @@ Two gotchas that already bit us:
 - Julian runs all database commands from his own terminal. The Claude Code
   sandbox cannot reach the database.
 
+### Branch policy — one branch per PHASE, never one per session
+
+**Work on `main`, or on a single long-lived branch for the phase you are in.
+Do NOT create a new branch or a new worktree for each session.**
+
+This is not a style preference. On 2026-08-11 two branches — one per session —
+had independently built the same Session D work (D-1 through D-4 and the three
+dead profile tabs) against the same brief. Merging them produced six conflicts
+in files where *both sides were correct*, and resolving it meant reading two
+good implementations of every fix and choosing between them line by line. Some
+of that work was simply thrown away. The duplicated effort cost more than the
+conflicts did.
+
+Concretely:
+
+- **Continue the existing phase branch.** `git log --oneline -5` and
+  `git branch -a` first; if a branch for this phase exists, check it out and
+  keep going. Its name is in `docs/improvement/PROGRESS.md`'s latest session
+  entry.
+- **Only start a new branch when a new PHASE starts**, and say so explicitly.
+- **Merge to `main` at the end of a phase, not later.** Two branches that both
+  sit unmerged for days is the setup that caused this.
+- **Prefer the main checkout** (`/Users/cubano/Desktop/clubos`). A worktree is
+  for genuinely parallel work, not for tidiness — and its per-worktree `.env`,
+  `node_modules` and migration state are a recurring source of "it works here
+  but not there".
+- If you do end up in a worktree, still state the path and branch up front, as
+  below.
+
+**Before writing any code, say which branch you are on and why it is the right
+one.** If the answer is "I made a new one for this session", that is the wrong
+answer.
+
 ### Say which checkout you're working in — up front
 
 Sessions often run in a **git worktree**, not the main checkout. Migrations,

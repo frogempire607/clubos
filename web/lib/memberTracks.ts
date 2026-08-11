@@ -674,6 +674,12 @@ export function migrationMeterFor(m: MemberTrackInput, now: Date = new Date()): 
 
 export const ACTION_KIND = {
   FIX_EMAIL: "FIX_EMAIL",
+  /**
+   * Delivery succeeded and nobody read it. Distinct from FIX_EMAIL because the
+   * two need OPPOSITE actions — see the branch in nextAction(). Only reachable
+   * once per-send delivery data exists to prove nothing bounced.
+   */
+  CALL_GUARDIAN: "CALL_GUARDIAN",
   REVIEW_INFO: "REVIEW_INFO",
   SEND_INVITATION: "SEND_INVITATION",
   RESEND_INVITE: "RESEND_INVITE",
@@ -743,16 +749,38 @@ export function nextAction(m: MemberTrackInput, now: Date = new Date()): NextAct
         snoozed,
       };
     }
+    // A BOUNCE and an IGNORE need opposite actions, and until the per-send
+    // delivery log existed there was no way to tell them apart — so both
+    // rendered "Fix email". That is right for a bounce and actively wrong for
+    // an ignore: the address is fine, and telling staff to change it wastes
+    // the one correct address the club has.
+    //
+    // REPEATED_NO_OPEN means delivery succeeded (or was never contradicted) and
+    // nobody read it. The handoff's answer to that is a phone call — §1j lists
+    // "Call <guardian>" in both the quick-action sheet and the compact profile
+    // banner. Gated on members:view, because phoning a parent is not an edit.
+    if (reason === "REPEATED_NO_OPEN") {
+      const who = m.isMinor && m.guardianName ? m.guardianName : m.firstName;
+      return {
+        kind: ACTION_KIND.CALL_GUARDIAN,
+        label: m.isMinor && m.guardianName ? `Call ${who.split(" ")[0]}` : "Call them",
+        tone: "charcoal",
+        permission: "members:view",
+        waitingOn: WAITING_ON.BLOCKED,
+        detail:
+          `${sends} invitation${sends === 1 ? "" : "s"} sent to ${addr ?? "their address"}, never opened. ` +
+          `The address works — nothing bounced — so changing it will not help.`,
+        snoozed,
+      };
+    }
+
     return {
       kind: ACTION_KIND.FIX_EMAIL,
       label: "Fix email",
       tone: "charcoal",
       permission: "members:edit",
       waitingOn: WAITING_ON.BLOCKED,
-      detail:
-        reason === "EMAIL_BOUNCED"
-          ? `Invitations to ${addr ?? "their address"} are bouncing. Nothing will arrive until the address changes.`
-          : `${sends} invitation${sends === 1 ? "" : "s"} sent to ${addr ?? "their address"}, never opened.`,
+      detail: `Invitations to ${addr ?? "their address"} are bouncing. Nothing will arrive until the address changes.`,
       snoozed,
     };
   }

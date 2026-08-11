@@ -346,6 +346,31 @@ export async function GET(req: Request) {
     _count: { _all: true },
   });
 
+  // ── 4.5.7 — the migration meter, per row ────────────────────────────────
+  // The queue's Step column reads "Step N of 7 · waiting on <who>", which
+  // replaces the deprecated migrationGroup + readiness chips. Derived from the
+  // SAME resolver the funnel segments and the roster's Account-setup cell use,
+  // so a member cannot appear at step 4 in one place and step 3 in another.
+  //
+  // Computed only for the page being returned, not the whole roster.
+  let withMeter = members;
+  try {
+    const trackRows = await prisma.member.findMany({
+      where: { id: { in: members.map((m) => m.id) } },
+      select: MEMBER_TRACK_SELECT,
+    });
+    const ctx = await buildTrackContext(trackRows.map((t) => t.id));
+    ctx.sourceLabelByBatch = await loadSourceLabels(trackRows.map((t) => t.importBatchId));
+    const meterById = new Map(
+      trackRows.map((t) => [t.id, migrationMeterFor(toTrackInput(t, ctx), ctx.now)]),
+    );
+    withMeter = members.map((m) => ({ ...m, meter: meterById.get(m.id) ?? null }));
+  } catch (e) {
+    // The queue must still render without it; the column degrades to "—".
+    console.error("[members/migration] meter derivation failed", e);
+    withMeter = members.map((m) => ({ ...m, meter: null }));
+  }
+
   return NextResponse.json({
     stats: {
       total,
@@ -359,7 +384,7 @@ export async function GET(req: Request) {
       activationEmailsSent: emailsSentAgg._sum.activationEmailSendCount ?? 0,
       groups: Object.fromEntries(groupCounts.map((g) => [g.migrationGroup ?? "none", g._count._all])),
     },
-    members,
+    members: withMeter,
     page,
     pageSize,
     pageCount: Math.max(1, Math.ceil(totalInFilter / pageSize)),

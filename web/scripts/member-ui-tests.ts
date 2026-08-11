@@ -32,6 +32,7 @@ import {
   PROFILE_TABS,
 } from "../components/members/MemberProfileHeader";
 import { EditMemberDrawer } from "../components/members/EditMemberDrawer";
+import { MEMBER_BESPOKE_FIELDS, MEMBER_EDITABLE_KEYS } from "../lib/memberEditableFields";
 import {
   MEMBERSHIP_LABELS,
   migrationMeterFor,
@@ -365,6 +366,18 @@ const editable = {
   guardianName: "Michael Lister",
   guardianEmail: "michael@example.com",
   guardianPhone: null,
+  // Session D, D-4 — the drawer now covers everything PATCH accepts except
+  // birthday and password.
+  guardianRelationship: "Parent",
+  gender: null,
+  streetAddress: "14 Rill Lane",
+  city: "Bellingham",
+  state: "WA",
+  zipCode: "98225",
+  tags: "competition",
+  notes: "Prefers the 6pm session.",
+  profileImageUrl: null,
+  customFieldValues: JSON.stringify({ cf_emergency: "Michael Lister · 555-0101" }),
   isMinor: true,
   midMigration: true,
   hasPendingInvitation: true,
@@ -376,12 +389,40 @@ const drawer = renders(
   React.createElement(EditMemberDrawer, {
     member: editable,
     staffName: "Dana R.",
+    customFields: [
+      { id: "cf_emergency", label: "Emergency contact", fieldType: "text", options: "[]" },
+    ],
     onClose: () => {},
     onSave: () => {},
     onSendReset: () => {},
     onCopyPortalLink: () => {},
   }),
-  ["Edit Cameron Lister", "Identity", "Contact", "Relationship"],
+  ["Edit Cameron Lister", "Identity", "Contact", "Address", "Relationship", "Internal", "Custom fields"],
+);
+
+// D-4: Julian asked to edit "everything about a member except birthday and
+// password". Pin the whole field set, so a future refactor cannot quietly drop
+// one back out again.
+for (const label of [
+  "Gender", "Street address", "City", "State", "Zip code",
+  "Tags", "Notes", "Emergency contact", "Photo",
+]) {
+  check(`edit drawer covers "${label}"`, drawer.includes(label));
+}
+check(
+  "the shared field list covers the guardian relationship",
+  MEMBER_EDITABLE_KEYS.includes("guardianRelationship"),
+);
+// profileImageUrl sits in MEMBER_BESPOKE_FIELDS ("needs an upload widget"). It
+// was declared there and then not rendered — the exact drift that list exists
+// to prevent — so assert the widget is really on screen.
+check(
+  "the photo uploader is actually rendered, not just declared bespoke",
+  MEMBER_BESPOKE_FIELDS.includes("profileImageUrl") && drawer.includes("Photo"),
+);
+check(
+  "edit drawer still refuses birthday and password",
+  drawer.includes("Not editable by anyone at the club") && !/<input[^>]*type="date"/.test(drawer),
 );
 check("says edits will NOT restart setup — the fear that stopped staff fixing anything", drawer.includes("won\u2019t restart their setup"));
 check("warns that an email edit re-points rather than re-sends", drawer.includes("does not re-send"));

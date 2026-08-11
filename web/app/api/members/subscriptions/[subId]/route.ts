@@ -5,6 +5,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
+import {
+  recordSubscriptionEvent,
+  SUBSCRIPTION_EVENT_KIND,
+  SUBSCRIPTION_EVENT_SOURCE,
+} from "@/lib/subscriptionEvents";
 
 const patchSchema = z.object({
   startDate: z.string().optional().nullable(),
@@ -111,6 +116,20 @@ export async function DELETE(_req: Request, context: { params: Promise<{ subId: 
   await prisma.memberSubscription.update({
     where: { id: sub.id },
     data: { status: "canceled", canceledAt: new Date() },
+  });
+  // 4.5.10 — the transition Reports counts as churn. `fromPlan`/`fromAmount`
+  // carry what was lost; a cancellation with no plan named is unusable in a
+  // churn breakdown.
+  await recordSubscriptionEvent({
+    clubId: session.user.clubId,
+    memberSubscriptionId: sub.id,
+    memberId: sub.member.id,
+    kind: SUBSCRIPTION_EVENT_KIND.CANCELED,
+    fromPlan: sub.optionLabel,
+    fromAmount: String(sub.price),
+    actorUserId: session.user.id,
+    source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+    detail: { route: "DELETE /api/members/subscriptions/[subId]" },
   });
   await recomputeMemberStatus(sub.member.id, session.user.clubId);
 

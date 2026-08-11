@@ -262,6 +262,212 @@ async function main() {
     },
   });
 
+  // ── Duplicate-detection fixtures (Session D, D-1 / D-2) ────────────────
+  // Session 3's fixture contained no duplicate pair at all, which is why "the
+  // merge button does nothing" was never reproduced. Three shapes now exist.
+  //
+  // 1. TWO SIBLINGS carrying their guardian's contact in their OWN columns —
+  //    the exact production shape (27 of 34 live minors). Before the D-1 fix
+  //    these collide on email: AND on phone:+lastName and get flagged as the
+  //    same person. They must NOT appear in duplicates.
+  for (const [id, first, dob] of [
+    ["m_bleed_a", "Iris", "2013-02-04"],
+    ["m_bleed_b", "Otto", "2015-09-19"],
+  ] as [string, string, string][]) {
+    await prisma.member.create({
+      data: {
+        id, clubId, firstName: first, lastName: "Nakamura", status: "ACTIVE", isMinor: true,
+        dateOfBirth: new Date(dob), joinedAt: ago(200),
+        // The bleed: guardian contact copied onto the child's own row.
+        email: "kenji.nakamura@local.test", phone: "(555) 010-0142",
+        guardianName: "Kenji Nakamura", guardianEmail: "kenji.nakamura@local.test", guardianPhone: "(555) 010-0142",
+      },
+    });
+  }
+
+  // 1b. The CAMERON SHAPE (D-1 follow-up). The child's own email holds his
+  //     father's REAL address, while his guardianEmail column holds a stale
+  //     phantom nobody uses. The column-only rule never fired, so the child
+  //     clustered with his father on `email:`. The father is a real adult member
+  //     with a login, so this is a parent<->child collision, not sibling<->sibling.
+  const dadUser = await prisma.user.create({
+    data: {
+      clubId, email: "hal.varga@local.test", passwordHash: hash,
+      firstName: "Hal", lastName: "Varga", role: "MEMBER",
+    },
+  });
+  await prisma.member.create({
+    data: {
+      id: "m_dad", clubId, firstName: "Hal", lastName: "Varga", status: "ACTIVE",
+      email: "hal.varga@local.test", userId: dadUser.id, joinedAt: ago(500),
+    },
+  });
+  await prisma.member.create({
+    data: {
+      id: "m_kid_stale_guardian", clubId, firstName: "Ivo", lastName: "Varga",
+      status: "ACTIVE", isMinor: true, dateOfBirth: new Date("2011-08-22"),
+      // His OWN email is his father's real address …
+      email: "hal.varga@local.test",
+      // … while the guardianEmail column is a stale address nobody reads.
+      guardianName: "Hal Varga", guardianEmail: "old-hal@dead-domain.test",
+      joinedAt: ago(320),
+    },
+  });
+  await prisma.memberGuardianUser.create({
+    data: {
+      clubId, userId: dadUser.id, memberId: "m_kid_stale_guardian",
+      relationship: "PARENT", status: "CONFIRMED", isPrimary: true,
+      source: "OWNER_VOUCHED", confirmedAt: ago(320),
+      canBook: true, canPay: true, canSignWaivers: true, canReceiveEmails: true,
+    },
+  });
+
+  // 2. A GENUINE duplicate — same person entered twice. Same name + same DOB,
+  //    which is the key the D-1 fix deliberately leaves intact. Neither has a
+  //    login, so this pair is mergeable and Merge must actually work.
+  for (const [id, days] of [["m_dupe_keep", 240], ["m_dupe_drop", 30]] as [string, number][]) {
+    await prisma.member.create({
+      data: {
+        id, clubId, firstName: "Marcus", lastName: "Delacroix", status: "PROSPECT",
+        dateOfBirth: new Date("1996-11-23"), joinedAt: ago(days),
+        email: id === "m_dupe_keep" ? "marcus.d@local.test" : null,
+        phone: id === "m_dupe_drop" ? "555-0188" : null,
+      },
+    });
+  }
+
+  // 3. A duplicate pair where BOTH rows have their own login — the 409 the
+  //    merge API returns by design. This is the case whose error message had
+  //    nowhere visible to render, so the button read as dead.
+  for (const [id, email] of [
+    ["m_dupe_login_a", "twin.a@local.test"],
+    ["m_dupe_login_b", "twin.b@local.test"],
+  ] as [string, string][]) {
+    const u = await prisma.user.create({
+      data: { clubId, email, passwordHash: hash, firstName: "Wren", lastName: "Halloway", role: "MEMBER" },
+    });
+    await prisma.member.create({
+      data: {
+        id, clubId, firstName: "Wren", lastName: "Halloway", status: "ACTIVE",
+        dateOfBirth: new Date("1990-04-02"), joinedAt: ago(150), userId: u.id,
+      },
+    });
+  }
+
+  // ── Documents, so the Waivers & documents tab has all three states ──────
+  // Session 3's fixture had no documents at all, which is why a Documents tab
+  // that rendered literally nothing looked the same as one that was empty.
+  const waiver = await prisma.document.create({
+    data: {
+      clubId, title: "Liability waiver", type: "WAIVER", required: true,
+      requiredAt: ["ONBOARDING"], requiresGuardianSignature: true, signatureValidForDays: 365,
+      body: "<p>Standard liability waiver.</p>",
+    },
+  });
+  const codeOfConduct = await prisma.document.create({
+    data: {
+      clubId, title: "Athlete code of conduct", type: "POLICY", required: true,
+      requiredAt: ["ONBOARDING"], body: "<p>Code of conduct.</p>",
+    },
+  });
+  await prisma.document.create({
+    data: { clubId, title: "Newsletter (optional)", type: "INFO", required: false, requiredAt: [], body: "<p>Info.</p>" },
+  });
+  // Signed, but 400 days ago against a 365-day window → EXPIRED, and therefore
+  // still missing. This is the case that blocks a check-in while the profile
+  // says "signed", and it needs to be visible.
+  await prisma.documentSignature.create({
+    data: {
+      documentId: waiver.id, memberId: "m_active", signerUserId: guardian.id,
+      signerName: "Michael Lister", relationship: "GUARDIAN", signedAt: ago(400),
+    },
+  });
+  // Signed and current.
+  await prisma.documentSignature.create({
+    data: {
+      documentId: codeOfConduct.id, memberId: "m_active", signerUserId: guardian.id,
+      signerName: "Michael Lister", relationship: "GUARDIAN", signedAt: ago(20),
+    },
+  });
+  // Cameron has signed neither → 2 missing, red dot on the Documents tab.
+
+  // ── Migration activity, so the timeline has attributed rows ─────────────
+  for (const [memberId, rows] of Object.entries({
+    m_import_unreviewed: [
+      ["IMPORT", "Imported from the previous system", 60],
+      ["NOTE", "Corrected legacy ID 607329885 after the import", 40],
+    ],
+    m_invited: [
+      ["IMPORT", "Imported from the previous system", 55],
+      ["NOTE", "Information reviewed", 30],
+      ["ACTIVATION_SENT", "Invitation sent to diego@local.test", 12],
+    ],
+    m_blocked: [
+      ["IMPORT", "Imported from the previous system", 55],
+      ["ACTIVATION_SENT", "Invitation sent — bounced", 21],
+      ["ACTIVATION_SENT", "Invitation resent — bounced", 14],
+    ],
+  } as Record<string, [string, string, number][]>)) {
+    for (const [type, message, daysAgo] of rows) {
+      await prisma.memberMigrationEvent.create({
+        data: { clubId, memberId, type, message, actorUserId: owner.id, createdAt: ago(daysAgo) },
+      });
+    }
+  }
+
+  // A staff note, so the Notes tab renders content rather than only an editor.
+  await prisma.member.update({
+    where: { id: "m_active" },
+    data: { notes: "Prefers the 6pm session. Mum handles all billing questions." },
+  });
+
+  // ── Money owed, so the Balance column has all three of its states ───────
+  // A PENDING offline Transaction is "the amount due, never revenue" per the
+  // offline-payment rules. The VOID and SUCCEEDED rows below exist to prove
+  // the column excludes them — a written-off charge must not reappear as debt.
+  await prisma.transaction.create({
+    data: {
+      clubId, memberId: "m_active", amount: 175, type: "MEMBERSHIP", category: "memberships",
+      status: "PENDING", paymentSource: "CHECK", reconciliationStatus: "OFFLINE", manual: true,
+      description: "Competition Team — check due", createdAt: ago(65),
+    },
+  });
+  await prisma.transaction.create({
+    data: {
+      clubId, memberId: "m_active", amount: 40, type: "CLASS", category: "classes",
+      status: "PENDING", paymentSource: "CASH", reconciliationStatus: "VOID", manual: true,
+      description: "Written off — must NOT count toward balance", createdAt: ago(30),
+    },
+  });
+  await prisma.transaction.create({
+    data: {
+      clubId, memberId: "m_active", amount: 175, type: "MEMBERSHIP", category: "memberships",
+      status: "SUCCEEDED", paymentSource: "STRIPE", reconciliationStatus: "VERIFIED",
+      description: "Settled — must NOT count toward balance", createdAt: ago(95),
+    },
+  });
+
+  // ── Invitation deliveries, so Blocked can tell a bounce from an ignore ──
+  // Tomas bounced twice (address wrong → fix it); Diego was sent three and
+  // never opened one (address fine → phone the parent). The counter alone
+  // could not distinguish these, and they need opposite actions.
+  for (const [memberId, email, rows] of [
+    ["m_blocked", "bounce@local.test", [[21, true], [14, true]]],
+    ["m_invited", "diego@local.test", [[30, false], [20, false], [12, false]]],
+  ] as [string, string, [number, boolean][]][]) {
+    for (const [daysAgo, bounced] of rows) {
+      await prisma.memberInvitationDelivery.create({
+        data: {
+          clubId, memberId, sentToEmail: email, recipientKind: "SELF",
+          sentAt: ago(daysAgo), sentByUserId: owner.id, trigger: "STAFF", provider: "RESEND",
+          deliveredAt: bounced ? null : ago(daysAgo),
+          bouncedAt: bounced ? ago(daysAgo) : null,
+          bounceReason: bounced ? "mailbox does not exist" : null,
+        },
+      });
+    }
+  }
+
   const total = await prisma.member.count({ where: { clubId } });
   const visible = await prisma.member.count({ where: { clubId, deletedAt: null, isHistoricalOnly: false } });
   console.log(`\nSeeded. members table rows: ${total} · roster-visible: ${visible}`);
