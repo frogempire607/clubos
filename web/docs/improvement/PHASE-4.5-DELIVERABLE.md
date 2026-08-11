@@ -1,9 +1,9 @@
 # Phase 4.5 — Members Full Design Handoff · Deliverable
 
-**Branch:** `claude/phase-4-5-members-audit-1e73ba`
-**Worktree:** `/Users/cubano/Desktop/clubos/web/.claude/worktrees/nifty-pasteur-1ecb47`
-**Date:** 2026-08-07
-**Not merged.** Nothing was pushed to `main`.
+**Merged to `main` 2026-08-11 as `28261c0`** (was
+`claude/phase-4-5-members-audit-1e73ba`). Run everything below from
+`/Users/cubano/Desktop/clubos/web`.
+**Date:** 2026-08-07, merge notes 2026-08-11.
 
 **No migration was created or modified.** Phase 4.5's schema closed on
 2026-08-04 with `20260804000000_members_experience` and stayed closed.

@@ -684,6 +684,33 @@ Four rows above are still `⬜`, and they are **not** blockers on Phase 4 — th
 
 ---
 
+### MERGED to main — 2026-08-11 · `28261c0`
+
+Phase 4.5 (sessions A–F) is on `main`. Two branches had independently built
+the same Session D brief, so six files conflicted where BOTH sides were
+correct; the merge commit records which implementation won each one and why.
+
+Headlines of the resolution:
+
+- **main won**: collision-only duplicate `reasons`; `countQueues` (standing
+  queues, duplicate GROUPS not rows); the dedicated documents route + lazy
+  card; notes edited in the drawer only; the whole `MEMBER_EDITABLE_FIELDS`-
+  driven drawer; the merge modal's `bothHaveLogin` pre-flight.
+- **The audit branch won**: the drawer's dirty-close guard; the widened D-1
+  skip via `lib/guardianContacts.ts`; all of Session F; the first-load-only
+  page blanking guard; actor names on migration activity.
+- **Fixed during the merge**: `profileImageUrl` was declared bespoke and never
+  rendered; two rival data-correction scripts collapsed to
+  `fix-guardian-contact-on-minors.ts`; the login-email route's header no
+  longer claims PATCH never moves a login (D-0 makes that false).
+
+**Branch policy added to CLAUDE.md**: one branch per PHASE, never one per
+session. This merge is the reason.
+
+Still open: Session E's E-1…E-6 and Session F's F-1/F-2 below.
+
+---
+
 ### Session F — 2026-08-07 · five from real use
 
 **Branch `claude/phase-4-5-members-audit-1e73ba`. No migration. Not merged.**
