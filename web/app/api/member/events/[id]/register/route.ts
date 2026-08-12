@@ -18,9 +18,12 @@ import {
   eventAllowedPaymentMethods,
   offlineStatusForMethod,
   eventScheduledChargeAt,
+  resolveEventPolicy,
   EVENT_PAYMENT_METHOD_LABELS,
   type EventPaymentMethod,
 } from "@/lib/eventPayments";
+import { confirmationCodeFor } from "@/lib/confirmationCode";
+import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 import { missingSignedEventDocs, acknowledgementDocs, documentsForEvent, EVENT_DOC_REQUIREMENT_LABELS } from "@/lib/eventDocuments";
 import { chargeEventRegistration } from "@/lib/eventAutoCharge";
@@ -73,7 +76,9 @@ const schema = z.object({
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
   // The registrant's payment decision, when the event offers a choice.
-  paymentMethod: z.enum(["CARD", "SAVED_CARD", "AUTO_CARD", "CASH", "CHECK"]).optional(),
+  paymentMethod: z
+    .enum(["CARD", "SAVED_CARD", "AUTO_CARD", "CASH", "CHECK", "APPROVAL_CHARGE", "INVOICE"])
+    .optional(),
   // AUTO_CARD only: the exact consent the client agreed to. Required so the
   // stored audit reflects what they actually saw on the button.
   autoChargeConsent: z
@@ -145,9 +150,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       include: {
         _count: { select: { bookings: true } },
         sessions: { select: { id: true } },
+        // Phase 5 §5.3.1 — half of what resolveEventPolicy walks.
+        customEventType: { select: { defaultPolicy: true } },
       },
     });
     if (!event) return NextResponse.json({ error: "Event not available" }, { status: 404 });
+
+    // Phase 5 §5.3.2 — event overrides, then the event type's defaults, then
+    // all-off. The ONLY reader of the policy columns; nothing below looks at
+    // event.requiresCoachApproval directly, because null there means "inherit"
+    // and only the resolver knows that.
+    const policy = resolveEventPolicy(event);
 
     const sessionUser = await prisma.user.findUnique({
       where: { id: session.user.id },
@@ -167,6 +180,38 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         { status: 400 },
       );
     }
+
+    // Phase 5 §5.4.5 — the no-money-owed paths (membership-covered, free, and
+    // variable-cost-billed-later) still need a coach's yes on an approval-gated
+    // event, so they record a REQUEST instead of a Booking. Same advisory lock
+    // the paid path uses, so a double-tap converges on one row.
+    const requestCoachReview = async (amountDue: number | null) => {
+      const reg = await prisma.$transaction(async (db) => {
+        await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evreg:${event.id}:${member.id}`}, 0))`;
+        const already = await db.eventRegistration.findFirst({
+          where: { eventId: event.id, memberId: member.id, status: { not: "CANCELED" } },
+          select: { id: true },
+        });
+        if (already) return already;
+        return db.eventRegistration.create({
+          data: {
+            eventId: event.id,
+            clubId: session.user.clubId,
+            memberId: member.id,
+            name: `${member.firstName} ${member.lastName ?? ""}`.trim(),
+            email: member.email ?? "",
+            phone: member.phone ?? null,
+            status: "PENDING_REVIEW",
+            approvalStatus: "PENDING",
+            approvalRequestedAt: new Date(),
+            amountDue,
+            confirmationCode: confirmationCodeFor(`${event.id}:${member.id}`),
+          },
+        });
+      });
+      await sendRegistrationLifecycleEmail({ registrationId: reg.id, transition: "CONFIRMATION" });
+      return reg;
+    };
 
     // Already booked?
     const existing = await prisma.booking.findUnique({
@@ -236,8 +281,21 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         where: { memberId: member.id, membershipId: { in: acceptedMembershipIds }, status: "active" },
       });
       if (activeSub) {
+        if (policy.requiresCoachApproval) {
+          const reg = await requestCoachReview(null);
+          return NextResponse.json({
+            ok: true,
+            pendingReview: true,
+            coveredByMembership: true,
+            registrationId: reg.id,
+            message:
+              "Request sent to your coach. Your membership covers this event — nothing is owed either way.",
+          });
+        }
         const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
-        await prisma.booking.create({ data: { eventId: event.id, memberId: member.id, status } });
+        await prisma.booking.create({
+          data: { eventId: event.id, memberId: member.id, status, bookedByUserId: session.user.id ?? null },
+        });
         if (status === "CONFIRMED") {
           const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } });
           emailBookingConfirmation({
@@ -266,19 +324,34 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const hasVariableCost = !!event.variableCostEnabled && varTotal > 0;
 
     if (hasVariableCost) {
-      const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
-      await prisma.booking.create({ data: { eventId: event.id, memberId: member.id, status } });
-
       // Estimated per-head is only known up front in ESTIMATED mode; OFFICIAL
       // splits the real total across actual signups at bill time.
-      let perHead: number | null = null;
-      if (
+      const estPerHead =
         event.variableCostMode === "ESTIMATED" &&
         event.variableCostEstimatedSignups &&
         event.variableCostEstimatedSignups > 0
-      ) {
-        perHead = +(varTotal / event.variableCostEstimatedSignups).toFixed(2);
+          ? +(varTotal / event.variableCostEstimatedSignups).toFixed(2)
+          : null;
+      if (policy.requiresCoachApproval) {
+        const reg = await requestCoachReview(estPerHead);
+        return NextResponse.json({
+          ok: true,
+          pendingReview: true,
+          variableCost: true,
+          billedLater: true,
+          registrationId: reg.id,
+          perHead: estPerHead,
+          message: "Request sent to your coach. If they approve, the club bills your share of the shared cost.",
+        });
       }
+      const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      await prisma.booking.create({
+        data: { eventId: event.id, memberId: member.id, status, bookedByUserId: session.user.id ?? null },
+      });
+
+      // OFFICIAL mode splits the real total across actual signups at bill
+      // time, so there is no per-head figure to record yet.
+      const perHead = estPerHead;
 
       // Mirror as an EventRegistration so mass-invoice can reach this member.
       const already = await prisma.eventRegistration.findFirst({
@@ -311,8 +384,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // Genuinely free — no fixed price AND no variable cost AND no membership gate.
     const hasPrice = !!(event.memberPrice || event.nonMemberPrice || event.dropInFee);
     if (!hasPrice) {
+      if (policy.requiresCoachApproval) {
+        const reg = await requestCoachReview(null);
+        return NextResponse.json({
+          ok: true,
+          pendingReview: true,
+          free: true,
+          registrationId: reg.id,
+          message: "Request sent to your coach. This event is free — nothing is owed either way.",
+        });
+      }
       const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
-      await prisma.booking.create({ data: { eventId: event.id, memberId: member.id, status } });
+      await prisma.booking.create({
+        data: { eventId: event.id, memberId: member.id, status, bookedByUserId: session.user.id ?? null },
+      });
       if (status === "CONFIRMED") {
         const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } });
         emailBookingConfirmation({
@@ -406,7 +491,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // A 100%-off code books directly — same shape as the free path above.
     if (discount && priceCents <= 0) {
       const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
-      await prisma.booking.create({ data: { eventId: event.id, memberId: member.id, status } });
+      await prisma.booking.create({
+        data: { eventId: event.id, memberId: member.id, status, bookedByUserId: session.user.id ?? null },
+      });
       await recordDiscountUse(discount.id);
       if (status === "CONFIRMED") {
         const clubName = (await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } }))?.name;
@@ -462,73 +549,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const allowed = eventAllowedPaymentMethods(event);
     const price = priceCents / 100;
     const registrantName = `${member.firstName} ${member.lastName ?? ""}`.trim();
-
-    let savedCardAvailable = false;
-    if (allowed.includes("AUTO_CARD") || allowed.includes("CARD")) {
-      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
-      savedCardAvailable = !!(await resolveChargeablePaymentMethodId(
-        customerId,
-        club.stripeAccountId,
-        member.stripeSetupPaymentMethodId,
-      ));
-    }
-    // Methods the client can actually complete right now. SAVED_CARD (pay now
-    // with the card on file) rides on CARD permission + a verified saved card.
-    const selectable: string[] = [
-      ...(allowed.includes("CARD") && savedCardAvailable ? ["SAVED_CARD"] : []),
-      ...allowed.filter((m) => (m === "AUTO_CARD" ? savedCardAvailable : true)),
-    ];
-
-    // A payment decision is required whenever there's more than one way to
-    // pay. The old code defaulted to CARD here, which sent members straight to
-    // Stripe without ever seeing the choice.
-    const chosen: EventPaymentMethod | "SAVED_CARD" | null =
-      paymentMethod ?? (selectable.length === 1 ? (selectable[0] as EventPaymentMethod) : null);
-    if (!chosen) {
-      // Exact totals per method so the client confirms the real number: card
-      // methods include the processing fee when the club passes it; cash and
-      // check owe the sticker price.
-      const fee = applyProcessingFee(priceCents, club.passProcessingFees);
-      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
-      const card = savedCardAvailable ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
-      const [allDocs, missingSign, ackDocs2] = await Promise.all([
-        documentsForEvent(session.user.clubId, event.id),
-        missingSignedEventDocs(session.user.clubId, event.id, member.id),
-        acknowledgementDocs(session.user.clubId, event.id),
-      ]);
-      const missingIds = new Set(missingSign.map((d) => d.id));
-      const ackIds = new Set(ackDocs2.map((d) => d.id));
-      return NextResponse.json(
-        {
-          error: "PAYMENT_METHOD_REQUIRED",
-          message: "Choose how you'd like to pay.",
-          options: selectable,
-          quote: {
-            base: price,
-            cardFee: fee.feeCents / 100,
-            cardTotal: fee.totalCents / 100,
-            offlineTotal: price,
-          },
-          savedCard: card ? { label: `${prettyBrand(card.brand)} ····${card.last4}` } : null,
-          documents: allDocs.map((d) => ({
-            id: d.id,
-            title: d.title,
-            requirement: d.requirement,
-            requirementLabel: EVENT_DOC_REQUIREMENT_LABELS[d.requirement],
-            needsSignature: missingIds.has(d.id),
-            needsAcknowledgement: ackIds.has(d.id),
-          })),
-        },
-        { status: 400 },
-      );
-    }
-    if (!selectable.includes(chosen)) {
-      const reason =
-        chosen === "AUTO_CARD" && allowed.includes("AUTO_CARD")
-          ? "You don't have a saved card yet — add one in your profile, or choose another way to pay."
-          : `${chosen === "SAVED_CARD" ? "Paying now with a saved card" : EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`;
-      return NextResponse.json({ error: "PAYMENT_METHOD_NOT_ALLOWED", message: reason }, { status: 400 });
-    }
 
     // Mirror the booking as an EventRegistration so the money is trackable in
     // the same place as public signups (outstanding lists, invoicing, receipts).
@@ -611,6 +631,296 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         });
       });
 
+    let savedCardAvailable = false;
+    if (allowed.includes("AUTO_CARD") || allowed.includes("CARD")) {
+      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
+      savedCardAvailable = !!(await resolveChargeablePaymentMethodId(
+        customerId,
+        club.stripeAccountId,
+        member.stripeSetupPaymentMethodId,
+      ));
+    }
+    // ══ Coach approval (§5.4.5) ══════════════════════════════════════════════
+    // When the event requires approval, the create path forks BEFORE any
+    // charge or Checkout call. Nothing here creates a Booking: Booking is the
+    // confirmed-spot primitive that member calendars and rosters read, and a
+    // spot no coach has agreed to must not appear on any of them. The approve
+    // route creates it.
+    if (policy.requiresCoachApproval) {
+      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
+      const intent =
+        policy.approvalPaymentIntent === "PARENT_CHOOSES" ? (paymentMethod ?? null) : policy.approvalPaymentIntent;
+
+      // What the parent may pick when the owner left the choice to them. The
+      // saved-card option only appears when there is genuinely a chargeable
+      // card, so "charge my card on approval" can never be selected by someone
+      // who has none on file.
+      const approvalOptions = [
+        ...(savedCardAvailable ? ["APPROVAL_CHARGE"] : []),
+        "INVOICE",
+        ...allowed.filter((m) => m === "CASH" || m === "CHECK"),
+        ...(allowed.includes("CARD") ? ["CARD"] : []),
+      ];
+
+      if (!intent || (policy.approvalPaymentIntent === "PARENT_CHOOSES" && !approvalOptions.includes(intent))) {
+        const fee = applyProcessingFee(priceCents, club.passProcessingFees);
+        const card = savedCardAvailable ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
+        return NextResponse.json(
+          {
+            error: "PAYMENT_METHOD_REQUIRED",
+            requiresCoachApproval: true,
+            message:
+              "Registration isn't confirmed until the coach reviews it. Choose how you'd like to pay if they approve.",
+            options: approvalOptions,
+            quote: {
+              base: price,
+              cardFee: fee.feeCents / 100,
+              cardTotal: fee.totalCents / 100,
+              offlineTotal: price,
+            },
+            savedCard: card ? { label: `${prettyBrand(card.brand)} ····${card.last4}` } : null,
+          },
+          { status: 400 },
+        );
+      }
+
+      const stampCode = async (id: string) => {
+        await prisma.eventRegistration
+          .updateMany({ where: { id, confirmationCode: null }, data: { confirmationCode: confirmationCodeFor(id) } })
+          .catch(() => undefined);
+      };
+
+      if (intent === "APPROVAL_CHARGE") {
+        // The card is verified as chargeable NOW, at the moment consent is
+        // given — not at approval time, when the parent is not around to fix
+        // it. Families replace cards; a stored pointer goes stale silently.
+        const pmId = await resolveChargeablePaymentMethodId(
+          customerId,
+          club.stripeAccountId,
+          member.stripeSetupPaymentMethodId,
+        );
+        if (!pmId) {
+          return NextResponse.json(
+            {
+              error: "PAYMENT_SETUP_REQUIRED",
+              message: "Add a card first — it's charged only if your coach approves this registration.",
+              setupUrl: "/member/profile",
+            },
+            { status: 402 },
+          );
+        }
+        if (!autoChargeConsent?.agreed) {
+          return NextResponse.json(
+            {
+              error: "CONSENT_REQUIRED",
+              message: `Please confirm you authorize a $${price.toFixed(2)} charge if your coach approves.`,
+            },
+            { status: 400 },
+          );
+        }
+        const reg = await upsertRegistration({
+          status: "PENDING_REVIEW",
+          method: "APPROVAL_CHARGE" as EventPaymentMethod,
+          // Deliberately null: nothing is scheduled until a coach approves.
+          // The approve route sets it to `now` and hands the row to the
+          // existing charge engine (§5.4.6).
+          scheduledChargeAt: null,
+          consent: {
+            at: new Date().toISOString(),
+            kind: "APPROVAL_CHARGE",
+            userId: session.user.id ?? null,
+            memberId: regMemberId,
+            email: regEmail || null,
+            ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+            userAgent: req.headers.get("user-agent") ?? null,
+            buttonLabel: autoChargeConsent?.buttonLabel ?? null,
+            amount: price,
+            chargeOn: "coach approval",
+            ...(discount ? { discountCode: discount.code } : {}),
+          } as Prisma.InputJsonValue,
+        });
+        await prisma.eventRegistration.update({
+          where: { id: reg.id },
+          data: { approvalStatus: "PENDING", approvalRequestedAt: new Date() },
+        });
+        await stampCode(reg.id);
+        if (discount) await recordDiscountUse(discount.id);
+        await sendRegistrationLifecycleEmail({ registrationId: reg.id, transition: "CONFIRMATION" });
+        return NextResponse.json({
+          ok: true,
+          pendingReview: true,
+          registrationId: reg.id,
+          paymentMethod: "APPROVAL_CHARGE",
+          amountDue: price,
+          message: `Request sent to your coach. Nothing is charged yet — your card is charged $${price.toFixed(2)} only if they approve.`,
+        });
+      }
+
+      if (intent === "INVOICE") {
+        const reg = await upsertRegistration({ status: "PENDING_REVIEW", method: "INVOICE" as EventPaymentMethod });
+        await prisma.eventRegistration.update({
+          where: { id: reg.id },
+          data: { approvalStatus: "PENDING", approvalRequestedAt: new Date() },
+        });
+        await stampCode(reg.id);
+        if (discount) await recordDiscountUse(discount.id);
+        await sendRegistrationLifecycleEmail({ registrationId: reg.id, transition: "CONFIRMATION" });
+        return NextResponse.json({
+          ok: true,
+          pendingReview: true,
+          registrationId: reg.id,
+          paymentMethod: "INVOICE",
+          amountDue: price,
+          message: `Request sent to your coach. No card needed now — the club emails a payment link for $${price.toFixed(2)} once they approve.`,
+        });
+      }
+
+      if (intent === "CASH" || intent === "CHECK" || intent === "CASH_CHECK") {
+        const method = intent === "CASH_CHECK" ? (paymentMethod === "CHECK" ? "CHECK" : "CASH") : intent;
+        // Same as today: acceptance is not payment. One PENDING offline
+        // Transaction records what is owed; approval decides whether it is
+        // ever collected, and a decline voids it.
+        const reg = await upsertRegistration({ status: offlineStatusForMethod(method), method });
+        const tx = await createEventOfflinePendingTx({
+          clubId: session.user.clubId,
+          eventId: event.id,
+          memberId: member.id,
+          amount: price,
+          method,
+          eventName: event.name,
+          registrantName,
+          discountCode: discount?.code ?? null,
+        });
+        await prisma.eventRegistration.update({
+          where: { id: reg.id },
+          data: { transactionId: tx.id, approvalStatus: "PENDING", approvalRequestedAt: new Date() },
+        });
+        await stampCode(reg.id);
+        if (discount) await recordDiscountUse(discount.id);
+        await sendRegistrationLifecycleEmail({ registrationId: reg.id, transition: "CONFIRMATION" });
+        return NextResponse.json({
+          ok: true,
+          pendingReview: true,
+          registrationId: reg.id,
+          offline: true,
+          paymentMethod: method,
+          amountDue: price,
+          message: `Request sent to your coach. If they approve, bring $${price.toFixed(2)} in ${method.toLowerCase()} to the event.`,
+        });
+      }
+
+      // CARD — pay in full now, still awaiting the coach. This is the one
+      // approval branch where money moves before a decision, so the decline
+      // path refunds unconditionally (§5.4.6). The registration row is created
+      // up front (the non-approval CARD path has none) so the webhook has
+      // somewhere to record PAID without inventing a spot.
+      const reg = await upsertRegistration({ status: "PENDING_PAYMENT", method: "CARD" });
+      await prisma.eventRegistration.update({
+        where: { id: reg.id },
+        data: { approvalStatus: "PENDING", approvalRequestedAt: new Date() },
+      });
+      await stampCode(reg.id);
+      const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
+      const checkout = await stripe.checkout.sessions.create(
+        {
+          mode: "payment",
+          customer_email: regEmail || undefined,
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: "usd",
+                unit_amount: priceCents,
+                product_data: {
+                  name: event.name,
+                  description: `${priceLabel} price · refunded in full if your coach can't approve`,
+                },
+              },
+            },
+            ...(feeItem ? [feeItem] : []),
+          ],
+          success_url: `${getAppBaseUrl()}/member/events?paid=true`,
+          cancel_url: `${getAppBaseUrl()}/member/events?canceled=true`,
+          payment_intent_data: {
+            application_fee_amount: calculatePlatformFee(priceCents, club.tier),
+            metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: club.id, memberId: member.id },
+          },
+          metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: club.id, memberId: member.id },
+        },
+        { stripeAccount: club.stripeAccountId },
+      );
+      await prisma.eventRegistration.update({
+        where: { id: reg.id },
+        data: { stripeCheckoutSessionId: checkout.id },
+      });
+      if (discount) await recordDiscountUse(discount.id);
+      return NextResponse.json({ url: checkout.url, registrationId: reg.id, pendingReview: true });
+    }
+
+    // Methods the client can actually complete right now. SAVED_CARD (pay now
+    // with the card on file) rides on CARD permission + a verified saved card.
+    const selectable: string[] = [
+      ...(allowed.includes("CARD") && savedCardAvailable ? ["SAVED_CARD"] : []),
+      ...allowed.filter((m) => (m === "AUTO_CARD" ? savedCardAvailable : true)),
+    ];
+
+    // A payment decision is required whenever there's more than one way to
+    // pay. The old code defaulted to CARD here, which sent members straight to
+    // Stripe without ever seeing the choice.
+    // APPROVAL_CHARGE and INVOICE only exist on approval-gated events, and
+    // that fork returned above — on a normal event they are not offered, so a
+    // client sending one falls through to "you have to choose" rather than
+    // being honored.
+    const standardChoice =
+      paymentMethod === "APPROVAL_CHARGE" || paymentMethod === "INVOICE" ? undefined : paymentMethod;
+    const chosen: EventPaymentMethod | "SAVED_CARD" | null =
+      standardChoice ?? (selectable.length === 1 ? (selectable[0] as EventPaymentMethod) : null);
+    if (!chosen) {
+      // Exact totals per method so the client confirms the real number: card
+      // methods include the processing fee when the club passes it; cash and
+      // check owe the sticker price.
+      const fee = applyProcessingFee(priceCents, club.passProcessingFees);
+      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
+      const card = savedCardAvailable ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
+      const [allDocs, missingSign, ackDocs2] = await Promise.all([
+        documentsForEvent(session.user.clubId, event.id),
+        missingSignedEventDocs(session.user.clubId, event.id, member.id),
+        acknowledgementDocs(session.user.clubId, event.id),
+      ]);
+      const missingIds = new Set(missingSign.map((d) => d.id));
+      const ackIds = new Set(ackDocs2.map((d) => d.id));
+      return NextResponse.json(
+        {
+          error: "PAYMENT_METHOD_REQUIRED",
+          message: "Choose how you'd like to pay.",
+          options: selectable,
+          quote: {
+            base: price,
+            cardFee: fee.feeCents / 100,
+            cardTotal: fee.totalCents / 100,
+            offlineTotal: price,
+          },
+          savedCard: card ? { label: `${prettyBrand(card.brand)} ····${card.last4}` } : null,
+          documents: allDocs.map((d) => ({
+            id: d.id,
+            title: d.title,
+            requirement: d.requirement,
+            requirementLabel: EVENT_DOC_REQUIREMENT_LABELS[d.requirement],
+            needsSignature: missingIds.has(d.id),
+            needsAcknowledgement: ackIds.has(d.id),
+          })),
+        },
+        { status: 400 },
+      );
+    }
+    if (!selectable.includes(chosen)) {
+      const reason =
+        chosen === "AUTO_CARD" && allowed.includes("AUTO_CARD")
+          ? "You don't have a saved card yet — add one in your profile, or choose another way to pay."
+          : `${chosen === "SAVED_CARD" ? "Paying now with a saved card" : EVENT_PAYMENT_METHOD_LABELS[chosen]} isn't available for this event.`;
+      return NextResponse.json({ error: "PAYMENT_METHOD_NOT_ALLOWED", message: reason }, { status: 400 });
+    }
+
     // ── Pay now with the saved card ─────────────────────────────────────────
     // The client explicitly confirmed the exact total on the button. Reuses
     // the scheduled-charge engine with "now" as the date — same idempotency
@@ -647,7 +957,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
       try {
         await prisma.booking.create({
-          data: { eventId: event.id, memberId: member.id, status: bookingStatus },
+          data: {
+            eventId: event.id,
+            memberId: member.id,
+            status: bookingStatus,
+            // §5.4.8 — who DID the booking, as distinct from who it's for. A
+            // guardian registering a child is the common case.
+            bookedByUserId: session.user.id ?? null,
+          },
         });
       } catch {
         // Unique (eventId, memberId) — a concurrent request already booked it.
@@ -677,7 +994,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const bookingStatus =
         event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
       await prisma.booking.create({
-        data: { eventId: event.id, memberId: member.id, status: bookingStatus },
+        data: {
+          eventId: event.id,
+          memberId: member.id,
+          status: bookingStatus,
+          bookedByUserId: session.user.id ?? null,
+        },
       });
 
       // Waitlisted = no spot, so no money. Scheduling a card charge or telling

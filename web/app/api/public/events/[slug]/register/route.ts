@@ -12,8 +12,11 @@ import {
   eventAllowedPaymentMethods,
   offlineStatusForMethod,
   capacityWhere,
+  resolveEventPolicy,
   EVENT_PAYMENT_METHOD_LABELS,
 } from "@/lib/eventPayments";
+import { confirmationCodeFor } from "@/lib/confirmationCode";
+import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 import { documentsForEvent } from "@/lib/eventDocuments";
 
@@ -66,6 +69,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     where: { publicSlug: params.slug },
     include: {
       club: true,
+      // Phase 5 §5.3.1 — the type's defaultPolicy is half of what
+      // resolveEventPolicy walks; without it every event reads as opted out.
+      customEventType: { select: { defaultPolicy: true } },
       // Spot-holding registrations only: real ones, plus card checkouts still
       // inside their hold window (capacityWhere). A checkout abandoned an hour
       // ago releases its spot; one started a minute ago keeps it.
@@ -94,10 +100,21 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   if (event.registrationDeadline && event.registrationDeadline < now) {
     return NextResponse.json({ error: "The registration deadline has passed" }, { status: 403 });
   }
-  if (
-    event.capacity != null &&
-    event._count.registrations + event._count.bookings >= event.capacity
-  ) {
+  const policy = resolveEventPolicy(event);
+
+  // The count in the query above used the default capacity rule (a
+  // PENDING_REVIEW row holds nothing). An owner who turned holdSpotDuringReview
+  // ON means those rows DO hold a spot, and the flag isn't known until the
+  // event is loaded — so re-count for exactly those events rather than making
+  // every public page pay for a second query.
+  let spotsTaken = event._count.registrations + event._count.bookings;
+  if (event.capacity != null && policy.holdSpotDuringReview) {
+    spotsTaken =
+      (await prisma.eventRegistration.count({
+        where: { eventId: event.id, ...capacityWhere(now, { holdSpotDuringReview: true }) },
+      })) + event._count.bookings;
+  }
+  if (event.capacity != null && spotsTaken >= event.capacity) {
     return NextResponse.json({ error: "This event is full" }, { status: 409 });
   }
 
@@ -183,7 +200,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   const stripeReady = !!event.club.stripeAccountId && !!event.club.stripeChargesEnabled;
   const allowed = eventAllowedPaymentMethods(event).filter((m) => m !== "AUTO_CARD");
   const selectable = allowed.filter((m) => m !== "CARD" || stripeReady);
-  const needsDecision = !isVariableCost && amountDue > 0;
+  // Phase 5 §5.12 item 7: APPROVAL_CHARGE needs a saved card, a saved card
+  // needs an account, and this route is anonymous — so it is never offered
+  // here, exactly like AUTO_CARD. An approval-gated public event whose policy
+  // is INVOICE collects no money now and bills on approval instead.
+  const billOnApproval = policy.requiresCoachApproval && policy.approvalPaymentIntent === "INVOICE";
+  const needsDecision = !isVariableCost && amountDue > 0 && !billOnApproval;
 
   let method: "CARD" | "CASH" | "CHECK" | null = null;
   if (needsDecision) {
@@ -228,9 +250,27 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
           ? { __documentsAcknowledged: `${new Date().toISOString()} — ${gatedDocs.map((d) => d.title).join("; ")}` }
           : {}),
       },
-      // A card registration isn't complete until Stripe confirms it.
-      status: method === "CARD" ? "PENDING_PAYMENT" : method ? offlineStatusForMethod(method) : "REGISTERED",
-      paymentMethod: method,
+      // A card registration isn't complete until Stripe confirms it. When the
+      // coach has to approve first, nothing else is complete either: the row
+      // is a REQUEST (PENDING_REVIEW) rather than a spot, and no Booking
+      // exists for it until the approve route creates one (§5.4.5).
+      status: method === "CARD"
+        ? "PENDING_PAYMENT"
+        : method
+          ? // Cash and check keep their own status even under approval: the
+            // money is genuinely owed at the door either way, and
+            // approvalStatus below is what gates the spot. The render context
+            // reads approvalStatus FIRST, so the registrant still sees
+            // "Registration requested", not "You're registered".
+            offlineStatusForMethod(method)
+          : policy.requiresCoachApproval
+            ? "PENDING_REVIEW"
+            : "REGISTERED",
+      paymentMethod: method ?? (billOnApproval ? "INVOICE" : null),
+      // null means "coach approval was never part of this event's contract" —
+      // never write PENDING on an event that doesn't require it.
+      approvalStatus: policy.requiresCoachApproval ? "PENDING" : null,
+      approvalRequestedAt: policy.requiresCoachApproval ? new Date() : null,
       amountDue: isVariableCost ? estimatedShare : amountDue > 0 ? amountDue : null,
       // The rule, not just the result. On a variable-cost event amountDue is
       // only an estimate, but the code still binds — bill-registrants applies
@@ -243,6 +283,22 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     },
   });
 
+  // The registration number the visitor will quote back to staff. Derived from
+  // the row id, so it is the same value on the page, in the email, and in any
+  // later backfill — see lib/confirmationCode.
+  await prisma.eventRegistration
+    .update({ where: { id: registration.id }, data: { confirmationCode: confirmationCodeFor(registration.id) } })
+    .catch(async () => {
+      // Astronomically unlikely, but the partial unique index is what makes it
+      // an error rather than a duplicate: salt and try once more.
+      await prisma.eventRegistration
+        .update({
+          where: { id: registration.id },
+          data: { confirmationCode: confirmationCodeFor(registration.id, 1) },
+        })
+        .catch(() => undefined);
+    });
+
   // Redemption counts once, here, for every public path below (free, offline,
   // and card). The card branch counts at checkout creation rather than on
   // webhook confirmation, matching how the member and staff paths already
@@ -250,8 +306,27 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // trade-off across the whole engine, not something new here.
   if (discount) await recordDiscountUse(discount.id);
 
+  // ── Awaiting coach review (§5.4.5) ──────────────────────────────────────
+  // Everything that isn't a card checkout or an at-the-door payment stops
+  // here: no Stripe session, no Booking, no money. The coach decides, and the
+  // approve route takes it from there (charging, invoicing, or nothing).
+  if (policy.requiresCoachApproval && method !== "CARD" && method !== "CASH" && method !== "CHECK") {
+    await sendRegistrationLifecycleEmail({ registrationId: registration.id, transition: "CONFIRMATION" });
+    return NextResponse.json({
+      ok: true,
+      registrationId: registration.id,
+      pendingReview: true,
+      awaitingApproval: true,
+      amountDue: billOnApproval ? amountDue : null,
+      message: billOnApproval
+        ? `Request received — nothing is charged yet. Your coach reviews it first, and the club will email a payment link for $${amountDue.toFixed(2)} once they approve.`
+        : "Request received — your coach reviews it and you'll be notified as soon as they do. No money moves until then.",
+    });
+  }
+
   // Variable cost — registered now, billed later by the owner.
   if (isVariableCost) {
+    await sendRegistrationLifecycleEmail({ registrationId: registration.id, transition: "CONFIRMATION" });
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
@@ -269,6 +344,11 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // confirmed outright rather than sent to a $0 Stripe checkout (Stripe
   // refuses charges under $0.50 anyway). Same shape as the member path.
   if (amountDue <= 0) {
+    // The success page has always told this visitor "a confirmation has been
+    // sent to <email>". Until now nothing was sent — the route returned first
+    // (ARCHITECTURE-NOTES §2.1 Phase 5, bug 1). One dedupe-keyed send makes the
+    // sentence true; a replay of this POST is a no-op at the ledger.
+    await sendRegistrationLifecycleEmail({ registrationId: registration.id, transition: "CONFIRMATION" });
     return NextResponse.json({
       ok: true,
       free: true,
@@ -296,16 +376,25 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       where: { id: registration.id },
       data: { transactionId: tx.id },
     });
+    await sendRegistrationLifecycleEmail({ registrationId: registration.id, transition: "CONFIRMATION" });
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
       offline: true,
+      ...(policy.requiresCoachApproval ? { pendingReview: true, awaitingApproval: true } : {}),
       paymentMethod: method,
       amountDue,
       ...(discount ? { discountCode: discount.code, discountOff: discountFields.discountAmount } : {}),
       // The amount named here is the discounted one, and it's the same figure
       // the PENDING Transaction carries and the roster shows staff at the door.
-      message: `You're registered. Please bring $${amountDue.toFixed(2)} in ${method.toLowerCase()} to the event.${
+      // Under coach approval the spot isn't theirs yet, so the copy must not
+      // say it is — the whole point of the shared render context is that no
+      // surface promises a state the row isn't in.
+      message: `${
+        policy.requiresCoachApproval
+          ? "Request received — your coach reviews it first. If they approve, please bring"
+          : "You're registered. Please bring"
+      } $${amountDue.toFixed(2)} in ${method.toLowerCase()} to the event.${
         discount ? ` (${discountLineLabel(discount)} applied — $${(discountFields.discountAmount ?? 0).toFixed(2)} off.)` : ""
       }`,
     });

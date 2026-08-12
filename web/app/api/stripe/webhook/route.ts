@@ -869,7 +869,14 @@ export async function POST(req: Request) {
             }
             // If they matched an existing member, also create a Booking so it
             // shows on their portal alongside member bookings.
-            if (reg.memberId) {
+            //
+            // Not while a coach still has to approve it (Phase 5 §5.4.5).
+            // Booking is the confirmed-spot primitive — the member portal
+            // calendar, class rosters and /member/bookings all read it — so
+            // creating one here would show a family a spot their coach has
+            // not agreed to. Paying up front buys a place in the queue, not
+            // the place itself; the approve route creates the Booking.
+            if (reg.memberId && reg.approvalStatus !== "PENDING") {
               const existing = await prisma.booking.findUnique({
                 where: { eventId_memberId: { eventId: reg.eventId, memberId: reg.memberId } },
               });
