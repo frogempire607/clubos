@@ -40,10 +40,43 @@ export const SUBSCRIPTION_EVENT_KIND = {
   EXPIRED: "EXPIRED",
   PLAN_CHANGED: "PLAN_CHANGED",
   REACTIVATED: "REACTIVATED",
+  /**
+   * The billed amount on an EXISTING subscription moved. NOT a lifecycle
+   * transition: the membership did not start, stop, pause, or change plan —
+   * only its price did. See LIFECYCLE_EVENT_KINDS below for why that
+   * distinction is load-bearing rather than cosmetic.
+   */
+  PRICE_CHANGE: "PRICE_CHANGE",
 } as const;
 
 export type SubscriptionEventKind =
   (typeof SUBSCRIPTION_EVENT_KIND)[keyof typeof SUBSCRIPTION_EVENT_KIND];
+
+/**
+ * The kinds that describe a membership STARTING, STOPPING, or MOVING — the
+ * only ones that answer "does this subscription have history".
+ *
+ * PRICE_CHANGE is deliberately excluded. A bulk repricing writes one row per
+ * touched subscription, and if those rows counted toward coverage then
+ * repricing a club's book of business would flip the Reports Membership tab
+ * from ESTIMATED to COMPLETE without a single lifecycle fact being recorded —
+ * turning an honest caveat into a confident wrong answer. That is the exact
+ * failure mode the reliability gate exists to prevent, so the gate counts
+ * lifecycle kinds only.
+ *
+ * Any future non-lifecycle kind (a note, a payment-method swap, a discount
+ * edit) belongs outside this list too.
+ */
+export const LIFECYCLE_EVENT_KINDS: SubscriptionEventKind[] = [
+  SUBSCRIPTION_EVENT_KIND.CREATED,
+  SUBSCRIPTION_EVENT_KIND.ACTIVATED,
+  SUBSCRIPTION_EVENT_KIND.PAUSED,
+  SUBSCRIPTION_EVENT_KIND.RESUMED,
+  SUBSCRIPTION_EVENT_KIND.CANCELED,
+  SUBSCRIPTION_EVENT_KIND.EXPIRED,
+  SUBSCRIPTION_EVENT_KIND.PLAN_CHANGED,
+  SUBSCRIPTION_EVENT_KIND.REACTIVATED,
+];
 
 export const SUBSCRIPTION_EVENT_SOURCE = {
   STRIPE_WEBHOOK: "STRIPE_WEBHOOK",
@@ -139,14 +172,23 @@ export async function recordSubscriptionCreated(
  * Reports must NOT flip to COMPLETE merely because the table exists — an empty
  * log reads as "nothing ever happened", which is a confident wrong answer
  * rather than an honest caveat. The test is: does every subscription this club
- * has, have at least one event? That is exactly what BF-B guarantees, and it
- * stays true afterwards because every creation path records CREATED.
+ * has, have at least one LIFECYCLE event? That is exactly what BF-B
+ * guarantees, and it stays true afterwards because every creation path
+ * records CREATED.
+ *
+ * The kind filter is not decoration. Without it, a bulk price change writing
+ * one PRICE_CHANGE row per subscription would satisfy this test on its own,
+ * and Reports would start claiming COMPLETE churn history for a club whose
+ * lifecycle log had never been backfilled. See LIFECYCLE_EVENT_KINDS.
  */
 export async function subscriptionHistoryIsComplete(clubId: string): Promise<boolean> {
   const [subs, covered] = await Promise.all([
     prisma.memberSubscription.count({ where: { member: { clubId } } }),
     prisma.memberSubscriptionEvent
-      .groupBy({ by: ["memberSubscriptionId"], where: { clubId } })
+      .groupBy({
+        by: ["memberSubscriptionId"],
+        where: { clubId, kind: { in: LIFECYCLE_EVENT_KINDS } },
+      })
       .then((rows) => rows.length),
   ]);
   // A club with no subscriptions at all has nothing to be wrong about.

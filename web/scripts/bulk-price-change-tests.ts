@@ -10,8 +10,16 @@ import {
   periodStartFor,
   computeCredit,
   planPriceChange,
+  validateNotice,
+  stripeUnitAmountCents,
+  buildPriceChangeEmail,
+  isFailureOutcome,
   type PricedSubscription,
 } from "../lib/bulkPriceChange";
+import {
+  LIFECYCLE_EVENT_KINDS,
+  SUBSCRIPTION_EVENT_KIND,
+} from "../lib/subscriptionEvents";
 
 let pass = 0;
 let fail = 0;
@@ -188,6 +196,112 @@ const noop = planPriceChange({
 check("price unchanged → direction none", noop.direction === "none");
 check("price unchanged → nothing pre-selected", noop.summary.defaultSelectedCount === 0);
 check("price unchanged → row says so", noop.rows[0].warnings.some((w) => w.includes("Already at the new price")));
+
+// ── Churn contamination guard ───────────────────────────────────────────────
+// The reason this test exists: if PRICE_CHANGE ever counts toward the
+// subscription-history coverage test, a bulk repricing alone would flip the
+// Reports Membership tab from ESTIMATED to COMPLETE for a club whose lifecycle
+// log was never backfilled — an honest caveat replaced by a confident wrong
+// answer. Keep it out.
+console.log("\nLIFECYCLE_EVENT_KINDS (churn contamination guard):");
+check("PRICE_CHANGE exists as a kind", SUBSCRIPTION_EVENT_KIND.PRICE_CHANGE === "PRICE_CHANGE");
+check(
+  "PRICE_CHANGE is NOT a lifecycle kind",
+  !LIFECYCLE_EVENT_KINDS.includes(SUBSCRIPTION_EVENT_KIND.PRICE_CHANGE),
+);
+check("CREATED still counts as lifecycle", LIFECYCLE_EVENT_KINDS.includes(SUBSCRIPTION_EVENT_KIND.CREATED));
+check("CANCELED still counts as lifecycle", LIFECYCLE_EVENT_KINDS.includes(SUBSCRIPTION_EVENT_KIND.CANCELED));
+check("EXPIRED still counts as lifecycle", LIFECYCLE_EVENT_KINDS.includes(SUBSCRIPTION_EVENT_KIND.EXPIRED));
+check("PLAN_CHANGED still counts as lifecycle", LIFECYCLE_EVENT_KINDS.includes(SUBSCRIPTION_EVENT_KIND.PLAN_CHANGED));
+check("the 8 lifecycle kinds are all there", LIFECYCLE_EVENT_KINDS.length === 8, LIFECYCLE_EVENT_KINDS.length);
+
+// ── Advance-notice gate ─────────────────────────────────────────────────────
+console.log("\nvalidateNotice:");
+const FUTURE = new Date("2026-09-01T00:00:00Z");
+const PAST = new Date("2026-07-01T00:00:00Z");
+check("decrease needs no notice", validateNotice({ direction: "decrease", notifyBeforeDate: null, now: NOW }).ok === true);
+check("no-change needs no notice", validateNotice({ direction: "none", notifyBeforeDate: null, now: NOW }).ok === true);
+const noDate = validateNotice({ direction: "increase", notifyBeforeDate: null, now: NOW });
+check("increase without a date is refused", noDate.ok === false);
+check("…with a NOTICE_REQUIRED code", noDate.ok === false && noDate.code === "NOTICE_REQUIRED");
+const pastDate = validateNotice({ direction: "increase", notifyBeforeDate: PAST, now: NOW });
+check("increase with a past date is refused", pastDate.ok === false);
+check("…with a NOTICE_IN_PAST code", pastDate.ok === false && pastDate.code === "NOTICE_IN_PAST");
+check("increase with a future date is allowed", validateNotice({ direction: "increase", notifyBeforeDate: FUTURE, now: NOW }).ok === true);
+check("an unreadable date is refused, not treated as absent",
+  validateNotice({ direction: "increase", notifyBeforeDate: new Date("nonsense"), now: NOW }).ok === false);
+
+// ── Fee passthrough on the Stripe amount ────────────────────────────────────
+// Frog Empire has passProcessingFees=true. A bare price*100 here would strip
+// the 2.9% off every repriced subscription and quietly cut the club's take.
+console.log("\nstripeUnitAmountCents:");
+check("no passthrough → the bare amount", stripeUnitAmountCents(190, false) === 19000, stripeUnitAmountCents(190, false));
+check("passthrough adds the fee", stripeUnitAmountCents(190, true) > 19000, stripeUnitAmountCents(190, true));
+check("$190 with passthrough = 19551 cents", stripeUnitAmountCents(190, true) === 19551, stripeUnitAmountCents(190, true));
+check("$175 with passthrough = 18008 cents", stripeUnitAmountCents(175, true) === 18008, stripeUnitAmountCents(175, true));
+check("$0 stays $0 either way", stripeUnitAmountCents(0, true) === 0 && stripeUnitAmountCents(0, false) === 0);
+check("rounds to whole cents", Number.isInteger(stripeUnitAmountCents(190.005, true)));
+
+// ── Outcome classification ──────────────────────────────────────────────────
+console.log("\nisFailureOutcome:");
+check("UPDATED is not a failure", isFailureOutcome("UPDATED") === false);
+check("SKIPPED_ALREADY_AT_PRICE is not a failure", isFailureOutcome("SKIPPED_ALREADY_AT_PRICE") === false);
+check("SKIPPED_NOT_FOUND is not a failure", isFailureOutcome("SKIPPED_NOT_FOUND") === false);
+check("FAILED_STRIPE is a failure", isFailureOutcome("FAILED_STRIPE") === true);
+check("FAILED_STRIPE_UNVERIFIED is a failure", isFailureOutcome("FAILED_STRIPE_UNVERIFIED") === true);
+check("FAILED_DB_ROLLED_BACK is a failure", isFailureOutcome("FAILED_DB_ROLLED_BACK") === true);
+check("FAILED_DB_ROLLBACK_FAILED is a failure", isFailureOutcome("FAILED_DB_ROLLBACK_FAILED") === true);
+
+// ── The member notification ─────────────────────────────────────────────────
+console.log("\nbuildPriceChangeEmail:");
+const flat = (bs: unknown[]): string => JSON.stringify(bs);
+
+const decreaseMail = buildPriceChangeEmail({
+  clubName: "Frog Empire", memberName: "Ann", planName: "MS/HS", optionLabel: "Monthly",
+  billingPeriod: "MONTHLY", fromPrice: 190, toPrice: 175, passProcessingFees: true,
+  effectiveDate: FUTURE, channel: "stripe",
+  credit: { kind: "NOT_APPLICABLE", amount: null, basis: "none", periodEnd: null, daysRemaining: null, daysInPeriod: null, note: "" },
+});
+check("a decrease reads as good news", decreaseMail.subject.includes("going down"));
+check("shows the old price", flat(decreaseMail.blocks).includes("$190.00"));
+check("shows the new price", flat(decreaseMail.blocks).includes("$175.00"));
+check("states the effective date", flat(decreaseMail.blocks).includes("September 1, 2026"));
+check("fee passthrough is spelled out so $175 vs $180.08 isn't read as a bug",
+  flat(decreaseMail.blocks).includes("$180.08"));
+check("stripe members are told nothing is needed from them",
+  flat(decreaseMail.blocks).includes("Nothing is needed from you"));
+check("stripe members are told they were NOT charged or refunded today",
+  flat(decreaseMail.blocks).includes("not been charged or refunded"));
+
+const increaseMail = buildPriceChangeEmail({
+  clubName: "Frog Empire", memberName: "Ben", planName: "MS/HS", optionLabel: "Monthly",
+  billingPeriod: "MONTHLY", fromPrice: 190, toPrice: 210, passProcessingFees: false,
+  effectiveDate: FUTURE, channel: "offline",
+  credit: { kind: "NOT_APPLICABLE", amount: null, basis: "none", periodEnd: null, daysRemaining: null, daysInPeriod: null, note: "" },
+});
+check("an increase does not claim to be good news", !increaseMail.subject.includes("going down"));
+check("no fee line when the club absorbs fees", !flat(increaseMail.blocks).includes("card processing"));
+check("offline members are told nothing was charged or refunded",
+  flat(increaseMail.blocks).includes("nothing has been charged or refunded"));
+
+const creditMail = buildPriceChangeEmail({
+  clubName: "Frog Empire", memberName: "Eve", planName: "MS/HS", optionLabel: "Upfront",
+  billingPeriod: "QUARTERLY", fromPrice: 530, toPrice: 430, passProcessingFees: false,
+  effectiveDate: null, channel: "offline",
+  credit: { kind: "CREDIT_OWED", amount: 48.91, basis: "currentPeriodEnd", periodEnd: "2026-09-25T12:00:00.000Z", daysRemaining: 45, daysInPeriod: 92, note: "" },
+});
+check("a computed credit is stated to the member", flat(creditMail.blocks).includes("$48.91"));
+check("…and framed as us owing them", flat(creditMail.blocks).includes("we owe you"));
+check("no effective date → next billing cycle", flat(creditMail.blocks).includes("next billing cycle"));
+
+const unknownCreditMail = buildPriceChangeEmail({
+  clubName: "Frog Empire", memberName: "Fay", planName: "Jr Frogs", optionLabel: "1 Year",
+  billingPeriod: "ANNUAL", fromPrice: 750, toPrice: 700, passProcessingFees: false,
+  effectiveDate: null, channel: "offline",
+  credit: { kind: "UNKNOWN", amount: null, basis: "none", periodEnd: null, daysRemaining: null, daysInPeriod: null, note: "" },
+});
+check("an uncomputable credit promises the member NOTHING",
+  !flat(unknownCreditMail.blocks).includes("we owe you"));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail > 0 ? 1 : 0);

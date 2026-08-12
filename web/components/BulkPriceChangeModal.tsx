@@ -1,19 +1,22 @@
 "use client";
 
-// Bulk price change — REVIEW SCREEN ONLY.
+// Bulk price change — review, then apply.
 //
-// This modal reads /api/memberships/[id]/price-change/preview and shows the
-// owner exactly who sits on the option being repriced, what each pays today,
-// and what would change. It has no apply path: the apply endpoint does not
-// exist yet, and the confirm button says so rather than pretending.
+// Reads /api/memberships/[id]/price-change/preview to show who sits on the
+// option being repriced, then POSTs the chosen ids to .../apply. The apply
+// call re-verifies every row against the DB, so what this component sends is
+// a set of ids and a price — never a trusted payload.
 //
-// Two rules the layout encodes:
+// Three rules the layout encodes:
 //   1. Members who already pay something other than the plan's sticker price
 //      are shown but never pre-ticked — an override is a decision someone made
 //      on purpose, and a bulk tool must not quietly undo it.
 //   2. Upfront-paid rows are in their own section, below, each with its own
 //      credit line. They are the rows where money has already changed hands,
 //      so they get read one at a time rather than swept with a "select all".
+//   3. An increase cannot be confirmed without a future effective date. The
+//      button stays disabled and says why, because families must be told
+//      before their price goes up.
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -70,6 +73,34 @@ type Plan = {
     unknownCreditCount: number;
     defaultSelectedDelta: number;
   };
+  notes: string[];
+};
+
+type ApplyRowResult = {
+  memberSubscriptionId: string;
+  memberName: string | null;
+  outcome: string;
+  channel: "stripe" | "offline" | null;
+  fromPrice: number | null;
+  toPrice: number | null;
+  emailed: boolean;
+  emailStatus: string | null;
+  message: string | null;
+};
+
+type ApplyResponse = {
+  ok: boolean;
+  summary: {
+    requested: number;
+    updated: number;
+    failed: number;
+    skipped: number;
+    emailed: number;
+    creditOwed: number;
+    additionalDue: number;
+    unresolvedCredit: number;
+  };
+  results: ApplyRowResult[];
   notes: string[];
 };
 
@@ -204,6 +235,12 @@ export default function BulkPriceChangeModal({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Date the new price takes effect. Required for increases — the notification
+  // goes out during the apply call, which is necessarily before this date.
+  const [effectiveDate, setEffectiveDate] = useState("");
+  const [notify, setNotify] = useState(true);
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState<ApplyResponse | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -275,9 +312,55 @@ export default function BulkPriceChangeModal({
     .reduce((s, r) => s + (r.credit.amount ?? 0), 0);
   const chosenUnknown = chosen.filter((r) => r.credit.kind === "UNKNOWN").length;
 
+  // An increase needs a future effective date before it can be confirmed.
+  const isIncrease = plan?.direction === "increase";
+  const effectiveDateInFuture = (() => {
+    if (!effectiveDate) return false;
+    const d = new Date(`${effectiveDate}T00:00:00Z`);
+    return Number.isFinite(d.getTime()) && d.getTime() > Date.now();
+  })();
+  const noticeBlocked = isIncrease && !effectiveDateInFuture;
+  const canApply = !!plan && chosen.length > 0 && !noticeBlocked && !applying && !applied;
+
+  async function handleApply() {
+    if (!plan || !canApply) return;
+    setApplying(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/memberships/${membershipId}/price-change/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          optionLabel,
+          billingPeriod,
+          newPrice,
+          memberSubscriptionIds: chosen.map((r) => r.memberSubscriptionId),
+          notifyBeforeDate: effectiveDate ? new Date(`${effectiveDate}T00:00:00Z`).toISOString() : null,
+          notify,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.error || "The change could not be applied.");
+        return;
+      }
+      setApplied(json as ApplyResponse);
+    } catch {
+      setError("Could not reach the server. Nothing was changed.");
+    } finally {
+      setApplying(false);
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-3 overflow-y-auto">
-      <div className="bg-app-surface rounded-xl w-full max-w-5xl my-4 shadow-xl">
+    // z-[60], not z-50: this opens ON TOP of the membership edit modal, which
+    // is itself z-50. At equal z-index the two stack by DOM order and the edit
+    // form's fields render through this one's table — verified in the browser.
+    <div className="fixed inset-0 z-[60] bg-black/70 flex items-start sm:items-center justify-center p-3 overflow-y-auto">
+      {/* bg-surface, NOT bg-app-surface: the theme defines --color-surface, so
+          `bg-app-surface` resolves to nothing and the card renders fully
+          transparent — the edit form behind it shows straight through. */}
+      <div className="bg-surface rounded-xl w-full max-w-5xl my-4 shadow-xl">
         {/* Header */}
         <div className="px-5 py-4 border-b border-app-border">
           <div className="flex items-start justify-between gap-4">
@@ -301,16 +384,123 @@ export default function BulkPriceChangeModal({
               ×
             </button>
           </div>
-          <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Preview only</span>
-            <span className="text-xs text-emerald-900">
-              Nothing on this screen has been saved, charged, refunded, or emailed.
-            </span>
-          </div>
+          {!applied ? (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Preview</span>
+              <span className="text-xs text-emerald-900">
+                Nothing has been saved, charged, refunded, or emailed yet.
+              </span>
+            </div>
+          ) : (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-800">Applied</span>
+              <span className="text-xs text-indigo-900">
+                {applied.summary.updated} updated · {applied.summary.emailed} notified
+                {applied.summary.failed > 0 && ` · ${applied.summary.failed} failed`}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Body */}
         <div className="px-5 py-4 space-y-5 max-h-[65vh] overflow-y-auto">
+          {/* Result view replaces the table entirely once applied — the
+              selection that produced it is no longer the live state. */}
+          {applied ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { k: "Updated", v: String(applied.summary.updated) },
+                  { k: "Notified", v: String(applied.summary.emailed) },
+                  { k: "Skipped", v: String(applied.summary.skipped) },
+                  { k: "Failed", v: String(applied.summary.failed) },
+                ].map((c) => (
+                  <div key={c.k} className="rounded-lg border border-app-border px-3 py-2">
+                    <div className="text-[11px] text-text-muted">{c.k}</div>
+                    <div className="text-lg font-semibold text-text-primary">{c.v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {(applied.summary.creditOwed > 0 ||
+                applied.summary.additionalDue > 0 ||
+                applied.summary.unresolvedCredit > 0) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+                  <div className="text-xs font-semibold text-amber-900">Money to settle by hand</div>
+                  {applied.summary.creditOwed > 0 && (
+                    <div className="text-xs text-amber-900">
+                      Credits owed: {usd(applied.summary.creditOwed)} — recorded on each member&apos;s billing
+                      history. Nothing was refunded.
+                    </div>
+                  )}
+                  {applied.summary.additionalDue > 0 && (
+                    <div className="text-xs text-amber-900">
+                      Additional due: {usd(applied.summary.additionalDue)} — recorded, not charged.
+                    </div>
+                  )}
+                  {applied.summary.unresolvedCredit > 0 && (
+                    <div className="text-xs text-amber-900">
+                      {applied.summary.unresolvedCredit} member
+                      {applied.summary.unresolvedCredit === 1 ? "" : "s"} had no computable credit — no period
+                      end is stored. Settle those by hand.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="overflow-x-auto border border-app-border rounded-lg">
+                <table className="w-full text-left">
+                  <thead className="bg-app-bg">
+                    <tr className="text-[11px] uppercase tracking-wide text-text-muted">
+                      <th className="px-3 py-2">Member</th>
+                      <th className="px-3 py-2">Result</th>
+                      <th className="px-3 py-2">Change</th>
+                      <th className="px-3 py-2">Notified</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {applied.results.map((r) => {
+                      const failed = r.outcome.startsWith("FAILED");
+                      const skipped = r.outcome.startsWith("SKIPPED");
+                      return (
+                        <tr key={r.memberSubscriptionId} className="border-t border-app-border align-top">
+                          <td className="px-3 py-2 text-sm text-text-primary">{r.memberName ?? "(unknown)"}</td>
+                          <td className="px-3 py-2 text-sm">
+                            <span
+                              className={
+                                failed ? "text-red-700 font-medium" : skipped ? "text-amber-700" : "text-emerald-700 font-medium"
+                              }
+                            >
+                              {r.outcome.replace(/_/g, " ").toLowerCase()}
+                            </span>
+                            {r.message && <div className="text-[11px] text-text-muted mt-0.5">{r.message}</div>}
+                          </td>
+                          <td className="px-3 py-2 text-sm whitespace-nowrap text-text-primary">
+                            {r.fromPrice != null && r.toPrice != null && r.outcome === "UPDATED"
+                              ? `${usd(r.fromPrice)} → ${usd(r.toPrice)}`
+                              : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-text-muted">
+                            {r.emailed ? "Yes" : r.emailStatus ? r.emailStatus.toLowerCase() : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <ul className="space-y-1">
+                {applied.notes.map((n, i) => (
+                  <li key={i} className="text-xs text-text-muted flex gap-1.5">
+                    <span aria-hidden>·</span>
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+          <>
           {loading && <div className="text-sm text-text-muted py-8 text-center">Building the preview…</div>}
 
           {error && (
@@ -424,6 +614,55 @@ export default function BulkPriceChangeModal({
                 </section>
               )}
 
+              {/* Effective date + notification */}
+              <section className="rounded-lg border border-app-border p-3 space-y-3">
+                <h3 className="text-sm font-semibold text-text-primary">Before you apply</h3>
+
+                <div>
+                  <label className="block text-xs font-medium text-text-primary mb-1">
+                    Date the new price takes effect
+                    {plan.direction === "increase" && <span className="text-red-600"> (required for an increase)</span>}
+                  </label>
+                  <input
+                    type="date"
+                    value={effectiveDate}
+                    onChange={(e) => setEffectiveDate(e.target.value)}
+                    className="px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
+                  <p className="text-[11px] text-text-muted mt-1">
+                    {plan.direction === "increase"
+                      ? "Families must be told before their price goes up. The notification is sent now, so this date has to be in the future."
+                      : "Optional. Leave blank and members are told the change applies from their next billing cycle."}
+                  </p>
+                  {noticeBlocked && effectiveDate && (
+                    <p className="text-[11px] text-red-700 mt-1">
+                      That date is not in the future — an increase that has already taken effect cannot be
+                      announced in advance.
+                    </p>
+                  )}
+                </div>
+
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={notify}
+                    onChange={(e) => setNotify(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-app-border text-brand focus:ring-brand"
+                  />
+                  <span className="text-xs text-text-primary">
+                    Email these families about the change
+                    <span className="block text-[11px] text-text-muted">
+                      Sent as a transactional notice, so a marketing opt-out does not suppress it.
+                    </span>
+                  </span>
+                </label>
+
+                <p className="text-[11px] text-text-muted">
+                  Skipped members keep this price until they cancel and re-sign. Applying does not change the
+                  plan&apos;s own price list — save the membership separately to update it for new purchases.
+                </p>
+              </section>
+
               {/* Notes */}
               <ul className="space-y-1">
                 {plan.notes.map((n, i) => (
@@ -435,41 +674,64 @@ export default function BulkPriceChangeModal({
               </ul>
             </>
           )}
+          </>
+          )}
         </div>
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-app-border">
-          {plan && plan.summary.total > 0 && (
+          {error && !loading && (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">
+              {error}
+            </div>
+          )}
+
+          {!applied && plan && plan.summary.total > 0 && (
             <div className="text-sm text-text-primary mb-3">
               <span className="font-medium">{chosen.length} selected</span>
               {chosenCredit > 0 && <> · credits owed {usd(chosenCredit)}</>}
               {chosenDue > 0 && <> · additional due {usd(chosenDue)}</>}
-              {chosenUnknown > 0 && (
-                <> · {chosenUnknown} with no computable credit</>
-              )}
+              {chosenUnknown > 0 && <> · {chosenUnknown} with no computable credit</>}
             </div>
           )}
+
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               type="button"
               onClick={onClose}
               className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg"
             >
-              Close
+              {applied ? "Done" : "Cancel"}
             </button>
-            <button
-              type="button"
-              disabled
-              title="The apply endpoint has not been built yet — this screen is review-only."
-              className="flex-1 px-4 py-2 bg-app-bg text-text-muted border border-app-border rounded-lg text-sm font-medium cursor-not-allowed"
-            >
-              Apply — not built yet
-            </button>
+            {!applied && (
+              <button
+                type="button"
+                onClick={handleApply}
+                disabled={!canApply}
+                title={
+                  noticeBlocked
+                    ? "Set a future effective date — an increase must be announced before it takes effect."
+                    : chosen.length === 0
+                      ? "Select at least one member."
+                      : undefined
+                }
+                className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {applying
+                  ? "Applying…"
+                  : noticeBlocked
+                    ? "Set an effective date first"
+                    : `Apply to ${chosen.length} member${chosen.length === 1 ? "" : "s"}`}
+              </button>
+            )}
           </div>
-          <p className="text-[11px] text-text-muted mt-2 text-center">
-            Saving the plan still only changes the price list. Existing members keep their current price until
-            an apply step exists.
-          </p>
+
+          {!applied && (
+            <p className="text-[11px] text-text-muted mt-2 text-center">
+              Stripe members move to the new amount with no proration — no credit note, no extra charge.
+              Offline members are recorded only; nothing is charged or refunded.
+            </p>
+          )}
         </div>
       </div>
     </div>

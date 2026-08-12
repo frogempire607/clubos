@@ -30,6 +30,9 @@
 // pre-selected, because "everyone on the sticker price" and "everyone on this
 // plan" are different questions and only the first is safe to default to.
 
+import { recurringUnitWithFee, feeBreakdown } from "@/lib/fees";
+import type { EmailBlock } from "@/lib/emailBlocks";
+
 export type MembershipOption = {
   label: string;
   price: number;
@@ -404,3 +407,227 @@ export function planPriceChange(input: {
     notes,
   };
 }
+
+// ── Apply-side rules ────────────────────────────────────────────────────────
+
+/**
+ * The `unit_amount` a Stripe subscription item must carry for `price` dollars.
+ *
+ * MUST match how the subscription was created, which passes the price through
+ * `recurringUnitWithFee` — the club's 2.9% passthrough is baked into the Stripe
+ * amount, not added at charge time. Frog Empire has `passProcessingFees: true`,
+ * so a member on the $190 sticker is billed $195.51 by Stripe. Writing a bare
+ * `price * 100` on a reprice would silently strip the passthrough off every
+ * touched subscription and quietly cut the club's take on each one.
+ */
+export function stripeUnitAmountCents(price: number, passProcessingFees: boolean): number {
+  return recurringUnitWithFee(Math.round(price * 100), passProcessingFees);
+}
+
+export type NoticeCheck = { ok: true } | { ok: false; code: string; error: string };
+
+/**
+ * Increases require advance notice. A family must be told their price is going
+ * up BEFORE it goes up — so an increase cannot run without a future date on
+ * which the new price takes effect, and the notification goes out immediately,
+ * which is necessarily before it.
+ *
+ * Decreases need no gate: nobody is harmed by paying less sooner, and the
+ * notification still goes out.
+ */
+export function validateNotice(args: {
+  direction: "increase" | "decrease" | "none";
+  notifyBeforeDate: Date | null;
+  now: Date;
+}): NoticeCheck {
+  const { direction, notifyBeforeDate, now } = args;
+  if (direction !== "increase") return { ok: true };
+  if (!notifyBeforeDate) {
+    return {
+      ok: false,
+      code: "NOTICE_REQUIRED",
+      error:
+        "This is a price increase. Set the date the new price takes effect — families must be told before it does.",
+    };
+  }
+  if (!Number.isFinite(notifyBeforeDate.getTime())) {
+    return { ok: false, code: "NOTICE_INVALID", error: "That effective date could not be read." };
+  }
+  if (notifyBeforeDate.getTime() <= now.getTime()) {
+    return {
+      ok: false,
+      code: "NOTICE_IN_PAST",
+      error:
+        "The effective date must be in the future. An increase that has already taken effect cannot be announced in advance.",
+    };
+  }
+  return { ok: true };
+}
+
+/** Per-row outcome of an apply run. */
+export type ApplyOutcome =
+  | "UPDATED"
+  | "SKIPPED_NOT_FOUND"
+  | "SKIPPED_ALREADY_AT_PRICE"
+  | "SKIPPED_CHANGED_UNDERNEATH"
+  | "FAILED_STRIPE"
+  | "FAILED_STRIPE_UNVERIFIED"
+  | "FAILED_DB_ROLLED_BACK"
+  | "FAILED_DB_ROLLBACK_FAILED";
+
+export type ApplyRowResult = {
+  memberSubscriptionId: string;
+  memberId: string | null;
+  memberName: string | null;
+  outcome: ApplyOutcome;
+  channel: "stripe" | "offline" | null;
+  fromPrice: number | null;
+  toPrice: number | null;
+  credit: CreditResult | null;
+  emailed: boolean;
+  emailStatus: string | null;
+  message: string | null;
+};
+
+const OUTCOME_IS_FAILURE = new Set<ApplyOutcome>([
+  "FAILED_STRIPE",
+  "FAILED_STRIPE_UNVERIFIED",
+  "FAILED_DB_ROLLED_BACK",
+  "FAILED_DB_ROLLBACK_FAILED",
+]);
+
+export function isFailureOutcome(o: ApplyOutcome): boolean {
+  return OUTCOME_IS_FAILURE.has(o);
+}
+
+/**
+ * The member-facing notification for one repriced subscription.
+ *
+ * Shows base + processing fee + total whenever the club passes fees through,
+ * because a member who sees "$175" and is charged $180.08 reads that as a bug
+ * (the standing rule from the 2026-07-15 billing batch).
+ */
+export function buildPriceChangeEmail(args: {
+  clubName: string;
+  memberName: string;
+  planName: string;
+  optionLabel: string;
+  billingPeriod: string;
+  fromPrice: number;
+  toPrice: number;
+  passProcessingFees: boolean;
+  /** Date the new price takes effect. Null = next billing cycle. */
+  effectiveDate: Date | null;
+  channel: "stripe" | "offline";
+  credit: CreditResult;
+}): { subject: string; blocks: EmailBlock[] } {
+  const {
+    clubName, memberName, planName, optionLabel, billingPeriod,
+    fromPrice, toPrice, passProcessingFees, effectiveDate, channel, credit,
+  } = args;
+
+  const goingUp = toPrice > fromPrice;
+  const period = PERIOD_WORD[billingPeriod] ?? billingPeriod.toLowerCase();
+  const fmtUsd = (n: number) => `$${n.toFixed(2)}`;
+  const fmtDate = (d: Date) =>
+    d.toLocaleDateString("en-US", { timeZone: "UTC", month: "long", day: "numeric", year: "numeric" });
+
+  const subject = goingUp
+    ? `A change to your ${planName} membership price`
+    : `Good news — your ${planName} membership price is going down`;
+
+  const blocks: EmailBlock[] = [
+    { type: "heading", level: 2, text: goingUp ? "Your membership price is changing" : "Your membership price is going down" },
+    {
+      type: "paragraph",
+      runs: [{ kind: "text", text: `Hi ${memberName || "there"},` }],
+    },
+    {
+      type: "paragraph",
+      runs: [
+        { kind: "text", text: `${clubName} is updating the price of the ` },
+        { kind: "text", text: `${planName} — ${optionLabel}`, bold: true },
+        { kind: "text", text: ` membership, billed ${period}.` },
+      ],
+    },
+    {
+      type: "list",
+      style: "bulleted",
+      items: [
+        [{ kind: "text", text: `You pay today: ${fmtUsd(fromPrice)}` }],
+        [{ kind: "text", text: `You will pay: ${fmtUsd(toPrice)}` }],
+        [
+          {
+            kind: "text",
+            text: effectiveDate
+              ? `Takes effect: ${fmtDate(effectiveDate)}`
+              : "Takes effect: your next billing cycle",
+          },
+        ],
+      ],
+    },
+  ];
+
+  if (passProcessingFees) {
+    const b = feeBreakdown(toPrice, true);
+    blocks.push({
+      type: "paragraph",
+      runs: [
+        {
+          kind: "text",
+          text: `Your card is charged ${fmtUsd(b.total)} — ${fmtUsd(b.base)} membership plus ${fmtUsd(b.fee)} card processing.`,
+        },
+      ],
+    });
+  }
+
+  if (channel === "stripe") {
+    blocks.push({
+      type: "paragraph",
+      runs: [
+        {
+          kind: "text",
+          text: "Nothing is needed from you. Your existing payment method will be charged the new amount on your next billing date — you have not been charged or refunded today.",
+        },
+      ],
+    });
+  } else {
+    blocks.push({
+      type: "paragraph",
+      runs: [
+        {
+          kind: "text",
+          text: "You pay this membership directly rather than by automatic card billing, so nothing has been charged or refunded. The new amount applies from the date above.",
+        },
+      ],
+    });
+  }
+
+  if (credit.kind === "CREDIT_OWED" && credit.amount != null) {
+    blocks.push({
+      type: "paragraph",
+      runs: [
+        { kind: "text", text: "Because you have already paid for time at the old price, we owe you " },
+        { kind: "text", text: fmtUsd(credit.amount), bold: true },
+        { kind: "text", text: ` for unused time. We will be in touch to settle that — you do not need to do anything.` },
+      ],
+    });
+  }
+
+  blocks.push({
+    type: "paragraph",
+    runs: [{ kind: "text", text: "If anything here looks wrong, just reply to this email and we'll sort it out." }],
+  });
+
+  return { subject, blocks };
+}
+
+const PERIOD_WORD: Record<string, string> = {
+  WEEKLY: "weekly",
+  MONTHLY: "monthly",
+  QUADRIMESTRAL: "every four months",
+  QUARTERLY: "quarterly",
+  SEMI_ANNUAL: "every six months",
+  ANNUAL: "annually",
+  ONE_TIME: "as a one-time payment",
+};
