@@ -39,6 +39,24 @@ export type MembershipOption = {
   billingPeriod: string;
 };
 
+/**
+ * Which question the review screen is answering.
+ *
+ *   "proposed" — the owner is editing a price that is NOT saved yet. The plan
+ *                still holds the OLD price, so members sitting on it are the
+ *                safe bulk and get pre-ticked.
+ *
+ *   "current"  — the owner opened the review from the plan card or the edit
+ *                screen with nothing pending. The target IS the plan's saved
+ *                price, and the question is "who is not on it". Nobody is
+ *                pre-ticked here: the previous sticker price was overwritten
+ *                when the plan was saved, so there is no longer any way to
+ *                tell "was on the old list price" apart from "has a
+ *                deliberate override". Guessing between those is how you
+ *                silently reprice someone's negotiated rate.
+ */
+export type PriceChangeMode = "proposed" | "current";
+
 /** `memberships.options` is stored as a JSON *string*, not a JSON object. */
 export function parseMembershipOptions(raw: unknown): MembershipOption[] {
   let value: unknown = raw;
@@ -61,6 +79,40 @@ export function parseMembershipOptions(raw: unknown): MembershipOption[] {
     out.push({ label, price, billingPeriod });
   }
   return out;
+}
+
+export type OptionResolution =
+  | { ok: true; option: MembershipOption }
+  | { ok: false; code: "NOT_FOUND"; candidates: MembershipOption[] }
+  | { ok: false; code: "AMBIGUOUS_PERIOD"; candidates: MembershipOption[] };
+
+/**
+ * Resolve which option is being repriced.
+ *
+ * Matching subscribers happens on (membershipId, billingPeriod), so the period
+ * has to identify exactly one option. Today no plan in the club has two options
+ * sharing a period, but nothing stops an owner adding one — and at that point
+ * the period no longer says which option a subscriber is on. There is no honest
+ * tiebreak available: price is the field being changed, and members carrying an
+ * override don't match their option's price anyway. So refuse and make the
+ * owner choose, rather than pick one and reprice the wrong group.
+ */
+export function resolveOption(
+  options: MembershipOption[],
+  label: string,
+  billingPeriod?: string | null,
+): OptionResolution {
+  const byLabel = options.filter(
+    (o) => o.label === label && (billingPeriod ? o.billingPeriod === billingPeriod : true),
+  );
+  if (byLabel.length === 0) return { ok: false, code: "NOT_FOUND", candidates: options };
+
+  const option = byLabel[0];
+  const sharingPeriod = options.filter((o) => o.billingPeriod === option.billingPeriod);
+  if (sharingPeriod.length > 1) {
+    return { ok: false, code: "AMBIGUOUS_PERIOD", candidates: sharingPeriod };
+  }
+  return { ok: true, option };
 }
 
 // Periods that bill a lump sum covering a stretch of future time. A price
@@ -265,6 +317,7 @@ export type PriceChangeSummary = {
 export type PriceChangePlan = {
   membership: { id: string; name: string };
   option: { label: string; billingPeriod: string; oldPrice: number; newPrice: number };
+  mode: PriceChangeMode;
   direction: "increase" | "decrease" | "none";
   rows: PriceChangeRow[];
   summary: PriceChangeSummary;
@@ -277,13 +330,15 @@ export const REPRICEABLE_STATUSES = ["active", "pending", "past_due"] as const;
 export function planPriceChange(input: {
   membership: { id: string; name: string };
   option: MembershipOption;
-  newPrice: number;
+  /** Omit (or pass null) to review against the plan's CURRENT saved price. */
+  newPrice?: number | null;
   subs: Array<PricedSubscription & { member: { id: string; firstName: string | null; lastName: string | null } }>;
   now: Date;
 }): PriceChangePlan {
-  const { membership, option, newPrice, subs, now } = input;
+  const { membership, option, subs, now } = input;
   const oldPrice = money(option.price);
-  const target = money(newPrice);
+  const mode: PriceChangeMode = input.newPrice == null ? "current" : "proposed";
+  const target = mode === "current" ? oldPrice : money(input.newPrice as number);
   const direction = target > oldPrice ? "increase" : target < oldPrice ? "decrease" : "none";
 
   const rows: PriceChangeRow[] = subs.map((s) => {
@@ -296,7 +351,9 @@ export function planPriceChange(input: {
 
     if (!onListPrice) {
       warnings.push(
-        `Pays $${currentPrice.toFixed(2)}, not the plan's $${oldPrice.toFixed(2)} — this is a per-member override.`,
+        mode === "current"
+          ? `Pays $${currentPrice.toFixed(2)}, not the plan's current $${oldPrice.toFixed(2)}.`
+          : `Pays $${currentPrice.toFixed(2)}, not the plan's $${oldPrice.toFixed(2)} — this is a per-member override.`,
       );
     }
     if (s.optionLabel !== option.label) {
@@ -338,7 +395,11 @@ export function planPriceChange(input: {
       // Deliberately conservative: only members sitting on the old sticker
       // price, whose price actually moves, and who are NOT upfront-paid.
       // Upfront rows carry a money consequence the owner must tick per row.
-      defaultSelected: onListPrice && currentPrice !== target && !upfront,
+      //
+      // In "current" mode nothing is pre-ticked at all — see PriceChangeMode.
+      // The screen offers "select everyone not on this price" as an explicit
+      // click instead, so the bulk is still one action but never a default.
+      defaultSelected: mode === "proposed" && onListPrice && currentPrice !== target && !upfront,
       credit,
       stripe: isStripe
         ? {
@@ -381,16 +442,22 @@ export function planPriceChange(input: {
 
   const notes: string[] = [];
   notes.push(
-    `Members are matched on plan + billing period (${option.billingPeriod}), not on the stored option label — the label is unreliable on migrated rows.`,
+    `Members are matched on plan + billing period (${option.billingPeriod}), not on the stored option label — renaming an option never changes who appears here.`,
   );
-  if (summary.overrideCount > 0) {
+  if (mode === "current") {
+    notes.push(
+      `This compares every subscriber against the plan's current price of $${oldPrice.toFixed(2)}. Nobody is pre-selected — once a plan is saved there is no way to tell an out-of-date price apart from a deliberate override, so the choice is yours.`,
+    );
+  } else if (summary.overrideCount > 0) {
     notes.push(
       `${summary.overrideCount} member${summary.overrideCount === 1 ? "" : "s"} already pay something other than $${oldPrice.toFixed(2)}. They are listed but never pre-selected.`,
     );
   }
   if (summary.unknownCreditCount > 0) {
     notes.push(
-      `${summary.unknownCreditCount} upfront member${summary.unknownCreditCount === 1 ? "" : "s"} have no stored period end, so unused-time credit cannot be computed for them.`,
+      summary.unknownCreditCount === 1
+        ? "1 upfront member has no stored period end, so unused-time credit cannot be computed for them."
+        : `${summary.unknownCreditCount} upfront members have no stored period end, so unused-time credit cannot be computed for them.`,
     );
   }
   if (rows.some((r) => !r.labelMatchesOption)) {
@@ -401,6 +468,7 @@ export function planPriceChange(input: {
   return {
     membership,
     option: { label: option.label, billingPeriod: option.billingPeriod, oldPrice, newPrice: target },
+    mode,
     direction,
     rows,
     summary,
@@ -422,6 +490,24 @@ export function planPriceChange(input: {
  */
 export function stripeUnitAmountCents(price: number, passProcessingFees: boolean): number {
   return recurringUnitWithFee(Math.round(price * 100), passProcessingFees);
+}
+
+/**
+ * The direction that matters for advance notice: what happens to the people
+ * actually being changed, NOT what happened to the plan's list price.
+ *
+ * These differ. Reviewing against the plan's current price (see
+ * PriceChangeMode "current") makes the plan-level direction "none" — the list
+ * price isn't moving — while a $0 comp member being moved onto the $175 plan
+ * price is unambiguously an increase for that family. Gating on the plan-level
+ * direction would let that one through with no notice.
+ */
+export function directionForRows(
+  rows: Array<{ currentPrice: number; newPrice: number }>,
+): "increase" | "decrease" | "none" {
+  if (rows.some((r) => r.newPrice > r.currentPrice)) return "increase";
+  if (rows.some((r) => r.newPrice < r.currentPrice)) return "decrease";
+  return "none";
 }
 
 export type NoticeCheck = { ok: true } | { ok: false; code: string; error: string };

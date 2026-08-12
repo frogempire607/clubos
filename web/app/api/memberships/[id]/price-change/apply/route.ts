@@ -18,6 +18,8 @@ import {
 import {
   parseMembershipOptions,
   planPriceChange,
+  resolveOption,
+  directionForRows,
   validateNotice,
   stripeUnitAmountCents,
   buildPriceChangeEmail,
@@ -73,6 +75,14 @@ const bodySchema = z.object({
   notifyBeforeDate: z.string().optional().nullable(),
   /** Set false only to suppress the member notification (owner's explicit call). */
   notify: z.boolean().optional().default(true),
+  /**
+   * Also rewrite `member_subscriptions.optionLabel` on the rows we update, so
+   * a renamed option stops showing its old name on receipts, emails and the
+   * member's plan line. Display-only — nothing reads this field for money, and
+   * subscriber matching is on billing period, never on the label. Off by
+   * default: it changes what a member sees, so it is the owner's call.
+   */
+  reconcileLabel: z.boolean().optional().default(false),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -116,12 +126,22 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!membership) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const options = parseMembershipOptions(membership.options);
-  const option = options.find(
-    (o) => o.label === body.optionLabel && (body.billingPeriod ? o.billingPeriod === body.billingPeriod : true),
-  );
-  if (!option) {
+  const resolved = resolveOption(options, body.optionLabel, body.billingPeriod);
+  if (!resolved.ok) {
+    if (resolved.code === "AMBIGUOUS_PERIOD") {
+      return NextResponse.json(
+        {
+          error:
+            "This plan has more than one option on that billing period, so we cannot tell which one a subscriber is on. Nothing was changed.",
+          code: "AMBIGUOUS_PERIOD",
+          candidates: resolved.candidates,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: `This plan has no option "${body.optionLabel}".` }, { status: 400 });
   }
+  const option = resolved.option;
 
   // ── Re-verify against the DB. The preview payload is NEVER trusted. ───────
   //
@@ -159,8 +179,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   });
 
   // ── Advance-notice gate for increases ────────────────────────────────────
+  //
+  // Keyed on the rows actually being changed, not on the plan's list price.
+  // Reviewing against the current saved price makes plan.direction "none"
+  // while individual members can still be going UP — a $0 comp moved onto the
+  // $175 plan price is an increase for that family and needs the same notice.
+  const targetedDirection = directionForRows(plan.rows);
   const notifyBeforeDate = body.notifyBeforeDate ? new Date(body.notifyBeforeDate) : null;
-  const notice = validateNotice({ direction: plan.direction, notifyBeforeDate, now });
+  const notice = validateNotice({ direction: targetedDirection, notifyBeforeDate, now });
   if (!notice.ok) {
     return NextResponse.json({ error: notice.error, code: notice.code }, { status: 400 });
   }
@@ -331,7 +357,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           status: { in: [...REPRICEABLE_STATUSES] },
           price: fromPrice,
         },
-        data: { price: toPrice },
+        data: {
+          price: toPrice,
+          ...(body.reconcileLabel && row.optionLabel !== option.label ? { optionLabel: option.label } : {}),
+        },
       });
       dbUpdated = res.count;
     } catch (e) {
@@ -426,13 +455,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       memberId: row.memberId,
       actorUserId,
       action: "MEMBERSHIP_PRICE_CHANGED",
-      before: { price: fromPrice, plan: membership.name, optionLabel: option.label, billingPeriod: option.billingPeriod },
+      before: { price: fromPrice, plan: membership.name, optionLabel: row.optionLabel, billingPeriod: option.billingPeriod },
       after: {
         price: toPrice,
         plan: membership.name,
         optionLabel: option.label,
         billingPeriod: option.billingPeriod,
         channel: row.channel,
+        labelReconciled: body.reconcileLabel && row.optionLabel !== option.label,
         stripeSubscriptionId: row.stripe?.subscriptionId ?? null,
         stripeUnitAmountCents: row.channel === "stripe" ? targetCents : null,
         effectiveDate: notifyBeforeDate ? notifyBeforeDate.toISOString() : null,
@@ -566,7 +596,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     before: { membershipId: membership.id, optionLabel: option.label, billingPeriod: option.billingPeriod, optionPrice: option.price },
     after: {
       newPrice: body.newPrice,
-      direction: plan.direction,
+      direction: targetedDirection,
+      planDirection: plan.direction,
+      reconcileLabel: body.reconcileLabel,
       effectiveDate: notifyBeforeDate ? notifyBeforeDate.toISOString() : null,
       requested: requestedIds.length,
       updated: updated.length,

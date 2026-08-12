@@ -54,10 +54,13 @@ type Row = {
   warnings: string[];
 };
 
+type PlanOption = { label: string; price: number; billingPeriod: string };
+
 type Plan = {
   preview: true;
   membership: { id: string; name: string };
   option: { label: string; billingPeriod: string; oldPrice: number; newPrice: number };
+  mode: "proposed" | "current";
   direction: "increase" | "decrease" | "none";
   rows: Row[];
   summary: {
@@ -220,17 +223,27 @@ function RowLine({
 
 export default function BulkPriceChangeModal({
   membershipId,
-  optionLabel,
-  billingPeriod,
-  newPrice,
+  options,
+  initialOptionIndex = 0,
+  newPrice = null,
   onClose,
 }: {
   membershipId: string;
-  optionLabel: string;
-  billingPeriod: string;
-  newPrice: number;
+  /** The plan's CURRENT saved options — the modal lets the owner switch between them. */
+  options: PlanOption[];
+  initialOptionIndex?: number;
+  /**
+   * An unsaved price to preview. Null (the default) reviews everyone against
+   * the plan's current saved price, which is what makes this screen reachable
+   * at any time rather than only during an in-flight edit.
+   */
+  newPrice?: number | null;
   onClose: () => void;
 }) {
+  const [optionIndex, setOptionIndex] = useState(initialOptionIndex);
+  const active = options[optionIndex];
+  const optionLabel = active?.label ?? "";
+  const billingPeriod = active?.billingPeriod ?? "";
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -241,6 +254,7 @@ export default function BulkPriceChangeModal({
   const [notify, setNotify] = useState(true);
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState<ApplyResponse | null>(null);
+  const [reconcileLabel, setReconcileLabel] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -275,6 +289,14 @@ export default function BulkPriceChangeModal({
     };
   }, [membershipId, optionLabel, billingPeriod, newPrice]);
 
+  // Switching option is a different question about different people — drop the
+  // previous answer rather than carrying selections or a result across.
+  useEffect(() => {
+    setApplied(null);
+    setEffectiveDate("");
+    setError("");
+  }, [optionIndex]);
+
   const recurringRows = useMemo(() => plan?.rows.filter((r) => !r.upfront) ?? [], [plan]);
   const upfrontRows = useMemo(() => plan?.rows.filter((r) => r.upfront) ?? [], [plan]);
 
@@ -285,6 +307,22 @@ export default function BulkPriceChangeModal({
       else next.add(id);
       return next;
     });
+  }
+
+  // Explicit bulk for the persistent-entry case: nothing is pre-ticked there,
+  // so this is how the owner sweeps everyone who drifted off the plan price.
+  function selectAllOffPrice() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of plan?.rows ?? []) {
+        if (r.currentPrice !== r.newPrice) next.add(r.memberSubscriptionId);
+      }
+      return next;
+    });
+  }
+
+  function selectNone() {
+    setSelected(new Set());
   }
 
   function selectAllStripeRecurring() {
@@ -311,9 +349,13 @@ export default function BulkPriceChangeModal({
     .filter((r) => r.credit.kind === "ADDITIONAL_DUE")
     .reduce((s, r) => s + (r.credit.amount ?? 0), 0);
   const chosenUnknown = chosen.filter((r) => r.credit.kind === "UNKNOWN").length;
+  const driftedSelected = chosen.filter((r) => !r.labelMatchesOption).length;
 
-  // An increase needs a future effective date before it can be confirmed.
-  const isIncrease = plan?.direction === "increase";
+  // An increase needs a future effective date before it can be confirmed —
+  // judged on the SELECTED rows, not the plan's list price. Reviewing against
+  // the current saved price makes plan.direction "none" while an individual
+  // member can still be going up. Mirrors directionForRows on the server.
+  const isIncrease = chosen.some((r) => r.newPrice > r.currentPrice);
   const effectiveDateInFuture = (() => {
     if (!effectiveDate) return false;
     const d = new Date(`${effectiveDate}T00:00:00Z`);
@@ -333,10 +375,13 @@ export default function BulkPriceChangeModal({
         body: JSON.stringify({
           optionLabel,
           billingPeriod,
-          newPrice,
+          // In "current" mode the target IS the plan's saved price, which the
+          // preview already resolved — the prop is null there.
+          newPrice: plan.option.newPrice,
           memberSubscriptionIds: chosen.map((r) => r.memberSubscriptionId),
           notifyBeforeDate: effectiveDate ? new Date(`${effectiveDate}T00:00:00Z`).toISOString() : null,
           notify,
+          reconcileLabel,
         }),
       });
       const json = await res.json();
@@ -365,15 +410,21 @@ export default function BulkPriceChangeModal({
         <div className="px-5 py-4 border-b border-app-border">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-text-primary">Members on this price</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Member prices</h2>
               <p className="text-sm text-text-muted mt-0.5">
                 {plan ? (
                   <>
                     {plan.membership.name} · {plan.option.label} ({PERIOD_LABEL[plan.option.billingPeriod] ?? plan.option.billingPeriod})
                     {" · "}
-                    <span className="text-text-primary font-medium">
-                      {usd(plan.option.oldPrice)} → {usd(plan.option.newPrice)}
-                    </span>
+                    {plan.mode === "current" ? (
+                      <span className="text-text-primary font-medium">
+                        plan price {usd(plan.option.oldPrice)}
+                      </span>
+                    ) : (
+                      <span className="text-text-primary font-medium">
+                        {usd(plan.option.oldPrice)} → {usd(plan.option.newPrice)}
+                      </span>
+                    )}
                   </>
                 ) : (
                   "Loading…"
@@ -384,6 +435,28 @@ export default function BulkPriceChangeModal({
               ×
             </button>
           </div>
+          {/* Option selector — the review is reachable for any option at any
+              time, not only for whichever price field was mid-edit. */}
+          {options.length > 1 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {options.map((o, i) => (
+                <button
+                  key={`${o.label}-${o.billingPeriod}-${i}`}
+                  type="button"
+                  onClick={() => setOptionIndex(i)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs ${
+                    i === optionIndex
+                      ? "border-brand bg-brand text-white font-medium"
+                      : "border-app-border text-text-primary hover:bg-app-bg"
+                  }`}
+                >
+                  {o.label}
+                  <span className={i === optionIndex ? "text-white/80" : "text-text-muted"}> · {usd(o.price)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {!applied ? (
             <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Preview</span>
@@ -522,7 +595,10 @@ export default function BulkPriceChangeModal({
                   { k: "On this option", v: String(plan.summary.total) },
                   { k: "Stripe", v: String(plan.summary.stripeCount) },
                   { k: "Offline", v: String(plan.summary.offlineCount) },
-                  { k: "Custom price", v: String(plan.summary.overrideCount) },
+                  {
+                    k: plan.mode === "current" ? `Not at ${usd(plan.option.newPrice)}` : "Custom price",
+                    v: String(plan.summary.overrideCount),
+                  },
                 ].map((c) => (
                   <div key={c.k} className="rounded-lg border border-app-border px-3 py-2">
                     <div className="text-[11px] text-text-muted">{c.k}</div>
@@ -534,17 +610,25 @@ export default function BulkPriceChangeModal({
               {/* Recurring section */}
               {recurringRows.length > 0 && (
                 <section>
-                  <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
                     <h3 className="text-sm font-semibold text-text-primary">
                       Billed each period ({recurringRows.length})
                     </h3>
-                    <button
-                      type="button"
-                      onClick={selectAllStripeRecurring}
-                      className="text-xs text-brand hover:underline"
-                    >
-                      Select all Stripe
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {plan.rows.some((r) => r.currentPrice !== r.newPrice) && (
+                        <button type="button" onClick={selectAllOffPrice} className="text-xs text-brand hover:underline">
+                          Select all not at {usd(plan.option.newPrice)}
+                        </button>
+                      )}
+                      <button type="button" onClick={selectAllStripeRecurring} className="text-xs text-brand hover:underline">
+                        Select all Stripe
+                      </button>
+                      {selected.size > 0 && (
+                        <button type="button" onClick={selectNone} className="text-xs text-text-muted hover:underline">
+                          Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <p className="text-xs text-text-muted mb-2">
                     No money has been paid ahead for these — the next bill simply uses the new price.
@@ -621,7 +705,7 @@ export default function BulkPriceChangeModal({
                 <div>
                   <label className="block text-xs font-medium text-text-primary mb-1">
                     Date the new price takes effect
-                    {plan.direction === "increase" && <span className="text-red-600"> (required for an increase)</span>}
+                    {isIncrease && <span className="text-red-600"> (required for an increase)</span>}
                   </label>
                   <input
                     type="date"
@@ -630,8 +714,8 @@ export default function BulkPriceChangeModal({
                     className="px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                   />
                   <p className="text-[11px] text-text-muted mt-1">
-                    {plan.direction === "increase"
-                      ? "Families must be told before their price goes up. The notification is sent now, so this date has to be in the future."
+                    {isIncrease
+                      ? "At least one selected member's price is going up. Families must be told before that happens, and the notification is sent now, so this date has to be in the future."
                       : "Optional. Leave blank and members are told the change applies from their next billing cycle."}
                   </p>
                   {noticeBlocked && effectiveDate && (
@@ -656,6 +740,27 @@ export default function BulkPriceChangeModal({
                     </span>
                   </span>
                 </label>
+
+                {/* Only offered when the CURRENT selection actually contains
+                    drifted labels — apply only touches selected rows, so a
+                    count over every row would overstate what the box does. */}
+                {driftedSelected > 0 && (
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={reconcileLabel}
+                      onChange={(e) => setReconcileLabel(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-app-border text-brand focus:ring-brand"
+                    />
+                    <span className="text-xs text-text-primary">
+                      Also fix the stored option label to &ldquo;{plan.option.label}&rdquo;
+                      <span className="block text-[11px] text-text-muted">
+                        {driftedSelected} selected member{driftedSelected === 1 ? "" : "s"} still show an older name
+                        on receipts and emails. This is a label only — it never affects matching or money.
+                      </span>
+                    </span>
+                  </label>
+                )}
 
                 <p className="text-[11px] text-text-muted">
                   Skipped members keep this price until they cancel and re-sign. Applying does not change the

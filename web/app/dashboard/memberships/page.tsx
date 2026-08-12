@@ -76,6 +76,9 @@ export default function MembershipsPage() {
   const [editing, setEditing] = useState<Membership | null>(null);
   const [clubSlug, setClubSlug] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Persistent price review, opened from a plan card. Independent of the edit
+  // modal — reachable whether or not anything is being edited.
+  const [reviewing, setReviewing] = useState<{ id: string; options: Option[] } | null>(null);
 
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [showAddDiscount, setShowAddDiscount] = useState(false);
@@ -296,6 +299,15 @@ export default function MembershipsPage() {
                         {copiedId === m.id ? "Copied!" : "Copy link"}
                       </button>
                     )}
+                    {options.length > 0 && m._count.members > 0 && (
+                      <button
+                        onClick={() => setReviewing({ id: m.id, options })}
+                        title="See what every current subscriber pays, and move them onto the plan's price"
+                        className="text-xs text-brand hover:bg-brand/10 px-2 py-1 rounded font-medium"
+                      >
+                        Member prices
+                      </button>
+                    )}
                     <button onClick={() => handleToggleActive(m)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">
                       {m.active ? "Deactivate" : "Activate"}
                     </button>
@@ -398,6 +410,14 @@ export default function MembershipsPage() {
           </div>
         )}
       </div>
+
+      {reviewing && (
+        <BulkPriceChangeModal
+          membershipId={reviewing.id}
+          options={reviewing.options}
+          onClose={() => setReviewing(null)}
+        />
+      )}
 
       {(showAdd || editing) && (
         <MembershipModal
@@ -666,21 +686,35 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
 
                   {/* Existing subscribers keep their own price — editing this
                       field changes the price list only. The review screen is
-                      how the owner sees who that leaves behind. */}
-                  {isEdit && priceChangedFor(i) && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
-                      <span className="text-xs text-amber-900">
-                        Existing members stay on {`$${(originalPriceFor(i) ?? 0).toFixed(2)}`} — saving changes the
-                        price list only.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setReviewIndex(i)}
-                        className="text-xs font-medium text-brand hover:underline"
-                      >
-                        Review members on this price
-                      </button>
-                    </div>
+                      how the owner sees who that leaves behind, and it stays
+                      reachable after saving rather than vanishing along with
+                      the unsaved edit. */}
+                  {isEdit && (
+                    priceChangedFor(i) ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                        <span className="text-xs text-amber-900">
+                          Existing members stay on {`$${(originalPriceFor(i) ?? 0).toFixed(2)}`} — saving changes the
+                          price list only.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setReviewIndex(i)}
+                          className="text-xs font-medium text-brand hover:underline"
+                        >
+                          Review members on this price
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setReviewIndex(i)}
+                          className="text-xs text-brand hover:underline"
+                        >
+                          Review member prices
+                        </button>
+                      </div>
+                    )
                   )}
                 </div>
               ))}
@@ -707,9 +741,13 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
     {isEdit && reviewIndex !== null && initialOptions[reviewIndex] && (
       <BulkPriceChangeModal
         membershipId={membership!.id}
-        optionLabel={initialOptions[reviewIndex].label}
-        billingPeriod={initialOptions[reviewIndex].billingPeriod}
-        newPrice={Number(options[reviewIndex]?.price) || 0}
+        // The SAVED options — the review always compares against what the plan
+        // actually holds, never against an unsaved rename.
+        options={initialOptions}
+        initialOptionIndex={reviewIndex}
+        // Only pass a price when this option's price is genuinely mid-edit.
+        // Otherwise the review runs against the plan's current saved price.
+        newPrice={priceChangedFor(reviewIndex) ? Number(options[reviewIndex]?.price) || 0 : null}
         onClose={() => setReviewIndex(null)}
       />
     )}

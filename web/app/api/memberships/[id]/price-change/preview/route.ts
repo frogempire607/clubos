@@ -7,6 +7,7 @@ import { requireOwner } from "@/lib/apiGuard";
 import {
   parseMembershipOptions,
   planPriceChange,
+  resolveOption,
   REPRICEABLE_STATUSES,
 } from "@/lib/bulkPriceChange";
 
@@ -34,12 +35,16 @@ import {
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  // The option being repriced, identified as the edit screen knows it.
+  // The option being reviewed, identified as the edit screen knows it.
   optionLabel: z.string().min(1),
   // Disambiguates when a plan has two options sharing a label (the label is
   // free text and not unique). Optional — falls back to first label match.
   billingPeriod: z.string().min(1).optional(),
-  newPrice: z.number().min(0).max(1_000_000),
+  // OMIT to review everyone against the plan's CURRENT saved price. Pass a
+  // value to preview a price that has not been saved yet. This is what makes
+  // the review reachable after a save, not only as a side effect of an
+  // in-flight edit.
+  newPrice: z.number().min(0).max(1_000_000).optional().nullable(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -68,20 +73,29 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!membership) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const options = parseMembershipOptions(membership.options);
-  const option = options.find(
-    (o) =>
-      o.label === body.optionLabel &&
-      (body.billingPeriod ? o.billingPeriod === body.billingPeriod : true),
-  );
-  if (!option) {
+  const resolved = resolveOption(options, body.optionLabel, body.billingPeriod);
+  if (!resolved.ok) {
+    if (resolved.code === "AMBIGUOUS_PERIOD") {
+      return NextResponse.json(
+        {
+          error:
+            `This plan has more than one option billed ${body.billingPeriod ?? "on that schedule"}, so a subscription's billing period no longer says which one it is on. Pick the option explicitly.`,
+          code: "AMBIGUOUS_PERIOD",
+          candidates: resolved.candidates,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       {
         error: `This plan has no option "${body.optionLabel}"${body.billingPeriod ? ` billed ${body.billingPeriod}` : ""}.`,
-        availableOptions: options.map((o) => ({ label: o.label, billingPeriod: o.billingPeriod, price: o.price })),
+        code: "NOT_FOUND",
+        availableOptions: resolved.candidates.map((o) => ({ label: o.label, billingPeriod: o.billingPeriod, price: o.price })),
       },
       { status: 400 },
     );
   }
+  const option = resolved.option;
 
   // Match on plan + billing period, NOT on optionLabel. See the module note in
   // lib/bulkPriceChange.ts — optionLabel carries the plan name on every row
@@ -120,7 +134,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const plan = planPriceChange({
     membership: { id: membership.id, name: membership.name },
     option,
-    newPrice: body.newPrice,
+    newPrice: body.newPrice ?? null,
     subs,
     now: new Date(),
   });

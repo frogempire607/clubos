@@ -11,6 +11,8 @@ import {
   computeCredit,
   planPriceChange,
   validateNotice,
+  resolveOption,
+  directionForRows,
   stripeUnitAmountCents,
   buildPriceChangeEmail,
   isFailureOutcome,
@@ -302,6 +304,92 @@ const unknownCreditMail = buildPriceChangeEmail({
 });
 check("an uncomputable credit promises the member NOTHING",
   !flat(unknownCreditMail.blocks).includes("we owe you"));
+
+// ── Option resolution: renames, and the ambiguity we refuse to guess through ──
+console.log("\nresolveOption:");
+const RENAMED = parseMembershipOptions(
+  '[{"label":"Monthly","price":175,"billingPeriod":"MONTHLY"},{"label":"3 month Upfront","price":450,"billingPeriod":"QUARTERLY"},{"label":"1 Year Upfront","price":1500,"billingPeriod":"ANNUAL"}]',
+);
+const okQuarterly = resolveOption(RENAMED, "3 month Upfront", "QUARTERLY");
+check("resolves a renamed option by its CURRENT label", okQuarterly.ok === true);
+check("…and carries the new price", okQuarterly.ok && okQuarterly.option.price === 450);
+check("an old label no longer on the plan is NOT_FOUND",
+  resolveOption(RENAMED, "Upfront", "QUARTERLY").ok === false);
+const notFound = resolveOption(RENAMED, "Upfront", "QUARTERLY");
+check("NOT_FOUND returns the real options so the UI can say what exists",
+  !notFound.ok && notFound.code === "NOT_FOUND" && notFound.candidates.length === 3);
+check("period alone still identifies the option after a rename",
+  RENAMED.filter((o) => o.billingPeriod === "QUARTERLY").length === 1);
+
+const DUPE = parseMembershipOptions(
+  '[{"label":"Monthly","price":190,"billingPeriod":"MONTHLY"},{"label":"Monthly (sibling)","price":150,"billingPeriod":"MONTHLY"}]',
+);
+const ambiguous = resolveOption(DUPE, "Monthly", "MONTHLY");
+check("two options on one period is AMBIGUOUS_PERIOD, not a guess",
+  !ambiguous.ok && ambiguous.code === "AMBIGUOUS_PERIOD");
+check("…and hands back both candidates to choose between",
+  !ambiguous.ok && ambiguous.candidates.length === 2);
+
+// ── Advance notice keys off the ROWS, not the plan's list price ─────────────
+console.log("\ndirectionForRows:");
+check("all going down → decrease",
+  directionForRows([{ currentPrice: 190, newPrice: 175 }]) === "decrease");
+check("all unchanged → none",
+  directionForRows([{ currentPrice: 175, newPrice: 175 }]) === "none");
+check("a single riser makes the whole run an increase",
+  directionForRows([{ currentPrice: 190, newPrice: 175 }, { currentPrice: 0, newPrice: 175 }]) === "increase");
+check("empty set → none", directionForRows([]) === "none");
+check("THE GAP THIS CLOSES: a $0 comp moved onto the plan price needs notice",
+  directionForRows([{ currentPrice: 0, newPrice: 175 }]) === "increase");
+
+// ── "current" mode — the persistent entry point ─────────────────────────────
+console.log("\nplanPriceChange (current mode):");
+const currentPlan = planPriceChange({
+  membership: { id: "plan1", name: "MS/HS" },
+  option: { label: "Monthly", price: 175, billingPeriod: "MONTHLY" },
+  newPrice: null,
+  now: NOW,
+  subs: [
+    mk({ first: "Ann", optionLabel: "Monthly", price: 190, billingPeriod: "MONTHLY" }),
+    mk({ first: "Ben", optionLabel: "MS/HS", price: 190, billingPeriod: "MONTHLY" }),
+    mk({ first: "Cal", optionLabel: "Monthly", price: 175, billingPeriod: "MONTHLY" }),
+    mk({ first: "Dee", optionLabel: "MS/HS", price: 0, billingPeriod: "MONTHLY" }),
+  ],
+});
+check("mode is reported as current", currentPlan.mode === "current");
+check("target IS the plan's saved price", currentPlan.option.newPrice === 175);
+check("old and new are the same figure in this mode", currentPlan.option.oldPrice === 175);
+check("plan-level direction is none — the list price is not moving", currentPlan.direction === "none");
+check("NOBODY is pre-selected in current mode", currentPlan.summary.defaultSelectedCount === 0);
+check("everyone on the plan is still listed", currentPlan.summary.total === 4);
+check("the member already at the price shows no delta",
+  currentPlan.rows.find((r) => r.memberName.startsWith("Cal"))!.delta === 0);
+check("the stranded members show the delta that would apply",
+  currentPlan.rows.find((r) => r.memberName.startsWith("Ann"))!.delta === -15);
+check("the $0 comp shows as an increase for that family",
+  currentPlan.rows.find((r) => r.memberName.startsWith("Dee"))!.delta === 175);
+check("a note explains why nothing is pre-selected",
+  currentPlan.notes.some((n) => n.includes("Nobody is pre-selected")));
+check("renaming is called out as irrelevant to matching",
+  currentPlan.notes.some((n) => n.includes("renaming an option never changes")));
+check("selected-row direction over the stranded set is an increase (the comp)",
+  directionForRows(currentPlan.rows.map((r) => ({ currentPrice: r.currentPrice, newPrice: r.newPrice }))) === "increase");
+
+// Proposed mode is unchanged by any of this.
+console.log("\nplanPriceChange (proposed mode still pre-selects):");
+const proposed = planPriceChange({
+  membership: { id: "plan1", name: "MS/HS" },
+  option: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" },
+  newPrice: 175,
+  now: NOW,
+  subs: [
+    mk({ first: "Ann", optionLabel: "Monthly", price: 190, billingPeriod: "MONTHLY" }),
+    mk({ first: "Cal", optionLabel: "Monthly", price: 5, billingPeriod: "MONTHLY" }),
+  ],
+});
+check("mode is proposed", proposed.mode === "proposed");
+check("sticker-price members are still pre-selected", proposed.summary.defaultSelectedCount === 1);
+check("overrides still are not", proposed.rows.find((r) => r.memberName.startsWith("Cal"))!.defaultSelected === false);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail > 0 ? 1 : 0);
