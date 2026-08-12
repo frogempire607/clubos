@@ -257,10 +257,69 @@ async function main() {
     });
   }
 
+  // ── The 2026-08-12 bug shape ─────────────────────────────────────────────
+  // A tournament priced for MEMBERS ONLY, shared cost off, charge-on-approval.
+  // Before the fix a walk-in registered here for $0 and an approval collected
+  // nothing while the family was emailed "this event is free".
+  const memberPriced = await prisma.event.upsert({
+    where: { id: "evt_p5_memberpriced" },
+    update: {
+      memberPrice: 1,
+      nonMemberPrice: null,
+      dropInFee: null,
+      publicPricingOption: null,
+      requiresCoachApproval: true,
+      approvalPaymentIntent: "APPROVAL_CHARGE",
+      responsibleCoachUserId: coach.id,
+    },
+    create: {
+      id: "evt_p5_memberpriced",
+      clubId,
+      type: "TOURNAMENT",
+      name: "Member-priced Duals ($1)",
+      startsAt: ahead(25),
+      endsAt: ahead(25),
+      memberPrice: 1,
+      isTournament: true,
+      tournamentMode: "ATTEND",
+      publicRegistration: true,
+      publicSlug: "member-priced-duals",
+      registrationDeadline: ahead(15),
+      visibility: "PUBLIC",
+      paymentMethods: ["CARD", "AUTO_CARD"],
+      requiresCoachApproval: true,
+      approvalPaymentIntent: "APPROVAL_CHARGE",
+      responsibleCoachUserId: coach.id,
+    },
+  });
+
+  // A registration in the exact state the bug produced: no payment method, no
+  // amount, waiting on a coach. Approving it must now be REFUSED.
+  await prisma.eventRegistration.upsert({
+    where: { id: "reg_p5_nomethod" },
+    update: { status: "PENDING_REVIEW", approvalStatus: "PENDING", paymentMethod: null, amountDue: null },
+    create: {
+      id: "reg_p5_nomethod",
+      clubId,
+      eventId: memberPriced.id,
+      memberId: athlete.id,
+      name: "Cameron Hall",
+      email: "parent@local.test",
+      status: "PENDING_REVIEW",
+      approvalStatus: "PENDING",
+      approvalRequestedAt: new Date(),
+      paymentMethod: null,
+      amountDue: null,
+      confirmationCode: "P5NOM006",
+      formResponses: {},
+    },
+  });
+
   console.log("Seeded Phase 5 fixtures:");
   console.log("  event      evt_p5_duals  (approval on, proposals on, coach = Reggie Okafor)");
   console.log("  type       cet_p5_dual   (policy set) · cet_p5_clinic (no policy)");
   console.log("  reviews    3 registrations awaiting the coach");
+  console.log("  bug shape  evt_p5_memberpriced ($1 member price, no non-member price) + reg_p5_nomethod");
   console.log("  logins     owner@local.test · coach@local.test · parent@local.test / localtest123");
 }
 

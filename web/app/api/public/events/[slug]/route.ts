@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { eventAllowedPaymentMethods, capacityWhere, resolveEventPolicy } from "@/lib/eventPayments";
+import { registrationListPrice } from "@/lib/eventRepricing";
 import { documentsForEvent } from "@/lib/eventDocuments";
 
 // GET /api/public/events/[slug]
@@ -88,24 +89,12 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
   ) {
     price = +(Number(event.variableCostTotal) / event.variableCostEstimatedSignups).toFixed(2);
     priceLabel = `$${price.toFixed(2)} (estimated split)`;
-  } else if (
-    // Owner can pick which price the public registration link charges.
-    // Default (null) = non-member full price.
-    (() => {
-      const opt = event.publicPricingOption;
-      const candidate =
-        opt === "MEMBER" ? event.memberPrice
-        : opt === "DROP_IN" ? event.dropInFee
-        : event.nonMemberPrice;
-      return candidate && Number(candidate) > 0;
-    })()
-  ) {
-    const opt = event.publicPricingOption;
-    const chosen =
-      opt === "MEMBER" ? event.memberPrice
-      : opt === "DROP_IN" ? event.dropInFee
-      : event.nonMemberPrice;
-    price = Number(chosen);
+  } else if (registrationListPrice(event) > 0) {
+    // The same resolver the register route quotes from, so the page and the
+    // POST can't disagree. It honors publicPricingOption and then falls
+    // through to whatever price the owner set — an event priced for members
+    // only used to render here as "Free" and then register walk-ins for $0.
+    price = registrationListPrice(event);
     priceLabel = `$${price.toFixed(2)}`;
   } else if (
     event.variableCostEnabled &&
@@ -164,8 +153,13 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     // item 7), so the page only needs to know THAT approval applies and, when
     // the policy is INVOICE, that no payment choice is coming.
     requiresCoachApproval: publicPolicy.requiresCoachApproval,
+    // Mirrors the register route exactly: INVOICE by configuration, and
+    // APPROVAL_CHARGE because a saved-card charge is impossible on an
+    // anonymous path and invoicing on approval is its fallback (§5.4.5).
     billOnApproval:
-      publicPolicy.requiresCoachApproval && publicPolicy.approvalPaymentIntent === "INVOICE",
+      publicPolicy.requiresCoachApproval &&
+      (publicPolicy.approvalPaymentIntent === "INVOICE" ||
+        publicPolicy.approvalPaymentIntent === "APPROVAL_CHARGE"),
     cancellationPolicyText: publicPolicy.cancellationPolicyText,
     documents,
     registrationOpen:

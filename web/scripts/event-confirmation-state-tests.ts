@@ -30,6 +30,7 @@ import {
   type RegistrationRenderKey,
 } from "../lib/registrationRenderState";
 import { amountToCollect, registrationListPrice } from "../lib/eventRepricing";
+import { applyProcessingFee } from "../lib/fees";
 import { computeNextReminderAt, resolveReminderAnchor } from "../lib/eventReminders";
 import { confirmationCodeFor, isConfirmationCode } from "../lib/confirmationCode";
 
@@ -422,6 +423,16 @@ console.log("\n— a priced event is never free (2026-08-12 regression) —");
   check(
     "a genuinely free event is still free",
     registrationListPrice({ ...baseEvent, memberPrice: null, nonMemberPrice: null, dropInFee: null } as never) === 0,
+  );
+
+  // What the charge engine will actually send Stripe on approval: the resolved
+  // $1.00 through the shared fee helper, with the club passing fees on.
+  const fee = applyProcessingFee(Math.round(amountToCollect(memberOnlyEvent as never, approved as never, 10) * 100), true);
+  check("the approval charge totals $1.03 at Stripe", fee.totalCents === 103, fee);
+  check("…of which $0.03 is the passed-through processing fee", fee.feeCents === 3, fee);
+  check(
+    "and with fees absorbed it is exactly the ticket price",
+    applyProcessingFee(100, false).totalCents === 100,
   );
 
   const c = ctx(approved, memberOnlyEvent, { cardLabel: "Amex ····1005 (Julian G Ramirez)" });

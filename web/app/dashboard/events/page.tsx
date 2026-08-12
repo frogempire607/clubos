@@ -2527,6 +2527,15 @@ function CoachReviewQueue({
   data: RegistrationsData;
   onDone: () => void;
 }) {
+  // What this registrant actually owes, not the raw column. A row created
+  // before a price was resolvable carries amountDue null, and printing that as
+  // "Nothing owed" on a $1 event is the same lie the confirmation email told
+  // (2026-08-12). publicPrice comes from the server's shared resolver.
+  const owedBy = (r: RegistrationRow): number => {
+    const recorded = Number(r.amountDue ?? 0);
+    if (recorded > 0) return recorded;
+    return Math.max(0, Number(data.perHead ?? data.publicPrice ?? 0));
+  };
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [mode, setMode] = useState<"decline" | "propose" | null>(null);
   const [reason, setReason] = useState("");
@@ -2604,7 +2613,7 @@ function CoachReviewQueue({
   async function approve(r: RegistrationRow) {
     // The money consequence is named out loud before it happens — approving an
     // APPROVAL_CHARGE registration charges a real card in the same request.
-    const amount = r.amountDue == null ? null : Number(r.amountDue);
+    const amount = owedBy(r) || null;
     const consequence =
       r.paymentMethod === "APPROVAL_CHARGE" && amount
         ? `This charges ${r.name}'s saved card $${amount.toFixed(2)} now.`
@@ -2682,8 +2691,8 @@ function CoachReviewQueue({
                     {answers.length > 0 ? answers.join(" · ") : "No form answers"}
                   </p>
                   <p className="text-[11px] text-text-muted mt-0.5">
-                    {r.amountDue != null && Number(r.amountDue) > 0
-                      ? `$${Number(r.amountDue).toFixed(2)} · ${
+                    {owedBy(r) > 0
+                      ? `$${owedBy(r).toFixed(2)} · ${
                           r.paymentMethod === "APPROVAL_CHARGE"
                             ? "saved card, charged when you approve"
                             : r.paymentMethod === "INVOICE"
@@ -2692,7 +2701,7 @@ function CoachReviewQueue({
                                 ? `${r.paymentMethod.toLowerCase()} at the event`
                                 : r.status === "PAID"
                                   ? "paid up front"
-                                  : "payment method not chosen"
+                                  : "no way to pay recorded"
                         }`
                       : "Nothing owed"}
                     {days != null && ` · requested ${days === 0 ? "today" : `${days}d ago`}`}
