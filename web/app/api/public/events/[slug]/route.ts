@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
-import { eventAllowedPaymentMethods, capacityWhere } from "@/lib/eventPayments";
+import { eventAllowedPaymentMethods, capacityWhere, resolveEventPolicy } from "@/lib/eventPayments";
 import { documentsForEvent } from "@/lib/eventDocuments";
 
 // GET /api/public/events/[slug]
@@ -38,6 +38,13 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       variableCostEstimatedSignups: true,
       variableCostEstimatedTotal: true,
       paymentMethods: true,
+      // Phase 5 §5.3.3 — the public page must say, before the pay picker, that
+      // a coach still has to review this. Resolved through the policy walker,
+      // never read off the column directly.
+      requiresCoachApproval: true,
+      approvalPaymentIntent: true,
+      cancellationPolicyText: true,
+      customEventType: { select: { defaultPolicy: true } },
       publishAt: true,
       unpublishAt: true,
       deletedAt: true,
@@ -111,6 +118,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     }
   }
 
+  const publicPolicy = resolveEventPolicy(event);
+
   const capacityReached =
     event.capacity != null &&
     event._count.registrations + event._count.bookings >= event.capacity;
@@ -150,6 +159,14 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     // AUTO_CARD needs an authenticated member with a saved card — the public
     // page is anonymous, so it only ever offers CARD / CASH / CHECK.
     paymentMethods: eventAllowedPaymentMethods(event).filter((m) => m !== "AUTO_CARD"),
+    // Coach approval, resolved event → type → off. APPROVAL_CHARGE is never
+    // reachable here (it needs a saved card, which needs an account — §5.12
+    // item 7), so the page only needs to know THAT approval applies and, when
+    // the policy is INVOICE, that no payment choice is coming.
+    requiresCoachApproval: publicPolicy.requiresCoachApproval,
+    billOnApproval:
+      publicPolicy.requiresCoachApproval && publicPolicy.approvalPaymentIntent === "INVOICE",
+    cancellationPolicyText: publicPolicy.cancellationPolicyText,
     documents,
     registrationOpen:
       (event.publicRegistration || event.tournamentMode === "HOST") && !capacityReached,

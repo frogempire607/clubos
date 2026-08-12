@@ -66,6 +66,22 @@ const updateSchema = z.object({
   paymentMethods: z.array(z.enum(["CARD", "AUTO_CARD", "CASH", "CHECK"])).optional().nullable(),
   autoChargeDate: z.string().optional().nullable(),
   requirePaymentBeforeCheckin: z.boolean().optional(),
+
+  // ── Phase 5 §5.3.2 — coach approval + payment, per event ─────────────────
+  // Every nullable flag is tri-state on the wire: true = on for this event,
+  // false = explicitly off, null = inherit the event type's defaultPolicy.
+  // Collapsing null and false would make a type-wide default impossible to
+  // override, so the schema keeps them distinct all the way to the column.
+  requiresCoachApproval: z.boolean().nullable().optional(),
+  approvalPaymentIntent: z
+    .enum(["CARD", "APPROVAL_CHARGE", "INVOICE", "CASH_CHECK", "PARENT_CHOOSES"])
+    .nullable()
+    .optional(),
+  allowProposedChanges: z.boolean().nullable().optional(),
+  responsibleCoachUserId: z.string().nullable().optional(),
+  holdSpotDuringReview: z.boolean().optional(),
+  cancellationPolicyText: z.string().max(2000).nullable().optional(),
+  paymentDueBy: z.string().nullable().optional(),
 });
 
 function slugify(name: string): string {
@@ -149,7 +165,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       publicSlug = candidate;
     }
 
-    const { registrationForm, variableCostEnabled, variableCostMode, variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, paymentMethods, autoChargeDate, ...flatRest } = rest;
+    const { paymentDueBy, responsibleCoachUserId, registrationForm, variableCostEnabled, variableCostMode, variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, paymentMethods, autoChargeDate, ...flatRest } = rest;
 
     const updated = await prisma.event.update({
       where: { id: params.id },
@@ -185,6 +201,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
           : autoChargeDate === null
             ? null
             : undefined,
+        paymentDueBy: paymentDueBy
+          ? new Date(paymentDueBy)
+          : paymentDueBy === null
+            ? null
+            : undefined,
+        // Soft pointer, no FK — an empty picker means "any staff with
+        // events:edit can approve", which is a real setting, not an absence.
+        ...(responsibleCoachUserId !== undefined
+          ? { responsibleCoachUserId: responsibleCoachUserId || null }
+          : {}),
       },
     });
 

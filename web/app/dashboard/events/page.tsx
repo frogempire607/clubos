@@ -33,6 +33,20 @@ type ClubEventType = {
   color: string;
   textColor: string;
   sortOrder: number;
+  // Phase 5 §5.3.1 — tournament-workflow defaults for every event of this
+  // type. null = this type has no policy, which is what keeps the workflow off
+  // for clinics and camps.
+  defaultPolicy?: EventTypePolicy | null;
+};
+
+// The stored shape of ClubEventType.defaultPolicy. Mirrors EventPolicy in
+// lib/eventPayments.ts; the resolver validates every field on read, so a blob
+// written by an older build degrades rather than breaking the editor.
+type EventTypePolicy = {
+  requiresCoachApproval?: boolean;
+  approvalPaymentIntent?: string;
+  allowProposedChanges?: boolean;
+  cancellationPolicyText?: string;
 };
 
 type EventSession = {
@@ -80,6 +94,15 @@ type Event = {
   paymentMethods?: string[] | null;
   autoChargeDate?: string | null;
   requirePaymentBeforeCheckin?: boolean;
+  // Phase 5 §5.3.2 — per-event overrides. null on any of the tri-state flags
+  // means "inherit the event type"; false means this event opted out.
+  requiresCoachApproval?: boolean | null;
+  approvalPaymentIntent?: string | null;
+  allowProposedChanges?: boolean | null;
+  responsibleCoachUserId?: string | null;
+  holdSpotDuringReview?: boolean;
+  cancellationPolicyText?: string | null;
+  paymentDueBy?: string | null;
 };
 
 type Member = { id: string; firstName: string; lastName: string };
@@ -762,6 +785,31 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   const [requirePaymentBeforeCheckin, setRequirePaymentBeforeCheckin] = useState<boolean>(
     !!ev?.requirePaymentBeforeCheckin
   );
+
+  // ── Phase 5 §5.3.2 — coach approval + payment ────────────────────────────
+  // "" = use the type default (the column stays null and the resolver walks up
+  // to the type). "on"/"off" are explicit per-event answers. Keeping the three
+  // apart is the whole reason the columns are nullable booleans.
+  const [approvalMode, setApprovalMode] = useState<"" | "on" | "off">(
+    ev?.requiresCoachApproval == null ? "" : ev.requiresCoachApproval ? "on" : "off",
+  );
+  const [approvalIntent, setApprovalIntent] = useState<string>(ev?.approvalPaymentIntent || "");
+  const [allowProposals, setAllowProposals] = useState<boolean>(!!ev?.allowProposedChanges);
+  const [responsibleCoachUserId, setResponsibleCoachUserId] = useState<string>(
+    ev?.responsibleCoachUserId || "",
+  );
+  const [holdSpotDuringReview, setHoldSpotDuringReview] = useState<boolean>(!!ev?.holdSpotDuringReview);
+  const [cancellationPolicyText, setCancellationPolicyText] = useState<string>(
+    ev?.cancellationPolicyText || "",
+  );
+  const [paymentDueBy, setPaymentDueBy] = useState<string>(
+    ev?.paymentDueBy ? new Date(ev.paymentDueBy).toISOString().slice(0, 10) : "",
+  );
+  const [approvalCardOpen, setApprovalCardOpen] = useState<boolean>(
+    // Open when this event already has something configured — never make an
+    // owner hunt for a setting that is already doing something.
+    ev?.requiresCoachApproval != null || !!ev?.responsibleCoachUserId || !!ev?.paymentDueBy,
+  );
   const togglePayMethod = (m: string) =>
     setPayMethods((prev) => {
       const next = prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m];
@@ -808,6 +856,19 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   function toggleStaff(id: string) {
     setStaffUserIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
+
+  // The card is visible for tournaments, and for any custom type whose owner
+  // has already set a policy on it (§5.3.2: "hidden by default in the editor
+  // for non-tournament event types"). Discoverability for everything else is
+  // the event-types modal, so a weekly-clinic owner never meets this UI.
+  const selectedCustomType = typeKey.startsWith("custom:")
+    ? clubEventTypes.find((t) => t.id === typeKey.replace("custom:", ""))
+    : undefined;
+  const typePolicy = selectedCustomType?.defaultPolicy ?? null;
+  const approvalAvailable = typeKey === "TOURNAMENT" || !!typePolicy;
+  // What the type says, for the "Use the type default" labels.
+  const typeSaysApproval = typePolicy?.requiresCoachApproval === true;
+  const approvalOn = approvalMode === "on" || (approvalMode === "" && typeSaysApproval);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -891,6 +952,22 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
             ? new Date(`${autoChargeDate}T12:00:00Z`).toISOString()
             : null,
         requirePaymentBeforeCheckin,
+        // Phase 5 §5.3.2. Sent only when the card is actually available for
+        // this event type — a weekly clinic must never post approval settings
+        // it never showed the owner.
+        ...(approvalAvailable
+          ? {
+              requiresCoachApproval: approvalMode === "" ? null : approvalMode === "on",
+              approvalPaymentIntent: approvalIntent || null,
+              allowProposedChanges: approvalOn ? allowProposals : null,
+              responsibleCoachUserId: responsibleCoachUserId || null,
+              holdSpotDuringReview: approvalOn ? holdSpotDuringReview : false,
+              cancellationPolicyText: cancellationPolicyText.trim() || null,
+              // Date-only input → noon UTC keeps the intended calendar day in
+              // every US timezone (same trap as autoChargeDate above).
+              paymentDueBy: paymentDueBy ? new Date(`${paymentDueBy}T12:00:00Z`).toISOString() : null,
+            }
+          : {}),
         sessions: sessions.length > 0
           ? sessions.map((s, i) => ({ name: s.name || null, startsAt: new Date(s.startsAt).toISOString(), endsAt: new Date(s.endsAt).toISOString(), sortOrder: i }))
           : [],
@@ -1433,6 +1510,179 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
             )}
           </div>
 
+          {/* Coach approval + payment (Phase 5 §5.3.2) — collapsed by default,
+              and only rendered for event types that opt in. */}
+          {approvalAvailable && (
+            <div className="border-t border-app-border pt-4">
+              <button
+                type="button"
+                onClick={() => setApprovalCardOpen((o) => !o)}
+                className="w-full flex items-center justify-between gap-3 text-left"
+              >
+                <span>
+                  <span className="block text-xs uppercase tracking-wider text-text-muted font-medium">
+                    Coach approval + payment
+                  </span>
+                  <span className="block text-[11px] text-text-muted mt-0.5">
+                    {approvalOn
+                      ? "Registrations wait for a coach before the spot is confirmed."
+                      : "Off — registrations confirm immediately, the way they do today."}
+                  </span>
+                </span>
+                <span className="text-xs text-text-muted flex-shrink-0">{approvalCardOpen ? "Hide" : "Show"}</span>
+              </button>
+
+              {approvalCardOpen && (
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">
+                      Require coach approval before the spot is confirmed
+                    </label>
+                    <select
+                      value={approvalMode}
+                      onChange={(e) => setApprovalMode(e.target.value as "" | "on" | "off")}
+                      className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+                    >
+                      <option value="">
+                        Use the type default{selectedCustomType ? ` (${typeSaysApproval ? "on" : "off"})` : " (off)"}
+                      </option>
+                      <option value="on">Yes — a coach reviews every registration</option>
+                      <option value="off">No — confirm registrations immediately</option>
+                    </select>
+                    <p className="text-[11px] text-text-muted mt-1">
+                      Nobody holds a spot until a coach approves, and nothing is charged
+                      until then either.
+                    </p>
+                  </div>
+
+                  {approvalOn && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary mb-1">
+                          How registrants pay if approved
+                        </label>
+                        <select
+                          value={approvalIntent}
+                          onChange={(e) => setApprovalIntent(e.target.value)}
+                          className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+                        >
+                          <option value="">Use the type default (let the registrant choose)</option>
+                          <option value="PARENT_CHOOSES">Let the registrant choose</option>
+                          <option value="APPROVAL_CHARGE">Charge their saved card when you approve</option>
+                          <option value="INVOICE">Bill later — no card at registration</option>
+                          <option value="CASH_CHECK">Cash or check at the event</option>
+                          <option value="CARD">Require payment up front</option>
+                        </select>
+                        <p className="text-[11px] text-text-muted mt-1">
+                          {approvalIntent === "APPROVAL_CHARGE"
+                            ? "Members only — it needs a card already on file, and it is charged the moment you approve. Not offered on the public link."
+                            : approvalIntent === "CARD"
+                              ? "They pay in full at registration. Declining refunds them automatically."
+                              : "Nothing is charged while a registration is waiting on you."}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary mb-1">
+                          Responsible coach
+                        </label>
+                        <select
+                          value={responsibleCoachUserId}
+                          onChange={(e) => setResponsibleCoachUserId(e.target.value)}
+                          className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+                        >
+                          <option value="">Any staff member who can edit events</option>
+                          {staffList.map((st) => (
+                            <option key={st.id} value={st.id}>
+                              {st.firstName} {st.lastName}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-text-muted mt-1">
+                          They can approve this event&apos;s registrations even without
+                          event-editing rights, and the daily reminder goes to them.
+                        </p>
+                      </div>
+
+                      <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-app-border cursor-pointer hover:bg-app-bg">
+                        <input
+                          type="checkbox"
+                          checked={allowProposals}
+                          onChange={(e) => setAllowProposals(e.target.checked)}
+                          className="mt-0.5"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm text-text-primary font-medium">
+                            Let coaches propose a different registration
+                          </span>
+                          <span className="block text-[11px] text-text-muted">
+                            Weight class, division, session, or adding another dual. The
+                            parent accepts or declines — you never change it for them.
+                          </span>
+                        </span>
+                      </label>
+
+                      <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-app-border cursor-pointer hover:bg-app-bg">
+                        <input
+                          type="checkbox"
+                          checked={holdSpotDuringReview}
+                          onChange={(e) => setHoldSpotDuringReview(e.target.checked)}
+                          className="mt-0.5"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm text-text-primary font-medium">
+                            Hold a spot while you review
+                          </span>
+                          <span className="block text-[11px] text-text-muted">
+                            Off by default: everyone can request, and you pick who competes.
+                            Turn it on for first-come events — then requests fill the capacity
+                            as they arrive.
+                          </span>
+                        </span>
+                      </label>
+
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary mb-1">
+                          Payment due by
+                        </label>
+                        <input
+                          type="date"
+                          value={paymentDueBy}
+                          onChange={(e) => setPaymentDueBy(e.target.value)}
+                          className="w-full sm:w-56 px-3 py-2 border border-app-border rounded-lg text-sm"
+                        />
+                        <p className="text-[11px] text-text-muted mt-1">
+                          Shown to families on their confirmation. Blank uses the
+                          registration deadline.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary mb-1">
+                          Cancellation policy
+                        </label>
+                        <textarea
+                          value={cancellationPolicyText}
+                          onChange={(e) => setCancellationPolicyText(e.target.value)}
+                          rows={3}
+                          placeholder={
+                            typePolicy?.cancellationPolicyText ||
+                            "e.g. Entry fees are non-refundable within 7 days of the event."
+                          }
+                          className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+                        />
+                        <p className="text-[11px] text-text-muted mt-1">
+                          Appears on every confirmation for this event. Blank uses the
+                          event type&apos;s policy.
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Accepted memberships */}
           <div className="border-t border-app-border pt-4">
             <label className="block text-xs font-medium text-text-primary mb-1">
@@ -1546,6 +1796,130 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
 }
 
 // ── Manage Event Types Modal ─────────────────────────────────────────────────
+// ── Per-type tournament-workflow defaults (Phase 5 §5.3.1) ───────────────────
+// The event-types modal is where this workflow is DISCOVERED: the event editor
+// only shows its "Coach approval + payment" card for tournaments and for types
+// that already carry a policy, so a club that never opens this panel never
+// meets the feature. Everything here is off until an owner turns it on, and
+// clearing it puts every event of the type straight back to today's behavior.
+function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () => void }) {
+  const policy = type.defaultPolicy ?? null;
+  const [open, setOpen] = useState(false);
+  const [requiresApproval, setRequiresApproval] = useState<boolean>(!!policy?.requiresCoachApproval);
+  const [intent, setIntent] = useState<string>(policy?.approvalPaymentIntent || "PARENT_CHOOSES");
+  const [allowProposals, setAllowProposals] = useState<boolean>(!!policy?.allowProposedChanges);
+  const [cancellation, setCancellation] = useState<string>(policy?.cancellationPolicyText || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function save() {
+    setSaving(true);
+    setErr("");
+    const res = await fetch(`/api/events/types/${type.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        // An all-off blob is stored as null by the server, which is what makes
+        // "this type is configured" answerable.
+        defaultPolicy: requiresApproval
+          ? {
+              requiresCoachApproval: true,
+              approvalPaymentIntent: intent,
+              allowProposedChanges: allowProposals,
+              cancellationPolicyText: cancellation.trim() || undefined,
+            }
+          : null,
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      onSaved();
+    } else {
+      setErr("Could not save these defaults");
+    }
+  }
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-[11px] text-text-muted hover:text-text-primary underline"
+      >
+        {open ? "Hide" : policy ? "Coach approval: on" : "Coach approval: off"}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 rounded-lg border border-app-border p-3">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={requiresApproval}
+              onChange={(e) => setRequiresApproval(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="min-w-0">
+              <span className="block text-xs font-medium text-text-primary">
+                New {type.name} events require coach approval
+              </span>
+              <span className="block text-[11px] text-text-muted">
+                A default for this type. Any single event can still override it.
+              </span>
+            </span>
+          </label>
+
+          {requiresApproval && (
+            <>
+              <select
+                value={intent}
+                onChange={(e) => setIntent(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-xs"
+              >
+                <option value="PARENT_CHOOSES">Let the registrant choose how to pay</option>
+                <option value="APPROVAL_CHARGE">Charge their saved card on approval</option>
+                <option value="INVOICE">Bill later — no card at registration</option>
+                <option value="CASH_CHECK">Cash or check at the event</option>
+                <option value="CARD">Require payment up front</option>
+              </select>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allowProposals}
+                  onChange={(e) => setAllowProposals(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-[11px] text-text-primary">
+                  Coaches may propose a different weight class, division, session, or an
+                  extra dual
+                </span>
+              </label>
+              <textarea
+                value={cancellation}
+                onChange={(e) => setCancellation(e.target.value)}
+                rows={2}
+                placeholder="Cancellation policy shown on every confirmation for this type"
+                className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-xs"
+              />
+            </>
+          )}
+
+          {err && <p className="text-[11px] text-red-600">{err}</p>}
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className="text-xs px-2.5 py-1 rounded-md bg-brand text-white font-medium hover:bg-brand-hover disabled:opacity-50"
+          >
+            {saving ? "Saving…" : saved ? "Saved ✓" : "Save defaults"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ManageTypesModal({
   types,
   builtInOverrides,
@@ -1706,10 +2080,13 @@ function ManageTypesModal({
             ) : (
               <div className="space-y-1">
                 {localTypes.map((t) => (
-                  <div key={t.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-app-bg">
-                    <span className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: t.color, color: t.textColor }}>{t.name}</span>
-                    <div className="flex-1" />
-                    <button onClick={() => deleteType(t.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
+                  <div key={t.id} className="py-2 px-3 rounded-lg bg-app-bg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: t.color, color: t.textColor }}>{t.name}</span>
+                      <div className="flex-1" />
+                      <button onClick={() => deleteType(t.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
+                    </div>
+                    <TypePolicyEditor type={t} onSaved={onSaved} />
                   </div>
                 ))}
               </div>

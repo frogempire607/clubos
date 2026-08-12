@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
+import { normalizeDefaultPolicy } from "@/lib/eventPayments";
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   color: z.string().optional(),
   textColor: z.string().optional(),
   sortOrder: z.number().int().optional(),
+  // Phase 5 §5.3.1 — the tournament-workflow defaults every event of this type
+  // inherits. Passed through normalizeDefaultPolicy, which drops unknown keys
+  // and collapses an all-off blob back to null, so "this type is configured"
+  // stays a question the column can answer. null clears it.
+  defaultPolicy: z.record(z.unknown()).nullable().optional(),
 });
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -26,10 +33,18 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   try {
     const body = await req.json();
-    const data = updateSchema.parse(body);
+    const { defaultPolicy, ...rest } = updateSchema.parse(body);
     const updated = await prisma.clubEventType.update({
       where: { id: params.id },
-      data,
+      data: {
+        ...rest,
+        ...(defaultPolicy !== undefined
+          ? {
+              defaultPolicy:
+                (normalizeDefaultPolicy(defaultPolicy) as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+            }
+          : {}),
+      },
     });
     return NextResponse.json(updated);
   } catch (err) {

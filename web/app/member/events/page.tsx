@@ -82,6 +82,8 @@ export default function MemberEventsPage() {
     eventId?: string;
     bundleId?: string;
     pricingType?: "MEMBER" | "NON_MEMBER" | "DROP_IN";
+    // §5.3.3 — set by the server when this event is approval-gated.
+    requiresCoachApproval?: boolean;
     options: string[];
     quote?: { base: number; cardFee: number; cardTotal: number; offlineTotal: number } | null;
     savedCard?: { label: string } | null;
@@ -149,7 +151,10 @@ export default function MemberEventsPage() {
         memberId: selectedMemberId,
         discountCode: discountCode.trim() || null,
         ...(payment ? { paymentMethod: payment.method } : {}),
-        ...(payment?.method === "AUTO_CARD"
+        // APPROVAL_CHARGE consents to a charge that fires when the coach
+        // approves — same audited snapshot shape as AUTO_CARD's event-date
+        // charge, because it is the same promise about the same card.
+        ...(payment?.method === "AUTO_CARD" || payment?.method === "APPROVAL_CHARGE"
           ? { autoChargeConsent: { agreed: true, buttonLabel: payment.consentLabel } }
           : {}),
         ...(acknowledgeDocuments ? { acknowledgeDocuments: true } : {}),
@@ -169,6 +174,7 @@ export default function MemberEventsPage() {
         quote: d.quote ?? null,
         savedCard: d.savedCard ?? null,
         documents: d.documents ?? [],
+        requiresCoachApproval: !!d.requiresCoachApproval,
       });
       return;
     }
@@ -181,7 +187,23 @@ export default function MemberEventsPage() {
       }
       return;
     }
+    // No chargeable card on file for a "charge on approval" event. The card
+    // is verified NOW, while the parent is here to fix it — not at approval
+    // time, when they are not.
+    if (res.status === 402 && d.error === "PAYMENT_SETUP_REQUIRED") {
+      setError(`${d.message} Add one under Profile → Payment & billing.`);
+      return;
+    }
     if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }
+    // Coach approval (§5.4.5): a request, not a spot. Every branch of the
+    // server's approval fork returns pendingReview with copy that already
+    // says what happens to the money, so it is shown verbatim rather than
+    // re-derived here.
+    if (d.pendingReview) {
+      setInfo(d.message || "Request sent to your coach.");
+      load();
+      return;
+    }
     if (d.coveredByMembership) {
       setInfo(d.status === "WAITLISTED" ? "You're on the waitlist (covered by your membership)." : "Registered — covered by your membership.");
       load();
@@ -510,6 +532,9 @@ export default function MemberEventsPage() {
 // are shown for review — unsigned SIGN_REQUIRED docs block confirming.
 type PayPromptData = {
   kind: "event" | "bundle";
+  // §5.3.3 — changes what every option below means, so the modal says it
+  // before the picker rather than after.
+  requiresCoachApproval?: boolean;
   eventId?: string;
   bundleId?: string;
   options: string[];
@@ -572,6 +597,17 @@ function PaymentChoiceModal({
       label: "Pay later — the club will invoice me",
       hint: `Nothing is collected now. The club sends you an invoice or payment link for ${offlineTotal || "the amount"}. This is not an automatic card charge.`,
     },
+    // Phase 5 §5.1 — a saved-card charge that fires on approval, never an
+    // authorization hold: an auth expires in 7 days and tournament approval
+    // routinely takes longer than that.
+    APPROVAL_CHARGE: {
+      label: `Charge my saved card when the coach approves${prompt.savedCard ? ` — ${prompt.savedCard.label}` : ""}`,
+      hint: `Nothing is charged today. ${cardTotal ? `${cardTotal} is` : "Your card on file is"} charged the moment your coach approves${feeNote}. If they don't, nothing is charged at all.`,
+    },
+    INVOICE: {
+      label: "Bill me if I'm approved",
+      hint: `No card needed now. If your coach approves, the club emails a payment link for ${offlineTotal || "the amount"}.`,
+    },
   };
 
   const docs = prompt.documents ?? [];
@@ -579,9 +615,13 @@ function PaymentChoiceModal({
   const ackDocs = docs.filter((d) => d.needsAcknowledgement);
 
   const consentLabel =
-    method === "AUTO_CARD" ? `I authorize the charge of ${cardTotal || "the total"} on ${chargeDayLabel}` : undefined;
+    method === "AUTO_CARD"
+      ? `I authorize the charge of ${cardTotal || "the total"} on ${chargeDayLabel}`
+      : method === "APPROVAL_CHARGE"
+        ? `I authorize the charge of ${cardTotal || "the total"} if my coach approves`
+        : undefined;
   const blocked =
-    (method === "AUTO_CARD" && !consented) ||
+    ((method === "AUTO_CARD" || method === "APPROVAL_CHARGE") && !consented) ||
     (prompt.kind === "event" && signBlocked.length > 0) ||
     (prompt.kind === "event" && ackDocs.length > 0 && !ackChecked);
 
@@ -590,7 +630,9 @@ function PaymentChoiceModal({
       <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md border border-stone-200 max-h-[90vh] overflow-y-auto">
         <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-stone-900">How would you like to pay?</h2>
+            <h2 className="text-base font-semibold text-stone-900">
+              {prompt.requiresCoachApproval ? "How would you pay if approved?" : "How would you like to pay?"}
+            </h2>
             {event && <p className="text-xs text-stone-500 truncate">{event.name}</p>}
           </div>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">
@@ -598,6 +640,16 @@ function PaymentChoiceModal({
           </button>
         </div>
         <div className="p-5 space-y-2">
+          {prompt.requiresCoachApproval && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 mb-1">
+              <p className="text-sm font-medium text-amber-900">
+                Registration isn&apos;t confirmed until the coach reviews it.
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                You&apos;ll be notified as soon as they do — no money moves until then.
+              </p>
+            </div>
+          )}
           {docs.length > 0 && (
             <div className="mb-3">
               <p className="text-sm font-medium text-stone-900 mb-1">
@@ -674,7 +726,7 @@ function PaymentChoiceModal({
             );
           })}
 
-          {method === "AUTO_CARD" && (
+          {(method === "AUTO_CARD" || method === "APPROVAL_CHARGE") && (
             <label className="flex items-start gap-2.5 p-3 rounded-lg bg-stone-50 border border-stone-200 cursor-pointer">
               <input
                 type="checkbox"
@@ -697,9 +749,16 @@ function PaymentChoiceModal({
                 ? `Continue to payment${cardTotal ? ` — ${cardTotal}` : ""}`
                 : method === "AUTO_CARD"
                   ? `Confirm — ${cardTotal || "charged"} on ${chargeDayLabel}`
-                  : method === "PAY_LATER"
-                    ? `Confirm — club invoices ${offlineTotal || "me"}`
-                    : `Confirm — ${offlineTotal || "due"} at ${prompt.kind === "bundle" ? "the club" : "the event"}`}
+                  : // §5.3.3: the button states the exact server-computed
+                    // amount and when it moves, so nobody agrees to a number
+                    // they were never shown.
+                    method === "APPROVAL_CHARGE"
+                    ? `Register — reviewed by coach, then charged ${cardTotal || "the total"}`
+                    : method === "INVOICE"
+                      ? "Register — billed if approved"
+                      : method === "PAY_LATER"
+                        ? `Confirm — club invoices ${offlineTotal || "me"}`
+                        : `Confirm — ${offlineTotal || "due"} at ${prompt.kind === "bundle" ? "the club" : "the event"}`}
           </button>
         </div>
       </div>

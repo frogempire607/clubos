@@ -479,3 +479,45 @@ export function registrationWaitingOn(
   // REGISTERED and anything unknown: money decides.
   return Number(reg.amountDue ?? 0) > 0 ? "PAYMENT" : "COMPLETE";
 }
+
+/**
+ * Validate + normalize a policy blob coming off the wire (the event-type
+ * editor) before it is stored on `ClubEventType.defaultPolicy`.
+ *
+ * Stored shape is deliberately the same shape `resolveEventPolicy` reads, and
+ * unknown keys are dropped rather than persisted: the blob is a defaults
+ * template an owner edits as a unit, and letting arbitrary keys through would
+ * make a later reader's "is this field set?" check unanswerable.
+ *
+ * Returns null for "no policy at all", which is what clears the column and
+ * puts every event of that type back to fully off.
+ */
+export function normalizeDefaultPolicy(input: unknown): Record<string, unknown> | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const raw = input as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  if (typeof raw.requiresCoachApproval === "boolean") out.requiresCoachApproval = raw.requiresCoachApproval;
+  if (isApprovalPaymentIntent(raw.approvalPaymentIntent)) out.approvalPaymentIntent = raw.approvalPaymentIntent;
+  if (typeof raw.allowProposedChanges === "boolean") out.allowProposedChanges = raw.allowProposedChanges;
+  if (typeof raw.escalationEnabled === "boolean") out.escalationEnabled = raw.escalationEnabled;
+  if ((ESCALATION_ANCHORS as readonly string[]).includes(String(raw.escalationAnchor)))
+    out.escalationAnchor = raw.escalationAnchor;
+  if ((ESCALATION_SCHEDULES as readonly string[]).includes(String(raw.escalationSchedule)))
+    out.escalationSchedule = raw.escalationSchedule;
+  if (Array.isArray(raw.customEscalationDays)) {
+    const days = raw.customEscalationDays.map(Number).filter((n) => Number.isFinite(n));
+    if (days.length > 0) out.customEscalationDays = days;
+  }
+  if (typeof raw.cancellationPolicyText === "string" && raw.cancellationPolicyText.trim())
+    out.cancellationPolicyText = raw.cancellationPolicyText.trim().slice(0, 2000);
+
+  // An all-off blob is indistinguishable from no blob, and storing it would
+  // make "has this type been configured?" a lie.
+  const meaningful =
+    out.requiresCoachApproval === true ||
+    out.escalationEnabled === true ||
+    out.approvalPaymentIntent !== undefined ||
+    out.cancellationPolicyText !== undefined;
+  return meaningful ? out : null;
+}

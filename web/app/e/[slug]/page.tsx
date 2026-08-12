@@ -36,6 +36,11 @@ type PublicEvent = {
   capacityReached: boolean;
   registrationOpen: boolean;
   paymentMethods?: string[];
+  // Phase 5 §5.3.3 — a coach reviews this registration before the spot is
+  // confirmed, and billOnApproval means no payment choice is offered now.
+  requiresCoachApproval?: boolean;
+  billOnApproval?: boolean;
+  cancellationPolicyText?: string | null;
   documents?: { id: string; title: string; type: string; body: string | null; requirement: string }[];
 };
 
@@ -109,7 +114,10 @@ export default function PublicEventPage() {
 
   // Only ask how they'll pay when money is actually owed at registration.
   const payOptions = (event?.paymentMethods ?? []).filter((m) => PAY_CHOICES[m]);
-  const needsPayChoice = !!event && (event.price ?? 0) > 0 && payOptions.length > 0;
+  // A club that bills on approval collects nothing now, so there is no choice
+  // to make — offering one would ask a question the server ignores.
+  const needsPayChoice =
+    !!event && (event.price ?? 0) > 0 && payOptions.length > 0 && !event.billOnApproval;
   const eventDocs = event?.documents ?? [];
   const gatedDocs = eventDocs.filter((d) => d.requirement !== "INFO");
 
@@ -470,11 +478,34 @@ export default function PublicEventPage() {
               </div>
             )}
 
-            {needsPayChoice && (
+            {/* §5.3.3 — said BEFORE the pay picker, because it changes what
+                every option below means. */}
+            {event.requiresCoachApproval && (
+              <div
+                className="rounded-lg border px-3 py-2.5"
+                style={{ borderColor: `${accent}66`, background: `${accent}0f` }}
+              >
+                <p className="text-sm font-medium text-stone-900">
+                  Registration isn&apos;t confirmed until the coach reviews it.
+                </p>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  You&apos;ll be notified as soon as they do — no money moves until then.
+                  {event.billOnApproval
+                    ? " If they approve, the club emails a payment link."
+                    : ""}
+                </p>
+              </div>
+            )}
+
+            {needsPayChoice && !event.billOnApproval && (
               <div className="pt-1">
-                <p className="text-sm font-medium text-stone-900 mb-1">How would you like to pay?</p>
+                <p className="text-sm font-medium text-stone-900 mb-1">
+                  {event.requiresCoachApproval ? "How would you pay if approved?" : "How would you like to pay?"}
+                </p>
                 <p className="text-xs text-stone-500 mb-2">
-                  Your spot isn&apos;t held until this is settled.
+                  {event.requiresCoachApproval
+                    ? "Nothing is charged while your request is with the coach."
+                    : "Your spot isn't held until this is settled."}
                 </p>
                 <div className="space-y-2">
                   {payOptions.map((m) => (
