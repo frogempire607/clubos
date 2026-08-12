@@ -14,6 +14,7 @@
 // Phase 1 will add TOURNAMENT_INVOICE_DUE / TOURNAMENT_PRICE_MISSING and
 // Phase 2 the payout kinds — each as one more `probe(...)` line here.
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, type PermissionKey, type PermissionLevel } from "@/lib/permissions";
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
@@ -154,6 +155,105 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
       label: "Members awaiting billing approval",
       severity: "high",
       href: "/dashboard/members/approvals",
+    },
+  );
+
+  // A proposal on the table moves the ball to the PARENT even though
+  // approvalStatus is still PENDING — the same precedence the waitingOn
+  // resolver and the roster queue apply. Without this the owner would see a
+  // "waiting on a coach" count that the roster itself says is zero.
+  const notAwaitingParent = {
+    OR: [
+      { proposedChange: { equals: Prisma.DbNull } },
+      { proposedChangeRespondedAt: { not: null } },
+    ],
+  };
+
+  // ── Coach approval (Phase 5 §5.7) ────────────────────────────────────
+  // The live count IS the notification: a registration leaves this probe the
+  // moment a coach decides it, so there is no feed to mark read and nothing to
+  // go stale. Gated on events:view because deciding is an events job, not a
+  // finance one — the money side of the same registrations is already covered
+  // by PENDING_EVENT_PAYMENTS below.
+  //
+  // Scoped to registrations whose EVENT still requires approval, so turning
+  // the workflow off for an event clears its queue instead of stranding rows
+  // nobody can act on any more.
+  probe(
+    can("events", "view"),
+    () =>
+      prisma.eventRegistration.count({
+        where: { clubId, approvalStatus: "PENDING", status: { not: "CANCELED" }, ...notAwaitingParent },
+      }),
+    {
+      kind: "COACH_APPROVAL_REQUESTED",
+      label: "Registrations waiting on a coach",
+      severity: "high",
+      href: "/dashboard/events",
+    },
+  );
+  // Aged past two days. Separate from the count above rather than a severity
+  // bump on it, because "someone should look at the queue" and "this family
+  // has been waiting since Tuesday" are different asks.
+  probe(
+    can("events", "view"),
+    () =>
+      prisma.eventRegistration.count({
+        where: {
+          clubId,
+          approvalStatus: "PENDING",
+          status: { not: "CANCELED" },
+          approvalRequestedAt: { lt: new Date(now.getTime() - 48 * 3_600_000) },
+          ...notAwaitingParent,
+        },
+      }),
+    {
+      kind: "EVENT_APPROVAL_STALLED_48H",
+      label: "Registrations waiting on a coach for 2+ days",
+      severity: "high",
+      href: "/dashboard/events",
+    },
+  );
+  // Past the registration deadline and still undecided — at this point the
+  // family cannot be entered even if the coach says yes, so it needs an owner.
+  probe(
+    can("events", "view"),
+    () =>
+      prisma.eventRegistration.count({
+        where: {
+          clubId,
+          approvalStatus: "PENDING",
+          status: { not: "CANCELED" },
+          event: { registrationDeadline: { lt: now }, deletedAt: null },
+          ...notAwaitingParent,
+        },
+      }),
+    {
+      kind: "EVENT_APPROVAL_STALLED_PAST_DEADLINE",
+      label: "Undecided registrations past the deadline",
+      severity: "high",
+      href: "/dashboard/events",
+    },
+  );
+  // A coach proposed a change and the family has not answered. Nobody is
+  // blocked on the club here, so it is low severity — but an owner reading the
+  // roster should still be able to see why a spot is neither in nor out.
+  probe(
+    can("events", "view"),
+    () =>
+      prisma.eventRegistration.count({
+        where: {
+          clubId,
+          status: { not: "CANCELED" },
+          proposedChange: { not: Prisma.DbNull },
+          proposedChangeRespondedAt: null,
+        },
+      }),
+    {
+      kind: "EVENT_PROPOSAL_AWAITING_PARENT",
+      label: "Proposed changes waiting on a parent",
+      severity: "low",
+      href: "/dashboard/events",
     },
   );
 

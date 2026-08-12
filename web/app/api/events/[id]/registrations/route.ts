@@ -8,7 +8,11 @@ import {
   UNPAID_REGISTRATION_STATUSES,
   ACTIVE_REGISTRATION_STATUSES,
   AWAITING_OFFLINE_STATUSES,
+  resolveEventPolicy,
+  registrationWaitingOn,
 } from "@/lib/eventPayments";
+import { canDecideRegistrations } from "@/lib/eventApproval";
+import { hasPermission } from "@/lib/permissions";
 import { publicFixedPrice } from "@/lib/eventPricing";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 
@@ -48,6 +52,17 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       autoChargeDate: true,
       requirePaymentBeforeCheckin: true,
       startsAt: true,
+      registrationDeadline: true,
+      // Phase 5 — the roster is where a coach decides, so it needs the policy
+      // (resolved, never the raw columns) and the responsible coach.
+      requiresCoachApproval: true,
+      approvalPaymentIntent: true,
+      allowProposedChanges: true,
+      responsibleCoachUserId: true,
+      holdSpotDuringReview: true,
+      cancellationPolicyText: true,
+      paymentDueBy: true,
+      customEventType: { select: { defaultPolicy: true } },
     },
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -80,9 +95,14 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   // as "no email on file". Resolved through the Phase 3E family model so the
   // roster preview and the send agree.
   const recipients = await resolveRegistrationRecipients(session.user.clubId, rows);
+  const now = new Date();
   const registrations = rows.map((r) => ({
     ...r,
     recipient: recipients.get(r.id) ?? null,
+    // One resolver for "who is this waiting on" — the same function the render
+    // context, the probes and the reminder scheduler use, so the roster can
+    // never disagree with the email the family got.
+    waitingOn: registrationWaitingOn(r, { now }),
   }));
 
   // An abandoned card checkout (PENDING_PAYMENT) is not a registration —
@@ -122,8 +142,32 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     }
   }
 
+  const policy = resolveEventPolicy(event);
+  const pendingReviewCount = registrations.filter((r) => r.approvalStatus === "PENDING").length;
+  const awaitingParentCount = registrations.filter(
+    (r) => !!r.proposedChange && !r.proposedChangeRespondedAt,
+  ).length;
+
   return NextResponse.json({
-    event: { ...event, paymentMethods: eventAllowedPaymentMethods(event) },
+    event: {
+      ...event,
+      paymentMethods: eventAllowedPaymentMethods(event),
+      policy,
+      // Whether THIS user may approve/decline/propose here. The responsible
+      // coach can decide their own event without event-editing rights, so the
+      // answer is per-user and belongs on the server side of the wire.
+      canDecide: canDecideRegistrations(
+        session,
+        event,
+        hasPermission(
+          (session.user as unknown as { permissions?: Record<string, unknown> | null }).permissions ?? null,
+          "events",
+          "edit",
+        ),
+      ),
+    },
+    pendingReviewCount,
+    awaitingParentCount,
     registrations,
     activeCount,
     unpaidCount,

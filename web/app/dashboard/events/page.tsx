@@ -2397,6 +2397,22 @@ type RegistrationRow = {
   paymentMethod: string | null;
   scheduledChargeAt: string | null;
   lastChargeError: string | null;
+  // Phase 5 — the coach decision state. approvalStatus null means this event
+  // never required approval, which is why it is not a boolean.
+  approvalStatus?: string | null;
+  approvalRequestedAt?: string | null;
+  declinedReason?: string | null;
+  proposedChange?: {
+    proposedByUserId?: string | null;
+    proposedAt?: string;
+    coachNote?: string | null;
+    priceDelta?: number;
+    changes?: Record<string, unknown>;
+  } | null;
+  proposedChangeRespondedAt?: string | null;
+  proposedChangeAccepted?: boolean | null;
+  confirmationCode?: string | null;
+  waitingOn?: "COACH" | "PARENT" | "PAYMENT" | "COMPLETE" | "CANCELED";
   paidAt: string | null;
   paidVia: string | null;
   checkReference: string | null;
@@ -2424,6 +2440,7 @@ const REG_STATUS_UI: Record<string, { label: string; tone: "paid" | "owed" | "wa
   PENDING_PAYMENT: { label: "Didn't finish checkout", tone: "warn" },
   CANCELED: { label: "Canceled", tone: "muted" },
   REGISTERED: { label: "Registered", tone: "muted" },
+  PENDING_REVIEW: { label: "Awaiting coach review", tone: "warn" },
 };
 
 type RegistrationsData = {
@@ -2439,7 +2456,18 @@ type RegistrationsData = {
     variableCostBilledAt: string | null;
     paymentMethods?: string[];
     requirePaymentBeforeCheckin?: boolean;
+    // Resolved policy (event → type → off) + whether THIS user may decide.
+    policy?: {
+      requiresCoachApproval: boolean;
+      allowProposedChanges: boolean;
+      approvalPaymentIntent: string;
+      holdSpotDuringReview: boolean;
+      responsibleCoachUserId: string | null;
+    };
+    canDecide?: boolean;
   };
+  pendingReviewCount?: number;
+  awaitingParentCount?: number;
   registrations: RegistrationRow[];
   activeCount: number;
   unpaidCount: number;
@@ -2479,6 +2507,447 @@ type InvoicePreview = {
   grandTotal: number;
 };
 type InvoiceOpts = { force?: boolean; registrationIds?: string[] };
+
+// ── Coach review queue (Phase 5 §5.4.6) ──────────────────────────────────────
+// Everything a coach has to decide, at the top of the roster they already open.
+// Deliberately NOT a separate page: the decision needs the same context as the
+// rest of the roster (who else is in, what they owe, what they answered), and a
+// second screen would be a second place to keep in sync.
+//
+// Three outcomes, and the middle one is the reason this exists: a coach who
+// can't take a registration as submitted usually doesn't want to refuse it —
+// they want a different weight class, or an extra dual. Proposing hands that
+// decision to the parent instead of quietly changing what a family agreed to.
+function CoachReviewQueue({
+  eventId,
+  data,
+  onDone,
+}: {
+  eventId: string;
+  data: RegistrationsData;
+  onDone: () => void;
+}) {
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const [mode, setMode] = useState<"decline" | "propose" | null>(null);
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [weightClass, setWeightClass] = useState("");
+  const [division, setDivision] = useState("");
+  const [session, setSession] = useState("");
+  const [addDual, setAddDual] = useState(false);
+  const [priceDelta, setPriceDelta] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+
+  const ev = data.event;
+  const openProposal = (r: RegistrationRow) => !!r.proposedChange && !r.proposedChangeRespondedAt;
+  // A registration with a proposal on the table is waiting on the PARENT, not
+  // on the coach — the same precedence the render context and the waitingOn
+  // resolver apply. Leaving it in the coach's queue would ask them to decide
+  // something they have already handed over.
+  const pending = data.registrations.filter(
+    (r) => r.approvalStatus === "PENDING" && r.status !== "CANCELED" && !openProposal(r),
+  );
+  const awaitingParent = data.registrations.filter(
+    (r) => openProposal(r) && r.status !== "CANCELED",
+  );
+
+  if (!ev.policy?.requiresCoachApproval && pending.length === 0 && awaitingParent.length === 0) {
+    return null;
+  }
+
+  // The event's own form drives the pickers, so a club that calls it "Bracket"
+  // rather than "Weight class" sees their own words.
+  const formFields = ev.registrationForm ?? [];
+  const fieldOptions = (id: string): string[] => {
+    const f = formFields.find((x) => x.id === id) as unknown as { options?: string[] } | undefined;
+    return Array.isArray(f?.options) ? (f?.options as string[]) : [];
+  };
+
+  function reset() {
+    setOpenFor(null);
+    setMode(null);
+    setReason("");
+    setNote("");
+    setWeightClass("");
+    setDivision("");
+    setSession("");
+    setAddDual(false);
+    setPriceDelta("");
+    setErr("");
+  }
+
+  async function post(regId: string, action: string, body: Record<string, unknown>) {
+    setBusy(regId);
+    setErr("");
+    const res = await fetch(`/api/events/${eventId}/registrations/${regId}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) {
+      setErr(d.message || d.error || "That didn't go through.");
+      return;
+    }
+    reset();
+    // The decision stands even when the money side didn't — a declined card or
+    // an un-connected Stripe account must not un-approve an athlete. But it
+    // must not be silent either, or the club never learns nobody was billed.
+    if (d.invoiceError) setErr(`Approved — but the payment link didn't send: ${d.invoiceError}`);
+    else if (d.chargeError) setErr(`Approved — but the card charge didn't go through: ${d.chargeError}`);
+    else if (d.refund?.error) setErr(`Declined — but the refund failed: ${d.refund.error}. Check Stripe.`);
+    onDone();
+  }
+
+  async function approve(r: RegistrationRow) {
+    // The money consequence is named out loud before it happens — approving an
+    // APPROVAL_CHARGE registration charges a real card in the same request.
+    const amount = r.amountDue == null ? null : Number(r.amountDue);
+    const consequence =
+      r.paymentMethod === "APPROVAL_CHARGE" && amount
+        ? `This charges ${r.name}'s saved card $${amount.toFixed(2)} now.`
+        : r.paymentMethod === "INVOICE" && amount
+          ? `This emails ${r.name} a payment link for $${amount.toFixed(2)}.`
+          : `${r.name} will be confirmed for this event.`;
+    if (!confirm(`Approve ${r.name}?\n\n${consequence}`)) return;
+    await post(r.id, "approve", {});
+  }
+
+  function daysWaiting(r: RegistrationRow): number | null {
+    const at = r.approvalRequestedAt ?? r.createdAt;
+    if (!at) return null;
+    return Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000);
+  }
+
+  return (
+    <div className="mb-5 rounded-xl border border-orange-accent/40 bg-orange-accent/5 p-4">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div>
+          <p className="text-sm font-semibold text-text-primary">
+            {pending.length > 0
+              ? `Waiting on you (${pending.length})`
+              : "Coach approval is on for this event"}
+          </p>
+          <p className="text-xs text-text-muted">
+            {pending.length > 0
+              ? "Nobody holds a spot until you approve, and nothing is charged until then."
+              : "Nothing to review right now."}
+            {awaitingParent.length > 0
+              ? ` ${awaitingParent.length} proposed change${awaitingParent.length === 1 ? " is" : "s are"} waiting on a parent.`
+              : ""}
+          </p>
+        </div>
+        {ev.policy?.holdSpotDuringReview && (
+          <span className="text-[11px] px-2 py-1 rounded-full bg-app-bg text-text-muted flex-shrink-0">
+            Requests hold a spot
+          </span>
+        )}
+      </div>
+
+      {ev.canDecide === false && pending.length > 0 && (
+        <p className="text-xs text-text-muted mt-2">
+          You can see this queue but not decide it — ask an owner, or whoever is set as
+          this event&apos;s responsible coach.
+        </p>
+      )}
+
+      {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
+
+      <div className="mt-3 space-y-2">
+        {pending.map((r) => {
+          const days = daysWaiting(r);
+          const answers = Object.entries(r.formResponses ?? {})
+            .filter(([k]) => !k.startsWith("__"))
+            .map(([k, v]) => {
+              const label = formFields.find((f) => f.id === k)?.label ?? k;
+              return `${label}: ${String(v)}`;
+            });
+          return (
+            <div key={r.id} className="rounded-lg border border-app-border bg-surface p-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary">
+                    {r.name}
+                    {r.confirmationCode && (
+                      <span className="ml-2 text-[11px] font-normal text-text-muted">
+                        #{r.confirmationCode}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-text-muted">
+                    {answers.length > 0 ? answers.join(" · ") : "No form answers"}
+                  </p>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    {r.amountDue != null && Number(r.amountDue) > 0
+                      ? `$${Number(r.amountDue).toFixed(2)} · ${
+                          r.paymentMethod === "APPROVAL_CHARGE"
+                            ? "saved card, charged when you approve"
+                            : r.paymentMethod === "INVOICE"
+                              ? "billed if approved"
+                              : r.paymentMethod === "CASH" || r.paymentMethod === "CHECK"
+                                ? `${r.paymentMethod.toLowerCase()} at the event`
+                                : r.status === "PAID"
+                                  ? "paid up front"
+                                  : "payment method not chosen"
+                        }`
+                      : "Nothing owed"}
+                    {days != null && ` · requested ${days === 0 ? "today" : `${days}d ago`}`}
+                  </p>
+                </div>
+                {ev.canDecide !== false && (
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    {ev.policy?.allowProposedChanges && (
+                      <button
+                        onClick={() => {
+                          setOpenFor(r.id);
+                          setMode("propose");
+                          setErr("");
+                        }}
+                        disabled={busy === r.id}
+                        className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50"
+                      >
+                        Propose a change
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setOpenFor(r.id);
+                        setMode("decline");
+                        setErr("");
+                      }}
+                      disabled={busy === r.id}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                    <button
+                      onClick={() => approve(r)}
+                      disabled={busy === r.id}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white font-medium hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      {busy === r.id ? "…" : "Approve"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {openFor === r.id && mode === "decline" && (
+                <div className="mt-3 border-t border-app-border pt-3">
+                  <label className="block text-xs font-medium text-text-primary mb-1">
+                    Why can&apos;t you take this registration?
+                  </label>
+                  <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. 126 is full — we already have two at that weight."
+                    className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+                  />
+                  <p className="text-[11px] text-text-muted mt-1">
+                    This goes to the family word for word.
+                    {(r.status === "PAID" || Number(r.amountPaid ?? 0) > 0) &&
+                      " They already paid, so declining refunds them in full."}
+                  </p>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={reset}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-muted"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => post(r.id, "decline", { reason: reason.trim() })}
+                      disabled={!reason.trim() || busy === r.id}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {busy === r.id ? "Declining…" : "Decline and notify"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {openFor === r.id && mode === "propose" && (
+                <div className="mt-3 border-t border-app-border pt-3 space-y-2">
+                  <p className="text-xs text-text-muted">
+                    Nothing changes until the parent accepts. Leave a field blank to keep
+                    what they signed up for.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-medium text-text-primary mb-1">
+                        {formFields.find((f) => f.id === "weightClass")?.label ?? "Weight class"}
+                      </label>
+                      {fieldOptions("weightClass").length > 0 ? (
+                        <select
+                          value={weightClass}
+                          onChange={(e) => setWeightClass(e.target.value)}
+                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                        >
+                          <option value="">No change</option>
+                          {fieldOptions("weightClass").map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={weightClass}
+                          onChange={(e) => setWeightClass(e.target.value)}
+                          placeholder="No change"
+                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                        />
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-text-primary mb-1">
+                        {formFields.find((f) => f.id === "division")?.label ?? "Division"}
+                      </label>
+                      {fieldOptions("division").length > 0 ? (
+                        <select
+                          value={division}
+                          onChange={(e) => setDivision(e.target.value)}
+                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                        >
+                          <option value="">No change</option>
+                          {fieldOptions("division").map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={division}
+                          onChange={(e) => setDivision(e.target.value)}
+                          placeholder="No change"
+                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-text-primary mb-1">
+                      Session
+                    </label>
+                    <input
+                      value={session}
+                      onChange={(e) => setSession(e.target.value)}
+                      placeholder="No change"
+                      className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                    />
+                  </div>
+
+                  {/* The add-a-dual case: the one proposal that routinely costs
+                      more, so the extra fee is asked for in the same breath and
+                      the parent re-consents to it before anything is charged. */}
+                  <label className="flex items-start gap-2 p-2.5 rounded-lg border border-app-border cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={addDual}
+                      onChange={(e) => {
+                        setAddDual(e.target.checked);
+                        if (!e.target.checked) setPriceDelta("");
+                      }}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium text-text-primary">
+                        Wrestle an additional dual
+                      </span>
+                      <span className="block text-[11px] text-text-muted">
+                        Usually adds an entry fee — put it below and the parent agrees to
+                        that exact amount before it is charged.
+                      </span>
+                    </span>
+                  </label>
+                  {addDual && (
+                    <div>
+                      <label className="block text-[11px] font-medium text-text-primary mb-1">
+                        Additional fee
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={priceDelta}
+                        onChange={(e) => setPriceDelta(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full sm:w-40 px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-text-primary mb-1">
+                      Note to the parent
+                    </label>
+                    <textarea
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. 126 is stacked — he'd get more matches at 132."
+                      className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={reset}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-muted"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        const changes: Record<string, unknown> = {};
+                        if (weightClass.trim()) changes.weightClass = weightClass.trim();
+                        if (division.trim()) changes.division = division.trim();
+                        if (session.trim()) changes.session = session.trim();
+                        if (addDual) changes.addAnotherDual = true;
+                        if (Object.keys(changes).length === 0) {
+                          setErr("Propose at least one change.");
+                          return;
+                        }
+                        post(r.id, "propose-change", {
+                          changes,
+                          message: note.trim() || undefined,
+                          priceDelta: addDual && priceDelta ? parseFloat(priceDelta) : undefined,
+                        });
+                      }}
+                      disabled={busy === r.id}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white font-medium hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      {busy === r.id ? "Sending…" : "Send to the parent"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {awaitingParent.map((r) => (
+          <div key={r.id} className="rounded-lg border border-app-border bg-surface p-3">
+            <p className="text-sm text-text-primary">
+              <span className="font-medium">{r.name}</span> — waiting on the parent
+            </p>
+            <p className="text-[11px] text-text-muted">
+              You proposed{" "}
+              {Object.entries(r.proposedChange?.changes ?? {})
+                .map(([k, v]) => `${k}: ${String(v)}`)
+                .join(", ")}
+              {r.proposedChange?.priceDelta
+                ? ` · +$${Number(r.proposedChange.priceDelta).toFixed(2)}`
+                : ""}
+              {r.proposedChange?.proposedAt
+                ? ` · sent ${new Date(r.proposedChange.proposedAt).toLocaleDateString()}`
+                : ""}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
   const [data, setData] = useState<RegistrationsData | null>(null);
@@ -2820,6 +3289,8 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
             <div className="py-2"><SkeletonList rows={3} /></div>
           ) : (
             <>
+              <CoachReviewQueue eventId={eventId} data={data} onDone={load} />
+
               {/* At-a-glance money state. Only shows what actually applies. */}
               {((data.awaitingOfflineCount ?? 0) > 0 ||
                 (data.scheduledCount ?? 0) > 0 ||
