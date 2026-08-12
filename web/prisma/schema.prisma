@@ -1431,6 +1431,14 @@ model ClubEventType {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
 
+  // Phase 5 §5.3.1 — tournament-workflow defaults for every event of this
+  // type. null = no policy (what every existing type has, and what keeps
+  // coach approval / escalation off for clinics and camps). Shape is
+  // EventPolicy in lib/eventPayments.ts; resolveEventPolicy() validates each
+  // field on read, so a partial blob degrades to the all-off fallback.
+  // Per-event columns on Event override this when non-null.
+  defaultPolicy Json?
+
   club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   events Event[]
 
@@ -1513,6 +1521,40 @@ model Event {
   autoChargeDate              DateTime?
   // Check-in gate: block event check-in until the registration is paid.
   requirePaymentBeforeCheckin Boolean   @default(false)
+
+  // ── Phase 5 §5.3.2 — tournament workflow, per-event override ─────────────
+  // Every nullable flag below means "inherit customEventType.defaultPolicy"
+  // when null; false means this event explicitly opted out. Resolution order
+  // is event → type → hardcoded all-off fallback, and only
+  // resolveEventPolicy() (lib/eventPayments.ts) reads these — no route reads
+  // the columns directly.
+  requiresCoachApproval  Boolean?
+  // CARD | APPROVAL_CHARGE | INVOICE | CASH_CHECK | PARENT_CHOOSES.
+  // APPROVAL_CHARGE charges the saved card when the coach approves; it is
+  // never a Stripe authorization hold (plan §5.1 — the 7-day expiry is wrong
+  // for a registration that opens weeks before the event).
+  approvalPaymentIntent  String?
+  allowProposedChanges   Boolean?
+  // The one coach who owns approving this event. Soft pointer to User, no FK:
+  // a departing staff member must not cascade into their old events. Null =
+  // any staff with events:edit may approve.
+  responsibleCoachUserId String?
+  escalationEnabled      Boolean?
+  // registrationDeadline | eventStart | autoChargeDate
+  escalationAnchor       String?
+  // DEFAULT_TOURNAMENT | GENTLE | AGGRESSIVE | CUSTOM
+  escalationSchedule     String?
+  // CUSTOM only: day-offsets from the anchor, e.g. [-14, -7, -1, 0].
+  escalationCustomDays   Json?
+  cancellationPolicyText String?
+  // Hard payment deadline. Highest-precedence reminder anchor and the due
+  // date the confirmation surface prints.
+  paymentDueBy           DateTime?
+  // Whether a PENDING_REVIEW registration consumes capacity. Default false:
+  // capacity is enforced inside the approve transaction so the coach picks
+  // who competes, rather than whoever's phone submitted the form first
+  // (§5.4.2). Not null-means-inherit — capacity must have exactly one answer.
+  holdSpotDuringReview   Boolean   @default(false)
 
   // Event payroll: when true, percentage compensation ignores refunds and
   // chargebacks — the owner has a strict no-refunds policy and pays helpers
@@ -1642,6 +1684,55 @@ model EventRegistration {
   discountType            String?
   discountValue           Decimal?  @db.Decimal(10, 2)
   discountAmount          Decimal?  @db.Decimal(10, 2)
+
+  // ── Phase 5 §5.4 — coach approval ────────────────────────────────────────
+  // null | PENDING | APPROVED | DECLINED. null does NOT mean "undecided": it
+  // means coach approval was never part of this event's contract, which is
+  // how every pre-Phase-5 row and every clinic signup reads. Turning approval
+  // on for an event later must not retroactively mark existing rows PENDING.
+  approvalStatus            String?
+  // Soft pointer to User. On the parent-accepts-a-proposal path this records
+  // the COACH who proposed, not the parent who accepted (§5.4.7).
+  approvedByUserId          String?
+  approvedAt                DateTime?
+  // Owner-typed, sanitized on write — it renders in the parent's email.
+  declinedReason            String?
+  // When the row entered PENDING_REVIEW. The stalled-approval probes and the
+  // coach digest age off this, not createdAt: a registration that becomes
+  // pending only after a guardian approves it is not 3 days stale.
+  approvalRequestedAt       DateTime?
+  // Single-slot coach proposal:
+  //   { proposedByUserId, proposedAt, coachNote?, priceDelta?, changes }
+  // A revised proposal REPLACES the blob; BillingAuditLog
+  // (EVENT_REGISTRATION_PROPOSAL, before/after) is the archive.
+  proposedChange            Json?
+  // Immutable once set — the terminal-state guard for the parent-response
+  // routes, and the timestamp both response emails key their dedupe on.
+  proposedChangeRespondedAt DateTime?
+  // null = no response yet · true = accepted · false = declined.
+  proposedChangeAccepted    Boolean?
+
+  // ── Phase 5 §5.6 — payment escalation ────────────────────────────────────
+  // Last stage actually sent (0 = none; -1 = sentinel for three consecutive
+  // send failures on one stage, which surfaces to the owner).
+  reminderStage             Int       @default(0)
+  lastReminderAt            DateTime?
+  // The escalation cron's entire queue. null = this row is not waiting on
+  // payment; every path that settles or cancels money nulls it in the same
+  // transaction, which is what stops a paid registration getting a stage-5
+  // reminder off a stale read.
+  nextReminderAt            DateTime?
+  reminderSendFailures      Int       @default(0)
+
+  // ── Phase 5 §5.2.3 — the registration number people actually quote ───────
+  // Backfilled compute-on-read (persist when null), never in SQL, so there is
+  // one implementation of the derivation. The row id remains the true key.
+  // NOTE: the SQL index is PARTIAL (WHERE confirmationCode IS NOT NULL) and is
+  // authoritative; this @unique is documentation only. Prisma cannot model a
+  // partial unique index — do not "reconcile" the drift (same rule as the M16
+  // email_sends index, see CLAUDE.md).
+  confirmationCode          String?   @unique
+
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
@@ -1654,6 +1745,12 @@ model EventRegistration {
   @@index([memberId])
   @@index([clubId, status])
   @@index([status, scheduledChargeAt])
+  // Phase 5. The SQL migration also carries three PARTIAL indexes Prisma
+  // cannot express — the escalation queue (WHERE nextReminderAt IS NOT NULL),
+  // the stalled-approval probes (WHERE approvalStatus = 'PENDING') and the
+  // public-path (eventId, LOWER(email)) uniqueness. The migration is
+  // authoritative for all three.
+  @@index([clubId, approvalStatus])
   @@map("event_registrations")
 }
 
@@ -1742,6 +1839,12 @@ model Booking {
   eventId   String
   memberId  String
   status    BookingStatus @default(CONFIRMED)
+  // Phase 5 §5.4.8 (ARCHITECTURE-NOTES M19) — who performed the booking, as
+  // distinct from memberId (who the spot is FOR). Guardian booking for a
+  // child, coach approving a PENDING_REVIEW row, staff adding a walk-in.
+  // Soft pointer to User; null on legacy rows = unknown.
+  bookedByUserId String?
+
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
