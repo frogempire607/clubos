@@ -1,30 +1,11 @@
 # AthletixOS Improvement — Progress & Phased Plan
 
-> ## 🔴 Phase 5 migration WRITTEN, NOT APPLIED — `20260812000000_event_tournament_workflow`
+> ## ✅ Phase 5 migration APPLIED — `20260812000000_event_tournament_workflow`
 >
-> **Apply this before the Phase 5 code deploys.** Every route in the Phase 5
-> spine reads or writes columns this migration adds; pushing the code first
-> gives 500s on the event registration paths.
->
-> Written in the worktree `web/.claude/worktrees/elastic-wilson-411ecb` on
-> branch `claude/phase-5-event-registration-9675fb`. Migrations, `.env` and
-> `node_modules` are per-worktree — run it from **that** path:
->
-> ```bash
-> npx prisma migrate deploy
-> ```
->
-> Then regenerate the client in whichever checkout you build from:
->
-> ```bash
-> cd /Users/cubano/Desktop/clubos/web && npx prisma generate
-> ```
->
-> Take a backup first, per root `CLAUDE.md`:
->
-> ```bash
-> pg_dump "<session pooler URI>" --no-owner --no-privileges -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql
-> ```
+> Applied and verified by Julian, 2026-08-12. **Do not create or modify a Phase
+> 5 migration** — the phase's schema is closed. It also applies cleanly to an
+> empty database (verified by building the local browser-test DB from scratch),
+> so the guarded M18 block is safe on a fresh clone.
 >
 > **One migration covers all of Phase 5** (§5.0–§5.12) so no later session has
 > to ask for a second apply: the opt-in policy columns on `events` +
@@ -49,11 +30,9 @@
 > hand. Nothing in the Phase 5 code depends on the constraint existing; it is a
 > public-path double-submit guard, not a correctness assumption.
 >
-> **Blocked on this apply:** the three coach-decision routes, the approval fork
-> in both registration create paths, `Booking.bookedByUserId` attribution, and
-> the confirmation-code stamping. The rest of the phase (coach review UI,
-> reminder cron, parent response flow, confirmation surface) is not built yet
-> and is also blocked on it.
+> **Still not built:** the reminder cron and escalation schedule (§5.6), and
+> the server-rendered confirmation surface (§5.2.3) with the two remaining
+> §5.2.1 bugs. Everything else in the phase is in and browser-tested.
 
 > ## ✅ Phase 4.5 migration APPLIED — `20260804000000_members_experience`
 >
@@ -1505,6 +1484,61 @@ applied** — commands at the top of this file.
   "Coach approval + payment" card (§5.3, §5.8). **Until this exists the workflow
   cannot be turned on from the app at all**, which is also what keeps it safely
   off: every column defaults to inherit-or-off.
+
+### Session 2 — 2026-08-12 · owner settings, coach review, parent response
+
+Same branch and worktree as session 1. Migration applied before this session
+started; nothing here touches schema.
+
+**What shipped**
+
+| # | Item | Where |
+|---|---|---|
+| S-13 | **Per-type defaults editor** in Manage event types (§5.3.1). Where the workflow is discovered — the event editor hides its card for types that haven't opted in. An all-off blob stores as null so "is this type configured?" stays answerable. | `app/dashboard/events/page.tsx` (`TypePolicyEditor`), `PATCH /api/events/types/[id]` |
+| S-14 | **"Coach approval + payment" card** in the event editor (§5.3.2), collapsed unless something is configured. The approval control is a three-way select — "use the type default" and "explicitly off" are different answers. | `app/dashboard/events/page.tsx`, `POST /api/events`, `PATCH /api/events/[id]` |
+| S-15 | **Registrant-facing notice before the pay picker** on both paths, the charge-on-approval + bill-me options in the member picker with an amount-naming consent line, and no picker at all when the club bills on approval (§5.3.3). | `app/e/[slug]/page.tsx`, `app/member/events/page.tsx`, `GET /api/public/events/[slug]` |
+| S-16 | **Coach review queue** at the top of the Registrations modal: approve / decline with a reason / propose a change, including the add-a-dual case with its fee. | `app/dashboard/events/page.tsx` (`CoachReviewQueue`) |
+| S-17 | **Roster payload** gains the resolved policy, per-row `waitingOn`, and a per-user `canDecide` — the responsible coach can decide their own event without events:edit. | `GET /api/events/[id]/registrations` |
+| S-18 | **Action Center probes** `COACH_APPROVAL_REQUESTED`, `EVENT_APPROVAL_STALLED_48H`, `EVENT_APPROVAL_STALLED_PAST_DEADLINE`, `EVENT_PROPOSAL_AWAITING_PARENT` — all live counts, all self-clearing. | `lib/actionCenter.ts` |
+| S-19 | **Parent response** (§5.4.7): accept re-enters `approveRegistration` with the coach as approver; decline cancels and refunds unconditionally. Price-delta consent is re-derived server-side. | `lib/eventApproval.respondToProposal`, `POST /api/member/events/[id]/registrations/[regId]/proposal/{accept,decline}` |
+| S-20 | **The parent's surfaces**: the proposal page, a card per not-yet-a-booking registration on Bookings, the `EVENT_PROPOSAL_RESPONSE` row in the family approvals card, and a DM in the coach thread both ways (§5.5, §5.7). | `app/member/bookings/[regId]/proposal/page.tsx`, `components/member/BookingsPanel.tsx`, `app/member/profile/page.tsx`, `GET /api/member/registrations` |
+| S-21 | **Local browser-test rig**: throwaway Postgres seed + dev script that replaces `STRIPE_SECRET_KEY` with a dummy, because the worktree `.env` carries a live key and the real connected account. | `scripts/seed-phase5-browser-test.ts`, `scripts/dev-phase5-browser-test.sh` |
+
+**Browser-tested** (local fixture, three real logins — owner, a STAFF coach
+with `events:view` only, and a guardian):
+
+- event card and type editor round-trip to their columns, including
+  `paymentDueBy` stored at noon UTC;
+- public page renders the approval notice above the pay picker;
+- propose → accept and propose → decline end to end, including consent refusal
+  on a mismatched amount, a 409 on a replayed answer, and the family approvals
+  row resolving either way;
+- approve and decline from the coach queue, with the Booking, the audit row and
+  the dedupe-keyed email each landing exactly once;
+- authorization both directions: the responsible coach may decide their event
+  without `events:edit`, and gets 403 the moment they are not the responsible
+  coach.
+
+**Three defects the browser test caught** (all fixed in the same session):
+accepting sent two emails instead of one; the parent's reply DM went nowhere
+because `sendMemberMessage` fans out to the family and filters the sender out;
+and the proposal page printed the pre-acceptance total next to the button that
+was about the post-acceptance one.
+
+**Still not built** — the two items held back for a later session:
+
+- **Reminder cron + escalation schedule** (§5.6). The scheduling math
+  (`computeNextReminderAt`, anchors, cadences) shipped in session 1 and every
+  mutation already keeps `nextReminderAt` correct; what's missing is
+  `netlify/functions/tournament-reminders-cron.mts`, `/api/cron/tournament-reminders`,
+  the per-stage reminder email, and the coach daily digest. The escalation
+  subcard in the event editor is deliberately absent until then — no owner
+  should be able to switch on a cadence nothing sends.
+- **Confirmation surface** `/e/[slug]/registered/[registrationId]` (§5.2.3) and
+  the two remaining §5.2.1 bugs (the paid public path's missing confirmation
+  email, and the `success_url` rewrite to `baseUrlFromRequest`). When it lands,
+  delete `/pay/complete` and repoint `bill-registrants` + `eventAutoCharge` at
+  the new route.
 
 ### 5.1 Bug fixes (do first — no schema work)
 
