@@ -55,7 +55,8 @@ export type MutationErrorCode =
   | "FINANCE_PERMISSION_REQUIRED"
   | "APPROVAL_NOT_REQUIRED"
   | "CONSENT_REQUIRED"
-  | "CONSENT_AMOUNT_MISMATCH";
+  | "CONSENT_AMOUNT_MISMATCH"
+  | "NO_PAYMENT_METHOD";
 
 export type MutationFailure = {
   ok: false;
@@ -207,6 +208,27 @@ export async function approveRegistration(args: {
       where: { eventId: reg.eventId, status: { not: "CANCELED" } },
     });
     const owed = amountToCollect(reg.event, reg, activeCount);
+
+    // A priced registration with no way to pay is refused, not warned about.
+    //
+    // Approving it would confirm the spot and collect nothing — which is
+    // exactly what happened on 2026-08-12: a public registration on a
+    // charge-on-approval event arrived with no payment method, approval
+    // dispatched no money, and the family was emailed "this event is free"
+    // with their card listed underneath. A coach should have to resolve it,
+    // not spot a message after the fact.
+    //
+    // Rows that owe nothing are unaffected (free, membership-covered), and so
+    // are rows that already paid up front.
+    const settled = reg.status === "PAID" || Number(reg.amountPaid ?? 0) > 0;
+    if (owed > 0 && !reg.paymentMethod && !settled) {
+      return fail(
+        "NO_PAYMENT_METHOD",
+        409,
+        `${reg.name} owes $${owed.toFixed(2)} but has no way to pay recorded. Send them a payment link or record cash/check from this roster, then approve.`,
+        reg,
+      );
+    }
 
     // What approval does to the money state, keyed on how they chose to pay.
     let nextStatus = reg.status;

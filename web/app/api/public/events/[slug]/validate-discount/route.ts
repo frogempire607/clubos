@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { findValidDiscountFor } from "@/lib/discounts";
-import { publicFixedPrice } from "@/lib/eventPricing";
+import { registrationListPrice } from "@/lib/eventRepricing";
 import { eventChargeBreakdown } from "@/lib/eventDiscounts";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 
@@ -62,7 +62,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // there is no total to preview. The code still applies — it's validated and
   // stored at registration, and it comes off the invoice when the owner sends
   // it — but this endpoint won't invent a number.
-  const gross = publicFixedPrice(event);
+  // Same resolver as the register route below it, so a code previewed here
+  // against a member-priced event quotes the same number it will apply to.
+  const gross = registrationListPrice(event);
   if (event.variableCostEnabled || gross <= 0) {
     const check = await findValidDiscountFor(event.clubId, body.code, { type: "EVENT", eventId: event.id });
     if (!check.ok) return NextResponse.json({ valid: false, error: check.error }, { status: 200 });

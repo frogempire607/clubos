@@ -49,6 +49,7 @@ export const REGISTRATION_RENDER_KEYS = [
   "PAYMENT_FAILED",
   "PAID",
   "FREE_CONFIRMED",
+  "PRICE_UNRESOLVED",
   "COVERED_BY_MEMBERSHIP",
   "REGISTERED_AMOUNT_DUE",
   "CANCELED_BY_PARENT",
@@ -283,7 +284,34 @@ export function registrationRenderKey(
   // REGISTERED (and anything unrecognized): money decides.
   if (Number(reg.amountDue ?? 0) > 0) return "REGISTERED_AMOUNT_DUE";
   if (opts.membershipName) return "COVERED_BY_MEMBERSHIP";
+
+  // "Nothing resolved" and "nothing owed" are different claims, and only the
+  // second one may be told to a family. An event that carries a price — or a
+  // shared cost with no total set — has one, whatever the resolver managed to
+  // work out, so it can never render as free. With the tier-aware resolver in
+  // lib/eventRepricing this should be unreachable; it exists so the bad pair
+  // cannot come back through some other gap.
+  if (eventHasAPrice(event)) return "PRICE_UNRESOLVED";
   return "FREE_CONFIRMED";
+}
+
+/** The three terminal "this is not happening" keys. */
+function canceledKey(key: RegistrationRenderKey): boolean {
+  return (
+    key === "CANCELED_BY_PARENT" ||
+    key === "DECLINED_BY_COACH" ||
+    key === "CANCELED_PROPOSAL_DECLINED"
+  );
+}
+
+/** True when the owner has configured money on this event, however they did it. */
+function eventHasAPrice(event: RenderEvent): boolean {
+  if (event.variableCostEnabled) return true;
+  return (
+    Number(event.memberPrice ?? 0) > 0 ||
+    Number(event.nonMemberPrice ?? 0) > 0 ||
+    Number(event.dropInFee ?? 0) > 0
+  );
 }
 
 const SEVERITY: Record<RegistrationRenderKey, RenderSeverity> = {
@@ -299,6 +327,7 @@ const SEVERITY: Record<RegistrationRenderKey, RenderSeverity> = {
   PAYMENT_FAILED: "danger",
   PAID: "success",
   FREE_CONFIRMED: "success",
+  PRICE_UNRESOLVED: "warn",
   COVERED_BY_MEMBERSHIP: "success",
   REGISTERED_AMOUNT_DUE: "success",
   CANCELED_BY_PARENT: "danger",
@@ -484,6 +513,13 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
       primary = calendar;
       break;
     }
+    case "PRICE_UNRESOLVED": {
+      headline = "You're registered — but we owe you a price";
+      subheadline = `This event has a fee, and we couldn't work out what ${reg.name} owes.`;
+      chargeTiming = `Nothing has been charged. ${club.name} will confirm the amount before anything is collected${clubContact ? ` — or contact ${clubContact} if you'd rather sort it now` : ""}.`;
+      primary = calendar;
+      break;
+    }
     case "COVERED_BY_MEMBERSHIP": {
       headline = "You're registered";
       chargeTiming = `Nothing owed — this event is included in your ${input.membershipName}.`;
@@ -526,11 +562,47 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
     }
   }
 
-  const canceled = key === "CANCELED_BY_PARENT" || key === "DECLINED_BY_COACH" || key === "CANCELED_PROPOSAL_DECLINED" || key === "PENDING_PAYMENT_EXPIRED";
+  const canceled = canceledKey(key) || key === "PENDING_PAYMENT_EXPIRED";
   if (!canceled && primary?.label !== calendar.label && !secondary.some((s) => s.label === calendar.label)) {
     secondary.push(calendar);
   }
   secondary.push({ label: "View this registration", href: confirmationUrl });
+
+  // ── Card facts are state-scoped (§5.2.7) ────────────────────────────────
+  // `cardLabel` is resolved by the caller before the key is known, so without
+  // this it renders under ANY state — which is how a family was told "this
+  // event is free" with "Card on file: Amex ····1005" in the table directly
+  // beneath it (2026-08-12). A card belongs on screen only where it is part of
+  // what happens next: it is about to be charged, it was charged, it failed, or
+  // it is what a refund goes back to.
+  const CARD_RELEVANT: RegistrationRenderKey[] = [
+    "PENDING_REVIEW",
+    "PROPOSED_CHANGE_PENDING",
+    "SCHEDULED_APPROVAL_CHARGE",
+    "SCHEDULED_EVENT_DATE",
+    "PAYMENT_FAILED",
+    "PAID",
+    "CANCELED_BY_PARENT",
+    "DECLINED_BY_COACH",
+    "CANCELED_PROPOSAL_DECLINED",
+  ];
+  // …and even then, only when the state actually involves the card: a
+  // cash-at-the-door registration awaiting a coach has one on file and it is
+  // irrelevant, and a canceled registration only mentions it if money is
+  // coming back.
+  const cardIsPartOfTheStory =
+    CARD_RELEVANT.includes(key) &&
+    (key === "PAID" ||
+      key === "PAYMENT_FAILED" ||
+      key === "SCHEDULED_APPROVAL_CHARGE" ||
+      key === "SCHEDULED_EVENT_DATE" ||
+      ((key === "PENDING_REVIEW" || key === "PROPOSED_CHANGE_PENDING") &&
+        (reg.paymentMethod === "APPROVAL_CHARGE" ||
+          reg.paymentMethod === "AUTO_CARD" ||
+          reg.paymentMethod === "CARD" ||
+          reg.paymentMethod === "SAVED_CARD")) ||
+      (canceledKey(key) && (amountRefunded ?? 0) > 0));
+  const renderedCardLabel = cardIsPartOfTheStory ? cardLabel : null;
 
   const waitingOn = registrationWaitingOn(reg, { now });
 
@@ -556,7 +628,7 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
       amountRefunded: amountRefunded && amountRefunded > 0 ? amountRefunded : null,
       discountLabel,
       receiptTransactionId: reg.transactionId ?? null,
-      cardLabel,
+      cardLabel: renderedCardLabel,
       chargeDate,
       dueDate: waitingOn === "PAYMENT" ? dueDate : null,
       proximityBadge: waitingOn === "PAYMENT" ? proximity(dueDate, now, tz) : null,

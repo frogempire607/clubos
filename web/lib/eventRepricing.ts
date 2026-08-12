@@ -15,7 +15,6 @@
 // prompt) all resolve amounts through here so the screen, the email, and the
 // Stripe line item can never disagree again.
 
-import { publicFixedPrice } from "@/lib/eventPricing";
 import { CHECKOUT_HOLD_MS } from "@/lib/eventPayments";
 
 export type PricingEvent = {
@@ -33,6 +32,12 @@ export type PricingEvent = {
 export type PricingRegistration = {
   id: string;
   name?: string | null;
+  /**
+   * The member this registration belongs to, when one was matched. Drives
+   * member-vs-non-member tier selection in `registrationListPrice` — a public
+   * walk-up has none and pays the non-member rate.
+   */
+  memberId?: string | null;
   status: string;
   amountDue?: unknown;
   amountPaid?: unknown;
@@ -189,15 +194,61 @@ export function variablePerHead(
  * The event's CURRENT pricing before any per-registrant discount. This is the
  * list price / the raw per-head split — the "before" side of a discount line.
  */
+/**
+ * The list price THIS registration is quoted, before any discount.
+ *
+ * This replaced `lib/eventPricing.publicFixedPrice`, which answered a narrower
+ * question — "what does a walk-in owe" — and answered 0 whenever the price the
+ * owner didn't set happened to be the one it read. Correct for its own job and
+ * wrong as a general fallback: an event with a $1 member price and no
+ * non-member price is not a free event, and calling it one told a family "this
+ * event is free" while their card sat on the same screen (2026-08-12). That
+ * module is deleted rather than deprecated — every caller now routes here, and
+ * leaving an importable helper that returns 0 for a priced event is how the
+ * bug comes back.
+ *
+ * The rule here:
+ *
+ *   * a member-linked registration is quoted the MEMBER price;
+ *   * everyone else is quoted whatever `publicPricingOption` selects, which is
+ *     the non-member price by default;
+ *   * and either way, if the preferred price is unset we fall through to the
+ *     others rather than returning 0. A configured price is proof the owner
+ *     means to charge; which column it landed in is a detail of their setup,
+ *     not a decision to let people in free.
+ *
+ * 0 comes back only when the event genuinely carries no price at all.
+ */
+export function registrationListPrice(
+  event: PricingEvent,
+  reg?: Pick<PricingRegistration, "memberId"> | null,
+): number {
+  const member = num(event.memberPrice);
+  const nonMember = num(event.nonMemberPrice);
+  const dropIn = num(event.dropInFee);
+
+  const preferred = reg?.memberId
+    ? [member, nonMember, dropIn]
+    : event.publicPricingOption === "MEMBER"
+      ? [member, nonMember, dropIn]
+      : event.publicPricingOption === "DROP_IN"
+        ? [dropIn, nonMember, member]
+        : [nonMember, member, dropIn];
+
+  for (const p of preferred) if (p > 0) return p;
+  return 0;
+}
+
 export function grossExpectedAmount(
   event: PricingEvent,
   activeCount: number,
+  reg?: Pick<PricingRegistration, "memberId"> | null,
 ): number {
   if (event.variableCostEnabled) {
     const { perHead } = variablePerHead(event, activeCount);
     return perHead ?? 0;
   }
-  return publicFixedPrice(event);
+  return registrationListPrice(event, reg);
 }
 
 /**
@@ -220,7 +271,7 @@ export function expectedAmount(
   activeCount: number,
   reg?: PricingRegistration,
 ): number {
-  const gross = grossExpectedAmount(event, activeCount);
+  const gross = grossExpectedAmount(event, activeCount, reg);
   if (!reg) return gross;
   return applyRegistrationDiscount(gross, registrationDiscount(reg)).net;
 }
@@ -249,7 +300,7 @@ export function amountToCollect(
   if (event.variableCostEnabled) return expectedAmount(event, activeCount, reg);
   const recorded = num(reg.amountDue);
   if (recorded > 0) return recorded;
-  return applyRegistrationDiscount(publicFixedPrice(event), registrationDiscount(reg)).net;
+  return applyRegistrationDiscount(registrationListPrice(event, reg), registrationDiscount(reg)).net;
 }
 
 /** The list price and dollars-off behind `amountToCollect`, for display. */
@@ -268,7 +319,7 @@ export function collectionBreakdown(
     d.type === "FIXED"
       ? money(net + d.value)
       : d.value >= 100
-        ? money(grossExpectedAmount(event, activeCount))
+        ? money(grossExpectedAmount(event, activeCount, reg))
         : money(net / (1 - d.value / 100));
   return { gross, discountOff: money(Math.max(0, gross - net)), net, code: d.code };
 }
@@ -300,7 +351,10 @@ export function planReprice(
 
   const variable = !!event.variableCostEnabled;
   const { perHead, divisor } = variablePerHead(event, activeCount);
-  const fixedPrice = variable ? null : publicFixedPrice(event);
+  // The event's headline figure for the preview banner. No registration in
+  // scope here, so this is the walk-in view — per-row expectations below are
+  // resolved per registration and honor the member tier.
+  const fixedPrice = variable ? null : registrationListPrice(event);
 
   const rows: RepriceRow[] = active.map((r) => {
     const current = money(num(r.amountDue));

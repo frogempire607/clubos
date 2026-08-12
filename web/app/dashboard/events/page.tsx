@@ -2610,7 +2610,9 @@ function CoachReviewQueue({
         ? `This charges ${r.name}'s saved card $${amount.toFixed(2)} now.`
         : r.paymentMethod === "INVOICE" && amount
           ? `This emails ${r.name} a payment link for $${amount.toFixed(2)}.`
-          : `${r.name} will be confirmed for this event.`;
+          : r.paymentMethod === "CASH" || r.paymentMethod === "CHECK"
+            ? `${r.name} will be confirmed, and owes $${(amount ?? 0).toFixed(2)} at the event.`
+            : `${r.name} will be confirmed for this event.`;
     if (!confirm(`Approve ${r.name}?\n\n${consequence}`)) return;
     await post(r.id, "approve", {});
   }

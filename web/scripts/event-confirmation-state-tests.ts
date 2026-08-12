@@ -29,6 +29,7 @@ import {
   REGISTRATION_RENDER_KEYS,
   type RegistrationRenderKey,
 } from "../lib/registrationRenderState";
+import { amountToCollect, registrationListPrice } from "../lib/eventRepricing";
 import { computeNextReminderAt, resolveReminderAnchor } from "../lib/eventReminders";
 import { confirmationCodeFor, isConfirmationCode } from "../lib/confirmationCode";
 
@@ -222,6 +223,11 @@ console.log("\n— copy discipline (§5.2.6 rule) —");
     /was charged/i,
     /nothing (owed|charged)|no card required|isn't charged|wasn't charged|nothing to refund|refunded/i,
     /payment (of|will be)|estimated share|declined|processing|waiting for Stripe|wasn't completed|taking longer/i,
+    // A seventh shape the matrix didn't anticipate: the misconfiguration state,
+    // where the honest sentence is "nothing charged, and we can't tell you the
+    // amount yet". It is still one of the enumerated shapes — it just had to be
+    // enumerated (2026-08-12).
+    /nothing has been charged/i,
   ];
   const cases: Array<[RegistrationRenderKey, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>]> = [
     ["PENDING_REVIEW", { status: "PENDING_REVIEW", approvalStatus: "PENDING", paymentMethod: "APPROVAL_CHARGE" }, {}, {}],
@@ -241,6 +247,7 @@ console.log("\n— copy discipline (§5.2.6 rule) —");
     ["FREE_CONFIRMED", { status: "REGISTERED", amountDue: 0 }, { memberPrice: 0, nonMemberPrice: 0 }, {}],
     ["COVERED_BY_MEMBERSHIP", { status: "REGISTERED", amountDue: 0 }, { memberPrice: 0, nonMemberPrice: 0 }, { membershipName: "Full Season" }],
     ["REGISTERED_AMOUNT_DUE", { status: "REGISTERED", amountDue: 100 }, {}, {}],
+    ["PRICE_UNRESOLVED", { status: "REGISTERED", amountDue: 0 }, { variableCostEnabled: true, variableCostTotal: null }, {}],
     ["CANCELED_BY_PARENT", { status: "CANCELED" }, {}, {}],
     ["DECLINED_BY_COACH", { status: "CANCELED", approvalStatus: "DECLINED", declinedReason: "Weight class is full." }, {}, {}],
     ["CANCELED_PROPOSAL_DECLINED", { status: "CANCELED", proposedChangeAccepted: false }, {}, {}],
@@ -359,6 +366,130 @@ console.log("\n— reminder scheduling (§5.6.3–§5.6.5) —");
       { now: new Date("2026-09-06T01:00:00Z") },
     )?.toISOString() === "2026-09-13T00:00:00.000Z",
   );
+}
+
+
+console.log("\n— a priced event is never free (2026-08-12 regression) —");
+{
+  // The exact shape that shipped the bug: a tournament with a MEMBER price and
+  // no non-member price, shared cost off, registrant approved on a saved card.
+  // publicFixedPrice reads nonMemberPrice, so this used to resolve to $0 —
+  // the approval charged nothing and the email said "this event is free".
+  const memberOnlyEvent = {
+    ...baseEvent,
+    memberPrice: 1,
+    nonMemberPrice: null,
+    dropInFee: null,
+    publicPricingOption: null,
+    variableCostEnabled: false,
+  };
+  const approved = {
+    id: "reg_p5_memberprice",
+    name: "John Doe",
+    memberId: "m_john",
+    status: "SCHEDULED",
+    approvalStatus: "APPROVED",
+    paymentMethod: "APPROVAL_CHARGE",
+    amountDue: null,
+    createdAt: baseReg.createdAt,
+  };
+
+  check(
+    "member-linked registration is quoted the member price, not zero",
+    amountToCollect(memberOnlyEvent as never, approved as never, 10) === 1,
+    amountToCollect(memberOnlyEvent as never, approved as never, 10),
+  );
+  check(
+    "a walk-in on the same event is quoted it too (the owner set A price)",
+    registrationListPrice(memberOnlyEvent as never, { memberId: null }) === 1,
+    registrationListPrice(memberOnlyEvent as never, { memberId: null }),
+  );
+  check(
+    "a non-member still prefers the non-member price when it exists",
+    registrationListPrice({ ...memberOnlyEvent, nonMemberPrice: 25 } as never, { memberId: null }) === 25,
+  );
+  check(
+    "a member still prefers the member price when both exist",
+    registrationListPrice({ ...memberOnlyEvent, nonMemberPrice: 25 } as never, { memberId: "m_john" }) === 1,
+  );
+  check(
+    "publicPricingOption is still honored for a walk-in",
+    registrationListPrice(
+      { ...memberOnlyEvent, nonMemberPrice: 25, dropInFee: 10, publicPricingOption: "DROP_IN" } as never,
+      { memberId: null },
+    ) === 10,
+  );
+  check(
+    "a genuinely free event is still free",
+    registrationListPrice({ ...baseEvent, memberPrice: null, nonMemberPrice: null, dropInFee: null } as never) === 0,
+  );
+
+  const c = ctx(approved, memberOnlyEvent, { cardLabel: "Amex ····1005 (Julian G Ramirez)" });
+  check("approved saved-card registration does NOT render as free", c.key !== "FREE_CONFIRMED", c.key);
+  check("it renders as the in-flight approval charge", c.key === "SCHEDULED_APPROVAL_CHARGE", c.key);
+  check("and it names the real amount", c.chargeTiming.includes("$1.00"), c.chargeTiming);
+
+  // The misconfiguration guard: a priced event that somehow resolves to zero
+  // says so instead of reassuring the family.
+  const brokenPricing = ctx(
+    { status: "REGISTERED", amountDue: 0, memberId: "m_john" },
+    { ...baseEvent, memberPrice: 0, nonMemberPrice: 0, dropInFee: 0, variableCostEnabled: true, variableCostTotal: null },
+  );
+  check("shared cost with no total is NOT free", brokenPricing.key === "PRICE_UNRESOLVED", brokenPricing.key);
+  check("and it reads as a warning", brokenPricing.severity === "warn");
+  check(
+    "and it promises nothing about the money",
+    /couldn't work out|confirm the amount/i.test(`${brokenPricing.subheadline} ${brokenPricing.chargeTiming}`),
+    brokenPricing.chargeTiming,
+  );
+}
+
+console.log("\n— a card never appears next to 'nothing owed' —");
+{
+  // The pair that shipped: "Nothing owed — this event is free" with
+  // "Card on file: Amex ····1005" in the table underneath. Walk every key with
+  // a card resolved and assert the two can never co-render.
+  const CARD = "Amex ····1005 (Julian G Ramirez)";
+  const freeish = /nothing owed|this event is free|nothing to refund|no card required/i;
+  const cases: Array<[string, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>]> = [
+    ["free event", { status: "REGISTERED", amountDue: 0 }, { memberPrice: 0, nonMemberPrice: 0 }, {}],
+    ["membership-covered", { status: "REGISTERED", amountDue: 0 }, { memberPrice: 0, nonMemberPrice: 0 }, { membershipName: "Full Season" }],
+    ["cash at the door", { status: "AWAITING_CASH", paymentMethod: "CASH" }, {}, {}],
+    ["check at the door", { status: "AWAITING_CHECK", paymentMethod: "CHECK" }, {}, {}],
+    ["invoiced later", { status: "REGISTERED", amountDue: 100, paymentMethod: "INVOICE" }, {}, {}],
+    ["awaiting a coach on cash", { status: "AWAITING_CASH", approvalStatus: "PENDING", paymentMethod: "CASH" }, {}, {}],
+    ["awaiting a coach on an invoice", { status: "PENDING_REVIEW", approvalStatus: "PENDING", paymentMethod: "INVOICE" }, {}, {}],
+    ["canceled with nothing charged", { status: "CANCELED", amountPaid: null }, {}, {}],
+    ["checkout expired", { status: "PENDING_PAYMENT", createdAt: new Date(NOW.getTime() - 60 * 60_000) }, {}, {}],
+  ];
+  for (const [label, reg, event, extra] of cases) {
+    const c = ctx(reg, event, { cardLabel: CARD, ...extra });
+    check(`${label}: no card rendered`, c.meta.cardLabel === null, c.meta.cardLabel);
+  }
+
+  // …and it IS kept where the card is the story.
+  const kept: Array<[string, Record<string, unknown>]> = [
+    ["paid by card", { status: "PAID", amountPaid: 100, paidAt: NOW }],
+    ["charge failed", { status: "PAYMENT_FAILED" }],
+    ["charging on approval", { status: "SCHEDULED", paymentMethod: "APPROVAL_CHARGE", approvalStatus: "APPROVED" }],
+    ["scheduled for the event date", { status: "SCHEDULED", paymentMethod: "AUTO_CARD", scheduledChargeAt: START }],
+    ["awaiting a coach on a saved card", { status: "PENDING_REVIEW", approvalStatus: "PENDING", paymentMethod: "APPROVAL_CHARGE" }],
+  ];
+  for (const [label, reg] of kept) {
+    const c = ctx(reg, {}, { cardLabel: CARD });
+    check(`${label}: card kept`, c.meta.cardLabel === CARD, c.meta.cardLabel);
+  }
+
+  // The invariant itself, over every key the matrix can produce.
+  for (const [label, reg, event, extra] of [...cases, ...kept.map((k) => [k[0], k[1], {}, {}] as [string, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>])]) {
+    const c = ctx(reg, event, { cardLabel: CARD, ...extra });
+    const saysFree = freeish.test(c.chargeTiming);
+    check(
+      `${label} (${c.key}): never "nothing owed" AND a card`,
+      !(saysFree && c.meta.cardLabel !== null),
+      { chargeTiming: c.chargeTiming, cardLabel: c.meta.cardLabel },
+    );
+  }
 }
 
 console.log("\n— confirmation code (§5.2.3) —");

@@ -13,7 +13,7 @@ import {
 } from "@/lib/eventPayments";
 import { canDecideRegistrations } from "@/lib/eventApproval";
 import { hasPermission } from "@/lib/permissions";
-import { publicFixedPrice } from "@/lib/eventPricing";
+import { registrationListPrice } from "@/lib/eventRepricing";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 
 // The lazy charge sweep below talks to Stripe, so this GET can outlive the
@@ -179,7 +179,10 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     perHead,
     // Fixed-price events: what a public registrant owes today (0 = free).
     // Lets the modal offer payment-link collection for unpaid registrants.
-    publicPrice: event.variableCostEnabled ? null : publicFixedPrice(event),
+    // Through the shared resolver so the roster's headline figure agrees with
+    // what each row is actually quoted — an event priced for members only used
+    // to render here as "$0.00".
+    publicPrice: event.variableCostEnabled ? null : registrationListPrice(event),
     // Back-compat for any existing callers.
     officialPerHead: mode === "OFFICIAL" ? perHead : null,
   });

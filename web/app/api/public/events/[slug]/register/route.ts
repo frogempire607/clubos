@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
-import { publicFixedPrice } from "@/lib/eventPricing";
+import { registrationListPrice } from "@/lib/eventRepricing";
 import { findValidDiscountFor, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 import { registrationDiscountFields, discountLineLabel } from "@/lib/eventDiscounts";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
@@ -189,7 +189,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // Immediate (charge-now) amount only applies to non-variable fixed pricing.
   // NET of the discount — every downstream number (the processing fee, the
   // Stripe line item, the cash amount, the roster) derives from this.
-  const grossDue = isVariableCost ? 0 : publicFixedPrice(event);
+  // Through the shared resolver, not publicFixedPrice: an event priced for
+  // members only is not a free event, and quoting a walk-in $0 on it is how a
+  // registration reached a coach with nothing to charge (2026-08-12). A matched
+  // member gets the member rate; everyone else the non-member one, with either
+  // falling through to whatever price the owner actually set.
+  const grossDue = isVariableCost ? 0 : registrationListPrice(event, { memberId: member?.id ?? null });
   const discountFields = registrationDiscountFields(discount, grossDue);
   const amountDue = isVariableCost ? 0 : discountFields.amountDue;
 
@@ -204,7 +209,18 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // needs an account, and this route is anonymous — so it is never offered
   // here, exactly like AUTO_CARD. An approval-gated public event whose policy
   // is INVOICE collects no money now and bills on approval instead.
-  const billOnApproval = policy.requiresCoachApproval && policy.approvalPaymentIntent === "INVOICE";
+  // Two intents collect nothing at registration time on this path:
+  //   INVOICE        — by configuration;
+  //   APPROVAL_CHARGE— by impossibility. It charges a saved card, a saved card
+  //                    needs an account, and this route is anonymous (§5.12
+  //                    item 7). §5.4.5 says it falls back rather than being
+  //                    offered, and invoicing on approval IS that fallback.
+  //                    Without this the row was written with no payment method
+  //                    at all, so approving it confirmed a spot and collected
+  //                    nothing.
+  const billOnApproval =
+    policy.requiresCoachApproval &&
+    (policy.approvalPaymentIntent === "INVOICE" || policy.approvalPaymentIntent === "APPROVAL_CHARGE");
   const needsDecision = !isVariableCost && amountDue > 0 && !billOnApproval;
 
   let method: "CARD" | "CASH" | "CHECK" | null = null;

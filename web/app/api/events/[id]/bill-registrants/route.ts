@@ -6,8 +6,13 @@ import { prisma } from "@/lib/prisma";
 import { computeProcessingFeeCents } from "@/lib/fees";
 import { billOneRegistrant, escapeHtml } from "@/lib/eventInvoicing";
 import { getAppBaseUrl } from "@/lib/baseUrl";
-import { publicFixedPrice } from "@/lib/eventPricing";
-import { amountToCollect, expectedAmount, collectionBreakdown } from "@/lib/eventRepricing";
+
+import {
+  amountToCollect,
+  expectedAmount,
+  collectionBreakdown,
+  registrationListPrice,
+} from "@/lib/eventRepricing";
 import { requirePermission } from "@/lib/apiGuard";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 
@@ -86,8 +91,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   // Fixed-price events: each registrant owes their recorded amountDue (set at
-  // registration), falling back to the event's current public price.
-  const fixedPrice = isVariable ? 0 : publicFixedPrice(event);
+  // registration), falling back to the event's current price. Resolved through
+  // the shared helper, which falls through to whatever price the owner set
+  // rather than answering 0 when the non-member column happens to be empty.
+  const fixedPrice = isVariable ? 0 : registrationListPrice(event);
 
   // Divisor: actual attendees (OFFICIAL) or expected signups (ESTIMATED).
   const divisor =
