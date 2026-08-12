@@ -152,3 +152,72 @@ export async function resolveRegistrationRecipients(
 
   return out;
 }
+
+// ── Phase 5 §5.2.5 — who gets told about a registration's lifecycle ─────────
+//
+// Deliberately a DIFFERENT question from the one above. `resolveRegistrationRecipients`
+// answers "where does the BILL go" and returns exactly one address per
+// registration, because two payment links for one registration invites two
+// payments and a refund. A lifecycle notice ("your coach approved", "your coach
+// proposed a change", "we couldn't approve this") is not a bill: every adult
+// who manages this athlete should see it, and none of them can act twice on it.
+//
+// So this returns the registrant's own address PLUS every confirmed guardian.
+// Each address becomes its own EmailSend row, and the (sendBatchId, dedupeKey,
+// recipientEmail) tuple is what stops a replay from re-sending — which is why
+// addresses are normalized to lowercase and deduped here rather than at the
+// call site.
+
+export type LifecycleRecipient = {
+  email: string;
+  displayName: string | null;
+  userId: string | null;
+  memberId: string | null;
+};
+
+export async function resolveRegistrationNotifyRecipients(
+  clubId: string,
+  reg: RegistrationForRecipient,
+): Promise<LifecycleRecipient[]> {
+  const byEmail = new Map<string, LifecycleRecipient>();
+  const add = (r: LifecycleRecipient) => {
+    const email = plausible(r.email);
+    if (!email) return;
+    const key = email.toLowerCase();
+    // First writer wins: a guardian resolved through the family model carries a
+    // display name, and we'd rather keep that than overwrite it with the bare
+    // snapshot address for the same person.
+    if (!byEmail.has(key)) byEmail.set(key, { ...r, email: key });
+  };
+
+  if (reg.memberId) {
+    try {
+      const resolution = await resolveRecipients({
+        clubId,
+        memberIds: [reg.memberId],
+        mode: "ALL_GUARDIANS",
+        respectMarketingOptOut: false,
+      });
+      for (const r of resolution.send) {
+        add({
+          email: r.recipientEmail,
+          displayName: r.recipientDisplayName,
+          userId: r.recipientUserId,
+          memberId: r.athleteMemberId ?? r.recipientMemberId ?? reg.memberId ?? null,
+        });
+      }
+    } catch (e) {
+      // Degrading to the registration snapshot is the pre-Phase-5 behavior —
+      // worse, but not wrong. Failing the whole approval because a guardian
+      // lookup broke would be.
+      console.error("[eventRecipients] lifecycle guardian lookup failed", e);
+    }
+  }
+
+  // The address captured at registration always counts: for a public/walk-up
+  // registrant it is the only one that exists, and for a member it is the one
+  // they typed into this specific form.
+  add({ email: reg.email ?? "", displayName: reg.name ?? null, userId: null, memberId: reg.memberId ?? null });
+
+  return [...byEmail.values()];
+}

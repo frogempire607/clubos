@@ -3,9 +3,8 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem, computeProcessingFeeCents } from "@/lib/fees";
-import { sendEmail } from "@/lib/email";
+import { computeProcessingFeeCents } from "@/lib/fees";
+import { billOneRegistrant, escapeHtml } from "@/lib/eventInvoicing";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicFixedPrice } from "@/lib/eventPricing";
 import { amountToCollect, expectedAmount, collectionBreakdown } from "@/lib/eventRepricing";
@@ -259,18 +258,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     );
   }
 
+  // getAppBaseUrl(), not baseUrlFromRequest(req): the payer clicks this link
+  // out of an email hours or days later, on whatever device they read mail on.
+  // A preview-deploy host captured from the staff member's request would be a
+  // dead address by then. lib/eventInvoicing builds the return URLs from it.
   const baseUrl = getAppBaseUrl();
-
-  // Where Stripe sends the payer afterwards. The public event page confirms
-  // payment properly (it renders "Payment received" on ?paid=true), so use it
-  // when the event HAS one. Events that aren't publicly listed have no slug,
-  // and `/e/${publicSlug ?? ""}` resolves to `/e/` — which matches no route
-  // and 404s a parent who just paid. Never build a URL from an empty slug:
-  // fall back to /pay/complete, which confirms against the real registration.
-  const returnUrl = (regId: string, outcome: "paid" | "canceled") =>
-    event.publicSlug
-      ? `${baseUrl}/e/${event.publicSlug}?${outcome}=true`
-      : `${baseUrl}/pay/complete?reg=${encodeURIComponent(regId)}&status=${outcome}`;
 
   const splitNote = !isVariable
     ? "Event registration"
@@ -282,8 +274,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   // Parent-facing breakdown (same per-head for every registrant): per-athlete
   // items at full price, shared items shown as their per-head split.
-  const esc = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const esc = escapeHtml;
   const breakdownHtml = expenseItems.length
     ? `<table style="width:100%;border-collapse:collapse;margin:4px 0 16px;font-size:14px"><tbody>${expenseItems
         .map((i) => {
@@ -323,95 +314,42 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // email, so the reduced figure is explained rather than looking wrong.
     const regCode = line?.discountCode ?? null;
     const regDiscountOff = line?.discountOff ?? 0;
-    const discountNote = regCode
-      ? ` · ${regCode} applied — $${regDiscountOff.toFixed(2)} off`
-      : "";
     if (amountCents <= 0) {
       errors.push(`${reg.name}: no price to collect — set a price on the event first`);
       continue;
     }
-    try {
-      const checkout = await stripe.checkout.sessions.create(
-        {
-          mode: "payment",
-          customer_email: recipientEmail,
-          line_items: [
-            {
-              quantity: 1,
-              price_data: {
-                currency: "usd",
-                unit_amount: amountCents,
-                product_data: {
-                  name: isVariable ? `${event.name} — cost share` : event.name,
-                  description:
-                    (isVariable
-                      ? splitNote
-                      : event.isTournament
-                        ? "Tournament registration"
-                        : "Event registration") + discountNote,
-                },
-              },
-            },
-            ...(() => {
-              const fi = processingFeeLineItem(amountCents, event.club.passProcessingFees);
-              return fi ? [fi] : [];
-            })(),
-          ],
-          success_url: returnUrl(reg.id, "paid"),
-          cancel_url: returnUrl(reg.id, "canceled"),
-          payment_intent_data: {
-            application_fee_amount: calculatePlatformFee(amountCents, event.club.tier),
-            metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: event.clubId },
-          },
-          metadata: {
-            eventRegistrationId: reg.id,
-            eventId: event.id,
-            clubId: event.clubId,
-            ...(regCode ? { discountCode: regCode, discountAmount: String(regDiscountOff) } : {}),
-          },
-        },
-        { stripeAccount: event.club.stripeAccountId },
-      );
-
-      await prisma.eventRegistration.update({
-        where: { id: reg.id },
-        data: {
-          amountDue: amount,
-          paymentUrl: checkout.url,
-          stripeCheckoutSessionId: checkout.id,
-          invoicedAt: new Date(),
-          invoiceCount: { increment: 1 },
-        },
-      });
-
-      try {
-        await sendEmail({
-          to: recipientEmail,
-          subject: `Payment due for ${event.name}`,
-          html: `
-            <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto">
-              <h2 style="color:#1c1917">${esc(event.name)}${isVariable ? " — cost share" : ""}</h2>
-              <p style="color:#57534e;line-height:1.6">
-                Hi ${esc(reg.name)}, your ${isVariable ? "share" : "registration fee"} for <strong>${esc(event.name)}</strong> is
-                <strong>$${amount.toFixed(2)}</strong>${isVariable ? ` (${splitNote})` : ""}.
-              </p>
-              ${
-                regCode
-                  ? `<p style="color:#4d7c0f;line-height:1.6;margin:-8px 0 16px">Discount <strong>${esc(regCode)}</strong> applied — $${regDiscountOff.toFixed(2)} off.</p>`
-                  : ""
-              }
-              ${breakdownHtml}
-              <p><a href="${checkout.url}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Pay now</a></p>
-            </div>`,
-        });
-      } catch (e) {
-        console.error("Bill-registrant email failed:", e);
-      }
-
-      billed++;
-    } catch (e) {
-      errors.push(`${reg.name} (${recipientEmail}): ${String(e)}`);
-    }
+    // One implementation of "send this person a payment link" — the same one
+    // the approve route (§5.4.6 INVOICE) and the escalation cron call.
+    const outcome = await billOneRegistrant({
+      event: {
+        id: event.id,
+        clubId: event.clubId,
+        name: event.name,
+        publicSlug: event.publicSlug,
+        isTournament: event.isTournament,
+      },
+      club: {
+        stripeAccountId: event.club.stripeAccountId,
+        tier: event.club.tier,
+        passProcessingFees: event.club.passProcessingFees,
+      },
+      registration: { id: reg.id, name: reg.name },
+      recipientEmail,
+      amount,
+      discountCode: regCode,
+      discountOff: regDiscountOff,
+      kind: isVariable ? "SHARE" : "FEE",
+      lineNote: isVariable
+        ? splitNote
+        : event.isTournament
+          ? "Tournament registration"
+          : "Event registration",
+      productName: isVariable ? `${event.name} — cost share` : event.name,
+      breakdownHtml,
+      baseUrl,
+    });
+    if (outcome.ok) billed++;
+    else errors.push(`${reg.name} (${recipientEmail}): ${outcome.error}`);
   }
 
   if (isVariable) {
