@@ -1,5 +1,60 @@
 # AthletixOS Improvement — Progress & Phased Plan
 
+> ## 🔴 Phase 5 migration WRITTEN, NOT APPLIED — `20260812000000_event_tournament_workflow`
+>
+> **Apply this before the Phase 5 code deploys.** Every route in the Phase 5
+> spine reads or writes columns this migration adds; pushing the code first
+> gives 500s on the event registration paths.
+>
+> Written in the worktree `web/.claude/worktrees/elastic-wilson-411ecb` on
+> branch `claude/phase-5-event-registration-9675fb`. Migrations, `.env` and
+> `node_modules` are per-worktree — run it from **that** path:
+>
+> ```bash
+> npx prisma migrate deploy
+> ```
+>
+> Then regenerate the client in whichever checkout you build from:
+>
+> ```bash
+> cd /Users/cubano/Desktop/clubos/web && npx prisma generate
+> ```
+>
+> Take a backup first, per root `CLAUDE.md`:
+>
+> ```bash
+> pg_dump "<session pooler URI>" --no-owner --no-privileges -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql
+> ```
+>
+> **One migration covers all of Phase 5** (§5.0–§5.12) so no later session has
+> to ask for a second apply: the opt-in policy columns on `events` +
+> `club_event_types.defaultPolicy`, the approval / proposal / escalation /
+> confirmation-code columns on `event_registrations`, `bookings.bookedByUserId`,
+> and four indexes. Everything is additive and every default reproduces today's
+> behavior — applying it changes nothing until an owner turns the workflow on
+> for an event.
+>
+> **One statement is guarded and may not land.** The `(eventId, LOWER(email))`
+> uniqueness from ARCHITECTURE-NOTES M18 is the only part that can fail on real
+> data, so the migration creates it only when the table is already clean and
+> otherwise prints the duplicate count and continues. Check afterwards:
+>
+> ```bash
+> psql "<session pooler URI>" -c "SELECT indexname FROM pg_indexes WHERE tablename='event_registrations' AND indexname='event_registrations_eventId_email_key';"
+> ```
+>
+> Empty result = duplicates exist. The query to list them is in the migration's
+> section-5 comment; resolve them (cancel the losers — the newest is normally
+> the keeper), then run the `CREATE UNIQUE INDEX` from that same comment by
+> hand. Nothing in the Phase 5 code depends on the constraint existing; it is a
+> public-path double-submit guard, not a correctness assumption.
+>
+> **Blocked on this apply:** the three coach-decision routes, the approval fork
+> in both registration create paths, `Booking.bookedByUserId` attribution, and
+> the confirmation-code stamping. The rest of the phase (coach review UI,
+> reminder cron, parent response flow, confirmation surface) is not built yet
+> and is also blocked on it.
+
 > ## ✅ Phase 4.5 migration APPLIED — `20260804000000_members_experience`
 >
 > Applied and verified by Julian, 2026-08-04. `members.reviewedAt /
@@ -124,7 +179,7 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | [3](#phase-3--communications--email) | Communications & Email | 🟢 done (2026-08-02) |
 | [4](#phase-4--client--family-accounts) | Client & Family Accounts | 🟢 done (2026-08-03) · merged `be0bfe0` |
 | [4.5](#phase-45--members-full-design-handoff) | Members — full design handoff (3 tracks, list, profile, Family & access, migration redesign, mobile, source label) | ⬜ pending |
-| [5](#phase-5--event-registration-confirmation) | Event Registration Confirmation | ⬜ pending |
+| [5](#phase-5--event-registration-confirmation) | Event Registration Confirmation | 🟡 in progress — spine built 2026-08-12, migration not applied |
 | [6](#phase-6--safety-data-integrity-testing) | Safety, Testing, Deployment & Final Handoff | ⬜ pending |
 
 ## Full migration inventory (M1–M28)
@@ -1388,11 +1443,74 @@ The Frog Empire Road Trip incident produced work that touches the same tables Ph
 
 **Open model question (owner decision pending, 2026-08-03):** whether `Booking` remains a separate table. plan.md §5.4 already declares the intended split — `Booking` = confirmed-spot/roster primitive, `EventRegistration` = the registration + money record, no Booking row until approval on approval-gated events. The hotfix line surfaced that the two tables can disagree in production. **If the owner approves collapsing them, that work belongs to Phase 5 §5.4, not to the hotfix line**, because §5.4 already owns Booking's write path and M19 already migrates the table.
 
+### Session 1 — 2026-08-12 · the spine (schema, policy, resolver, write path)
+
+Branch `claude/phase-5-event-registration-9675fb`, worktree
+`web/.claude/worktrees/elastic-wilson-411ecb`. Migration written, **not
+applied** — commands at the top of this file.
+
+**What shipped**
+
+| # | Item | Where |
+|---|---|---|
+| S-1 | **One migration for the whole phase** — `20260812000000_event_tournament_workflow`. Policy columns on `events`, `club_event_types.defaultPolicy`, approval/proposal/escalation/confirmation-code columns on `event_registrations`, `bookings.bookedByUserId`, four indexes, and the guarded M18 unique index. | `prisma/migrations/20260812000000_event_tournament_workflow/` |
+| S-2 | **`resolveEventPolicy`** — event → event type → all-off fallback. The only reader of the null-means-inherit columns; no route reads them directly. Proposals can never resolve on without approval; `holdSpotDuringReview` never inherits (capacity gets exactly one answer). | `lib/eventPayments.ts` |
+| S-3 | **`PENDING_REVIEW`** wired into every status set: not a spot, owes nothing yet, blocks the door. `capacityWhere` gained the opt-in hold. | `lib/eventPayments.ts` |
+| S-4 | **`registrationWaitingOn`** — COACH / PARENT / PAYMENT / COMPLETE / CANCELED, pure, one implementation for the render context, the roster, the probes and the cron. | `lib/eventPayments.ts` |
+| S-5 | **`renderableRegistrationState`** (§5.2.2) — 17 render keys, exhaustive over the union, every amount from `amountToCollect`. The page and every email render from this. | `lib/registrationRenderState.ts` |
+| S-6 | **Lifecycle emails** — one template, one context, per-transition `(sendBatchId, dedupeKey)`. Confirmation / approved / declined / proposal. Registrant + every confirmed guardian, one `EmailSend` row each. | `lib/eventLifecycleEmails.ts`, `lib/eventRecipients.ts` |
+| S-7 | **Coach decision write path** — `approve` / `decline` / `propose-change` over one shared implementation; advisory lock `evreg-mut:<regId>`, terminal-state 409s that hand back the current state, `BillingAuditLog` on every mutation, refund on decline of a paid registration gated on finance permission. | `lib/eventApproval.ts`, `app/api/events/[id]/registrations/[regId]/{approve,decline,propose-change}/` |
+| S-8 | **Create-path fork** on both registration routes, including the free / membership-covered / variable-cost branches — those used to create a Booking outright. No Booking exists until approval; the webhook now skips it too for a pending row. | `app/api/member/events/[id]/register/`, `app/api/public/events/[slug]/register/`, `app/api/stripe/webhook/` |
+| S-9 | **`billOneRegistrant`** lifted out of `bill-registrants`; that route now calls it, so approve-with-INVOICE and the escalation cron reuse the mass route rather than forking it. | `lib/eventInvoicing.ts` |
+| S-10 | **`computeNextReminderAt`** (§5.6.5) — ships with the write path, not the cron, because every settle/cancel path must clear the queue entry in the same transaction or the next sweep emails a reminder for money already collected. | `lib/eventReminders.ts` |
+| S-11 | **Confirmation code** — deterministic Crockford base32 from the row id, stamped at create and backfilled on every mutation that touches a row without one. | `lib/confirmationCode.ts` |
+| S-12 | **202 assertions** walking every render key, every waitingOn rule, policy inheritance, refund copy, reminder cadence and code uniqueness. | `npx tsx scripts/event-confirmation-state-tests.ts` |
+
+**Three places this deviates from plan.md, and why**
+
+1. **Money moves after the lock commits, not inside it** (§5.4.6 says inside).
+   `chargeEventRegistration` runs on the global Prisma client, so its UPDATE of
+   the same registration row blocks on the row lock the open transaction holds
+   — a self-deadlock that resolves only when the 5s interactive-transaction
+   timeout fires, leaving a live PaymentIntent behind an aborted transaction.
+   The lock still guarantees exactly one caller reaches dispatch, which is all
+   §5.4.10 asks of it.
+2. **`renderableRegistrationState` lives in its own module**, not in
+   `lib/eventPayments.ts` as §5.2.2 nominates. It has to read `amountToCollect`,
+   and `lib/eventRepricing` already imports `eventPayments` — putting it there
+   makes the two circular.
+3. **Cash/check under approval keep `AWAITING_CASH` / `AWAITING_CHECK`**
+   rather than `PENDING_REVIEW`. `approvalStatus = PENDING` is the gate, the
+   resolver reads it first (so the registrant still sees "Registration
+   requested"), and §5.4.6's approve says the status is unchanged for those
+   methods — which only works if it was never overwritten.
+
+**Deliberately NOT built this session** (all still open):
+
+- Coach review UI — the roster affordances, the "who's waiting on what" column,
+  the Action Center probes (§5.7).
+- Reminder + digest cron — `netlify/functions/tournament-reminders-cron.mts`
+  and `/api/cron/tournament-reminders` (§5.6.1, §5.6.6, §5.6.7). The scheduling
+  math is in `lib/eventReminders.ts` and the sweep sits on top of it.
+- Parent response flow — `proposal/accept` + `proposal/decline`, the
+  `/member/bookings/[regId]/proposal` surface, and the `EVENT_PROPOSAL_RESPONSE`
+  approval kind (§5.4.7, §5.12 item 4). `approveRegistration` already takes the
+  proposing coach as the actor so accept can re-enter it unchanged.
+- Confirmation surface `/e/[slug]/registered/[registrationId]` (§5.2.3) and the
+  remaining two §5.2.1 bugs: the paid public path's missing confirmation email
+  (webhook branch) and the `success_url` rewrite to `baseUrlFromRequest`. The
+  free public path's missing email IS fixed. When the surface lands, delete
+  `/pay/complete` and repoint `bill-registrants` + `eventAutoCharge` at it.
+- Owner settings UI — the event-type policy editor and the event editor's
+  "Coach approval + payment" card (§5.3, §5.8). **Until this exists the workflow
+  cannot be turned on from the app at all**, which is also what keeps it safely
+  off: every column defaults to inherit-or-off.
+
 ### 5.1 Bug fixes (do first — no schema work)
 
 | # | Task | Class | Status |
 |---|---|---|---|
-| 5.1.1 | Free public path emails confirmation. `/api/public/events/[slug]/register:147` — add `sendBookingConfirmationEmail` before the free-path return. Reuse the same template variant used elsewhere. | Backend | ⬜ |
+| 5.1.1 | Free public path emails confirmation. | Backend | 🟢 done 2026-08-12 — routed through `sendRegistrationLifecycleEmail` (state-driven, dedupe-keyed), not `sendBookingConfirmationEmail`. |
 | 5.1.2 | Paid public path emails confirmation. Add `sendBookingConfirmationEmail` in `stripe/webhook/route.ts:727-770` `eventRegistrationId` branch. | Backend | ⬜ |
 | 5.1.3 | Idempotency key on `stripe.checkout.sessions.create` in all three event registration routes (member, public, at-the-door). | Backend | ⬜ |
 | 5.1.4 | Success URLs — swap `getAppBaseUrl()` → `baseUrlFromRequest(req)` in every event registration route (`register`/`charge`/webhook branches). Same class of fix as the 2026-07-13 batch. | Backend | ⬜ |
