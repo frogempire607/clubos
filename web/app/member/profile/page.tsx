@@ -1210,17 +1210,28 @@ function ProfileRow({ label, value }: { label: string; value: string }) {
 
 type ApprovalRow = {
   id: string;
-  kind: "CLASS_BOOK" | "EVENT_REGISTER" | "PRIVATE_REQUEST" | "PACKAGE_BUY";
+  // Phase 5 adds EVENT_PROPOSAL_RESPONSE — the one kind this card links out to
+  // rather than answering inline (see the render below).
+  kind:
+    | "CLASS_BOOK"
+    | "EVENT_REGISTER"
+    | "PRIVATE_REQUEST"
+    | "PACKAGE_BUY"
+    | "MEMBERSHIP_SUBSCRIBE"
+    | "PRODUCT_BUY"
+    | "EVENT_PROPOSAL_RESPONSE";
   amount: number | null;
   requestedAt: string;
+  payload?: { registrationId?: string } | null;
   member: { id: string; firstName: string; lastName: string };
 };
 
-const APPROVAL_KIND_LABEL: Record<ApprovalRow["kind"], string> = {
+const APPROVAL_KIND_LABEL: Record<string, string> = {
   CLASS_BOOK: "Class booking",
   EVENT_REGISTER: "Event registration",
   PRIVATE_REQUEST: "Private lesson request",
   PACKAGE_BUY: "Package purchase",
+  EVENT_PROPOSAL_RESPONSE: "Coach proposed a change",
 };
 
 function PendingApprovalsCard() {
@@ -1281,6 +1292,18 @@ function PendingApprovalsCard() {
                 })}
               </p>
             </div>
+            {/* A coach's proposed change is not a yes/no on this card: the
+                family has to see WHAT changed and what it costs, and accepting
+                may need fresh consent for a price delta. Send them to the one
+                page that owns that decision. */}
+            {r.kind === "EVENT_PROPOSAL_RESPONSE" ? (
+              <a
+                href={`/member/bookings/${r.payload?.registrationId ?? ""}/proposal`}
+                className="text-xs px-3 py-1.5 rounded-lg bg-amber-900 text-amber-50 hover:bg-amber-800 flex-shrink-0"
+              >
+                Review
+              </a>
+            ) : (
             <div className="flex gap-1 flex-shrink-0">
               <button
                 type="button"
@@ -1299,6 +1322,7 @@ function PendingApprovalsCard() {
                 {acting === r.id ? "…" : "Approve"}
               </button>
             </div>
+            )}
           </div>
         ))}
       </div>

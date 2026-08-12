@@ -29,7 +29,13 @@ import {
 } from "@/lib/registrationRenderState";
 import { escapeHtml } from "@/lib/eventInvoicing";
 
-export type LifecycleTransition = "CONFIRMATION" | "APPROVED" | "DECLINED" | "PROPOSAL";
+export type LifecycleTransition =
+  | "CONFIRMATION"
+  | "APPROVED"
+  | "DECLINED"
+  | "PROPOSAL"
+  | "PROPOSAL_ACCEPTED"
+  | "PROPOSAL_DECLINED";
 
 /** §5.2.5's ledger keys. The proposal key carries the proposal's timestamp so a
  *  REVISED proposal re-notifies while a replay of the same one never does. */
@@ -37,6 +43,7 @@ function ledgerKeys(
   transition: LifecycleTransition,
   ctx: RegistrationRenderContext,
   registrationId: string,
+  respondedAtKey?: string | null,
 ): { sendBatchId: string; dedupeKey: string } {
   switch (transition) {
     case "CONFIRMATION":
@@ -49,6 +56,21 @@ function ledgerKeys(
       const at = ctx.meta.proposedChange?.proposedAt.toISOString() ?? "0";
       return { sendBatchId: "event-proposal", dedupeKey: `event-proposal:${registrationId}:${at}` };
     }
+    // Keyed on the RESPONSE timestamp, which is set once and never rewritten:
+    // a double-tapped Accept produces the same key, so the second request is a
+    // no-op at the ledger rather than a second email. The accepted email also
+    // stands in for the coach-approved one — acceptance implies approval, and
+    // a family should get one message about it, not two.
+    case "PROPOSAL_ACCEPTED":
+      return {
+        sendBatchId: "event-accepted",
+        dedupeKey: `event-accepted:${registrationId}:${respondedAtKey ?? "0"}`,
+      };
+    case "PROPOSAL_DECLINED":
+      return {
+        sendBatchId: "event-parent-declined",
+        dedupeKey: `event-parent-declined:${registrationId}:${respondedAtKey ?? "0"}`,
+      };
   }
 }
 
@@ -63,6 +85,10 @@ function subjectFor(transition: LifecycleTransition, ctx: RegistrationRenderCont
       return `Your coach couldn't approve your registration for ${e}`;
     case "PROPOSAL":
       return `Your coach proposed a change to your ${e} registration`;
+    case "PROPOSAL_ACCEPTED":
+      return `You're registered for ${e}`;
+    case "PROPOSAL_DECLINED":
+      return `Your registration for ${e} was canceled`;
   }
 }
 
@@ -292,6 +318,8 @@ export async function sendRegistrationLifecycleEmail(args: {
   transition: LifecycleTransition;
   ctx?: RegistrationRenderContext;
   actorUserId?: string | null;
+  /** ISO timestamp of the parent's response — keys the two response emails. */
+  respondedAt?: string | null;
 }): Promise<{ sent: number; skipped: number }> {
   let sent = 0;
   let skipped = 0;
@@ -310,7 +338,7 @@ export async function sendRegistrationLifecycleEmail(args: {
       select: { name: true, timezone: true },
     });
     const recipients = await resolveRegistrationNotifyRecipients(reg.clubId, reg);
-    const { sendBatchId, dedupeKey } = ledgerKeys(args.transition, ctx, reg.id);
+    const { sendBatchId, dedupeKey } = ledgerKeys(args.transition, ctx, reg.id, args.respondedAt);
     const html = renderLifecycleEmailHtml(ctx, club?.timezone);
     const text = renderLifecycleEmailText(ctx, club?.timezone);
     const subject = subjectFor(args.transition, ctx);

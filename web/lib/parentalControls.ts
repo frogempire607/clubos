@@ -47,7 +47,12 @@ export type ApprovalKind =
   | "PRIVATE_REQUEST"
   | "PACKAGE_BUY"
   | "MEMBERSHIP_SUBSCRIBE"
-  | "PRODUCT_BUY";
+  | "PRODUCT_BUY"
+  // Phase 5 §5.12 item 4. Not a parental-controls gate like the others — it is
+  // never produced by applyParentalControls. It exists so a coach's proposed
+  // change appears in the family approvals card alongside everything else a
+  // guardian owes an answer on, instead of inventing a second inbox.
+  | "EVENT_PROPOSAL_RESPONSE";
 
 // The PendingApproval.kind values that belong to the member-side parental
 // queue. Used to scope the family-approvals consumers so owner-side kinds
@@ -59,6 +64,7 @@ export const MEMBER_APPROVAL_KINDS = [
   "PACKAGE_BUY",
   "MEMBERSHIP_SUBSCRIBE",
   "PRODUCT_BUY",
+  "EVENT_PROPOSAL_RESPONSE",
 ] as const satisfies readonly ApprovalKind[];
 
 export type GateInput = {
@@ -228,6 +234,7 @@ const KIND_LABEL: Record<ApprovalKind, string> = {
   PACKAGE_BUY: "a lesson-package purchase",
   MEMBERSHIP_SUBSCRIBE: "a membership subscription",
   PRODUCT_BUY: "a product purchase",
+  EVENT_PROPOSAL_RESPONSE: "a coach's proposed change",
 };
 
 async function notifyGuardians(memberId: string, kind: ApprovalKind, amount: number) {

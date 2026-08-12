@@ -8,6 +8,7 @@
 // mobile keeps stacked cards. All mutation flows are unchanged.
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckSquare, MessageCircle } from "lucide-react";
 import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
@@ -207,6 +208,84 @@ function getEventColor(b: Booking) {
 function getEventLabel(b: Booking) {
   if (b.event.customEventType) return b.event.customEventType.name;
   return b.event.type.charAt(0) + b.event.type.slice(1).toLowerCase();
+}
+
+// Registrations that are NOT bookings yet (Phase 5). A registration awaiting a
+// coach has no Booking by design — Booking is the confirmed spot — so without
+// this a family who signed up for a tournament saw nothing at all here until
+// somebody approved them. Rendered from the same resolver as the confirmation
+// page and the emails, so the words match what they were sent.
+type PendingRegistration = {
+  id: string;
+  memberId: string | null;
+  memberName: string;
+  eventId: string;
+  eventName: string;
+  startsAt: string;
+  headline: string;
+  chargeTiming: string;
+  waitingOn: "COACH" | "PARENT" | "PAYMENT" | "COMPLETE" | "CANCELED";
+  waitingOnLabel: string;
+  confirmationCode: string;
+};
+
+function RegistrationRequests({ memberId }: { memberId: string | null }) {
+  const [rows, setRows] = useState<PendingRegistration[]>([]);
+
+  useEffect(() => {
+    fetch("/api/member/registrations")
+      .then((r) => (r.ok ? r.json() : { registrations: [] }))
+      .then((d) => setRows(Array.isArray(d.registrations) ? d.registrations : []))
+      .catch(() => setRows([]));
+  }, []);
+
+  // Only the states with no Booking behind them: everything else is already in
+  // the list below, and showing it twice would double-count the same spot.
+  const shown = rows.filter(
+    (r) =>
+      (r.waitingOn === "COACH" || r.waitingOn === "PARENT") &&
+      (!memberId || r.memberId === memberId),
+  );
+  if (shown.length === 0) return null;
+
+  return (
+    <div className="mb-4 space-y-2">
+      {shown.map((r) => {
+        const needsReply = r.waitingOn === "PARENT";
+        return (
+          <div
+            key={r.id}
+            className={`pcard p-4 ${needsReply ? "border-amber-300 bg-amber-50" : ""}`}
+          >
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-stone-900">
+                  {r.eventName}
+                  <span className="ml-2 text-[11px] font-normal text-stone-500">
+                    {r.memberName} · #{r.confirmationCode}
+                  </span>
+                </p>
+                <p className="text-xs text-stone-600 mt-0.5">{r.headline}</p>
+                <p className="text-[11px] text-stone-500 mt-0.5">{r.chargeTiming}</p>
+              </div>
+              {needsReply ? (
+                <Link
+                  href={`/member/bookings/${r.id}/proposal`}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-amber-900 text-amber-50 font-semibold hover:bg-amber-800 flex-shrink-0"
+                >
+                  Review the change
+                </Link>
+              ) : (
+                <span className="text-[11px] px-2 py-1 rounded-full bg-stone-100 text-stone-600 flex-shrink-0">
+                  {r.waitingOnLabel}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function BookingsPanel({ showContextNote = false }: { showContextNote?: boolean }) {
@@ -502,6 +581,8 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
           </span>
         )}
       </div>
+
+      <RegistrationRequests memberId={active?.id ?? null} />
 
       {loading ? (
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>

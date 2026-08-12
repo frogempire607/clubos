@@ -39,6 +39,7 @@ import { billOneRegistrant } from "@/lib/eventInvoicing";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { computeNextReminderAt } from "@/lib/eventReminders";
+import { sendMemberMessage } from "@/lib/memberMessaging";
 import { amountToCollect } from "@/lib/eventRepricing";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { ACTIVE_REGISTRATION_STATUSES, resolveEventPolicy } from "@/lib/eventPayments";
@@ -52,7 +53,9 @@ export type MutationErrorCode =
   | "PROPOSALS_NOT_ALLOWED"
   | "INVALID_PRICE_DELTA"
   | "FINANCE_PERMISSION_REQUIRED"
-  | "APPROVAL_NOT_REQUIRED";
+  | "APPROVAL_NOT_REQUIRED"
+  | "CONSENT_REQUIRED"
+  | "CONSENT_AMOUNT_MISMATCH";
 
 export type MutationFailure = {
   ok: false;
@@ -142,6 +145,12 @@ export async function approveRegistration(args: {
   actorUserId: string | null;
   /** Attribution for the Booking this creates (§5.4.8). */
   bookedByUserId?: string | null;
+  /**
+   * false when the caller sends its own message about this transition — the
+   * parent-accept path does, and §5.4.7 is explicit that a family gets ONE
+   * email about accepting, not an "approved" notice chasing an "accepted" one.
+   */
+  sendEmail?: boolean;
   now?: Date;
 }): Promise<ApproveSuccess | MutationFailure> {
   const now = args.now ?? new Date();
@@ -306,11 +315,13 @@ export async function approveRegistration(args: {
 
   // Sent last so the copy reflects the state money left the registration in —
   // "charged $X today" rather than "we'll charge you when your coach approves".
-  await sendRegistrationLifecycleEmail({
-    registrationId: reg.id,
-    transition: "APPROVED",
-    actorUserId: args.actorUserId,
-  });
+  if (args.sendEmail !== false) {
+    await sendRegistrationLifecycleEmail({
+      registrationId: reg.id,
+      transition: "APPROVED",
+      actorUserId: args.actorUserId,
+    });
+  }
 
   return result;
 }
@@ -626,7 +637,352 @@ export async function proposeRegistrationChange(args: {
     actorUserId: args.actorUserId,
   });
 
+  // §5.7 — the parent needs this in the two places they already look: the
+  // family approvals card, and the coach thread. Neither is a new inbox.
+  if (reg.memberId) {
+    // One open row per registration: a revised proposal replaces the previous
+    // one rather than stacking a second card on the same question.
+    await prisma.pendingApproval
+      .updateMany({
+        where: { clubId: args.clubId, memberId: reg.memberId, kind: PROPOSAL_APPROVAL_KIND, status: "PENDING" },
+        data: { status: "EXPIRED", respondedAt: now },
+      })
+      .catch(() => undefined);
+    await prisma.pendingApproval
+      .create({
+        data: {
+          clubId: args.clubId,
+          memberId: reg.memberId,
+          kind: PROPOSAL_APPROVAL_KIND,
+          status: "PENDING",
+          amount: blob.priceDelta || null,
+          // The payload is what the family card renders and links to — it
+          // never replays a booking, unlike the parental-control kinds.
+          payload: { registrationId: reg.id, eventId: reg.eventId, eventName: reg.event.name },
+          requestedAt: now,
+        },
+      })
+      .catch((e) => console.error("[eventApproval] proposal approval row failed", e));
+
+    if (args.actorUserId) {
+      const changeLines = Object.entries(args.changes)
+        .map(([k, v]) => `• ${k}: ${String(v)}`)
+        .join("\n");
+      await sendMemberMessage({
+        clubId: args.clubId,
+        senderId: args.actorUserId,
+        memberId: reg.memberId,
+        body:
+          `I'd like to change ${reg.name}'s registration for ${reg.event.name}:\n${changeLines}` +
+          (blob.priceDelta ? `\nAdditional fee: $${Number(blob.priceDelta).toFixed(2)}` : "") +
+          (args.message ? `\n\n${args.message}` : "") +
+          `\n\nAccept or decline here: /member/bookings/${reg.id}/proposal`,
+      }).catch((e) => console.error("[eventApproval] proposal DM failed", e));
+    }
+  }
+
   return { ok: true, registrationId: reg.id, proposedAt: blob.proposedAt };
+}
+
+/** The PendingApproval kind a coach proposal raises for the family card. */
+export const PROPOSAL_APPROVAL_KIND = "EVENT_PROPOSAL_RESPONSE";
+
+export type RespondSuccess = {
+  ok: true;
+  registrationId: string;
+  accepted: boolean;
+  status: string;
+  respondedAt: string;
+  chargeOutcome?: AutoChargeOutcome;
+  chargeError?: string;
+  invoiceUrl?: string;
+  invoiceError?: string;
+  refund?: { attempted: true; refundId?: string; error?: string };
+};
+
+/**
+ * The parent's answer to a coach's proposal (§5.4.7).
+ *
+ * Accepting IS approving: the coach's proposal was their approval, conditional
+ * on the family agreeing, so this re-enters `approveRegistration` with the
+ * COACH recorded as the approver rather than inventing a second approval path.
+ * Declining is functionally a cancellation, so it refunds on the same terms a
+ * coach decline does — except that the actor here is the parent, so there is no
+ * finance permission to check and the refund is unconditional.
+ *
+ * `proposedChangeRespondedAt` is written once and never rewritten. It is both
+ * the terminal-state guard (a second Accept 409s) and the dedupe key both
+ * response emails ride on, so a replay under the lock produces the same email
+ * row instead of a second message.
+ */
+export async function respondToProposal(args: {
+  registrationId: string;
+  clubId: string;
+  /** The guardian (or the athlete's own login) answering. */
+  actorUserId: string;
+  accept: boolean;
+  /** Required when accepting a proposal that costs more. */
+  additionalConsent?: { agreed: true; buttonLabel?: string; amount: number } | null;
+  now?: Date;
+}): Promise<RespondSuccess | MutationFailure> {
+  const now = args.now ?? new Date();
+
+  const decided = await prisma.$transaction(async (db) => {
+    await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evreg-mut:${args.registrationId}`}, 0))`;
+
+    const reg = (await db.eventRegistration.findFirst({
+      where: { id: args.registrationId, clubId: args.clubId },
+      ...REG_FOR_MUTATION,
+    })) as RegForMutation | null;
+    if (!reg) return fail("NOT_FOUND", 404, "Registration not found");
+    if (!reg.proposedChange || reg.proposedChangeRespondedAt) {
+      return fail(
+        "INVALID_TRANSITION",
+        409,
+        reg.proposedChangeRespondedAt
+          ? "You've already answered this proposal."
+          : "There's nothing to respond to on this registration.",
+        reg,
+      );
+    }
+
+    const blob = reg.proposedChange as Record<string, unknown>;
+    const delta = Number(blob.priceDelta ?? 0) || 0;
+    const changes = (blob.changes && typeof blob.changes === "object" ? blob.changes : {}) as Record<
+      string,
+      unknown
+    >;
+
+    if (args.accept && delta > 0) {
+      // The amount is re-derived from the stored proposal, never taken from the
+      // client: consent has to be to the number the coach actually proposed.
+      if (!args.additionalConsent?.agreed) {
+        return fail(
+          "CONSENT_REQUIRED",
+          400,
+          `Accepting adds $${delta.toFixed(2)}. Please confirm you authorize it.`,
+          reg,
+        );
+      }
+      if (Math.round(Number(args.additionalConsent.amount) * 100) !== Math.round(delta * 100)) {
+        return fail(
+          "CONSENT_AMOUNT_MISMATCH",
+          400,
+          "The amount you confirmed doesn't match the proposed change. Reload and try again.",
+          reg,
+        );
+      }
+    }
+
+    if (!args.accept) {
+      await db.eventRegistration.update({
+        where: { id: reg.id },
+        data: {
+          proposedChangeRespondedAt: now,
+          proposedChangeAccepted: false,
+          status: "CANCELED",
+          // approvalStatus stays PENDING on purpose — the coach never declined
+          // this, the family did. §5.2.6 renders the difference.
+          nextReminderAt: null,
+        },
+      });
+      if (reg.transactionId) {
+        await db.transaction.updateMany({
+          where: { id: reg.transactionId, clubId: reg.clubId, status: "PENDING" },
+          data: {
+            status: "FAILED",
+            reconciliationStatus: "VOID",
+            notes: "Superseded — the family declined the coach's proposed change.",
+          },
+        });
+      }
+      if (reg.memberId) {
+        await db.booking
+          .delete({ where: { eventId_memberId: { eventId: reg.eventId, memberId: reg.memberId } } })
+          .catch(() => undefined);
+      }
+      return { reg, accepted: false as const, delta, changes };
+    }
+
+    // Accepted: the proposed values become what they registered for. v1 change
+    // types are all form answers, so they overlay onto formResponses — the same
+    // JSON every other surface already reads.
+    const responses = (reg.formResponses && typeof reg.formResponses === "object"
+      ? reg.formResponses
+      : {}) as Record<string, unknown>;
+    const merged = { ...responses, ...changes };
+
+    const consentSnapshot =
+      delta > 0
+        ? {
+            ...((reg.autoChargeConsent as Record<string, unknown> | null) ?? {}),
+            deltaAgreedAt: now.toISOString(),
+            deltaAmount: delta,
+            deltaButtonLabel: args.additionalConsent?.buttonLabel ?? null,
+            deltaByUserId: args.actorUserId,
+          }
+        : null;
+
+    await db.eventRegistration.update({
+      where: { id: reg.id },
+      data: {
+        proposedChangeRespondedAt: now,
+        proposedChangeAccepted: true,
+        formResponses: merged as Prisma.InputJsonValue,
+        // The delta rides on amountDue for every method that settles later.
+        // For a CARD registration that already paid, amountDue becomes the
+        // outstanding delta and the invoice path collects it separately —
+        // never a re-charge of the original PaymentIntent.
+        ...(delta ? { amountDue: Math.max(0, Number(reg.amountDue ?? 0) + delta) } : {}),
+        ...(consentSnapshot ? { autoChargeConsent: consentSnapshot as Prisma.InputJsonValue } : {}),
+      },
+    });
+
+    return { reg, accepted: true as const, delta, changes };
+  });
+
+  if ("ok" in decided) return decided;
+  const { reg, accepted, delta, changes } = decided;
+  const respondedAt = now.toISOString();
+
+  await writeBillingAudit({
+    clubId: args.clubId,
+    memberId: reg.memberId,
+    actorUserId: args.actorUserId,
+    action: "EVENT_REGISTRATION_PARENT_RESPONSE",
+    before: { registrationId: reg.id, status: reg.status, proposedChange: reg.proposedChange ?? null },
+    after: { registrationId: reg.id, accepted, changes, priceDelta: delta, respondedAt },
+    note: `${reg.name}'s family ${accepted ? "accepted" : "declined"} the coach's proposed change for ${reg.event.name}.`,
+  });
+
+  // The family card's row is answered either way.
+  if (reg.memberId) {
+    await prisma.pendingApproval
+      .updateMany({
+        where: { clubId: args.clubId, memberId: reg.memberId, kind: PROPOSAL_APPROVAL_KIND, status: "PENDING" },
+        data: {
+          status: accepted ? "APPROVED" : "DECLINED",
+          respondedAt: now,
+          respondedById: args.actorUserId,
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  // Back to the coach, in the thread the proposal came from (§5.5).
+  //
+  // Addressed to the COACH directly rather than through sendMemberMessage:
+  // that helper fans out to the athlete's family, and the family is who is
+  // replying. Routing the reply through it would have the parent message
+  // themselves — the helper filters the sender out of its own recipient list
+  // and the message would silently go nowhere. subjectMemberId keeps it in the
+  // same child-scoped thread the proposal arrived in.
+  const coachUserId =
+    typeof (reg.proposedChange as Record<string, unknown> | null)?.proposedByUserId === "string"
+      ? ((reg.proposedChange as Record<string, unknown>).proposedByUserId as string)
+      : null;
+  if (coachUserId && coachUserId !== args.actorUserId) {
+    await prisma.message
+      .create({
+        data: {
+          clubId: args.clubId,
+          senderId: args.actorUserId,
+          recipientId: coachUserId,
+          subjectMemberId: reg.memberId,
+          body: accepted
+            ? `We accept the change to ${reg.name}'s ${reg.event.name} registration.`
+            : `We can't take the proposed change to ${reg.name}'s ${reg.event.name} registration, so we're withdrawing.`,
+        } as Prisma.MessageUncheckedCreateInput,
+      })
+      .catch((e) => console.error("[eventApproval] response DM failed", e));
+  }
+
+  if (!accepted) {
+    const result: RespondSuccess = {
+      ok: true,
+      registrationId: reg.id,
+      accepted: false,
+      status: "CANCELED",
+      respondedAt,
+    };
+    // A family that already paid gets their money back — unconditionally.
+    // There is no finance permission to test here: the actor is the payer.
+    if ((reg.status === "PAID" || Number(reg.amountPaid ?? 0) > 0) && reg.stripePaymentIntentId && reg.club.stripeAccountId) {
+      result.refund = { attempted: true };
+      try {
+        const refund = await stripe.refunds.create(
+          { payment_intent: reg.stripePaymentIntentId },
+          { stripeAccount: reg.club.stripeAccountId, idempotencyKey: `aox-eventreg-refund-${reg.id}` },
+        );
+        result.refund.refundId = refund.id;
+        await writeBillingAudit({
+          clubId: args.clubId,
+          memberId: reg.memberId,
+          actorUserId: args.actorUserId,
+          action: "EVENT_REGISTRATION_REFUNDED",
+          before: { registrationId: reg.id, amountPaid: Number(reg.amountPaid ?? 0) },
+          after: { registrationId: reg.id, refundId: refund.id, amount: refund.amount / 100 },
+          note: `Refund issued after the family declined the proposed change for ${reg.event.name}.`,
+        });
+      } catch (e) {
+        console.error("[eventApproval] parent-decline refund failed", reg.id, e);
+        result.refund.error = String(e);
+        await writeBillingAudit({
+          clubId: args.clubId,
+          memberId: reg.memberId,
+          actorUserId: args.actorUserId,
+          action: "EVENT_REGISTRATION_REFUND_FAILED",
+          before: { registrationId: reg.id, paymentIntentId: reg.stripePaymentIntentId },
+          after: { registrationId: reg.id, error: String(e).slice(0, 300) },
+          note: `Refund FAILED after a declined proposal on ${reg.event.name}. Check Stripe.`,
+        });
+      }
+    }
+    await sendRegistrationLifecycleEmail({
+      registrationId: reg.id,
+      transition: "PROPOSAL_DECLINED",
+      actorUserId: args.actorUserId,
+      respondedAt,
+    });
+    return result;
+  }
+
+  // Acceptance implies approval — same helper the coach route calls, with the
+  // COACH as the approver and as the Booking's bookedByUserId.
+  const approved = await approveRegistration({
+    registrationId: reg.id,
+    clubId: args.clubId,
+    actorUserId: coachUserId,
+    bookedByUserId: coachUserId,
+    // The PROPOSAL_ACCEPTED email below covers this transition.
+    sendEmail: false,
+    now,
+  });
+
+  const result: RespondSuccess = {
+    ok: true,
+    registrationId: reg.id,
+    accepted: true,
+    status: approved.ok ? approved.status : reg.status,
+    respondedAt,
+  };
+  if (approved.ok) {
+    if (approved.chargeOutcome) result.chargeOutcome = approved.chargeOutcome;
+    if (approved.chargeError) result.chargeError = approved.chargeError;
+    if (approved.invoiceUrl) result.invoiceUrl = approved.invoiceUrl;
+    if (approved.invoiceError) result.invoiceError = approved.invoiceError;
+  }
+
+  // Row 5, not row 2: acceptance-triggered approval sends ONE email about the
+  // whole thing rather than an "approved" message chasing an "accepted" one.
+  await sendRegistrationLifecycleEmail({
+    registrationId: reg.id,
+    transition: "PROPOSAL_ACCEPTED",
+    actorUserId: args.actorUserId,
+    respondedAt,
+  });
+
+  return result;
 }
 
 /**
