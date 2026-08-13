@@ -35,6 +35,7 @@ import {
   type RegistrationWaitingOn,
 } from "@/lib/eventPayments";
 import { amountToCollect, type PricingEvent, type PricingRegistration } from "@/lib/eventRepricing";
+import { registrationUrl } from "@/lib/registrationUrl";
 
 export const REGISTRATION_RENDER_KEYS = [
   "PENDING_REVIEW",
@@ -386,9 +387,7 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
   const key = registrationRenderKey(reg, event, { now, membershipName: input.membershipName });
 
   const confirmationCode = displayConfirmationCode(reg);
-  const confirmationUrl = event.publicSlug
-    ? `${baseUrl}/e/${event.publicSlug}/registered/${reg.id}`
-    : `${baseUrl}/r/${reg.id}`;
+  const confirmationUrl = registrationUrl(baseUrl, event, reg.id);
 
   const amountPaid = reg.amountPaid == null ? null : Number(reg.amountPaid);
   // NET, through the one resolver — never a list price (§5.0 ownership table).

@@ -9,7 +9,8 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { getAppBaseUrl, baseUrlFromRequest } from "@/lib/baseUrl";
+import { registrationReturnUrl, registrationUrl } from "@/lib/registrationUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
@@ -340,6 +341,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           variableCost: true,
           billedLater: true,
           registrationId: reg.id,
+          confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, reg.id),
           perHead: estPerHead,
           message: "Request sent to your coach. If they approve, the club bills your share of the shared cost.",
         });
@@ -391,6 +393,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           pendingReview: true,
           free: true,
           registrationId: reg.id,
+          confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, reg.id),
           message: "Request sent to your coach. This event is free — nothing is owed either way.",
         });
       }
@@ -750,6 +753,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           ok: true,
           pendingReview: true,
           registrationId: reg.id,
+          confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, reg.id),
           paymentMethod: "APPROVAL_CHARGE",
           amountDue: price,
           message: `Request sent to your coach. Nothing is charged yet — your card is charged $${price.toFixed(2)} only if they approve.`,
@@ -769,6 +773,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           ok: true,
           pendingReview: true,
           registrationId: reg.id,
+          confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, reg.id),
           paymentMethod: "INVOICE",
           amountDue: price,
           message: `Request sent to your coach. No card needed now — the club emails a payment link for $${price.toFixed(2)} once they approve.`,
@@ -802,6 +807,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           ok: true,
           pendingReview: true,
           registrationId: reg.id,
+          confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, reg.id),
           offline: true,
           paymentMethod: method,
           amountDue: price,
@@ -839,8 +845,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             },
             ...(feeItem ? [feeItem] : []),
           ],
-          success_url: `${getAppBaseUrl()}/member/events?paid=true`,
-          cancel_url: `${getAppBaseUrl()}/member/events?canceled=true`,
+          // The live confirmation surface, from the origin the member is
+          // actually on (§5.2.3). /member/events?paid=true rendered success
+          // from a query parameter and told an approval-gated registrant they
+          // were registered when a coach hadn't looked yet.
+          success_url: registrationReturnUrl(baseUrlFromRequest(req), event, reg.id, "paid"),
+          cancel_url: registrationReturnUrl(baseUrlFromRequest(req), event, reg.id, "canceled"),
           payment_intent_data: {
             application_fee_amount: calculatePlatformFee(priceCents, club.tier),
             metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: club.id, memberId: member.id },
@@ -1095,8 +1105,19 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
 
     // CARD — pay now. The webhook creates the Booking on confirmed payment.
+    //
+    // This is the one path that does NOT land on the confirmation surface, and
+    // deliberately so: it creates no EventRegistration row (the webhook's
+    // memberId+eventId branch books it), so there is no registration to point
+    // at. Giving it one would reroute a live, high-traffic money path through
+    // the eventRegistrationId webhook branch, which is a different change than
+    // the three §5.2.1 bugs and doesn't belong in the same commit. A signed-in
+    // member lands in their portal, where the booking now exists.
+    //
+    // What IS fixed here is the origin: baseUrlFromRequest, so a Netlify
+    // preview returns to itself instead of bouncing to production.
     const platformFee = calculatePlatformFee(priceCents, club.tier);
-    const baseUrl = getAppBaseUrl();
+    const baseUrl = baseUrlFromRequest(req);
     const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
 
     const checkoutSession = await stripe.checkout.sessions.create(

@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendEmail } from "@/lib/email";
+import { registrationReturnUrl } from "@/lib/registrationUrl";
 
 export type BillOneRegistrantArgs = {
   event: {
@@ -66,14 +67,14 @@ export async function billOneRegistrant(args: BillOneRegistrantArgs): Promise<Bi
   const off = args.discountOff ?? 0;
   const discountNote = code ? ` · ${code} applied — $${off.toFixed(2)} off` : "";
 
-  // Where Stripe sends the payer afterwards. The public event page confirms
-  // payment when the event has a slug; events that aren't publicly listed have
-  // none, and `/e/${publicSlug ?? ""}` resolves to `/e/` — a 404 for a parent
-  // who just paid. Never build a URL from an empty slug.
+  // The live confirmation surface either way — it reads the row, so it is
+  // correct whether the payer completed the checkout, abandoned it, or opened
+  // the link a week later. This replaced a split between the public event page
+  // (which rendered success from a query parameter) and /pay/complete (which
+  // existed only because `/e/${publicSlug ?? ""}` 404s on an event with no
+  // slug). One address, one truth.
   const returnUrl = (outcome: "paid" | "canceled") =>
-    event.publicSlug
-      ? `${baseUrl}/e/${event.publicSlug}?${outcome}=true`
-      : `${baseUrl}/pay/complete?reg=${encodeURIComponent(reg.id)}&status=${outcome}`;
+    registrationReturnUrl(baseUrl, event, reg.id, outcome);
 
   let checkout: { id: string; url: string | null };
   try {

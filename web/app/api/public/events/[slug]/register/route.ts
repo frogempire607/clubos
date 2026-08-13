@@ -3,7 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
+import { registrationReturnUrl, registrationUrl } from "@/lib/registrationUrl";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { findValidDiscountFor, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 import { registrationDiscountFields, discountLineLabel } from "@/lib/eventDiscounts";
@@ -331,6 +332,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
       pendingReview: true,
       awaitingApproval: true,
       amountDue: billOnApproval ? amountDue : null,
@@ -346,6 +348,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
       variableCost: true,
       billedLater: true,
       estimatedShare,
@@ -369,6 +372,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       ok: true,
       free: true,
       registrationId: registration.id,
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
       ...(discount ? { discountCode: discount.code, discountOff: discountFields.discountAmount } : {}),
       ...(discount && grossDue > 0
         ? { message: `You're registered — ${discountLineLabel(discount)} covered the full $${grossDue.toFixed(2)}.` }
@@ -396,6 +400,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
       offline: true,
       ...(policy.requiresCoachApproval ? { pendingReview: true, awaitingApproval: true } : {}),
       paymentMethod: method,
@@ -430,7 +435,10 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // list price.
   const amountCents = Math.round(amountDue * 100);
   const platformFee = calculatePlatformFee(amountCents, event.club.tier);
-  const baseUrl = getAppBaseUrl();
+  // baseUrlFromRequest, not getAppBaseUrl: this is where the visitor's browser
+  // is sent back to in a moment, and on a Netlify preview the production
+  // origin has no such registration (§5.2.3).
+  const baseUrl = baseUrlFromRequest(req);
   const feeItem = processingFeeLineItem(amountCents, event.club.passProcessingFees);
   const discountMetadata: Record<string, string> = discount
     ? { discountCode: discount.code, discountAmount: String(discountFields.discountAmount ?? 0) }
@@ -458,8 +466,11 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
         },
         ...(feeItem ? [feeItem] : []),
       ],
-      success_url: `${baseUrl}/e/${event.publicSlug}?registered=true`,
-      cancel_url: `${baseUrl}/e/${event.publicSlug}?canceled=true`,
+      // The live confirmation surface, which reads the row. The old
+      // `?registered=true` rendered success from a query parameter — in
+      // parallel with the webhook that had not written anything yet.
+      success_url: registrationReturnUrl(baseUrl, event, registration.id, "paid"),
+      cancel_url: registrationReturnUrl(baseUrl, event, registration.id, "canceled"),
       payment_intent_data: {
         application_fee_amount: platformFee,
         metadata: {
@@ -487,5 +498,10 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     data: { stripeCheckoutSessionId: checkout.id },
   });
 
-  return NextResponse.json({ ok: true, url: checkout.url, registrationId: registration.id });
+  return NextResponse.json({
+    ok: true,
+    url: checkout.url,
+    registrationId: registration.id,
+    confirmationUrl: registrationUrl(baseUrl, event, registration.id),
+  });
 }

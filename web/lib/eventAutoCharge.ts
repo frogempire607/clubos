@@ -19,6 +19,7 @@ import { writeBillingAudit } from "@/lib/billingAudit";
 import { sendEmail, sendPaymentReceiptEmail } from "@/lib/email";
 import { recordDiscountUse } from "@/lib/discounts";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { registrationReturnUrl } from "@/lib/registrationUrl";
 
 export type AutoChargeOutcome =
   | "succeeded"
@@ -214,14 +215,10 @@ async function recordFailure(reg: RegForCharge, error: string) {
   try {
     const baseUrl = getAppBaseUrl();
     const feeItem = processingFeeLineItem(baseCents, reg.club.passProcessingFees);
-    // Same rule as bill-registrants: the public event page confirms payment
-    // when the event has one, otherwise /pay/complete does. /member was the
-    // old fallback — it resolves, but it bounces a non-member parent (most
-    // event registrants) to a login screen instead of a confirmation.
+    // The live confirmation surface (§5.2.3) — it reads the row, so it says
+    // the right thing whether they pay now, abandon, or open the link later.
     const returnUrl = (outcome: "paid" | "canceled") =>
-      reg.event.publicSlug
-        ? `${baseUrl}/e/${reg.event.publicSlug}?${outcome}=true`
-        : `${baseUrl}/pay/complete?reg=${encodeURIComponent(reg.id)}&status=${outcome}`;
+      registrationReturnUrl(baseUrl, reg.event, reg.id, outcome);
     const checkout = await stripe.checkout.sessions.create(
       {
         mode: "payment",

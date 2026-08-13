@@ -195,6 +195,15 @@ export default function PublicEventPage() {
       window.location.href = d.url;
       return;
     }
+    // Hand off to the confirmation surface rather than rendering success here
+    // (§5.2.3). This page used to say "You're registered · a confirmation has
+    // been sent to <email>" from its own state — which was a guess on the free
+    // path (nothing was sent) and a lie on the card path (the webhook hadn't
+    // written anything yet). The surface reads the row.
+    if (d.confirmationUrl) {
+      window.location.href = d.confirmationUrl;
+      return;
+    }
     setDone({
       message:
         d.message ||
@@ -354,7 +363,13 @@ export default function PublicEventPage() {
           <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">
             <PartyPopper className="h-10 w-10 mx-auto mb-2 text-stone-700" strokeWidth={1.5} />
             <h2 className="text-lg font-semibold text-stone-900 mb-1">{done.message}</h2>
-            <p className="text-sm text-stone-500">A confirmation has been sent to {email}.</p>
+            {/* Only reachable if the server didn't return a confirmation URL
+                — an older deploy, or a response shape we don't recognise. It
+                no longer claims an email was sent, because this page has never
+                been in a position to know that. */}
+            <p className="text-sm text-stone-500">
+              Check your inbox at {email} — and your club can always look this up for you.
+            </p>
           </div>
         ) : !event.registrationOpen ? (
           <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">

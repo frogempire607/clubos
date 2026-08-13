@@ -11,6 +11,7 @@ import {
 } from "@/lib/email";
 import type Stripe from "stripe";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { settleBundlePurchase } from "@/lib/bundlePurchases";
 import {
   invoiceSubscriptionId,
@@ -886,6 +887,22 @@ export async function POST(req: Request) {
                 });
               }
             }
+            // The confirmation itself (§5.2.1 bug 2). The webhook is where a
+            // public card registration BECOMES a registration, and until now
+            // this branch sent a receipt and nothing else — so the one path
+            // that ends in money moving was the one path that never confirmed
+            // anything. Keyed `event-confirm:<regId>`, the same key the
+            // register route uses, so whichever gets there first wins and the
+            // other is a no-op.
+            try {
+              await sendRegistrationLifecycleEmail({
+                registrationId: reg.id,
+                transition: "CONFIRMATION",
+              });
+            } catch (e) {
+              console.error("event registration confirmation failed", e);
+            }
+
             // Receipt — every completed payment gets one, member or not.
             if (reg.email) {
               try {

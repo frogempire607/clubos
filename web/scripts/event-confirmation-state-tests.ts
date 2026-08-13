@@ -33,6 +33,7 @@ import { amountToCollect, registrationListPrice } from "../lib/eventRepricing";
 import { applyProcessingFee } from "../lib/fees";
 import { computeNextReminderAt, resolveReminderAnchor } from "../lib/eventReminders";
 import { confirmationCodeFor, isConfirmationCode } from "../lib/confirmationCode";
+import { registrationUrl, registrationReturnUrl } from "../lib/registrationUrl";
 import {
   resolveCategoryFields,
   resolveExtraEntryLabel,
@@ -585,6 +586,37 @@ console.log("\n— entry categories are the club's words, not a sport's —");
   check("structural keys have neutral names", labelForChangeKey("extraEntry", null, "Swim another heat") === "Swim another heat");
   check("pre-configurable keys still render", labelForChangeKey("weightClass") === "Weight class");
   check("an unknown key degrades to itself, never to a sport", labelForChangeKey("zzz") === "zzz");
+}
+
+
+console.log("\n— one address per registration (§5.2.3) —");
+{
+  const base = "https://athletix-os.com";
+  check(
+    "a public event uses the readable form",
+    registrationUrl(base, { publicSlug: "fall-duals" }, "reg_1") === "https://athletix-os.com/e/fall-duals/registered/reg_1",
+  );
+  check(
+    "an event with no slug still has an address",
+    registrationUrl(base, { publicSlug: null }, "reg_1") === "https://athletix-os.com/r/reg_1",
+  );
+  check(
+    "never /e//… — the 404 that /pay/complete existed to patch",
+    !registrationUrl(base, { publicSlug: "" }, "reg_1").includes("/e//"),
+    registrationUrl(base, { publicSlug: "" }, "reg_1"),
+  );
+  check(
+    "Stripe returns to the same page either way",
+    registrationReturnUrl(base, { publicSlug: null }, "reg_1", "paid").startsWith(registrationUrl(base, { publicSlug: null }, "reg_1")),
+  );
+  check(
+    "…and the outcome is a hint, not the state",
+    registrationReturnUrl(base, { publicSlug: "x" }, "reg_1", "canceled").endsWith("?src=canceled"),
+  );
+  // The card renders from the row, so the URL parameter can say anything and
+  // the page still tells the truth — that is the property that matters.
+  const paidLooking = ctx({ status: "AWAITING_CASH" });
+  check("a ?src=paid return on an unpaid row still says cash is due", /cash/i.test(paidLooking.chargeTiming), paidLooking.chargeTiming);
 }
 
 console.log("\n— confirmation code (§5.2.3) —");
