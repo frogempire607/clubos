@@ -9,15 +9,18 @@ import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import EventExpenseEditor from "@/components/EventExpenseEditor";
+import {
+  CATEGORY_PRESETS,
+  PARTICIPANT_FIELD_ID,
+  DEFAULT_EXTRA_ENTRY_LABEL,
+  categoryFieldsFromForm,
+  fieldIdForKey,
+  proposalNotePlaceholder,
+  labelForChangeKey,
+  type CategoryField,
+} from "@/lib/eventCategories";
 
 type BuiltInType = "CLASS" | "PRIVATE" | "CLINIC" | "CAMP" | "TOURNAMENT" | "OTHER";
-
-// Reserved registrationForm field id for a tournament's participant category
-// (weight class, position, division, belt level…). Storing it inline in
-// registrationForm reuses the existing render/validate/store/report pipeline —
-// it shows on the signup page, is validated server-side, saved to
-// formResponses, and listed in Registrations — with no extra column.
-const PARTICIPANT_FIELD_ID = "participant_category";
 
 type FormFieldDef = {
   id: string;
@@ -47,6 +50,10 @@ type EventTypePolicy = {
   approvalPaymentIntent?: string;
   allowProposedChanges?: boolean;
   cancellationPolicyText?: string;
+  // Defaults for what entrants of this type choose, seeded into new events of
+  // this type. The event's own form always wins once it has any.
+  categoryFields?: { key: string; label: string; options?: string[]; required?: boolean }[];
+  extraEntryLabel?: string;
 };
 
 type EventSession = {
@@ -749,17 +756,43 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   // Split the reserved participant-category field out of the generic field list
   // so it gets its own first-class editor below and isn't shown/edited twice.
   const initialForm: FormFieldDef[] = Array.isArray(ev?.registrationForm) ? ev.registrationForm : [];
-  const initialParticipant = initialForm.find((f) => f.id === PARTICIPANT_FIELD_ID);
+  // Category fields get their own first-class editor below, so they're split
+  // out of the generic list rather than shown and edited twice. There can be
+  // any number of them — wrestling wants a weight and a division, judo a belt
+  // and a weight, a team sport only a position.
+  const initialCategories = categoryFieldsFromForm(initialForm);
   const [formFields, setFormFields] = useState<FormFieldDef[]>(
-    initialForm.filter((f) => f.id !== PARTICIPANT_FIELD_ID)
+    initialForm.filter((f) => !categoryFieldsFromForm([f]).length),
   );
-  const [participantLabel, setParticipantLabel] = useState<string>(initialParticipant?.label || "");
-  const [participantOptions, setParticipantOptions] = useState<string>(
-    (initialParticipant?.options || []).join("\n")
+  const [categories, setCategories] = useState<
+    { key: string; label: string; optionsText: string; required: boolean }[]
+  >(
+    initialCategories.map((c) => ({
+      key: c.key,
+      label: c.label,
+      optionsText: c.options.join("\n"),
+      required: c.required ?? true,
+    })),
   );
-  const [participantRequired, setParticipantRequired] = useState<boolean>(
-    initialParticipant?.required ?? true
-  );
+
+  function addCategory(preset?: { key: string; label: string }) {
+    setCategories((cs) => {
+      // Keys must be unique inside one event: they are what a proposal's
+      // `changes` is keyed by, and a duplicate would make two questions
+      // indistinguishable in the parent's comparison table.
+      const taken = new Set(cs.map((c) => c.key));
+      let key = preset?.key ?? "category";
+      let n = 2;
+      while (taken.has(key)) key = `${preset?.key ?? "category"}${n++}`;
+      return [...cs, { key, label: preset?.label ?? "", optionsText: "", required: true }];
+    });
+  }
+  function updateCategory(i: number, patch: Partial<{ label: string; optionsText: string; required: boolean }>) {
+    setCategories((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  }
+  function removeCategory(i: number) {
+    setCategories((cs) => cs.filter((_, idx) => idx !== i));
+  }
   const [varCostEnabled, setVarCostEnabled] = useState<boolean>(!!ev?.variableCostEnabled);
   const [varCostMode, setVarCostMode] = useState<string>(ev?.variableCostMode || "ESTIMATED");
   const [varCostTotal, setVarCostTotal] = useState<string>(
@@ -909,21 +942,26 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
         publicFormIntro: publicFormIntro || null,
         publicPricingOption: publicPricingOption || null,
         registrationForm: [
-          // Reserved participant-category field first (tournaments only).
-          ...(type === "TOURNAMENT" && participantLabel.trim()
-            ? [{
-                id: PARTICIPANT_FIELD_ID,
-                label: participantLabel.trim(),
-                type: "select" as const,
-                required: participantRequired,
-                options: participantOptions
-                  .split("\n")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              }]
-            : []),
+          // Category fields first, in the owner's order. The first one keeps
+          // the bare reserved id so every event created before categories were
+          // plural still round-trips unchanged; the rest are namespaced by key.
+          ...categories
+            .filter((c) => c.label.trim())
+            .map((c, i) => {
+              const options = c.optionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+              return {
+                id: i === 0 ? PARTICIPANT_FIELD_ID : fieldIdForKey(c.key),
+                label: c.label.trim(),
+                // A value list makes it a picker; without one it stays free
+                // text, which is the fallback for a club whose categories
+                // can't be enumerated up front.
+                type: (options.length > 0 ? "select" : "text") as "select" | "text",
+                required: c.required,
+                options,
+              };
+            }),
           ...formFields
-            .filter((f) => f.label.trim() && f.id !== PARTICIPANT_FIELD_ID)
+            .filter((f) => f.label.trim() && !categoryFieldsFromForm([f]).length)
             .map((f) => ({ ...f, label: f.label.trim() })),
         ],
         // Shared-cost / estimated-vs-official invoicing is available for any
@@ -1051,48 +1089,88 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                 </button>
               </div>
 
-              {/* Participant category — flexible per sport (weight class / position / division…) */}
+              {/* Entry categories — the club's own words, however many they need. */}
               <div className="border-t border-app-border pt-3 space-y-2">
                 <div>
-                  <p className="text-sm font-medium text-text-primary">Participant category</p>
+                  <p className="text-sm font-medium text-text-primary">Entry categories</p>
                   <p className="text-[11px] text-text-muted">
-                    What does each entrant choose at signup? Use your sport&apos;s term —
-                    e.g. <span className="font-medium">Weight Class</span> (wrestling, judo, MMA),{" "}
-                    <span className="font-medium">Position</span> (team sports),{" "}
-                    <span className="font-medium">Division</span>,{" "}
-                    <span className="font-medium">Age Group</span>, or{" "}
-                    <span className="font-medium">Belt Level</span>. Leave blank to skip.
+                    What does each entrant choose at signup? Add one for each — some
+                    clubs need two (a division and a weight, a belt and a weight), others
+                    only one. Give a category a list of values and entrants pick from it;
+                    leave the list empty and they type their own. These are also the
+                    fields a coach can propose changing.
                   </p>
                 </div>
-                <input
-                  type="text"
-                  value={participantLabel}
-                  onChange={(e) => setParticipantLabel(e.target.value)}
-                  placeholder="e.g. Weight Class, Position, Division"
-                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
-                />
-                {participantLabel.trim() && (
-                  <>
+
+                {categories.map((c, i) => (
+                  <div key={i} className="rounded-lg border border-app-border p-2.5 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={c.label}
+                        onChange={(e) => updateCategory(i, { label: e.target.value })}
+                        placeholder="Category name"
+                        className="flex-1 px-3 py-2 border border-app-border rounded-lg text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeCategory(i)}
+                        className="text-xs text-red-600 hover:bg-red-50 px-2 py-1.5 rounded"
+                      >
+                        Remove
+                      </button>
+                    </div>
                     <textarea
-                      value={participantOptions}
-                      onChange={(e) => setParticipantOptions(e.target.value)}
-                      rows={4}
-                      placeholder={"One option per line, e.g.\n106 lb\n113 lb\n120 lb"}
+                      value={c.optionsText}
+                      onChange={(e) => updateCategory(i, { optionsText: e.target.value })}
+                      rows={3}
+                      placeholder={"One value per line — leave blank for free text"}
                       className="w-full px-3 py-2 border border-app-border rounded-lg text-sm font-mono"
                     />
-                    <p className="text-[10px] text-text-muted">
-                      One option per line. Entrants pick one when they register, and it appears on every registration.
-                    </p>
-                    <label className="flex items-center gap-2 text-xs text-text-muted">
-                      <input
-                        type="checkbox"
-                        checked={participantRequired}
-                        onChange={(e) => setParticipantRequired(e.target.checked)}
-                        className="w-3.5 h-3.5 accent-stone-900"
-                      />
-                      Require entrants to choose a {participantLabel.trim().toLowerCase() || "category"}
-                    </label>
-                  </>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="flex items-center gap-2 text-xs text-text-muted">
+                        <input
+                          type="checkbox"
+                          checked={c.required}
+                          onChange={(e) => updateCategory(i, { required: e.target.checked })}
+                          className="w-3.5 h-3.5 accent-stone-900"
+                        />
+                        Required at signup
+                      </label>
+                      <span className="text-[10px] text-text-muted">
+                        {c.optionsText.split("\n").filter((x) => x.trim()).length > 0
+                          ? `${c.optionsText.split("\n").filter((x) => x.trim()).length} value(s) — entrants pick one`
+                          : "No values — entrants type their own"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  <span className="text-[11px] text-text-muted mr-1">Add:</span>
+                  {CATEGORY_PRESETS.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => addCategory(preset)}
+                      title={preset.hint}
+                      className="text-[11px] px-2.5 py-1 rounded-full border border-app-border text-text-primary hover:bg-app-bg"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => addCategory()}
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-app-border text-text-muted hover:bg-app-bg"
+                  >
+                    + Custom
+                  </button>
+                </div>
+                {categories.length === 0 && (
+                  <p className="text-[10px] text-text-muted">
+                    None yet — entrants just give their name and contact details.
+                  </p>
                 )}
               </div>
             </div>
@@ -1616,8 +1694,9 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                             Let coaches propose a different registration
                           </span>
                           <span className="block text-[11px] text-text-muted">
-                            Weight class, division, session, or adding another dual. The
-                            parent accepts or declines — you never change it for them.
+                            Any entry category you&apos;ve set up, the session, or one more
+                            entry. The parent accepts or declines — you never change it
+                            for them.
                           </span>
                         </span>
                       </label>
@@ -1809,6 +1888,16 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
   const [intent, setIntent] = useState<string>(policy?.approvalPaymentIntent || "PARENT_CHOOSES");
   const [allowProposals, setAllowProposals] = useState<boolean>(!!policy?.allowProposedChanges);
   const [cancellation, setCancellation] = useState<string>(policy?.cancellationPolicyText || "");
+  const [typeCategories, setTypeCategories] = useState<
+    { key: string; label: string; optionsText: string }[]
+  >(
+    (policy?.categoryFields ?? []).map((c) => ({
+      key: c.key,
+      label: c.label,
+      optionsText: (c.options ?? []).join("\n"),
+    })),
+  );
+  const [extraEntryLabel, setExtraEntryLabel] = useState<string>(policy?.extraEntryLabel || "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
@@ -1822,14 +1911,27 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
       body: JSON.stringify({
         // An all-off blob is stored as null by the server, which is what makes
         // "this type is configured" answerable.
-        defaultPolicy: requiresApproval
-          ? {
-              requiresCoachApproval: true,
-              approvalPaymentIntent: intent,
-              allowProposedChanges: allowProposals,
-              cancellationPolicyText: cancellation.trim() || undefined,
-            }
-          : null,
+        defaultPolicy:
+          requiresApproval || typeCategories.some((c) => c.label.trim())
+            ? {
+                ...(requiresApproval
+                  ? {
+                      requiresCoachApproval: true,
+                      approvalPaymentIntent: intent,
+                      allowProposedChanges: allowProposals,
+                      cancellationPolicyText: cancellation.trim() || undefined,
+                    }
+                  : {}),
+                categoryFields: typeCategories
+                  .filter((c) => c.label.trim())
+                  .map((c) => ({
+                    key: c.key,
+                    label: c.label.trim(),
+                    options: c.optionsText.split("\n").map((x) => x.trim()).filter(Boolean),
+                  })),
+                extraEntryLabel: extraEntryLabel.trim() || undefined,
+              }
+            : null,
       }),
     });
     setSaving(false);
@@ -1849,7 +1951,13 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
         onClick={() => setOpen((o) => !o)}
         className="text-[11px] text-text-muted hover:text-text-primary underline"
       >
-        {open ? "Hide" : policy ? "Coach approval: on" : "Coach approval: off"}
+        {open
+          ? "Hide"
+          : policy?.requiresCoachApproval
+            ? "Coach approval: on"
+            : policy?.categoryFields?.length
+              ? `${policy.categoryFields.length} entry categor${policy.categoryFields.length === 1 ? "y" : "ies"}`
+              : "Coach approval: off"}
       </button>
       {open && (
         <div className="mt-2 space-y-2 rounded-lg border border-app-border p-3">
@@ -1891,8 +1999,8 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
                   className="mt-0.5"
                 />
                 <span className="text-[11px] text-text-primary">
-                  Coaches may propose a different weight class, division, session, or an
-                  extra dual
+                  Coaches may propose a different entry category, session, or one more
+                  entry
                 </span>
               </label>
               <textarea
@@ -1904,6 +2012,84 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
               />
             </>
           )}
+
+          {/* Entry categories for this type. Seeded into new events of the type
+              so a club sets their vocabulary once instead of per event. */}
+          <div className="border-t border-app-border pt-2 space-y-2">
+            <p className="text-[11px] font-medium text-text-primary">
+              What {type.name} entrants choose
+            </p>
+            {typeCategories.map((c, i) => (
+              <div key={i} className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={c.label}
+                    onChange={(e) =>
+                      setTypeCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))
+                    }
+                    placeholder="Category name"
+                    className="flex-1 px-2.5 py-1.5 border border-app-border rounded-lg text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTypeCategories((cs) => cs.filter((_, idx) => idx !== i))}
+                    className="text-[11px] text-red-600 px-1.5 py-1 rounded hover:bg-red-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <textarea
+                  value={c.optionsText}
+                  onChange={(e) =>
+                    setTypeCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, optionsText: e.target.value } : x)))
+                  }
+                  rows={2}
+                  placeholder="One value per line — leave blank for free text"
+                  className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-[11px] font-mono"
+                />
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {CATEGORY_PRESETS.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  title={preset.hint}
+                  onClick={() =>
+                    setTypeCategories((cs) => {
+                      const taken = new Set(cs.map((c) => c.key));
+                      let key = preset.key;
+                      let n = 2;
+                      while (taken.has(key)) key = `${preset.key}${n++}`;
+                      return [...cs, { key, label: preset.label, optionsText: "" }];
+                    })
+                  }
+                  className="text-[10px] px-2 py-1 rounded-full border border-app-border hover:bg-app-bg"
+                >
+                  {preset.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setTypeCategories((cs) => [...cs, { key: `category${cs.length + 1}`, label: "", optionsText: "" }])
+                }
+                className="text-[10px] px-2 py-1 rounded-full border border-app-border text-text-muted hover:bg-app-bg"
+              >
+                + Custom
+              </button>
+            </div>
+            <input
+              value={extraEntryLabel}
+              onChange={(e) => setExtraEntryLabel(e.target.value)}
+              placeholder={`Extra-entry label (default: "${DEFAULT_EXTRA_ENTRY_LABEL}")`}
+              className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-xs"
+            />
+            <p className="text-[10px] text-text-muted">
+              The extra-entry label is what a coach offers when proposing one more of
+              something — an extra match, bout, heat, or game.
+            </p>
+          </div>
 
           {err && <p className="text-[11px] text-red-600">{err}</p>}
           <button
@@ -2465,6 +2651,11 @@ type RegistrationsData = {
       responsibleCoachUserId: string | null;
     };
     canDecide?: boolean;
+    // The club's own entry categories for this event, resolved server-side
+    // (event form first, event-type defaults as fallback).
+    categoryFields?: CategoryField[];
+    extraEntryLabel?: string;
+    proposalNotePlaceholder?: string;
   };
   pendingReviewCount?: number;
   awaitingParentCount?: number;
@@ -2540,10 +2731,11 @@ function CoachReviewQueue({
   const [mode, setMode] = useState<"decline" | "propose" | null>(null);
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
-  const [weightClass, setWeightClass] = useState("");
-  const [division, setDivision] = useState("");
+  // Keyed by category key, because how many there are and what they're called
+  // is the club's decision, not the code's.
+  const [categoryValues, setCategoryValues] = useState<Record<string, string>>({});
   const [session, setSession] = useState("");
-  const [addDual, setAddDual] = useState(false);
+  const [addExtraEntry, setAddExtraEntry] = useState(false);
   const [priceDelta, setPriceDelta] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
@@ -2565,23 +2757,21 @@ function CoachReviewQueue({
     return null;
   }
 
-  // The event's own form drives the pickers, so a club that calls it "Bracket"
-  // rather than "Weight class" sees their own words.
+  // The event's own categories drive the pickers, so a judo club sees a belt
+  // and a weight and a soccer club sees a position — same code, their words.
   const formFields = ev.registrationForm ?? [];
-  const fieldOptions = (id: string): string[] => {
-    const f = formFields.find((x) => x.id === id) as unknown as { options?: string[] } | undefined;
-    return Array.isArray(f?.options) ? (f?.options as string[]) : [];
-  };
+  const categoryFields: CategoryField[] = ev.categoryFields ?? [];
+  const extraEntryLabel = ev.extraEntryLabel || DEFAULT_EXTRA_ENTRY_LABEL;
+  const notePlaceholder = ev.proposalNotePlaceholder || proposalNotePlaceholder(categoryFields);
 
   function reset() {
     setOpenFor(null);
     setMode(null);
     setReason("");
     setNote("");
-    setWeightClass("");
-    setDivision("");
+    setCategoryValues({});
     setSession("");
-    setAddDual(false);
+    setAddExtraEntry(false);
     setPriceDelta("");
     setErr("");
   }
@@ -2672,7 +2862,13 @@ function CoachReviewQueue({
           const answers = Object.entries(r.formResponses ?? {})
             .filter(([k]) => !k.startsWith("__"))
             .map(([k, v]) => {
-              const label = formFields.find((f) => f.id === k)?.label ?? k;
+              // Category answers are keyed by category key, ordinary form
+              // answers by field id — check both before falling back to the
+              // raw key, or a judo roster reads "category: Yellow".
+              const label =
+                categoryFields.find((f) => f.key === k)?.label ??
+                formFields.find((f) => f.id === k)?.label ??
+                labelForChangeKey(k);
               return `${label}: ${String(v)}`;
             });
           return (
@@ -2785,56 +2981,49 @@ function CoachReviewQueue({
                     Nothing changes until the parent accepts. Leave a field blank to keep
                     what they signed up for.
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[11px] font-medium text-text-primary mb-1">
-                        {formFields.find((f) => f.id === "weightClass")?.label ?? "Weight class"}
-                      </label>
-                      {fieldOptions("weightClass").length > 0 ? (
-                        <select
-                          value={weightClass}
-                          onChange={(e) => setWeightClass(e.target.value)}
-                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
-                        >
-                          <option value="">No change</option>
-                          {fieldOptions("weightClass").map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          value={weightClass}
-                          onChange={(e) => setWeightClass(e.target.value)}
-                          placeholder="No change"
-                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
-                        />
-                      )}
+                  {categoryFields.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {categoryFields.map((f) => (
+                        <div key={f.key}>
+                          <label className="block text-[11px] font-medium text-text-primary mb-1">
+                            {f.label}
+                          </label>
+                          {/* A value list makes this a picker; without one the
+                              club couldn't enumerate its categories up front, so
+                              free text is the honest fallback. */}
+                          {f.options.length > 0 ? (
+                            <select
+                              value={categoryValues[f.key] ?? ""}
+                              onChange={(e) =>
+                                setCategoryValues((v) => ({ ...v, [f.key]: e.target.value }))
+                              }
+                              className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                            >
+                              <option value="">No change</option>
+                              {f.options.map((o) => (
+                                <option key={o} value={o}>{o}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              value={categoryValues[f.key] ?? ""}
+                              onChange={(e) =>
+                                setCategoryValues((v) => ({ ...v, [f.key]: e.target.value }))
+                              }
+                              placeholder="No change"
+                              className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                            />
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-medium text-text-primary mb-1">
-                        {formFields.find((f) => f.id === "division")?.label ?? "Division"}
-                      </label>
-                      {fieldOptions("division").length > 0 ? (
-                        <select
-                          value={division}
-                          onChange={(e) => setDivision(e.target.value)}
-                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
-                        >
-                          <option value="">No change</option>
-                          {fieldOptions("division").map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          value={division}
-                          onChange={(e) => setDivision(e.target.value)}
-                          placeholder="No change"
-                          className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
-                        />
-                      )}
-                    </div>
-                  </div>
+                  ) : (
+                    <p className="text-[11px] text-text-muted">
+                      This event has no entry categories set, so there&apos;s nothing to
+                      swap — you can still move them to another session, add an entry, or
+                      just send a note. Add categories in the event editor.
+                    </p>
+                  )}
                   <div>
                     <label className="block text-[11px] font-medium text-text-primary mb-1">
                       Session
@@ -2847,22 +3036,23 @@ function CoachReviewQueue({
                     />
                   </div>
 
-                  {/* The add-a-dual case: the one proposal that routinely costs
-                      more, so the extra fee is asked for in the same breath and
-                      the parent re-consents to it before anything is charged. */}
+                  {/* One more of whatever this club runs — a match, a bout, a
+                      heat, a game. It's the proposal that routinely costs more,
+                      so the fee is asked for in the same breath and the parent
+                      re-consents to that exact amount before anything moves. */}
                   <label className="flex items-start gap-2 p-2.5 rounded-lg border border-app-border cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={addDual}
+                      checked={addExtraEntry}
                       onChange={(e) => {
-                        setAddDual(e.target.checked);
+                        setAddExtraEntry(e.target.checked);
                         if (!e.target.checked) setPriceDelta("");
                       }}
                       className="mt-0.5"
                     />
                     <span className="min-w-0">
                       <span className="block text-xs font-medium text-text-primary">
-                        Wrestle an additional dual
+                        {extraEntryLabel}
                       </span>
                       <span className="block text-[11px] text-text-muted">
                         Usually adds an entry fee — put it below and the parent agrees to
@@ -2870,7 +3060,7 @@ function CoachReviewQueue({
                       </span>
                     </span>
                   </label>
-                  {addDual && (
+                  {addExtraEntry && (
                     <div>
                       <label className="block text-[11px] font-medium text-text-primary mb-1">
                         Additional fee
@@ -2895,7 +3085,7 @@ function CoachReviewQueue({
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       rows={2}
-                      placeholder="e.g. 126 is stacked — he'd get more matches at 132."
+                      placeholder={notePlaceholder}
                       className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
                     />
                   </div>
@@ -2910,10 +3100,12 @@ function CoachReviewQueue({
                     <button
                       onClick={() => {
                         const changes: Record<string, unknown> = {};
-                        if (weightClass.trim()) changes.weightClass = weightClass.trim();
-                        if (division.trim()) changes.division = division.trim();
+                        for (const f of categoryFields) {
+                          const v = (categoryValues[f.key] ?? "").trim();
+                          if (v) changes[f.key] = v;
+                        }
                         if (session.trim()) changes.session = session.trim();
-                        if (addDual) changes.addAnotherDual = true;
+                        if (addExtraEntry) changes.extraEntry = true;
                         if (Object.keys(changes).length === 0) {
                           setErr("Propose at least one change.");
                           return;
@@ -2921,7 +3113,7 @@ function CoachReviewQueue({
                         post(r.id, "propose-change", {
                           changes,
                           message: note.trim() || undefined,
-                          priceDelta: addDual && priceDelta ? parseFloat(priceDelta) : undefined,
+                          priceDelta: addExtraEntry && priceDelta ? parseFloat(priceDelta) : undefined,
                         });
                       }}
                       disabled={busy === r.id}
@@ -2944,7 +3136,14 @@ function CoachReviewQueue({
             <p className="text-[11px] text-text-muted">
               You proposed{" "}
               {Object.entries(r.proposedChange?.changes ?? {})
-                .map(([k, v]) => `${k}: ${String(v)}`)
+                .map(([k, v]) => {
+                  const label = labelForChangeKey(
+                    k,
+                    (r.proposedChange as { labels?: Record<string, string> } | null)?.labels,
+                    extraEntryLabel,
+                  );
+                  return `${label}: ${v === true ? "yes" : String(v)}`;
+                })
                 .join(", ")}
               {r.proposedChange?.priceDelta
                 ? ` · +$${Number(r.proposedChange.priceDelta).toFixed(2)}`

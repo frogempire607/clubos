@@ -12,6 +12,7 @@ import {
   registrationWaitingOn,
 } from "@/lib/eventPayments";
 import { canDecideRegistrations } from "@/lib/eventApproval";
+import { resolveCategoryFields, resolveExtraEntryLabel, proposalNotePlaceholder } from "@/lib/eventCategories";
 import { hasPermission } from "@/lib/permissions";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
@@ -143,6 +144,10 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   }
 
   const policy = resolveEventPolicy(event);
+  // What this event's entrants chose, in the club's own words — the coach's
+  // propose form renders one control per field instead of a fixed set named
+  // after one sport.
+  const categoryFields = resolveCategoryFields(event, policy);
   const pendingReviewCount = registrations.filter((r) => r.approvalStatus === "PENDING").length;
   const awaitingParentCount = registrations.filter(
     (r) => !!r.proposedChange && !r.proposedChangeRespondedAt,
@@ -153,6 +158,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       ...event,
       paymentMethods: eventAllowedPaymentMethods(event),
       policy,
+      categoryFields,
+      extraEntryLabel: resolveExtraEntryLabel(policy),
+      proposalNotePlaceholder: proposalNotePlaceholder(categoryFields),
       // Whether THIS user may approve/decline/propose here. The responsible
       // coach can decide their own event without event-editing rights, so the
       // answer is per-user and belongs on the server side of the wire.

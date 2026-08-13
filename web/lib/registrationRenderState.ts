@@ -66,6 +66,8 @@ export type ProposedChangeView = {
   priceDelta: number;
   proposedAt: Date;
   coachNote: string | null;
+  /** The coach's own field names, as they stood when they proposed. */
+  labels: Record<string, string> | null;
 };
 
 export type RegistrationRenderContext = {
@@ -231,12 +233,17 @@ function readProposal(reg: RenderRegistration): ProposedChangeView | null {
   const original: Record<string, unknown> = {};
   for (const k of Object.keys(changes)) original[k] = responses[k] ?? null;
   const delta = Number(p.priceDelta);
+  const labels =
+    p.labels && typeof p.labels === "object" && !Array.isArray(p.labels)
+      ? (p.labels as Record<string, string>)
+      : null;
   return {
     original,
     proposed: changes,
     priceDelta: Number.isFinite(delta) ? delta : 0,
     proposedAt,
     coachNote: typeof p.coachNote === "string" && p.coachNote.trim() ? p.coachNote.trim() : null,
+    labels,
   };
 }
 

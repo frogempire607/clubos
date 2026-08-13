@@ -1540,6 +1540,47 @@ was about the post-acceptance one.
   delete `/pay/complete` and repoint `bill-registrants` + `eventAutoCharge` at
   the new route.
 
+### Session 3 — 2026-08-12 · the propose form stops being a wrestling form
+
+**No migration.** Both homes already exist and are JSON:
+`ClubEventType.defaultPolicy` (per-type defaults, from the Phase 5 migration)
+and `Event.registrationForm` (the per-event questions, years old). Category
+fields are ordinary `registrationForm` entries marked by a reserved id, so
+"how many categories" is a data question rather than a schema one.
+
+| # | Item | Where |
+|---|---|---|
+| S-22 | **`lib/eventCategories.ts`** — the whole vocabulary in one pure module: presets, resolution (event form → type default → none), the proposable-key allowlist, the derived note placeholder, and label lookup for stored proposals. | `lib/eventCategories.ts` |
+| S-23 | **Owner-defined categories, any number**, per event and per event type, each a label plus an optional value list. A list makes the coach's control a picker; no list leaves it free text. Presets offered: Weight Class, Division, Age Group, Position, Belt Level, Bracket, + Custom. | event editor + Manage event types |
+| S-24 | **Proposal allowlist is per event**, not a fixed `weightClass \| division \| session \| addAnotherDual \| freeText` union. An unknown key is still a 400. | `lib/eventApproval.proposeRegistrationChange` |
+| S-25 | **Labels are snapshotted into the proposal** so renaming a category next week can't relabel a decision a family already answered. Coach queue, parent page and the email all read the snapshot. | `proposedChange.labels` |
+| S-26 | **Extra-entry label configurable**, neutral default "Add another entry" (was "Wrestle an additional dual"). The note placeholder is derived from the club's own category values rather than being another setting nobody would curate. | per-type `extraEntryLabel` |
+| S-27 | **`npm run test:sport-terms`** — the vocabulary guard, modelled on 4.5.10's vendor-literal one. Baselined at **0**, hard fail. | `scripts/sport-terms-guard.ts` |
+
+**What the guard does and doesn't catch.** Its first draft flagged 20 strings
+and 16 were legitimate: the landing page saying "built for wrestling, BJJ,
+gymnastics", onboarding's sport picker, the `apex-wrestling` slug placeholder.
+Naming a SPORT is fine; naming a FEATURE after one sport is not. So it scans
+in-product surfaces only (`app/dashboard`, `app/member`, `app/e`, `components`)
+and matches feature vocabulary — "weight class" as a field, "dual" as an entry,
+"wrestle an X", weigh-in, singlet, takedown, belt level as a field. The preset
+catalogue lives in `lib/` and is out of scope by construction: those strings are
+choices offered to an owner, not copy shown to a family.
+
+**Back-compat.** The first category keeps the bare `participant_category` id, so
+the three live events that already carry one (Brawl at the Beach, Waterway Duals
+K6, NJ Super32) round-trip untouched. Zero proposals exist in production, and
+`labelForChangeKey` still renders the pre-configurable keys if an in-flight
+branch wrote one.
+
+**Optional follow-up, not built.** Built-in event types (Tournament, Camp,
+Clinic) have no `ClubEventType` row — production has zero custom types — so
+per-type defaults are reachable only for custom types today. Giving built-ins
+club-wide defaults needs one additive column mirroring `Club.builtInEventColors`:
+`ALTER TABLE "clubs" ADD COLUMN "builtInEventCategories" JSONB;`. Not written,
+because the per-event presets already make setup one click and an unapplied
+migration folder sitting in the tree is a liability.
+
 ### 5.1 Bug fixes (do first — no schema work)
 
 | # | Task | Class | Status |

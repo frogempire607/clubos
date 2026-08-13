@@ -28,6 +28,7 @@ import {
   type RegistrationRenderContext,
 } from "@/lib/registrationRenderState";
 import { escapeHtml } from "@/lib/eventInvoicing";
+import { labelForChangeKey } from "@/lib/eventCategories";
 
 export type LifecycleTransition =
   | "CONFIRMATION"
@@ -155,7 +156,7 @@ export function renderLifecycleEmailHtml(ctx: RegistrationRenderContext, tz?: st
          <tbody>${Object.keys(m.proposedChange.proposed)
            .map(
              (k) =>
-               `<tr><td style="padding:4px 0;color:#57534e">${escapeHtml(k)}: ${escapeHtml(String(m.proposedChange?.original[k] ?? "—"))}</td><td style="padding:4px 0;color:#1c1917"><strong>${escapeHtml(String(m.proposedChange?.proposed[k] ?? "—"))}</strong></td></tr>`,
+               `<tr><td style="padding:4px 0;color:#57534e">${escapeHtml(labelForChangeKey(k, m.proposedChange?.labels))}: ${escapeHtml(String(m.proposedChange?.original[k] ?? "—"))}</td><td style="padding:4px 0;color:#1c1917"><strong>${escapeHtml(String(m.proposedChange?.proposed[k] === true ? "Yes" : (m.proposedChange?.proposed[k] ?? "—")))}</strong></td></tr>`,
            )
            .join("")}</tbody>
        </table>

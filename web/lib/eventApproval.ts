@@ -43,6 +43,7 @@ import { sendMemberMessage } from "@/lib/memberMessaging";
 import { amountToCollect } from "@/lib/eventRepricing";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { ACTIVE_REGISTRATION_STATUSES, resolveEventPolicy } from "@/lib/eventPayments";
+import { proposableKeys, resolveCategoryFields, resolveExtraEntryLabel } from "@/lib/eventCategories";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { stripe } from "@/lib/stripe";
 
@@ -545,15 +546,22 @@ export async function declineRegistration(args: {
   return result;
 }
 
-/** What a coach is allowed to propose changing (§5.4.3). */
-export const PROPOSABLE_CHANGE_KEYS = [
-  "weightClass",
-  "division",
-  "session",
-  "addAnotherDual",
-  "freeText",
-] as const;
-export type ProposableChangeKey = (typeof PROPOSABLE_CHANGE_KEYS)[number];
+/**
+ * What a coach may propose changing, per event (§5.4.3).
+ *
+ * This used to be a fixed union — weightClass | division | session |
+ * addAnotherDual | freeText — which is one sport's vocabulary hard-coded into
+ * the validator. It is now the event's OWN category fields plus the two
+ * structural keys, so a judo club proposes a belt and a weight and a soccer
+ * club proposes a position, with the same 400 on an unknown key.
+ */
+export function proposableKeysForEvent(event: {
+  registrationForm?: unknown;
+  customEventType?: { defaultPolicy?: unknown } | null;
+}): string[] {
+  const policy = resolveEventPolicy(event as never);
+  return proposableKeys(resolveCategoryFields(event, policy));
+}
 
 /**
  * Propose a different spot and hand the decision back to the parent.
@@ -615,12 +623,34 @@ export async function proposeRegistrationChange(args: {
       }
     }
 
+    // Validated here rather than at the route's zod schema, because the
+    // allowlist depends on the event and the route hasn't loaded it yet.
+    const fields = resolveCategoryFields(reg.event, policy);
+    const allowed = new Set(proposableKeys(fields));
+    const unknown = Object.keys(args.changes).filter((k) => !allowed.has(k));
+    if (unknown.length > 0) {
+      return fail(
+        "INVALID_TRANSITION",
+        400,
+        `This event doesn't have ${unknown.length === 1 ? "a field" : "fields"} called ${unknown.join(", ")}.`,
+        reg,
+      );
+    }
+
     const blob = {
       proposedByUserId: args.actorUserId,
       proposedAt: now.toISOString(),
       coachNote: args.message ?? null,
       priceDelta: delta,
       changes: args.changes,
+      // The labels AS THEY WERE when the coach proposed. A parent is answering
+      // a specific question; if the owner renames the field next week, the
+      // page they answer on must not quietly relabel the decision.
+      labels: {
+        ...Object.fromEntries(fields.map((f) => [f.key, f.label])),
+        session: "Session",
+        extraEntry: resolveExtraEntryLabel(policy),
+      },
     };
 
     await db.eventRegistration.update({

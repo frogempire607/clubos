@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, EmptyState, AccentButton, GhostButton } from "@/components/member/ui";
+import { labelForChangeKey } from "@/lib/eventCategories";
 
 type Registration = {
   id: string;
@@ -33,16 +34,14 @@ type Registration = {
     priceDelta: number;
     proposedAt: string;
     coachNote: string | null;
+    labels?: Record<string, string> | null;
   } | null;
 };
 
-const FIELD_LABEL: Record<string, string> = {
-  weightClass: "Weight class",
-  division: "Division",
-  session: "Session",
-  addAnotherDual: "Additional dual",
-  freeText: "Note",
-};
+// Labels come from the proposal itself — the coach's own words, snapshotted
+// when they proposed. A club renaming a category next week must not relabel a
+// decision a family already answered. labelForChangeKey falls back to the
+// structural names and then to the pre-configurable keys.
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
@@ -187,11 +186,15 @@ export default function ProposalResponsePage() {
           {keys.map((k) => (
             <div key={k} className="grid grid-cols-2 text-sm border-t border-stone-200">
               <div className="px-3 py-2">
-                <span className="block text-[11px] text-stone-500">{FIELD_LABEL[k] ?? k}</span>
+                <span className="block text-[11px] text-stone-500">
+                  {labelForChangeKey(k, proposal.labels)}
+                </span>
                 {value(proposal.original[k])}
               </div>
               <div className="px-3 py-2 border-l border-stone-200 bg-stone-50/60">
-                <span className="block text-[11px] text-stone-500">{FIELD_LABEL[k] ?? k}</span>
+                <span className="block text-[11px] text-stone-500">
+                  {labelForChangeKey(k, proposal.labels)}
+                </span>
                 <strong>{value(proposal.proposed[k])}</strong>
               </div>
             </div>

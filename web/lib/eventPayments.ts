@@ -282,6 +282,10 @@ export type EventPolicy = {
   cancellationPolicyText: string | null;
   holdSpotDuringReview: boolean;
   responsibleCoachUserId: string | null;
+  /** Per-type category defaults; the event's own form overrides them. */
+  categoryFields: unknown;
+  /** The club's word for "one more entry" on a proposal. */
+  extraEntryLabel: string | null;
 };
 
 /**
@@ -299,6 +303,8 @@ export const DEFAULT_EVENT_POLICY: EventPolicy = {
   cancellationPolicyText: null,
   holdSpotDuringReview: false,
   responsibleCoachUserId: null,
+  categoryFields: null,
+  extraEntryLabel: null,
 };
 
 export type PolicyEvent = {
@@ -399,6 +405,11 @@ export function resolveEventPolicy(event: PolicyEvent | null | undefined): Event
     // answer, so this never inherits.
     holdSpotDuringReview: event.holdSpotDuringReview === true,
     responsibleCoachUserId: event.responsibleCoachUserId?.trim() || null,
+    categoryFields: Array.isArray(type.categoryFields) ? type.categoryFields : null,
+    extraEntryLabel:
+      typeof type.extraEntryLabel === "string" && type.extraEntryLabel.trim()
+        ? type.extraEntryLabel.trim()
+        : null,
   };
 }
 
@@ -512,12 +523,39 @@ export function normalizeDefaultPolicy(input: unknown): Record<string, unknown> 
   if (typeof raw.cancellationPolicyText === "string" && raw.cancellationPolicyText.trim())
     out.cancellationPolicyText = raw.cancellationPolicyText.trim().slice(0, 2000);
 
+  // What entrants of this type choose at signup, in the club's own words —
+  // and what a coach may therefore propose changing. Shape validated by
+  // lib/eventCategories; anything malformed is dropped rather than stored.
+  if (Array.isArray(raw.categoryFields)) {
+    const fields = raw.categoryFields
+      .map((f) => {
+        const o = (f ?? {}) as Record<string, unknown>;
+        const key = typeof o.key === "string" ? o.key.trim() : "";
+        const label = typeof o.label === "string" ? o.label.trim() : "";
+        if (!key || !label) return null;
+        return {
+          key: key.slice(0, 40),
+          label: label.slice(0, 60),
+          options: Array.isArray(o.options)
+            ? o.options.map((x) => String(x).trim()).filter(Boolean).slice(0, 200)
+            : [],
+          required: o.required === true,
+        };
+      })
+      .filter(Boolean);
+    if (fields.length > 0) out.categoryFields = fields.slice(0, 8);
+  }
+  if (typeof raw.extraEntryLabel === "string" && raw.extraEntryLabel.trim())
+    out.extraEntryLabel = raw.extraEntryLabel.trim().slice(0, 60);
+
   // An all-off blob is indistinguishable from no blob, and storing it would
   // make "has this type been configured?" a lie.
   const meaningful =
     out.requiresCoachApproval === true ||
     out.escalationEnabled === true ||
     out.approvalPaymentIntent !== undefined ||
-    out.cancellationPolicyText !== undefined;
+    out.cancellationPolicyText !== undefined ||
+    out.categoryFields !== undefined ||
+    out.extraEntryLabel !== undefined;
   return meaningful ? out : null;
 }

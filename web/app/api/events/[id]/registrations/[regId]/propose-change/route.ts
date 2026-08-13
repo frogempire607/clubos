@@ -6,18 +6,15 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
-import {
-  proposeRegistrationChange,
-  canDecideRegistrations,
-  PROPOSABLE_CHANGE_KEYS,
-} from "@/lib/eventApproval";
+import { proposeRegistrationChange, canDecideRegistrations } from "@/lib/eventApproval";
 
 const bodySchema = z.object({
-  // A closed allowlist, not a free-form patch: the parent's comparison table
-  // renders these keys, and an unknown one would render as a blank row on the
-  // page they're being asked to agree to.
+  // Shape only. WHICH keys are allowed depends on the event's own category
+  // fields, so that check lives in proposeRegistrationChange where the event is
+  // already loaded — an unknown key is still a 400, it is just no longer a
+  // fixed list written in one sport's vocabulary.
   changes: z
-    .record(z.enum(PROPOSABLE_CHANGE_KEYS), z.union([z.string().max(500), z.boolean(), z.number()]))
+    .record(z.string().max(40), z.union([z.string().max(500), z.boolean(), z.number()]))
     .refine((c) => Object.keys(c).length > 0, "Propose at least one change."),
   message: z.string().trim().max(2000).optional(),
   priceDelta: z.number().finite().optional(),

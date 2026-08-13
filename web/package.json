@@ -23,7 +23,9 @@
     "test:phase4": "npm run test:family && npm run test:family-fixtures",
     "test:member-tracks": "tsx scripts/member-tracks-tests.ts",
     "test:members-guards": "tsx scripts/members-grep-guards.ts",
+    "test:sport-terms": "tsx scripts/sport-terms-guard.ts",
     "test:phase45": "npm run test:member-tracks && npm run test:member-ui && npm run test:members-guards",
+    "test:phase5": "tsx scripts/event-confirmation-state-tests.ts && tsx scripts/event-payment-tests.ts && tsx scripts/event-repricing-tests.ts && npm run test:sport-terms",
     "test:member-ui": "tsx --tsconfig scripts/tsconfig.render.json scripts/member-ui-tests.ts"
   },
   "dependencies": {

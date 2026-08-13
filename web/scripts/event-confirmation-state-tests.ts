@@ -33,6 +33,17 @@ import { amountToCollect, registrationListPrice } from "../lib/eventRepricing";
 import { applyProcessingFee } from "../lib/fees";
 import { computeNextReminderAt, resolveReminderAnchor } from "../lib/eventReminders";
 import { confirmationCodeFor, isConfirmationCode } from "../lib/confirmationCode";
+import {
+  resolveCategoryFields,
+  resolveExtraEntryLabel,
+  proposableKeys,
+  proposalNotePlaceholder,
+  labelForChangeKey,
+  categoryFieldsFromForm,
+  fieldIdForKey,
+  PARTICIPANT_FIELD_ID,
+  DEFAULT_EXTRA_ENTRY_LABEL,
+} from "../lib/eventCategories";
 
 let pass = 0;
 let fail = 0;
@@ -501,6 +512,79 @@ console.log("\n— a card never appears next to 'nothing owed' —");
       { chargeTiming: c.chargeTiming, cardLabel: c.meta.cardLabel },
     );
   }
+}
+
+
+console.log("\n— entry categories are the club's words, not a sport's —");
+{
+  // A wrestling club: two categories, both with value lists.
+  const wrestling = {
+    registrationForm: [
+      { id: PARTICIPANT_FIELD_ID, label: "Weight Class", type: "select", required: true, options: ["106", "113"] },
+      { id: fieldIdForKey("division"), label: "Division", type: "select", required: true, options: ["14U", "16U"] },
+    ],
+  };
+  // A judo club: a belt and a weight, different words, same code.
+  const judo = {
+    registrationForm: [
+      { id: PARTICIPANT_FIELD_ID, label: "Belt", type: "select", required: true, options: ["White", "Yellow"] },
+      { id: fieldIdForKey("weight"), label: "Weight", type: "select", required: true, options: ["-38kg", "-42kg"] },
+    ],
+  };
+  // A soccer club: one category, no value list — free text is the fallback.
+  const soccer = {
+    registrationForm: [{ id: PARTICIPANT_FIELD_ID, label: "Position", type: "text", required: false, options: [] }],
+  };
+
+  check("two categories resolve in order", resolveCategoryFields(wrestling).map((f) => f.label).join(",") === "Weight Class,Division");
+  check("a different sport resolves its own", resolveCategoryFields(judo).map((f) => f.label).join(",") === "Belt,Weight");
+  check("one category is fine", resolveCategoryFields(soccer).length === 1);
+  check(
+    "no categories at all is fine",
+    resolveCategoryFields({ registrationForm: [] }).length === 0,
+  );
+  check(
+    "a value list makes it a picker, no list makes it free text",
+    resolveCategoryFields(wrestling)[0].options.length === 2 && resolveCategoryFields(soccer)[0].options.length === 0,
+  );
+  check(
+    "the first field keeps the legacy reserved id, so old events round-trip",
+    categoryFieldsFromForm([{ id: PARTICIPANT_FIELD_ID, label: "Weight Class", options: ["106"] }])[0].key === "category",
+  );
+  check(
+    "type defaults are the fallback when the event's form has none",
+    resolveCategoryFields({ registrationForm: [] }, { categoryFields: [{ key: "belt", label: "Belt", options: [] }] })[0].label === "Belt",
+  );
+  check(
+    "the event's own form always wins over the type default",
+    resolveCategoryFields(soccer, { categoryFields: [{ key: "belt", label: "Belt", options: [] }] })[0].label === "Position",
+  );
+
+  // What a coach may propose is the club's fields plus the structural keys —
+  // never a fixed list named after one sport.
+  const keys = proposableKeys(resolveCategoryFields(judo));
+  check("proposable keys follow the club's categories", keys.includes("category") && keys.includes("weight"), keys);
+  check("session is always proposable", keys.includes("session"));
+  check("one more entry is always proposable", keys.includes("extraEntry"));
+  check("a foreign sport's key is not proposable", !keys.includes("weightClass"), keys);
+
+  check("extra-entry label defaults neutrally", resolveExtraEntryLabel(null) === DEFAULT_EXTRA_ENTRY_LABEL);
+  check("…and is the club's word when they set one", resolveExtraEntryLabel({ extraEntryLabel: "Swim another heat" }) === "Swim another heat");
+
+  const ph = proposalNotePlaceholder(resolveCategoryFields(judo));
+  check("the note placeholder speaks the club's vocabulary", ph.includes("White") && ph.includes("Yellow"), ph);
+  check(
+    "…and stays neutral with nothing configured",
+    !/weight|wrestl|dual/i.test(proposalNotePlaceholder([])),
+    proposalNotePlaceholder([]),
+  );
+
+  // A proposal snapshots its labels, so renaming a category later can't
+  // relabel a decision a family already answered.
+  check("stored labels win", labelForChangeKey("category", { category: "Belt" }) === "Belt");
+  check("structural keys have neutral names", labelForChangeKey("extraEntry", null, "Swim another heat") === "Swim another heat");
+  check("pre-configurable keys still render", labelForChangeKey("weightClass") === "Weight class");
+  check("an unknown key degrades to itself, never to a sport", labelForChangeKey("zzz") === "zzz");
 }
 
 console.log("\n— confirmation code (§5.2.3) —");
