@@ -36,7 +36,8 @@ export type LifecycleTransition =
   | "DECLINED"
   | "PROPOSAL"
   | "PROPOSAL_ACCEPTED"
-  | "PROPOSAL_DECLINED";
+  | "PROPOSAL_DECLINED"
+  | "REMINDER";
 
 /** §5.2.5's ledger keys. The proposal key carries the proposal's timestamp so a
  *  REVISED proposal re-notifies while a replay of the same one never does. */
@@ -72,6 +73,13 @@ function ledgerKeys(
         sendBatchId: "event-parent-declined",
         dedupeKey: `event-parent-declined:${registrationId}:${respondedAtKey ?? "0"}`,
       };
+    // Keyed on the STAGE, so a cron restart mid-pass re-sends nothing and only
+    // a genuine stage rotation produces a new row (§5.2.10).
+    case "REMINDER":
+      return {
+        sendBatchId: "event-remind",
+        dedupeKey: `event-remind:${registrationId}:${ctx.meta.escalationStage}`,
+      };
   }
 }
 
@@ -90,6 +98,17 @@ function subjectFor(transition: LifecycleTransition, ctx: RegistrationRenderCont
       return `You're registered for ${e}`;
     case "PROPOSAL_DECLINED":
       return `Your registration for ${e} was canceled`;
+    // Urgency comes from the proximity badge the resolver already computed, so
+    // the subject sharpens as the deadline closes without the cron formatting
+    // anything itself.
+    case "REMINDER": {
+      const badge = ctx.meta.proximityBadge;
+      const amount = ctx.meta.amountDue != null ? ` — ${money(ctx.meta.amountDue)}` : "";
+      if (badge === "TODAY") return `Due today: ${e}${amount}`;
+      if (badge === "TOMORROW") return `Due tomorrow: ${e}${amount}`;
+      if (badge === "3_DAYS" || badge === "THIS_WEEK") return `Payment due soon for ${e}${amount}`;
+      return `Payment reminder — ${e}${amount}`;
+    }
   }
 }
 
@@ -257,7 +276,17 @@ const REG_INCLUDE = {
  */
 export async function loadRegistrationRenderContext(
   registrationId: string,
-  opts: { baseUrl?: string; now?: Date } = {},
+  opts: {
+    baseUrl?: string;
+    now?: Date;
+    /**
+     * The stage a reminder is about to announce. The row still carries the
+     * PREVIOUS stage at this point — it is only advanced after the send — so
+     * the cron passes the stage it is firing and the copy renders the right
+     * urgency rather than the last one's.
+     */
+    escalationStage?: number;
+  } = {},
 ): Promise<RegistrationRenderContext | null> {
   const reg = await prisma.eventRegistration.findUnique({
     where: { id: registrationId },
@@ -285,7 +314,8 @@ export async function loadRegistrationRenderContext(
   const policy = resolveEventPolicy(reg.event);
 
   return renderableRegistrationState({
-    registration: reg,
+    registration:
+      opts.escalationStage != null ? { ...reg, reminderStage: opts.escalationStage } : reg,
     event: reg.event,
     club: reg.club,
     activeCount,
@@ -372,4 +402,89 @@ export async function sendRegistrationLifecycleEmail(args: {
     console.error("[eventLifecycleEmails] lifecycle email failed", args.transition, e);
   }
   return { sent, skipped };
+}
+
+// ── Coach daily digest (§5.6.7, §5.2.5 row 12) ──────────────────────────────
+// Different data from every other send in this file: it is about a QUEUE, not
+// about one registration, so it doesn't route through the render context. It
+// still goes through sendClubEmail, still transactional, still dedupe-keyed —
+// by coach and by calendar day in the club's own timezone, so a cron that
+// fires either side of 09:00 produces one email rather than two.
+
+export type DigestRow = {
+  registrationId: string;
+  athleteName: string;
+  eventId: string;
+  eventName: string;
+  daysWaiting: number;
+};
+
+export async function sendCoachDigestEmail(args: {
+  clubId: string;
+  coachUserId: string;
+  coachEmail: string;
+  coachFirstName: string | null;
+  rows: DigestRow[];
+  /** YYYY-MM-DD in the club's own calendar — the dedupe key's day part. */
+  dayKey: string;
+}): Promise<{ sent: boolean }> {
+  if (args.rows.length === 0) return { sent: false };
+  try {
+    const club = await prisma.club.findUnique({
+      where: { id: args.clubId },
+      select: { name: true },
+    });
+    const base = getAppBaseUrl();
+    const oldest = Math.max(...args.rows.map((r) => r.daysWaiting));
+
+    const lines = args.rows
+      .map(
+        (r) =>
+          `<tr><td style="padding:6px 0;color:#1c1917;font-size:13px">${escapeHtml(r.athleteName)}<br/><span style="color:#a8a29e">${escapeHtml(r.eventName)}</span></td><td style="padding:6px 0;text-align:right;color:${r.daysWaiting >= 3 ? "#b45309" : "#57534e"};font-size:13px;white-space:nowrap">${r.daysWaiting === 0 ? "today" : `${r.daysWaiting}d`}</td></tr>`,
+      )
+      .join("");
+
+    const html = `
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#1c1917">
+  <h2 style="margin:0 0 4px;font-size:20px">${args.rows.length} registration${args.rows.length === 1 ? "" : "s"} waiting on you</h2>
+  <p style="margin:0 0 16px;color:#57534e;line-height:1.6">
+    ${args.coachFirstName ? `${escapeHtml(args.coachFirstName)}, these` : "These"} families are waiting for a yes or no.
+    ${oldest >= 3 ? `The longest has been waiting ${oldest} days.` : ""}
+    Nobody holds a spot and nothing is charged until you decide.
+  </p>
+  <table style="width:100%;border-collapse:collapse;border-top:1px solid #e7e5e4;border-bottom:1px solid #e7e5e4">${lines}</table>
+  <p style="margin:20px 0">
+    <a href="${base}/dashboard/events" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Review them</a>
+  </p>
+  <p style="color:#a8a29e;font-size:11px;line-height:1.6">
+    ${escapeHtml(club?.name ?? "Your club")} · you're getting this because you're the responsible coach for these events.
+    It stops as soon as the queue is empty.
+  </p>
+</div>`;
+
+    const text = [
+      `${args.rows.length} registration(s) waiting on you`,
+      "",
+      ...args.rows.map((r) => `· ${r.athleteName} — ${r.eventName} (${r.daysWaiting === 0 ? "today" : `${r.daysWaiting}d`})`),
+      "",
+      `Review them: ${base}/dashboard/events`,
+    ].join("\n");
+
+    const res = await sendClubEmail({
+      clubId: args.clubId,
+      kind: "TRANSACTIONAL",
+      recipientEmail: args.coachEmail,
+      recipientUserId: args.coachUserId,
+      subject: `${args.rows.length} registration${args.rows.length === 1 ? "" : "s"} waiting on you`,
+      bodyHtml: html,
+      bodyText: text,
+      fromName: club?.name ?? null,
+      sendBatchId: "coach-digest",
+      dedupeKey: `coach-digest:${args.coachUserId}:${args.dayKey}`,
+    });
+    return { sent: res.status === "SENT" };
+  } catch (e) {
+    console.error("[eventLifecycleEmails] coach digest failed", args.coachUserId, e);
+    return { sent: false };
+  }
 }

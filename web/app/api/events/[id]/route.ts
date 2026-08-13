@@ -82,6 +82,10 @@ const updateSchema = z.object({
   holdSpotDuringReview: z.boolean().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
+  escalationEnabled: z.boolean().nullable().optional(),
+  escalationAnchor: z.enum(["registrationDeadline", "eventStart", "autoChargeDate"]).nullable().optional(),
+  escalationSchedule: z.enum(["DEFAULT_TOURNAMENT", "GENTLE", "AGGRESSIVE", "CUSTOM"]).nullable().optional(),
+  escalationCustomDays: z.array(z.number().int()).nullable().optional(),
 });
 
 function slugify(name: string): string {
@@ -165,7 +169,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       publicSlug = candidate;
     }
 
-    const { paymentDueBy, responsibleCoachUserId, registrationForm, variableCostEnabled, variableCostMode, variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, paymentMethods, autoChargeDate, ...flatRest } = rest;
+    const { paymentDueBy, responsibleCoachUserId, escalationCustomDays, registrationForm, variableCostEnabled, variableCostMode, variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, paymentMethods, autoChargeDate, ...flatRest } = rest;
 
     const updated = await prisma.event.update({
       where: { id: params.id },
@@ -210,6 +214,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         // events:edit can approve", which is a real setting, not an absence.
         ...(responsibleCoachUserId !== undefined
           ? { responsibleCoachUserId: responsibleCoachUserId || null }
+          : {}),
+        // Json column: an explicit null must CLEAR it (the owner switched off
+        // a custom cadence), not be dropped as a no-op.
+        ...(escalationCustomDays !== undefined
+          ? {
+              escalationCustomDays:
+                escalationCustomDays === null
+                  ? Prisma.DbNull
+                  : (escalationCustomDays as Prisma.InputJsonValue),
+            }
           : {}),
       },
     });

@@ -257,6 +257,19 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
     },
   );
 
+  // A reminder that has failed to send three times running. The family thinks
+  // nothing is owed and the club thinks they've been chased — nobody finds out
+  // without this (§5.6.6).
+  probe(
+    can("finances", "view"),
+    () => prisma.eventRegistration.count({ where: { clubId, reminderStage: -1 } }),
+    {
+      kind: "EVENT_REMINDER_SEND_FAILED",
+      label: "Payment reminders that couldn't send",
+      severity: "high",
+      href: "/dashboard/events",
+    },
+  );
   // ── Money owed (existing dashboard signal, surfaced as an action) ─────
   // UNPAID_REGISTRATION_STATUSES keeps legacy REGISTERED rows carrying an
   // amountDue (the "registered but never paid" case this signal exists for)

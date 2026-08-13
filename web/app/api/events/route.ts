@@ -105,6 +105,10 @@ const eventFields = {
   holdSpotDuringReview: z.boolean().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
+  escalationEnabled: z.boolean().nullable().optional(),
+  escalationAnchor: z.enum(["registrationDeadline", "eventStart", "autoChargeDate"]).nullable().optional(),
+  escalationSchedule: z.enum(["DEFAULT_TOURNAMENT", "GENTLE", "AGGRESSIVE", "CUSTOM"]).nullable().optional(),
+  escalationCustomDays: z.array(z.number().int()).nullable().optional(),
 
 };
 
@@ -220,6 +224,10 @@ export async function POST(req: Request) {
         holdSpotDuringReview: data.holdSpotDuringReview ?? false,
         cancellationPolicyText: data.cancellationPolicyText ?? undefined,
         paymentDueBy: data.paymentDueBy ? new Date(data.paymentDueBy) : undefined,
+        escalationEnabled: data.escalationEnabled ?? undefined,
+        escalationAnchor: data.escalationAnchor ?? undefined,
+        escalationSchedule: data.escalationSchedule ?? undefined,
+        escalationCustomDays: data.escalationCustomDays ?? undefined,
         sessions: data.sessions?.length
           ? {
               create: data.sessions.map((s, i) => ({

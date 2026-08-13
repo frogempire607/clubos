@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runDueEventCharges } from "@/lib/eventAutoCharge";
+import { runDueTournamentReminders } from "@/lib/tournamentReminders";
 import {
   eventAllowedPaymentMethods,
   UNPAID_REGISTRATION_STATUSES,
@@ -75,6 +76,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   // shouldn't wait on a long queue. Whatever's left is picked up by the next
   // open or by /api/cron/event-charges.
   await runDueEventCharges({ clubId: session.user.clubId, eventId: event.id, limit: 3 });
+  // Same lazy-sweep parity for reminders (§5.6.1): a club that never sets
+  // CRON_SECRET still gets them whenever staff open a roster. Capped at 3 for
+  // the same reason — each one is a round trip to the email provider, and the
+  // per-stage dedupe key means the cron and this can both fire harmlessly.
+  await runDueTournamentReminders({ clubId: session.user.clubId, eventId: event.id, limit: 3 });
 
   const rows = await prisma.eventRegistration.findMany({
     where: { eventId: event.id },

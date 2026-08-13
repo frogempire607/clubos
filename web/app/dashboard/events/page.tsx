@@ -9,6 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import EventExpenseEditor from "@/components/EventExpenseEditor";
+import { ESCALATION_SCHEDULE_DAYS, type EscalationSchedule } from "@/lib/eventPayments";
 import {
   CATEGORY_PRESETS,
   PARTICIPANT_FIELD_ID,
@@ -110,6 +111,10 @@ type Event = {
   holdSpotDuringReview?: boolean;
   cancellationPolicyText?: string | null;
   paymentDueBy?: string | null;
+  escalationEnabled?: boolean | null;
+  escalationAnchor?: string | null;
+  escalationSchedule?: string | null;
+  escalationCustomDays?: unknown;
 };
 
 type Member = { id: string; firstName: string; lastName: string };
@@ -838,6 +843,14 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
   const [paymentDueBy, setPaymentDueBy] = useState<string>(
     ev?.paymentDueBy ? new Date(ev.paymentDueBy).toISOString().slice(0, 10) : "",
   );
+  // Escalation (§5.3.2). Held back until session 3, because an owner should
+  // never be able to switch on a cadence that nothing sends.
+  const [escalationEnabled, setEscalationEnabled] = useState<boolean>(!!ev?.escalationEnabled);
+  const [escalationAnchor, setEscalationAnchor] = useState<string>(ev?.escalationAnchor || "registrationDeadline");
+  const [escalationSchedule, setEscalationSchedule] = useState<string>(ev?.escalationSchedule || "DEFAULT_TOURNAMENT");
+  const [escalationCustomDays, setEscalationCustomDays] = useState<string>(
+    Array.isArray(ev?.escalationCustomDays) ? (ev?.escalationCustomDays as number[]).join(", ") : "",
+  );
   const [approvalCardOpen, setApprovalCardOpen] = useState<boolean>(
     // Open when this event already has something configured — never make an
     // owner hunt for a setting that is already doing something.
@@ -1004,6 +1017,16 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
               // Date-only input → noon UTC keeps the intended calendar day in
               // every US timezone (same trap as autoChargeDate above).
               paymentDueBy: paymentDueBy ? new Date(`${paymentDueBy}T12:00:00Z`).toISOString() : null,
+              escalationEnabled: approvalOn ? escalationEnabled : null,
+              escalationAnchor: escalationEnabled ? escalationAnchor : null,
+              escalationSchedule: escalationEnabled ? escalationSchedule : null,
+              escalationCustomDays:
+                escalationEnabled && escalationSchedule === "CUSTOM"
+                  ? escalationCustomDays
+                      .split(",")
+                      .map((d) => parseInt(d.trim(), 10))
+                      .filter((d) => Number.isFinite(d))
+                  : null,
             }
           : {}),
         sessions: sessions.length > 0
@@ -1734,6 +1757,140 @@ function EventModal({ event, clubEventTypes, memberships, staffList, onClose, on
                           Shown to families on their confirmation. Blank uses the
                           registration deadline.
                         </p>
+                      </div>
+
+                      {/* Escalation. Held back until the cron existed — an
+                          owner should never be able to switch on a cadence
+                          that nothing sends. */}
+                      <div className="rounded-lg border border-app-border p-3 space-y-2">
+                        <label className="flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={escalationEnabled}
+                            onChange={(e) => setEscalationEnabled(e.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm text-text-primary font-medium">
+                              Send payment reminders as the deadline approaches
+                            </span>
+                            <span className="block text-[11px] text-text-muted">
+                              Only to families who still owe money. Anyone paid, scheduled,
+                              waiting on you, or canceled is never chased.
+                            </span>
+                          </span>
+                        </label>
+
+                        {escalationEnabled && (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[11px] font-medium text-text-primary mb-1">
+                                  Count back from
+                                </label>
+                                <select
+                                  value={escalationAnchor}
+                                  onChange={(e) => setEscalationAnchor(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                                >
+                                  <option value="registrationDeadline">The registration deadline</option>
+                                  <option value="eventStart">The event date</option>
+                                  <option value="autoChargeDate">The card-charge date</option>
+                                </select>
+                                <p className="text-[10px] text-text-muted mt-1">
+                                  A payment-due-by date, if you set one below, overrides this.
+                                </p>
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-text-primary mb-1">
+                                  How often
+                                </label>
+                                <select
+                                  value={escalationSchedule}
+                                  onChange={(e) => setEscalationSchedule(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                                >
+                                  <option value="DEFAULT_TOURNAMENT">Standard — 6 reminders</option>
+                                  <option value="GENTLE">Gentle — 3 reminders</option>
+                                  <option value="AGGRESSIVE">Persistent — 8 reminders</option>
+                                  <option value="CUSTOM">Custom…</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {escalationSchedule === "CUSTOM" && (
+                              <div>
+                                <label className="block text-[11px] font-medium text-text-primary mb-1">
+                                  Days from the anchor
+                                </label>
+                                <input
+                                  value={escalationCustomDays}
+                                  onChange={(e) => setEscalationCustomDays(e.target.value)}
+                                  placeholder="-14, -7, -1, 0, 2"
+                                  className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm"
+                                />
+                                <p className="text-[10px] text-text-muted mt-1">
+                                  Negative is before, 0 is the day itself, positive is after.
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Exactly what will be sent, on exactly which day.
+                                A cadence nobody can preview is a cadence nobody
+                                trusts enough to turn on. */}
+                            <div className="rounded-lg bg-app-bg p-2.5">
+                              <p className="text-[11px] font-medium text-text-primary mb-1">
+                                See the cadence
+                              </p>
+                              {(() => {
+                                const anchorDate =
+                                  paymentDueBy
+                                    ? new Date(`${paymentDueBy}T12:00:00Z`)
+                                    : escalationAnchor === "eventStart"
+                                      ? (startsAt ? new Date(startsAt) : null)
+                                      : escalationAnchor === "autoChargeDate"
+                                        ? (autoChargeDate ? new Date(`${autoChargeDate}T12:00:00Z`) : null)
+                                        : null;
+                                const days =
+                                  escalationSchedule === "CUSTOM"
+                                    ? escalationCustomDays
+                                        .split(",")
+                                        .map((d) => parseInt(d.trim(), 10))
+                                        .filter((d) => Number.isFinite(d))
+                                        .sort((a, b) => a - b)
+                                    : ESCALATION_SCHEDULE_DAYS[
+                                        escalationSchedule as Exclude<EscalationSchedule, "CUSTOM">
+                                      ] ?? [];
+                                if (days.length === 0) {
+                                  return <p className="text-[11px] text-text-muted">No days set — nothing will send.</p>;
+                                }
+                                return (
+                                  <ul className="space-y-0.5">
+                                    {days.map((d, i) => (
+                                      <li key={d} className="text-[11px] text-text-muted">
+                                        <span className="text-text-primary font-medium">#{i + 1}</span>{" "}
+                                        {d < 0 ? `${Math.abs(d)} days before` : d === 0 ? "on the day" : `${d} days after`}
+                                        {anchorDate && (
+                                          <span className="text-text-primary">
+                                            {" — "}
+                                            {new Date(anchorDate.getTime() + d * 86400000).toLocaleDateString(undefined, {
+                                              month: "short",
+                                              day: "numeric",
+                                            })}
+                                          </span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                );
+                              })()}
+                              <p className="text-[10px] text-text-muted mt-1.5">
+                                Reminders that fall before someone registers are never
+                                backfilled — they simply start at the next one.
+                              </p>
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       <div>
