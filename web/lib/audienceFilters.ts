@@ -133,7 +133,22 @@ export async function evaluateAudience(clubId: string, filter: AudienceFilter): 
   };
 
   // Base match — respects alwaysExclude but not alwaysInclude yet.
-  const matchedRows = filter.rules.length === 0 && (!filter.alwaysIncludeMemberIds || !filter.alwaysIncludeMemberIds.length)
+  //
+  // The base match runs ONLY when there are rules. With no rules, `combined`
+  // is `{}` and the query matches every member in the club, so evaluating it
+  // is never what an empty rule set means.
+  //
+  // The previous guard also required alwaysIncludeMemberIds to be empty, which
+  // inverted the intent for the one shape that matters most: a pure custom
+  // selection (`rules: []` + a list of hand-picked members — plan §3D's
+  // "custom selections", and exactly what saving a Members-tab selection
+  // produces). That combination fell through to the unfiltered findMany and
+  // resolved to THE ENTIRE CLUB, with the hand-picked union then adding
+  // nothing. Picking 77 people would have emailed everyone.
+  //
+  // alwaysInclude is a union applied below; it is never a reason to evaluate
+  // an empty rule set.
+  const matchedRows = filter.rules.length === 0
     ? []
     : await prisma.member.findMany({ where, select: { id: true } });
   const matchedIds = new Set(matchedRows.map((m) => m.id));
@@ -146,10 +161,16 @@ export async function evaluateAudience(clubId: string, filter: AudienceFilter): 
       where: {
         clubId,
         deletedAt: null,
-        id: { in: filter.alwaysIncludeMemberIds },
-        ...(filter.alwaysExcludeMemberIds && filter.alwaysExcludeMemberIds.length
-          ? { id: { notIn: filter.alwaysExcludeMemberIds } }
-          : {}),
+        // Both conditions go INSIDE one `id` object. Spreading a second
+        // `id:` key at this level silently replaced `in` with `notIn`, so
+        // any exclusion turned a three-person hand-picked list into
+        // "everyone except that one person" — the whole club again.
+        id: {
+          in: filter.alwaysIncludeMemberIds,
+          ...(filter.alwaysExcludeMemberIds && filter.alwaysExcludeMemberIds.length
+            ? { notIn: filter.alwaysExcludeMemberIds }
+            : {}),
+        },
       },
       select: { id: true },
     });
