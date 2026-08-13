@@ -6,17 +6,21 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { MIGRATION_STATUS } from "@/lib/migration";
+import { recomputeMemberStatus } from "@/lib/memberStatus";
 
 // Discrete, confirmation-gated billing actions (billing:full). Each action is
 // explicit, audited, and preserves history — nothing here deletes rows or
 // touches a live Stripe subscription.
 
 const schema = z.object({
-  action: z.enum(["cancel_pending_activation", "reassign_subscription"]),
+  action: z.enum(["cancel_pending_activation", "reassign_subscription", "set_deliberate_free"]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
   subscriptionId: z.string().optional(),
   targetMemberId: z.string().optional(),
+  // set_deliberate_free:
+  deliberateFree: z.boolean().optional(),
+  reason: z.string().max(200).optional().nullable(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -89,6 +93,86 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
     });
     return NextResponse.json({ ok: true });
+  }
+
+  // set_deliberate_free — the club states that a $0 membership is a comp it
+  // meant to give, not a leftover placeholder row. This is the ONLY writer of
+  // MemberSubscription.deliberateFree; the flag is never inferred from the
+  // price, because inferring it is precisely the bug that counted migration
+  // artifacts as active members.
+  if (data.action === "set_deliberate_free") {
+    if (!data.subscriptionId || data.deliberateFree === undefined) {
+      return NextResponse.json({ error: "subscriptionId and deliberateFree are required." }, { status: 400 });
+    }
+    const target = await prisma.memberSubscription.findFirst({
+      where: { id: data.subscriptionId, memberId: member.id },
+      include: { membership: { select: { clubId: true, name: true } } },
+    });
+    if (!target || target.membership.clubId !== session.user.clubId) {
+      return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
+    }
+
+    // On a priced row the flag changes nothing — a paid membership counts
+    // when a payment lands, comp or not. Storing it there would leave staff
+    // believing they had comped someone who is still expected to pay, which
+    // is worse than refusing. Point at the control that actually does it.
+    if (Number(target.price) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `This membership is ${Number(target.price).toFixed(2)}, not free. Marking it comped would change ` +
+            `nothing — a priced membership counts once a payment is recorded. To actually give it away, set ` +
+            `the price to $0 first (Edit billing → price override, or “Mark free”), then mark it deliberate.`,
+          code: "NOT_A_FREE_MEMBERSHIP",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (target.deliberateFree === data.deliberateFree) {
+      return NextResponse.json({ ok: true, unchanged: true });
+    }
+
+    const note = data.reason?.trim()
+      ? `[${data.deliberateFree ? "Comped" : "Comp removed"} ${new Date().toISOString().slice(0, 10)}: ${data.reason.trim()}]`
+      : `[${data.deliberateFree ? "Marked deliberate comp" : "Comp marker removed"} ${new Date().toISOString().slice(0, 10)}]`;
+
+    await prisma.memberSubscription.update({
+      where: { id: target.id },
+      data: {
+        deliberateFree: data.deliberateFree,
+        notes: `${target.notes ? target.notes + " " : ""}${note}`,
+      },
+    });
+    await prisma.member.update({
+      where: { id: member.id },
+      data: { billingUpdatedAt: new Date(), billingUpdatedById: session.user.id },
+    });
+
+    // The flag decides whether this row counts as a membership at all, so
+    // the member's stored status must be recomputed in the same breath —
+    // otherwise the roster keeps yesterday's answer until something else
+    // happens to touch them.
+    await recomputeMemberStatus(member.id, session.user.clubId);
+    const after = await prisma.member.findUnique({
+      where: { id: member.id },
+      select: { status: true },
+    });
+    const status = after?.status ?? member.status;
+
+    await writeBillingAudit({
+      clubId: session.user.clubId,
+      memberId: member.id,
+      actorUserId: session.user.id,
+      action: data.deliberateFree ? "MEMBERSHIP_COMPED" : "MEMBERSHIP_COMP_REMOVED",
+      before: { subscriptionId: target.id, deliberateFree: target.deliberateFree },
+      after: { subscriptionId: target.id, deliberateFree: data.deliberateFree, memberStatus: status },
+      note: data.deliberateFree
+        ? `"${target.optionLabel}" marked a deliberate $0 membership${data.reason?.trim() ? ` — ${data.reason.trim()}` : ""}.`
+        : `"${target.optionLabel}" is no longer marked a deliberate $0 membership${data.reason?.trim() ? ` — ${data.reason.trim()}` : ""}.`,
+    });
+
+    return NextResponse.json({ ok: true, deliberateFree: data.deliberateFree, memberStatus: status });
   }
 
   // reassign_subscription — move a NON-Stripe (manual/pending) subscription to

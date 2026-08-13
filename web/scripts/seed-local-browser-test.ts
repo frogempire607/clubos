@@ -325,13 +325,17 @@ async function main() {
   // 2. A GENUINE duplicate — same person entered twice. Same name + same DOB,
   //    which is the key the D-1 fix deliberately leaves intact. Neither has a
   //    login, so this pair is mergeable and Merge must actually work.
-  for (const [id, days] of [["m_dupe_keep", 240], ["m_dupe_drop", 30]] as [string, number][]) {
+  // NB: these ids used to be m_dupe_keep / m_dupe_drop, but m_dupe_keep is
+  // already taken by the Marcus Whitfield pair above — two different people
+  // sharing one primary key, so the seed died with P2002 partway through and
+  // left the club half-populated.
+  for (const [id, days] of [["m_delacroix_keep", 240], ["m_delacroix_drop", 30]] as [string, number][]) {
     await prisma.member.create({
       data: {
         id, clubId, firstName: "Marcus", lastName: "Delacroix", status: "PROSPECT",
         dateOfBirth: new Date("1996-11-23"), joinedAt: ago(days),
-        email: id === "m_dupe_keep" ? "marcus.d@local.test" : null,
-        phone: id === "m_dupe_drop" ? "555-0188" : null,
+        email: id === "m_delacroix_keep" ? "marcus.d@local.test" : null,
+        phone: id === "m_delacroix_drop" ? "555-0188" : null,
       },
     });
   }

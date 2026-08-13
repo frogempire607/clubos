@@ -386,6 +386,11 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           price: effective,
           billingPeriod: offer.billingPeriod,
           billingType: "MANUAL",
+          // A free offer IS the club deliberately giving a membership away.
+          // MANUAL is already exempt from the money test, so this changes
+          // nothing today — but it makes the row say what it is instead of
+          // depending on that exemption, and the billing centre reads it.
+          ...(isFree ? { deliberateFree: true } : {}),
           autoRenew: false,
           status: activateNow ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),

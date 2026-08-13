@@ -236,7 +236,8 @@ export type BillingState =
   | "OFFER_DRAFT" // offer drafted, not sent yet
   | "DRAFT_CONFIG" // owner configured paid billing but nothing is scheduled/sent
   | "MANUAL_OFFLINE" // active manual/offline membership (club collects payment)
-  | "FREE" // genuinely $0 membership
+  | "FREE" // genuinely $0 membership the club meant to give away
+  | "FREE_UNMARKED" // $0 with no comp marker — not a membership yet
   | "LEAVE_ALONE" // completed/settled, nothing open
   | "INCOMPLETE" // imported, nothing configured
   | "NONE";
@@ -272,7 +273,14 @@ export const BILLING_STATE_META: Record<BillingState, { label: string; explanati
   },
   FREE: {
     label: "Free membership",
-    explanation: "A genuinely $0 membership — there is nothing to charge.",
+    explanation: "A $0 membership the club deliberately gives away — there is nothing to charge.",
+  },
+  FREE_UNMARKED: {
+    label: "$0 — not marked as a comp",
+    explanation:
+      "This subscription is $0 but nobody has said the club meant to give it away, so it does not count " +
+      "as a membership and this member reads as inactive. If it is a real comp, mark it under Membership " +
+      "history below. If it is a leftover placeholder from the migration, they were never a member.",
   },
   LEAVE_ALONE: {
     label: "Settled — leave alone",
@@ -296,6 +304,12 @@ export type BillingStateInput = {
     stripeStatus?: string | null;
     price: number;
     hasStripe: boolean;
+    /**
+     * Whether the club has SAID this $0 membership is a comp. Absent means
+     * unmarked, never "assume yes" — inferring a comp from the price is the
+     * bug that let migration placeholder rows read as active members.
+     */
+    deliberateFree?: boolean | null;
   } | null;
   /** Resolved CURRENT configured price (plan/option/override precedence). */
   configuredPrice: number | null;
@@ -327,7 +341,14 @@ export function deriveBillingState(input: BillingStateInput): BillingState {
   if (paidDraft) return "DRAFT_CONFIG";
   // 4. The standing subscription, if any.
   if (sub && (sub.status === "active" || sub.status === "past_due")) {
-    if (sub.price <= 0) return "FREE";
+    if (sub.price <= 0) {
+      // A cash membership counts whether or not anyone marked it a comp
+      // (MANUAL is exempt from the money test), so "Free membership" is
+      // the truth there. Everything else at $0 needs the club to have
+      // said so, or it is not a membership at all.
+      if (sub.billingType === "MANUAL" || sub.deliberateFree) return "FREE";
+      return "FREE_UNMARKED";
+    }
     return "MANUAL_OFFLINE";
   }
   if (input.migrationStatus === "COMPLETED") return "LEAVE_ALONE";
