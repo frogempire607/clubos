@@ -1,3 +1,4 @@
+import { addBillingPeriod } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
@@ -40,18 +41,6 @@ const schema = z.object({
 type Option = { label: string; price: number; billingPeriod: string };
 
 /** Compute endDate from startDate + billingPeriod for one-time purchases */
-function computeEndDate(start: Date, billingPeriod: string): Date {
-  const d = new Date(start);
-  switch (billingPeriod) {
-    case "WEEKLY":      d.setDate(d.getDate() + 7);   break;
-    case "MONTHLY":     d.setMonth(d.getMonth() + 1); break;
-    case "QUARTERLY":   d.setMonth(d.getMonth() + 3); break;
-    case "SEMI_ANNUAL": d.setMonth(d.getMonth() + 6); break;
-    case "ANNUAL":      d.setFullYear(d.getFullYear() + 1); break;
-    default:            d.setFullYear(d.getFullYear() + 1); break; // fallback 1 year
-  }
-  return d;
-}
 
 /** Compute next billing anchor for a given day of month */
 function billingAnchorForDay(day: number): Date {
@@ -117,7 +106,7 @@ export async function POST(req: Request) {
     // Compute endDate for one-time purchases if not explicitly provided
     let resolvedEndDate: Date | null = body.endDate ? new Date(body.endDate) : null;
     if (!resolvedEndDate && resolvedBillingType === "ONE_TIME") {
-      resolvedEndDate = computeEndDate(resolvedStartDate, option.billingPeriod);
+      resolvedEndDate = addBillingPeriod(resolvedStartDate, option.billingPeriod);
     }
 
     // Resolve billing anchor
@@ -136,6 +125,10 @@ export async function POST(req: Request) {
           billingType: "MANUAL",
           startDate: resolvedStartDate,
           endDate: resolvedEndDate,
+          // Offline rows carry no Stripe period, so stamp it here: without it
+          // nothing knows when this paid-up period expires (renewal alerts, the
+          // unused-time credit, "who owes money" were all blind to cash members).
+          currentPeriodEnd: addBillingPeriod(resolvedStartDate, option.billingPeriod),
           autoRenew: false,
           billingDay,
           billingAnchorDate,

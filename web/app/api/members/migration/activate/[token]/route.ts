@@ -1,3 +1,4 @@
+import { addBillingPeriod } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -941,6 +942,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           status: "active",
           startDate: member.membershipStartDate ?? new Date(),
           ...(member.commitmentEndDate ? { endDate: member.commitmentEndDate } : {}),
+          currentPeriodEnd: addBillingPeriod(member.membershipStartDate ?? new Date(), finalPlanPeriod),
           notes: "Final period already paid — non-renewing; ends on the commitment date.",
         },
       });

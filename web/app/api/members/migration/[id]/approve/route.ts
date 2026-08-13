@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { recurringUnitWithFee } from "@/lib/fees";
@@ -62,7 +62,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // Approval STARTS BILLING — that's financial control, so it requires the
   // explicit billing permission (owners bypass; a coach with members:edit
   // can run the roster but can no longer start charges).
-  const denied = requirePermission(session, "billing", "full");
+  const denied = await requirePermissionLive(session, "billing", "full");
   if (denied) return denied;
 
   let body: z.infer<typeof schema>;
@@ -382,6 +382,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
         startDate: member.membershipStartDate ?? new Date(),
         billingAnchorDate: anchor,
+        // Offline period end — anchored to the billing anchor when the owner set
+        // one, else to the start date.
+        currentPeriodEnd: addBillingPeriod(anchor ?? member.membershipStartDate ?? new Date(), period),
         // Explicit requested end wins; otherwise a non-renewing plan ends
         // after its first billing period (expireEndedManualSubscriptions).
         ...(member.requestedCancellationDate

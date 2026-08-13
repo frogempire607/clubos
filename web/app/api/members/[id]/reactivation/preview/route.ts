@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { renderMembershipReactivationEmail } from "@/lib/email";
 import { loadReactivationEmailContext } from "@/lib/reactivation";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
@@ -13,7 +13,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "billing", "view");
+  const denied = await requirePermissionLive(session, "billing", "view");
   if (denied) return denied;
 
   const ctx = await loadReactivationEmailContext(id, session.user.clubId, baseUrlFromRequest(req));

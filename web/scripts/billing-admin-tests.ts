@@ -290,5 +290,20 @@ console.log("\nstaffPayments:");
 
 // Final tally including the staff-payment block above (the earlier summary
 // line prints before these run — this one is authoritative for the exit code).
+
+// ── addBillingPeriod — the one period helper ────────────────────────────────
+// Four routes kept private copies of this and ALL FOUR omitted QUADRIMESTRAL,
+// so a four-month plan silently got a twelve-month period.
+console.log("\naddBillingPeriod:");
+const P = (from: string, period: string) => addBillingPeriod(new Date(from), period).toISOString().slice(0, 10);
+check("WEEKLY +7d", P("2026-01-01", "WEEKLY") === "2026-01-08", P("2026-01-01", "WEEKLY"));
+check("MONTHLY +1m", P("2026-01-15", "MONTHLY") === "2026-02-15", P("2026-01-15", "MONTHLY"));
+check("QUARTERLY +3m", P("2026-01-15", "QUARTERLY") === "2026-04-15", P("2026-01-15", "QUARTERLY"));
+check("QUADRIMESTRAL is +4 MONTHS, not the 1-year fallback",
+  P("2026-01-15", "QUADRIMESTRAL") === "2026-05-15", P("2026-01-15", "QUADRIMESTRAL"));
+check("SEMI_ANNUAL +6m", P("2026-01-15", "SEMI_ANNUAL") === "2026-07-15", P("2026-01-15", "SEMI_ANNUAL"));
+check("ANNUAL +1y", P("2026-01-15", "ANNUAL") === "2027-01-15", P("2026-01-15", "ANNUAL"));
+check("an unknown period still falls back to 1 year", P("2026-01-15", "WHAT") === "2027-01-15");
+
 console.log(`\n=== FINAL: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

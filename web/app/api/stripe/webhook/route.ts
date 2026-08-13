@@ -1,3 +1,4 @@
+import { addBillingPeriod } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
@@ -209,7 +210,7 @@ export async function POST(req: Request) {
               // Compute endDate from the billing period snapshot
               let endDate = memberSub.endDate; // may already be set from subscribe route
               if (!endDate && memberSub.billingPeriod) {
-                endDate = computeEndDateFromPeriod(startDate, memberSub.billingPeriod);
+                endDate = addBillingPeriod(startDate, memberSub.billingPeriod);
               }
 
               await prisma.memberSubscription.update({
@@ -1224,15 +1225,3 @@ function tierFromPriceId(priceId: string): string | null {
 }
 
 /** Compute endDate from a startDate + billingPeriod string */
-function computeEndDateFromPeriod(start: Date, period: string): Date {
-  const d = new Date(start);
-  switch (period) {
-    case "WEEKLY":      d.setDate(d.getDate() + 7);          break;
-    case "MONTHLY":     d.setMonth(d.getMonth() + 1);        break;
-    case "QUARTERLY":   d.setMonth(d.getMonth() + 3);        break;
-    case "SEMI_ANNUAL": d.setMonth(d.getMonth() + 6);        break;
-    case "ANNUAL":      d.setFullYear(d.getFullYear() + 1);  break;
-    default:            d.setFullYear(d.getFullYear() + 1);  break;
-  }
-  return d;
-}
