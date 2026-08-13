@@ -233,9 +233,21 @@ export function queueClauses(now: Date = new Date()): Record<
         {
           // Transactions hang off the MEMBER, not the subscription (offline rows
           // have no stripeSubscriptionId to join on), so the money test is
-          // member-level here.
+          // member-level — but it MUST be scoped to membership money.
+          //
+          // The first cut asked "has this member paid anything", and Barrett
+          // David's $120 cash for the College Combine answered yes, hiding a
+          // membership he has never paid for. An event ticket is not a
+          // membership payment, and a queue that quietly drops people is worse
+          // than no queue.
           subscriptions: { some: { status: "active", billingType: "MANUAL", price: { gt: 0 } } },
-          transactions: { none: { status: "SUCCEEDED", reconciliationStatus: { not: "VOID" } } },
+          transactions: {
+            none: {
+              status: "SUCCEEDED",
+              reconciliationStatus: { not: "VOID" },
+              type: "MEMBERSHIP",
+            },
+          },
         },
       ],
     },

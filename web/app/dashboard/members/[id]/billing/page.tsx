@@ -558,12 +558,19 @@ export default function MemberBillingPage() {
                     <CompToggle
                       memberId={id}
                       sub={s}
-                      // A prepaid member reads $0 for the same reason a comp
-                      // does — nothing left to charge — and the two must not
-                      // be confused. Marking a lump-sum annual as comped
-                      // would claim the club gave away a year it was paid
-                      // for, and would bury the renewal.
-                      prepaid={data.billing.finalPeriodPaid || (!s.autoRenew && !!s.endDate)}
+                      // Prepaid and comped both read $0, and the tell is the
+                      // OWNER PRICE OVERRIDE, not the term markers. The
+                      // migration stamped finalPeriodPaid on everyone who had
+                      // a term, money or not, so it says nothing — the first
+                      // cut of this guard used it and warned on the two real
+                      // comps. A $0 override is somebody deciding to give the
+                      // membership away; its absence on a non-renewing term
+                      // is what a lump-sum member looks like.
+                      prepaid={
+                        data.billing.priceOverride == null &&
+                        (data.billing.finalPeriodPaid || (!s.autoRenew && !!s.endDate))
+                      }
+                      comped={data.billing.priceOverride === 0}
                       endDate={s.endDate}
                       onDone={() => load()}
                       onMsg={setMsg}
@@ -763,6 +770,7 @@ function CompToggle({
   memberId,
   sub,
   prepaid,
+  comped,
   endDate,
   onDone,
   onMsg,
@@ -770,6 +778,7 @@ function CompToggle({
   memberId: string;
   sub: { id: string; optionLabel: string; deliberateFree: boolean; billingType: string };
   prepaid: boolean;
+  comped: boolean;
   endDate: string | null;
   onDone: () => void;
   onMsg: (s: string) => void;
@@ -842,7 +851,11 @@ function CompToggle({
       {/* MANUAL rows are exempt from the money test entirely, so the flag
           is stored but changes nothing today. Say so rather than let a
           coach think this is what is keeping them active. */}
-      {prepaid && turningOn ? (
+      {comped && turningOn ? (
+        <span className="text-[11px] text-text-muted max-w-[13rem] text-right">
+          Owner set a $0 price — looks like a comp
+        </span>
+      ) : prepaid && turningOn ? (
         <span className="text-[11px] text-orange-accent max-w-[13rem] text-right">
           Looks prepaid, not comped{endDate ? ` — term ends ${fmtDate(endDate)}` : ""}
         </span>
