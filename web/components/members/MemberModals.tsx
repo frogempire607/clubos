@@ -293,7 +293,13 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<{ results: { queued: number; sent: number; skipped: number; failed: number; duplicate: number } } | null>(null);
+  const [sendResult, setSendResult] = useState<{
+    results: { queued: number; sent: number; skipped: number; failed: number; duplicate: number };
+    // Carried so the receipt can link straight to the results page —
+    // the send used to end here with no way back to what happened.
+    sendBatchId?: string;
+    queueOnly?: boolean;
+  } | null>(null);
   // 3K — club preflight context. Fetched once per open modal, drives
   // the "missing club contact info" / "missing address" warnings so the
   // sender knows what the recipient's footer will actually contain.
@@ -409,7 +415,7 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
       if (!res.ok) {
         setSendErr(typeof data?.error === "string" ? data.error : "Send failed.");
       } else {
-        setSendResult({ results: data.results });
+        setSendResult({ results: data.results, sendBatchId: data.sendBatchId, queueOnly: data.queueOnly });
         // 3M — success clears the persisted draft so the next open of
         // the composer starts clean. Failure keeps the draft so the
         // sender can fix the issue without re-typing.
@@ -436,15 +442,30 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
           {sendResult ? (
             <div className="text-sm space-y-3">
               <div className="bg-lime-accent/20 border border-lime-accent rounded-lg p-4 text-charcoal">
-                <div className="font-medium mb-2">Send complete.</div>
+                {/* Large sends hand off to the background worker, so
+                    "sent 0" is the normal, correct answer for a few
+                    minutes. Saying "complete" there would be a lie. */}
+                <div className="font-medium mb-2">
+                  {sendResult.queueOnly
+                    ? "Send queued — the background worker delivers these within a few minutes."
+                    : "Send complete."}
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                   <div><span className="font-semibold">{sendResult.results.sent}</span> sent</div>
                   <div><span className="font-semibold">{sendResult.results.skipped}</span> skipped</div>
                   <div><span className="font-semibold">{sendResult.results.duplicate}</span> duplicate</div>
                   <div><span className="font-semibold">{sendResult.results.failed}</span> failed</div>
-                  <div><span className="font-semibold">{sendResult.results.queued}</span> processed</div>
+                  <div><span className="font-semibold">{sendResult.results.queued}</span> {sendResult.queueOnly ? "queued" : "processed"}</div>
                 </div>
               </div>
+              {sendResult.sendBatchId && (
+                <a
+                  href={`/dashboard/communication/results/${encodeURIComponent(sendResult.sendBatchId)}`}
+                  className="block w-full px-4 py-2 border border-app-border rounded-lg text-sm font-medium text-text-primary text-center hover:bg-app-bg"
+                >
+                  View results
+                </a>
+              )}
               <button onClick={onSent} className="w-full px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
                 Done
               </button>

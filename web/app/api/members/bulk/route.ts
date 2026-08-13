@@ -450,6 +450,10 @@ async function handleBulkEmail(
       sendBatchId,
       dedupeKey: r.dedupeKey,
       idempotencyKey: email.clientKey,
+      // Without this the batch results page can't say who sent it. The
+      // queue-only branch above has always set it; the inline branch
+      // did not, so small sends lost their author.
+      sentByUserId: session.user.id,
       listUnsubscribeUrl: unsubscribeUrl,
     });
 
