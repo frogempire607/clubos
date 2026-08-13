@@ -558,6 +558,13 @@ export default function MemberBillingPage() {
                     <CompToggle
                       memberId={id}
                       sub={s}
+                      // A prepaid member reads $0 for the same reason a comp
+                      // does — nothing left to charge — and the two must not
+                      // be confused. Marking a lump-sum annual as comped
+                      // would claim the club gave away a year it was paid
+                      // for, and would bury the renewal.
+                      prepaid={data.billing.finalPeriodPaid || (!s.autoRenew && !!s.endDate)}
+                      endDate={s.endDate}
                       onDone={() => load()}
                       onMsg={setMsg}
                     />
@@ -755,11 +762,15 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
 function CompToggle({
   memberId,
   sub,
+  prepaid,
+  endDate,
   onDone,
   onMsg,
 }: {
   memberId: string;
   sub: { id: string; optionLabel: string; deliberateFree: boolean; billingType: string };
+  prepaid: boolean;
+  endDate: string | null;
   onDone: () => void;
   onMsg: (s: string) => void;
 }) {
@@ -767,9 +778,21 @@ function CompToggle({
   const turningOn = !sub.deliberateFree;
 
   const run = async () => {
+    // Prepaid and comped both look like $0. Every $0 membership in this club
+    // today is prepaid, not comped, so the warning leads.
+    const prepaidWarning =
+      prepaid && turningOn
+        ? `CAUTION — this looks like a PREPAID membership, not a comp.\n\n` +
+          `It is non-renewing${endDate ? ` and ends ${fmtDate(endDate)}` : ""}, which is what a lump-sum ` +
+          `member looks like once the term is paid up front. Marking it comped would record that the club ` +
+          `gave this membership away for nothing, and the renewal would stop looking like money owed.\n\n` +
+          `If they paid up front, cancel this and record the payment instead.\n\n`
+        : "";
+
     const reason = window.prompt(
       turningOn
-        ? `Mark "${sub.optionLabel}" as a membership the club gives away on purpose?\n\n` +
+        ? prepaidWarning +
+          `Mark "${sub.optionLabel}" as a membership the club gives away on purpose?\n\n` +
           `This member will count as active with no payment expected.\n\n` +
           `Why is it free? (coach's kid, scholarship, trade — optional, saved to the record)`
         : `Remove the comp marker from "${sub.optionLabel}"?\n\n` +
@@ -819,9 +842,13 @@ function CompToggle({
       {/* MANUAL rows are exempt from the money test entirely, so the flag
           is stored but changes nothing today. Say so rather than let a
           coach think this is what is keeping them active. */}
-      {sub.billingType === "MANUAL" && (
+      {prepaid && turningOn ? (
+        <span className="text-[11px] text-orange-accent max-w-[13rem] text-right">
+          Looks prepaid, not comped{endDate ? ` — term ends ${fmtDate(endDate)}` : ""}
+        </span>
+      ) : sub.billingType === "MANUAL" ? (
         <span className="text-[11px] text-text-muted">Cash membership — counts either way</span>
-      )}
+      ) : null}
     </div>
   );
 }
