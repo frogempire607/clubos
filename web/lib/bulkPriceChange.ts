@@ -606,10 +606,12 @@ export function buildPriceChangeEmail(args: {
   effectiveDate: Date | null;
   channel: "stripe" | "offline";
   credit: CreditResult;
+  /** Owner's note to the family. Plain text — rendered as its own paragraph. */
+  memo?: string | null;
 }): { subject: string; blocks: EmailBlock[] } {
   const {
     clubName, memberName, planName, optionLabel, billingPeriod,
-    fromPrice, toPrice, passProcessingFees, effectiveDate, channel, credit,
+    fromPrice, toPrice, passProcessingFees, effectiveDate, channel, credit, memo,
   } = args;
 
   const goingUp = toPrice > fromPrice;
@@ -636,6 +638,12 @@ export function buildPriceChangeEmail(args: {
         { kind: "text", text: ` membership, billed ${period}.` },
       ],
     },
+    ...(memo && memo.trim()
+      ? [{
+          type: "paragraph" as const,
+          runs: [{ kind: "text" as const, text: memo.trim(), italic: true }],
+        }]
+      : []),
     {
       type: "list",
       style: "bulleted",

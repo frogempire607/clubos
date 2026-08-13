@@ -10,6 +10,8 @@ import { sendClubEmail } from "@/lib/sendClubEmail";
 import { renderEmail } from "@/lib/emailRender";
 import { resolvePostalAddressLines } from "@/lib/emailPostalAddress";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
+import { ensureMembershipProduct } from "@/lib/stripeCatalog";
+import crypto from "crypto";
 import {
   recordSubscriptionEvent,
   SUBSCRIPTION_EVENT_KIND,
@@ -73,8 +75,20 @@ const bodySchema = z.object({
    * during this request, which is necessarily before a future date.
    */
   notifyBeforeDate: z.string().optional().nullable(),
-  /** Set false only to suppress the member notification (owner's explicit call). */
+  /** Master switch. False suppresses every notification for this run. */
   notify: z.boolean().optional().default(true),
+  /**
+   * Per-member override. When present, ONLY these subscription ids are
+   * emailed — the owner ticked them individually. Absent means "every updated
+   * member", the previous behavior. An empty array means nobody, which is a
+   * legitimate choice and must not be read as "unset".
+   */
+  notifySubscriptionIds: z.array(z.string()).optional(),
+  /**
+   * Owner's note to the family, shown in the email above the price lines.
+   * Plain text — rendered as a paragraph block, never as HTML.
+   */
+  memo: z.string().max(2000).optional().nullable(),
   /**
    * Also rewrite `member_subscriptions.optionLabel` on the rows we update, so
    * a renamed option stops showing its old name on receipts, emails and the
@@ -83,6 +97,13 @@ const bodySchema = z.object({
    * default: it changes what a member sees, so it is the owner's call.
    */
   reconcileLabel: z.boolean().optional().default(false),
+  /**
+   * Client-generated, stable for one confirm press. Scopes the Stripe
+   * idempotency keys so a double-click dedupes while a deliberate retry after
+   * a failure is allowed to actually run. Same pattern as
+   * /api/attendance/charge-card.
+   */
+  clientKey: z.string().min(1).max(100).optional(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -121,9 +142,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const membership = await prisma.membership.findFirst({
     where: { id: params.id, clubId, deletedAt: null },
-    select: { id: true, name: true, options: true },
+    select: {
+      id: true, name: true, options: true,
+      // Needed to resolve the plan's reusable catalog Product for Stripe.
+      clubId: true, description: true, stripeProductId: true, stripePriceIds: true,
+    },
   });
   if (!membership) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const catalogMembership = {
+    id: membership.id, clubId: membership.clubId, name: membership.name,
+    description: membership.description,
+    stripeProductId: membership.stripeProductId, stripePriceIds: membership.stripePriceIds,
+  };
+  // Stable for this request: double-submits dedupe, separate runs do not.
+  const runKey = body.clientKey ?? crypto.randomUUID();
 
   const options = parseMembershipOptions(membership.options);
   const resolved = resolveOption(options, body.optionLabel, body.billingPeriod);
@@ -257,8 +289,19 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         if (!item) throw new Error("subscription has no billable item");
         stripeItemId = item.id;
         stripeOldCents = item.price?.unit_amount ?? null;
-        const productId =
+        // Prefer the PLAN's catalog product over whatever this item happens to
+        // point at. Subscriptions created before the catalog landed (2026-07-06)
+        // carry a throwaway per-member product, and Stripe refuses to create a
+        // price against a product that has since been archived — which fails
+        // the reprice for that member and nobody else. Falling back to the
+        // item's own product keeps the old behavior when the catalog is
+        // unavailable.
+        const itemProductId =
           typeof item.price?.product === "string" ? item.price.product : item.price?.product?.id;
+        const catalogProductId = catalogMembership
+          ? await ensureMembershipProduct(catalogMembership, club)
+          : null;
+        const productId = catalogProductId ?? itemProductId;
         if (!productId) throw new Error("could not resolve the Stripe product for this item");
 
         await stripe.subscriptions.update(
@@ -286,7 +329,25 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             stripeAccount,
             // Param-sensitive so a corrected retry gets a fresh key rather
             // than being rejected for reusing one with different params.
-            idempotencyKey: `aox-pricechange-${row.memberSubscriptionId}-${targetCents}`,
+            // Param-sensitive AND run-scoped. A static per-member key is burned
+            // by the first failed attempt: Stripe then replays that failure (or
+            // rejects the retry outright) for every later run, which is how one
+            // member gets permanently stuck while everyone else succeeds. The
+            // same class of bug bit migration-approve on 2026-07-15.
+            //
+            // `runKey` is stable within one request — so a double-submit still
+            // dedupes — and differs between deliberate runs, so a retry after a
+            // fix actually performs the work.
+            idempotencyKey: `aox-pricechange-${row.memberSubscriptionId}-${crypto
+              .createHash("sha256")
+              .update(JSON.stringify({
+                targetCents, productId, itemId: item.id, runKey,
+                currency: item.price?.currency ?? "usd",
+                interval: item.price?.recurring?.interval ?? "month",
+                intervalCount: item.price?.recurring?.interval_count ?? 1,
+              }))
+              .digest("hex")
+              .slice(0, 16)}`,
           },
         );
 
@@ -496,13 +557,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // TRANSACTIONAL: a price change is not marketing and must not be suppressed
   // by a marketing opt-out. Sent only for rows that really changed, after the
   // writes, so nobody is told about a change that failed.
-  const updatedIds = results.filter((r) => r.outcome === "UPDATED").map((r) => r.memberSubscriptionId);
-  if (body.notify && updatedIds.length > 0) {
+  const updatedRows = results.filter((r) => r.outcome === "UPDATED");
+  // Per-member control: an explicit list wins; absent means everyone updated.
+  const emailAllowed = body.notifySubscriptionIds ? new Set(body.notifySubscriptionIds) : null;
+  const toNotify = updatedRows.filter(
+    (r) => emailAllowed === null || emailAllowed.has(r.memberSubscriptionId),
+  );
+  const memo = body.memo?.trim() || null;
+  if (body.notify && toNotify.length > 0) {
     const sendBatchId = `pricechange-${membership.id}-${option.billingPeriod}-${now.getTime()}`;
     const { resolveRecipients } = await import("@/lib/emailRecipients");
-    const memberIds = results
-      .filter((r) => r.outcome === "UPDATED" && r.memberId)
-      .map((r) => r.memberId as string);
+    const memberIds = toNotify.filter((r) => r.memberId).map((r) => r.memberId as string);
 
     let recipients: Awaited<ReturnType<typeof resolveRecipients>> | null = null;
     try {
@@ -519,7 +584,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
 
     for (const rec of recipients?.send ?? []) {
-      const rowResult = results.find((r) => r.memberId === rec.recipientMemberId && r.outcome === "UPDATED");
+      const rowResult = toNotify.find((r) => r.memberId === rec.recipientMemberId);
       if (!rowResult) continue;
       try {
         const email = buildPriceChangeEmail({
@@ -534,6 +599,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           effectiveDate: notifyBeforeDate,
           channel: (rowResult.channel ?? "offline") as "stripe" | "offline",
           credit: rowResult.credit!,
+          memo,
         });
         const rendered = await renderEmail(email.blocks, {
           clubName: club.name,
@@ -599,6 +665,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       direction: targetedDirection,
       planDirection: plan.direction,
       reconcileLabel: body.reconcileLabel,
+      memo,
+      notified: toNotify.length,
+      notifySelectionUsed: emailAllowed !== null,
       effectiveDate: notifyBeforeDate ? notifyBeforeDate.toISOString() : null,
       requested: requestedIds.length,
       updated: updated.length,
@@ -607,7 +676,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       creditOwed: Math.round(creditOwed * 100) / 100,
       additionalDue: Math.round(additionalDue * 100) / 100,
       unresolvedCredit,
-      rows: results.map((r) => ({ id: r.memberSubscriptionId, outcome: r.outcome, from: r.fromPrice, to: r.toPrice })),
+      // `message` is persisted, not just returned. Without it a failure is only
+      // legible in the browser tab that produced it — which is exactly why the
+      // first Kellan Lister failure could not be diagnosed after the fact.
+      rows: results.map((r) => ({
+        id: r.memberSubscriptionId,
+        member: r.memberName,
+        outcome: r.outcome,
+        from: r.fromPrice,
+        to: r.toPrice,
+        message: r.message,
+      })),
     },
     note: "The plan's own option price was NOT changed by this action — that is a separate save.",
   });

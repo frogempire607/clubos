@@ -391,5 +391,34 @@ check("mode is proposed", proposed.mode === "proposed");
 check("sticker-price members are still pre-selected", proposed.summary.defaultSelectedCount === 1);
 check("overrides still are not", proposed.rows.find((r) => r.memberName.startsWith("Cal"))!.defaultSelected === false);
 
+// ── Memo in the notification ────────────────────────────────────────────────
+console.log("\nbuildPriceChangeEmail (memo):");
+const memoMail = buildPriceChangeEmail({
+  clubName: "Frog Empire", memberName: "Colton", planName: "MS/HS", optionLabel: "Monthly",
+  billingPeriod: "MONTHLY", fromPrice: 190, toPrice: 175, passProcessingFees: false,
+  effectiveDate: null, channel: "offline",
+  credit: { kind: "NOT_APPLICABLE", amount: null, basis: "none", periodEnd: null, daysRemaining: null, daysInPeriod: null, note: "" },
+  memo: "We've lowered the fall rate for everyone in the MS/HS group.",
+});
+check("the memo reaches the email body", flat(memoMail.blocks).includes("lowered the fall rate"));
+check("memo sits ABOVE the price lines", flat(memoMail.blocks).indexOf("lowered the fall rate") < flat(memoMail.blocks).indexOf("You pay today"));
+const noMemoMail = buildPriceChangeEmail({
+  clubName: "Frog Empire", memberName: "Colton", planName: "MS/HS", optionLabel: "Monthly",
+  billingPeriod: "MONTHLY", fromPrice: 190, toPrice: 175, passProcessingFees: false,
+  effectiveDate: null, channel: "offline",
+  credit: { kind: "NOT_APPLICABLE", amount: null, basis: "none", periodEnd: null, daysRemaining: null, daysInPeriod: null, note: "" },
+});
+check("no memo → no stray empty paragraph", noMemoMail.blocks.length === memoMail.blocks.length - 1);
+const blankMemo = buildPriceChangeEmail({
+  clubName: "F", memberName: "C", planName: "P", optionLabel: "Monthly",
+  billingPeriod: "MONTHLY", fromPrice: 190, toPrice: 175, passProcessingFees: false,
+  effectiveDate: null, channel: "offline",
+  credit: { kind: "NOT_APPLICABLE", amount: null, basis: "none", periodEnd: null, daysRemaining: null, daysInPeriod: null, note: "" },
+  memo: "   ",
+});
+check("whitespace-only memo is dropped", blankMemo.blocks.length === noMemoMail.blocks.length);
+check("offline members still get a full notice with the new price",
+  flat(memoMail.blocks).includes("$175.00") && flat(memoMail.blocks).includes("nothing has been charged or refunded"));
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail > 0 ? 1 : 0);
