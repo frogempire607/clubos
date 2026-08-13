@@ -32,10 +32,14 @@ import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 // so the partial unique index doesn't fire — two identical test sends land
 // as two separate rows, which is what you want when iterating.
 
+// Messages are written for the person who will read them, not for a validator.
+// The bare Zod defaults surfaced "String must contain at least 1 character(s)"
+// on the one thing a composer is guaranteed to hit — pressing Send test before
+// typing a subject.
 const schema = z.object({
-  subject: z.string().min(1).max(300),
-  previewText: z.string().max(200).optional().nullable(),
-  blocks: z.array(z.unknown()).min(1),
+  subject: z.string().min(1, "Add a subject before sending a test — it's the first thing the recipient sees.").max(300, "Subject is too long (300 characters max)."),
+  previewText: z.string().max(200, "Preview text is too long (200 characters max).").optional().nullable(),
+  blocks: z.array(z.unknown()).min(1, "Add some content before sending a test — the email is currently empty."),
 });
 
 export const maxDuration = 30;

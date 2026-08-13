@@ -84,7 +84,7 @@ export type MemberListFilters = {
   tag: string | null;
   gender: string | null;
   /** Work-queue shortcuts from the 4-card strip. */
-  queue: "neverInvited" | "blocked" | "missingContact" | null;
+  queue: "neverInvited" | "blocked" | "missingContact" | "stalledCheckout" | "trainingUnbilled" | null;
   sort: "lastSeen" | "name" | "joined" | "balance";
   page: number;
   pageSize: number;
@@ -155,7 +155,7 @@ export function memberWhere(clubId: string, f: MemberListFilters): Prisma.Member
 
   // Work-queue cards. Each is a saved filter that also arms a bulk action, so
   // the set it selects has to be exactly the set the action will operate on.
-  const queueClause = f.queue ? QUEUE_CLAUSES[f.queue] : null;
+  const queueClause = f.queue ? queueClauses()[f.queue] : null;
   if (queueClause) and.push(queueClause);
 
   if (and.length) where.AND = and;
@@ -174,20 +174,61 @@ export function memberWhere(clubId: string, f: MemberListFilters): Prisma.Member
  * new place, so the card counts and the filter both read this map. Change a
  * predicate and both move together, by construction.
  */
-export const QUEUE_CLAUSES: Record<
+/**
+ * A function, not a constant: two of these predicates are time-relative, and a
+ * module-level object would freeze "48 hours ago" at the moment the server
+ * booted.
+ */
+export function queueClauses(now: Date = new Date()): Record<
   Exclude<MemberListFilters["queue"], null>,
   Prisma.MemberWhereInput
-> = {
-  // Someone the club imported and has never once written to. Not "no
-  // invitation recorded" in general — a manually-added walk-in was never
-  // supposed to get one, and putting them in this queue makes the number
-  // un-actionable.
-  neverInvited: { migrationStatus: { not: null }, activationEmailSentAt: null },
-  blocked: { blockedReason: { not: null } },
-  // Nothing to reach them on, theirs or a guardian's. Any one channel is enough
-  // to not be in this queue.
-  missingContact: { email: null, guardianEmail: null, phone: null, guardianPhone: null },
-};
+> {
+  return {
+    // Someone the club imported and has never once written to. Not "no
+    // invitation recorded" in general — a manually-added walk-in was never
+    // supposed to get one, and putting them in this queue makes the number
+    // un-actionable.
+    //
+    // …and not someone who is already set up. `activationEmailSentAt` records
+    // one specific email; a member who completed onboarding another way (staff
+    // activation, self-signup, a guardian link) still has it null forever,
+    // while migrationStatus stays non-null. The card read 41 on 2026-08-13 and
+    // 8 of those were done — they have an activatedAt, a linked user account,
+    // or a terminal migrationStatus. "Never invited" is a to-do list, so
+    // anyone demonstrably finished is excluded and the number is 33.
+    neverInvited: {
+      migrationStatus: { not: null, notIn: ["ACTIVATED", "COMPLETED"] },
+      activationEmailSentAt: null,
+      activatedAt: null,
+      userId: null,
+    },
+    blocked: { blockedReason: { not: null } },
+    // Nothing to reach them on, theirs or a guardian's. Any one channel is enough
+    // to not be in this queue.
+    missingContact: { email: null, guardianEmail: null, phone: null, guardianPhone: null },
+    // A membership checkout that was opened and abandoned. The pending row is
+    // created before Stripe Checkout and nothing expires it, so these sit
+    // forever with the member training unbilled. 48h of grace so somebody who
+    // is mid-purchase right now does not appear.
+    stalledCheckout: {
+      subscriptions: {
+        some: {
+          status: "pending",
+          stripeSubscriptionId: null,
+          createdAt: { lt: new Date(now.getTime() - 48 * 3600_000) },
+        },
+      },
+    },
+    // Attended recently with no active membership, whatever the cause.
+    trainingUnbilled: {
+      attendanceRecords: { some: { createdAt: { gte: new Date(now.getTime() - 30 * 86400_000) } } },
+      subscriptions: { none: { status: "active" } },
+    },
+  };
+}
+
+/** Back-compat for existing callers that want today's predicates. */
+export const QUEUE_CLAUSES = queueClauses();
 
 const ORDER_BY: Record<MemberListFilters["sort"], Prisma.MemberOrderByWithRelationInput[]> = {
   // "Last seen" has no single column — the closest true fact is the linked
@@ -459,9 +500,9 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
 async function countQueues(clubId: string, f: MemberListFilters) {
   const base = memberWhere(clubId, { ...f, queue: null, search: "", tag: "", gender: "" });
   const [neverInvited, blocked, missingContact, duplicates] = await Promise.all([
-    prisma.member.count({ where: { AND: [base, QUEUE_CLAUSES.neverInvited] } }),
-    prisma.member.count({ where: { AND: [base, QUEUE_CLAUSES.blocked] } }),
-    prisma.member.count({ where: { AND: [base, QUEUE_CLAUSES.missingContact] } }),
+    prisma.member.count({ where: { AND: [base, queueClauses().neverInvited] } }),
+    prisma.member.count({ where: { AND: [base, queueClauses().blocked] } }),
+    prisma.member.count({ where: { AND: [base, queueClauses().missingContact] } }),
     countDuplicateGroups(clubId),
   ]);
   return { neverInvited, blocked, missingContact, duplicates };
