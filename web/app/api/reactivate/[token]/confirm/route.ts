@@ -390,6 +390,10 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           status: activateNow ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
           ...(offer.discount ? { discountCode: offer.discount.code, discountAmount: offer.discount.amountOff } : {}),
+          currentPeriodEnd: addBillingPeriod(
+            offer.startDate ? new Date(offer.startDate) : new Date(),
+            offer.billingPeriod,
+          ),
           // Explicit commitment wins; otherwise a non-renewing plan ends after
           // its first billing period (expireEndedManualSubscriptions sweeps it).
           ...(offer.commitmentEndDate

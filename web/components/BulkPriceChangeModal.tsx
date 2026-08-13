@@ -165,10 +165,16 @@ function RowLine({
   row,
   checked,
   onToggle,
+  emailOn,
+  onToggleEmail,
+  notifyEnabled,
 }: {
   row: Row;
   checked: boolean;
   onToggle: (id: string) => void;
+  emailOn: boolean;
+  onToggleEmail: (id: string) => void;
+  notifyEnabled: boolean;
 }) {
   return (
     <tr className="border-t border-app-border align-top">
@@ -217,6 +223,27 @@ function RowLine({
       <td className="px-3 py-2 text-sm whitespace-nowrap">
         <CreditCell credit={row.credit} />
       </td>
+      <td className="px-3 py-2 text-sm">
+        {/* Per-member email control. Only meaningful for rows being changed —
+            an unselected member is not written to and never emailed. */}
+        {checked ? (
+          <label className="inline-flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={notifyEnabled && emailOn}
+              disabled={!notifyEnabled}
+              onChange={() => onToggleEmail(row.memberSubscriptionId)}
+              className="h-4 w-4 rounded border-app-border text-brand focus:ring-brand disabled:opacity-40"
+              aria-label={`Email ${row.memberName}`}
+            />
+            <span className="text-[11px] text-text-muted">
+              {!notifyEnabled ? "off" : emailOn ? "email" : "no email"}
+            </span>
+          </label>
+        ) : (
+          <span className="text-text-muted">—</span>
+        )}
+      </td>
     </tr>
   );
 }
@@ -255,6 +282,10 @@ export default function BulkPriceChangeModal({
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState<ApplyResponse | null>(null);
   const [reconcileLabel, setReconcileLabel] = useState(false);
+  const [memo, setMemo] = useState("");
+  // Per-member email opt-out. Holds the ids explicitly UNCHECKED, so newly
+  // selected members default to "will be emailed" rather than silently not.
+  const [noEmail, setNoEmail] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -295,6 +326,8 @@ export default function BulkPriceChangeModal({
     setApplied(null);
     setEffectiveDate("");
     setError("");
+    setMemo("");
+    setNoEmail(new Set());
   }, [optionIndex]);
 
   const recurringRows = useMemo(() => plan?.rows.filter((r) => !r.upfront) ?? [], [plan]);
@@ -325,6 +358,15 @@ export default function BulkPriceChangeModal({
     setSelected(new Set());
   }
 
+  function toggleEmail(id: string) {
+    setNoEmail((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function selectAllStripeRecurring() {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -350,6 +392,7 @@ export default function BulkPriceChangeModal({
     .reduce((s, r) => s + (r.credit.amount ?? 0), 0);
   const chosenUnknown = chosen.filter((r) => r.credit.kind === "UNKNOWN").length;
   const driftedSelected = chosen.filter((r) => !r.labelMatchesOption).length;
+  const emailCount = chosen.filter((r) => !noEmail.has(r.memberSubscriptionId)).length;
 
   // An increase needs a future effective date before it can be confirmed —
   // judged on the SELECTED rows, not the plan's list price. Reviewing against
@@ -366,6 +409,7 @@ export default function BulkPriceChangeModal({
 
   async function handleApply() {
     if (!plan || !canApply) return;
+    const clientKey = `pc-${membershipId}-${optionIndex}-${Date.now()}`;
     setApplying(true);
     setError("");
     try {
@@ -382,6 +426,13 @@ export default function BulkPriceChangeModal({
           notifyBeforeDate: effectiveDate ? new Date(`${effectiveDate}T00:00:00Z`).toISOString() : null,
           notify,
           reconcileLabel,
+          memo: memo.trim() || null,
+          notifySubscriptionIds: chosen
+            .filter((r) => !noEmail.has(r.memberSubscriptionId))
+            .map((r) => r.memberSubscriptionId),
+          // Stable for this confirm press: a double-click dedupes at Stripe,
+          // a deliberate retry after a failure is allowed to run.
+          clientKey,
         }),
       });
       const json = await res.json();
@@ -643,6 +694,7 @@ export default function BulkPriceChangeModal({
                           <th className="px-3 py-2">Pays today</th>
                           <th className="px-3 py-2">New price</th>
                           <th className="px-3 py-2">Credit / due</th>
+                          <th className="px-3 py-2">Notify</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -652,6 +704,9 @@ export default function BulkPriceChangeModal({
                             row={r}
                             checked={selected.has(r.memberSubscriptionId)}
                             onToggle={toggle}
+                            emailOn={!noEmail.has(r.memberSubscriptionId)}
+                            onToggleEmail={toggleEmail}
+                            notifyEnabled={notify}
                           />
                         ))}
                       </tbody>
@@ -681,6 +736,7 @@ export default function BulkPriceChangeModal({
                           <th className="px-3 py-2">Pays today</th>
                           <th className="px-3 py-2">New price</th>
                           <th className="px-3 py-2">Credit / due</th>
+                          <th className="px-3 py-2">Notify</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -690,6 +746,9 @@ export default function BulkPriceChangeModal({
                             row={r}
                             checked={selected.has(r.memberSubscriptionId)}
                             onToggle={toggle}
+                            emailOn={!noEmail.has(r.memberSubscriptionId)}
+                            onToggleEmail={toggleEmail}
+                            notifyEnabled={notify}
                           />
                         ))}
                       </tbody>
@@ -736,10 +795,31 @@ export default function BulkPriceChangeModal({
                   <span className="text-xs text-text-primary">
                     Email these families about the change
                     <span className="block text-[11px] text-text-muted">
-                      Sent as a transactional notice, so a marketing opt-out does not suppress it.
+                      Sent as a transactional notice, so a marketing opt-out does not suppress it. Cash and
+                      card members are both emailed — untick anyone individually in the Notify column.
+                      {notify && <> Currently {emailCount} of {chosen.length} selected.</>}
                     </span>
                   </span>
                 </label>
+
+                <div>
+                  <label className="block text-xs font-medium text-text-primary mb-1">
+                    Note to the family <span className="text-text-muted font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={memo}
+                    onChange={(e) => setMemo(e.target.value)}
+                    rows={3}
+                    maxLength={2000}
+                    disabled={!notify}
+                    placeholder="e.g. We've lowered the middle/high school rate for the fall season."
+                    className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-brand disabled:opacity-50"
+                  />
+                  <p className="text-[11px] text-text-muted mt-1">
+                    Appears in the email above the price lines. Plain text — it is never rendered as HTML.
+                    {!notify && " Emails are off for this run, so nothing will be sent."}
+                  </p>
+                </div>
 
                 {/* Only offered when the CURRENT selection actually contains
                     drifted labels — apply only touches selected rows, so a
@@ -797,6 +877,8 @@ export default function BulkPriceChangeModal({
               {chosenCredit > 0 && <> · credits owed {usd(chosenCredit)}</>}
               {chosenDue > 0 && <> · additional due {usd(chosenDue)}</>}
               {chosenUnknown > 0 && <> · {chosenUnknown} with no computable credit</>}
+              {" · "}
+              {notify ? `${emailCount} to be emailed` : "no emails"}
             </div>
           )}
 

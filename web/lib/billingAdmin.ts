@@ -365,15 +365,27 @@ export function chargeTiming(firstChargeDate: Date | null | undefined, now: Date
 // One period past `start`, matching billingPeriodToStripeInterval's mapping.
 // Used to end non-auto-renew subscriptions after their first billing period
 // when no explicit commitment/cancellation date exists.
+/**
+ * Advance a date by one billing period. THE canonical implementation — the
+ * membership subscribe routes, the approvals purchase route and the Stripe
+ * webhook all resolve through this rather than keeping their own copy.
+ *
+ * Every one of those copies omitted QUADRIMESTRAL and fell through to the
+ * one-year default, so a four-month plan silently got a twelve-month period.
+ * QUADRIMESTRAL is handled explicitly here; the default remains one year only
+ * for genuinely unknown values.
+ */
 export function addBillingPeriod(start: Date, period: string): Date {
   const d = new Date(start);
   switch (period) {
-    case "WEEKLY":      d.setDate(d.getDate() + 7);   break;
-    case "MONTHLY":     d.setMonth(d.getMonth() + 1); break;
-    case "QUARTERLY":   d.setMonth(d.getMonth() + 3); break;
-    case "SEMI_ANNUAL": d.setMonth(d.getMonth() + 6); break;
-    case "ANNUAL":      d.setFullYear(d.getFullYear() + 1); break;
-    default:            d.setFullYear(d.getFullYear() + 1); break; // fallback 1 year
+    case "WEEKLY":        d.setDate(d.getDate() + 7);   break;
+    case "MONTHLY":       d.setMonth(d.getMonth() + 1); break;
+    case "QUARTERLY":     d.setMonth(d.getMonth() + 3); break;
+    case "QUADRIMESTRAL": d.setMonth(d.getMonth() + 4); break;
+    case "SEMI_ANNUAL":   d.setMonth(d.getMonth() + 6); break;
+    case "ANNUAL":        d.setFullYear(d.getFullYear() + 1); break;
+    case "ONE_TIME":      d.setFullYear(d.getFullYear() + 1); break;
+    default:              d.setFullYear(d.getFullYear() + 1); break; // unknown → 1 year
   }
   return d;
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, invalidatePermissionCache } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { resolvePermissions, MESSAGES_SUBSCOPES, type MessagesSubScope } from "@/lib/permissions";
 
@@ -95,6 +95,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
     if (user.staffProfile) {
       await prisma.staffProfile.update({ where: { userId: user.id }, data: profileData });
+      // The guards cache resolved permissions for 20s; a grant or revocation
+      // the owner just made should take effect on their very next click.
+      invalidatePermissionCache(user.id);
     } else {
       await prisma.staffProfile.create({
         data: {
@@ -103,6 +106,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
           permissions: foldPermissions(data.permissions ?? null) as unknown as object,
         },
       });
+      invalidatePermissionCache(user.id);
     }
 
     // User-level fields owners can edit (anything except password).

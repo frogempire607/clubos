@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { DISCOUNT_ITEM_TYPES, type DiscountItemType } from "@/lib/discounts";
 
 // GET /api/discounts/eligible?itemType=MEMBERSHIP&membershipId=…&price=…
@@ -19,7 +19,7 @@ import { DISCOUNT_ITEM_TYPES, type DiscountItemType } from "@/lib/discounts";
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "billing", "view");
+  const denied = await requirePermissionLive(session, "billing", "view");
   if (denied) return denied;
 
   const url = new URL(req.url);

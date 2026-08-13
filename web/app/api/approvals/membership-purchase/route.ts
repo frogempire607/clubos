@@ -1,3 +1,4 @@
+import { addBillingPeriod } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
@@ -30,18 +31,6 @@ type Payload = {
 
 type Option = { label: string; price: number; billingPeriod: string };
 
-function computeEndDate(start: Date, billingPeriod: string): Date {
-  const d = new Date(start);
-  switch (billingPeriod) {
-    case "WEEKLY":      d.setDate(d.getDate() + 7);   break;
-    case "MONTHLY":     d.setMonth(d.getMonth() + 1); break;
-    case "QUARTERLY":   d.setMonth(d.getMonth() + 3); break;
-    case "SEMI_ANNUAL": d.setMonth(d.getMonth() + 6); break;
-    case "ANNUAL":      d.setFullYear(d.getFullYear() + 1); break;
-    default:            d.setFullYear(d.getFullYear() + 1); break;
-  }
-  return d;
-}
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -150,7 +139,10 @@ export async function POST(req: Request) {
       billingPeriod: option.billingPeriod,
       billingType: "MANUAL",
       startDate,
-      endDate: isOneTime ? computeEndDate(startDate, option.billingPeriod) : null,
+      endDate: isOneTime ? addBillingPeriod(startDate, option.billingPeriod) : null,
+      // See lib/billingAdmin.addBillingPeriod — offline rows get an explicit
+      // period end so cash memberships are visible to renewal + credit logic.
+      currentPeriodEnd: addBillingPeriod(startDate, option.billingPeriod),
       autoRenew: false,
       status: "active",
       startedAt: new Date(),

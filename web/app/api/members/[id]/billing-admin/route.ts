@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import {
@@ -111,7 +111,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "billing", "view");
+  const denied = await requirePermissionLive(session, "billing", "view");
   if (denied) return denied;
 
   const member = await prisma.member.findFirst({
@@ -544,7 +544,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   // explicit billing permission.
   const touchesMoney = Object.keys(raw).some((k) => raw[k] !== undefined && !TRIAGE_FIELDS.has(k));
   const denied = touchesMoney
-    ? requirePermission(session, "billing", "full")
+    ? await requirePermissionLive(session, "billing", "full")
     : requirePermission(session, "members", "edit");
   if (denied) return denied;
 

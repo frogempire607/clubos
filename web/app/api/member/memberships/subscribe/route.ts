@@ -1,3 +1,4 @@
+import { addBillingPeriod } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
@@ -32,18 +33,6 @@ const schema = z.object({
 
 type Option = { label: string; price: number; billingPeriod: string };
 
-function computeEndDate(start: Date, billingPeriod: string): Date {
-  const d = new Date(start);
-  switch (billingPeriod) {
-    case "WEEKLY":      d.setDate(d.getDate() + 7);   break;
-    case "MONTHLY":     d.setMonth(d.getMonth() + 1); break;
-    case "QUARTERLY":   d.setMonth(d.getMonth() + 3); break;
-    case "SEMI_ANNUAL": d.setMonth(d.getMonth() + 6); break;
-    case "ANNUAL":      d.setFullYear(d.getFullYear() + 1); break;
-    default:            d.setFullYear(d.getFullYear() + 1); break;
-  }
-  return d;
-}
 
 // POST /api/member/memberships/subscribe
 // Member-driven subscribe. Always Stripe Checkout (no MANUAL path here).
@@ -112,7 +101,7 @@ export async function POST(req: Request) {
     const billingType: "RECURRING" | "ONE_TIME" =
       option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING";
     const startDate = new Date();
-    const endDate: Date | null = billingType === "ONE_TIME" ? computeEndDate(startDate, option.billingPeriod) : null;
+    const endDate: Date | null = billingType === "ONE_TIME" ? addBillingPeriod(startDate, option.billingPeriod) : null;
 
     // P4 parental gate. Memberships are an ongoing commitment, not a
     // one-off charge — even more important than class booking that a

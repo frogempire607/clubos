@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { sendPaymentReceiptEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -23,7 +23,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   // Lower bar than recording money (billing:full) — this only re-sends what
   // was already sent, to the address already on the registration.
-  const denied = requirePermission(session, "billing", "view");
+  const denied = await requirePermissionLive(session, "billing", "view");
   if (denied) return denied;
   const clubId = session.user.clubId;
 
