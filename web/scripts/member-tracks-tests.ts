@@ -46,6 +46,7 @@ import {
   setupTrackFor,
   sourcePhrase,
   type MemberTrackInput,
+  countsAsMembership,
 } from "../lib/memberTracks";
 
 let pass = 0;
@@ -95,7 +96,7 @@ group("§1  Track 1 — Role derivation (all five, and combinations)");
 
 const rolesOf = (m: MemberTrackInput) => rolesFor(m, NOW).map((r) => r.role);
 
-eq("athlete — has a subscription", rolesOf(member({ subscriptions: [{ status: "active" }] })).join(), "ATHLETE");
+eq("athlete — has a subscription", rolesOf(member({ subscriptions: [{ status: "active", billingType: "MANUAL" }] })).join(), "ATHLETE");
 eq("athlete — attendance only, no subscription", rolesOf(member({ hasAttendance: true })).join(), "ATHLETE");
 eq("parent — guardian of one child", rolesOf(member({ guardianOfCount: 1 })).join(), "PARENT");
 eq(
@@ -110,14 +111,14 @@ eq("nobody — a bare record has no role chips", rolesOf(member()).length, 0);
 // record holding several roles, not two records and not a single winner.
 eq(
   "a parent who also trains holds BOTH roles on one record",
-  rolesOf(member({ subscriptions: [{ status: "active" }], guardianOfCount: 2 })).join(" · "),
+  rolesOf(member({ subscriptions: [{ status: "active", billingType: "MANUAL" }], guardianOfCount: 2 })).join(" · "),
   "ATHLETE · PARENT",
 );
 eq(
   "all five at once, in fixed order",
   rolesOf(
     member({
-      subscriptions: [{ status: "active" }],
+      subscriptions: [{ status: "active", billingType: "MANUAL" }],
       guardianOfCount: 1,
       isAccountHolder: true,
       isMinor: true,
@@ -148,7 +149,7 @@ group("§2  Track 2 — Membership pill, all five conditions");
 
 const mt = (m: MemberTrackInput) => membershipTrackFor(m, NOW);
 
-eq("Active — an active subscription", mt(member({ subscriptions: [{ status: "active" }] })), MEMBERSHIP_TRACK.ACTIVE);
+eq("Active — an active subscription", mt(member({ subscriptions: [{ status: "active", billingType: "MANUAL" }] })), MEMBERSHIP_TRACK.ACTIVE);
 eq("Active — a live staff-granted trial with no subscription", mt(member({ trialEndsAt: daysAhead(5) })), MEMBERSHIP_TRACK.ACTIVE);
 eq("Pending — a pending subscription", mt(member({ subscriptions: [{ status: "pending" }] })), MEMBERSHIP_TRACK.PENDING);
 // J-10 split (owner, 2026-08-04): Prospect means they SHOWED UP.
@@ -156,7 +157,7 @@ eq("Prospect — trialled, never joined", mt(member({ hasAttendance: true })), M
 eq("Prospect — a lapsed free trial still counts as having trialled", mt(member({ trialEndsAt: daysAgo(30) })), MEMBERSHIP_TRACK.PROSPECT);
 eq("Prospect — signed up for a portal login", mt(member({ userId: "u1" })), MEMBERSHIP_TRACK.PROSPECT);
 eq("Lead — a name nobody has contacted", mt(member()), MEMBERSHIP_TRACK.LEAD);
-eq("Paused — owner-controlled and sticky", mt(member({ status: "PAUSED", subscriptions: [{ status: "active" }] })), MEMBERSHIP_TRACK.PAUSED);
+eq("Paused — owner-controlled and sticky", mt(member({ status: "PAUSED", subscriptions: [{ status: "active", billingType: "MANUAL" }] })), MEMBERSHIP_TRACK.PAUSED);
 eq(
   "Inactive — had one, it ended",
   mt(member({ status: "INACTIVE", subscriptions: [{ status: "canceled", canceledAt: daysAgo(40) }] })),
@@ -358,7 +359,7 @@ const CANONICAL: [string, MemberTrackInput, string][] = [
   ["setting up", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), paymentSetupStatus: "REQUIRED", invitationSendCount: 1 }), ACTION_KIND.RESEND_INVITE],
   ["activated, needs the owner's yes", member({ migrationStatus: "ACTIVATED", email: "a@b.com", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), activatedAt: daysAgo(1) }), ACTION_KIND.CONFIRM_MEMBERSHIP],
   ["approved, not yet marked complete", member({ migrationStatus: "ACTIVATED", email: "a@b.com", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), activatedAt: daysAgo(1), approvalStatus: "APPROVED" }), ACTION_KIND.COMPLETE_MIGRATION],
-  ["migration complete, membership live", member({ migrationStatus: "COMPLETED", migrationCompletedAt: daysAgo(1), userId: "u1", subscriptions: [{ status: "active" }] }), ACTION_KIND.LEAVE_ALONE],
+  ["migration complete, membership live", member({ migrationStatus: "COMPLETED", migrationCompletedAt: daysAgo(1), userId: "u1", subscriptions: [{ status: "active", billingType: "MANUAL" }] }), ACTION_KIND.LEAVE_ALONE],
   ["bounced invitation", member({ migrationStatus: "INVITED", email: "a@b.com", reviewedAt: daysAgo(6), activationEmailSentAt: daysAgo(4), invitationBouncedCount: 1 }), ACTION_KIND.FIX_EMAIL],
   ["imported with no address at all", member({ migrationStatus: "IMPORTED" }), ACTION_KIND.ADD_CONTACT],
   // A BOUNCE and an IGNORE are different problems with opposite fixes. Both
@@ -582,4 +583,44 @@ if (failures.length) {
   for (const f of failures) console.log(`  ${f}`);
   process.exit(1);
 }
+
+// ── countsAsMembership — "holds a membership" is not "money is current" ──────
+// Both readers (Member.status and the roster's derived track) resolve through
+// this one predicate, so they cannot drift apart.
+{
+  const sub = (o: Partial<Parameters<typeof countsAsMembership>[0]>) =>
+    ({ status: "active", ...o }) as Parameters<typeof countsAsMembership>[0];
+
+  // The case that started this: a Stripe trial is an active row at full price
+  // with no money behind it. Levi Schanzenbach, $175, zero payments.
+  check("priced row with NO payment is not a membership (the trial case)",
+    countsAsMembership(sub({ price: 175, billingType: "RECURRING", hasSucceededPayment: false })) === false);
+  check("priced row WITH a payment is a membership",
+    countsAsMembership(sub({ price: 175, billingType: "RECURRING", hasSucceededPayment: true })) === true);
+  check("missing payment proof reads as no proof, not as yes",
+    countsAsMembership(sub({ price: 175, billingType: "RECURRING" })) === false);
+
+  // stripeStatus is deliberately NOT consulted — it is a cached snapshot that
+  // goes stale. Kellan Lister still reads "trialing" though he paid in July.
+  check("a stale trialing snapshot cannot demote a member who paid",
+    countsAsMembership(sub({ price: 450, billingType: "RECURRING", hasSucceededPayment: true })) === true);
+
+  // MANUAL is exempt: a cash member IS a member; unrecorded cash is a
+  // bookkeeping gap, surfaced in TRAINING_UNBILLED instead.
+  check("MANUAL cash row counts with no payment recorded (Max Hall)",
+    countsAsMembership(sub({ price: 175, billingType: "MANUAL", hasSucceededPayment: false })) === true);
+  check("MANUAL exemption does not depend on price",
+    countsAsMembership(sub({ price: 0, billingType: "MANUAL" })) === true);
+
+  // $0 needs the club to have said so.
+  check("$0 without the marker is not a membership (placeholder rows)",
+    countsAsMembership(sub({ price: 0, billingType: "RECURRING" })) === false);
+  check("$0 WITH the deliberate-free marker is a membership (real comps)",
+    countsAsMembership(sub({ price: 0, billingType: "RECURRING", deliberateFree: true })) === true);
+  check("a priced row is not rescued by the free marker",
+    countsAsMembership(sub({ price: 175, billingType: "RECURRING", deliberateFree: true, hasSucceededPayment: false })) === false);
+  check("null price behaves as zero",
+    countsAsMembership(sub({ price: null, billingType: "RECURRING" })) === false);
+}
+
 console.log(`✓ ${pass}/${pass} passed`);

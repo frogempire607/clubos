@@ -100,6 +100,12 @@ export const MEMBER_TRACK_SELECT = Prisma.validator<Prisma.MemberSelect>()({
       canceledAt: true,
       endDate: true,
       payerUserId: true,
+      // Needed by countsAsMembership — see lib/memberTracks. Without these the
+      // roster's derived track and the stored Member.status answer the same
+      // question differently.
+      billingType: true,
+      deliberateFree: true,
+      stripeSubscriptionId: true,
       membership: { select: { name: true } },
     },
   },
@@ -139,6 +145,13 @@ export type MemberTrackContext = {
   attendanceByMember?: Map<string, number>;
   /** memberId → outstanding balance in dollars. */
   balanceByMember?: Map<string, number>;
+  /**
+   * Stripe subscription ids with at least one SUCCEEDED, non-VOID transaction.
+   * countsAsMembership needs proof money ever arrived for a priced row, and the
+   * serializer has no transaction data of its own. Absent = no proof available,
+   * which is the safe reading.
+   */
+  paidStripeSubIds?: Set<string>;
   /** memberId → invitation delivery rollup (blocked on migration). */
   invitationsByMember?: Map<
     string,
@@ -164,6 +177,7 @@ function decimalToNumber(v: Prisma.Decimal | number | null | undefined): number 
  */
 export function toTrackInput(row: MemberTrackRow, ctx: MemberTrackContext = {}): MemberTrackInput {
   const inv = ctx.invitationsByMember?.get(row.id);
+  const paidStripeSubIds = ctx.paidStripeSubIds;
 
   // A guardian link whose user has been soft-deleted is not an account.
   const liveGuardianLinks = (row.guardianLinks ?? []).filter((l) => !l.user?.deletedAt);
@@ -177,6 +191,14 @@ export function toTrackInput(row: MemberTrackRow, ctx: MemberTrackContext = {}):
     currentPeriodEnd: s.currentPeriodEnd,
     canceledAt: s.canceledAt,
     endDate: s.endDate,
+    billingType: s.billingType,
+    deliberateFree: s.deliberateFree,
+    // Resolved by the caller (see paidSubscriptionIds) — the serializer has no
+    // transaction data of its own. Undefined here reads as "no proof", which
+    // countsAsMembership treats as not-a-membership for a priced row.
+    hasSucceededPayment: paidStripeSubIds
+      ? !!(s.stripeSubscriptionId && paidStripeSubIds.has(s.stripeSubscriptionId))
+      : undefined,
   }));
 
   return {

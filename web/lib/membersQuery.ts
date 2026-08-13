@@ -219,10 +219,25 @@ export function queueClauses(now: Date = new Date()): Record<
         },
       },
     },
-    // Attended recently with no active membership, whatever the cause.
+    // Attended recently and either holds no active membership at all, or holds
+    // a cash membership with no payment ever recorded against it.
+    //
+    // MANUAL rows are exempt from the money test in countsAsMembership on
+    // purpose — a cash member IS a member and must not silently flip inactive
+    // because nobody keyed the receipt. The gap does not disappear, it moves
+    // here: "member, owes money" is the honest reading, and it is actionable.
     trainingUnbilled: {
       attendanceRecords: { some: { createdAt: { gte: new Date(now.getTime() - 30 * 86400_000) } } },
-      subscriptions: { none: { status: "active" } },
+      OR: [
+        { subscriptions: { none: { status: "active" } } },
+        {
+          // Transactions hang off the MEMBER, not the subscription (offline rows
+          // have no stripeSubscriptionId to join on), so the money test is
+          // member-level here.
+          subscriptions: { some: { status: "active", billingType: "MANUAL", price: { gt: 0 } } },
+          transactions: { none: { status: "SUCCEEDED", reconciliationStatus: { not: "VOID" } } },
+        },
+      ],
     },
   };
 }
@@ -312,7 +327,7 @@ export type MemberListResult = {
 export async function buildTrackContext(memberIds: string[], now?: Date): Promise<MemberTrackContext> {
   if (memberIds.length === 0) return { now };
 
-  const [attendance, deliveries, owed] = await Promise.all([
+  const [attendance, deliveries, owed, paidSubs] = await Promise.all([
     prisma.attendanceRecord.groupBy({
       by: ["memberId"],
       where: { memberId: { in: memberIds } },
@@ -358,6 +373,20 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
       },
       _sum: { amount: true },
     }),
+    // Proof that money ever arrived, per Stripe subscription. countsAsMembership
+    // needs it for any priced row: a Stripe trial creates an active
+    // subscription at full price and charges nothing, so price alone would
+    // count a trialist as a member.
+    prisma.transaction.findMany({
+      where: {
+        member: { id: { in: memberIds } },
+        stripeSubscriptionId: { not: null },
+        status: "SUCCEEDED",
+        reconciliationStatus: { not: "VOID" },
+      },
+      select: { stripeSubscriptionId: true },
+      distinct: ["stripeSubscriptionId"],
+    }),
   ]);
 
   const balanceByMember = new Map<string, number>();
@@ -398,7 +427,11 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
     invitationsByMember.set(d.memberId, cur);
   }
 
-  return { attendanceByMember, invitationsByMember, balanceByMember, now };
+  const paidStripeSubIds = new Set(
+    paidSubs.map((t) => t.stripeSubscriptionId).filter(Boolean) as string[],
+  );
+
+  return { attendanceByMember, invitationsByMember, balanceByMember, paidStripeSubIds, now };
 }
 
 export async function listMembers(clubId: string, f: MemberListFilters): Promise<MemberListResult> {

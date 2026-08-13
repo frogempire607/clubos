@@ -223,7 +223,7 @@ check("allowed button is not disabled", !allowedHtml.includes("disabled"));
 group("§5  Next-action banner — renders only when something is outstanding");
 // ═══════════════════════════════════════════════════════════════════════════
 
-const settled = nextAction(member({ migrationStatus: "COMPLETED", migrationCompletedAt: daysAgo(1), userId: "u1", subscriptions: [{ status: "active" }] }), NOW);
+const settled = nextAction(member({ migrationStatus: "COMPLETED", migrationCompletedAt: daysAgo(1), userId: "u1", subscriptions: [{ status: "active", billingType: "MANUAL" }] }), NOW);
 eq("a settled member's banner renders nothing", render(React.createElement(NextActionBanner, { action: settled, memberName: "Cameron" })), "");
 
 const blocked = nextAction(member({ migrationStatus: "INVITED", email: "a@b.com", invitationBouncedCount: 1 }), NOW);

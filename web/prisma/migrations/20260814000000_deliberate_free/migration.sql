@@ -1,0 +1,31 @@
+-- A $0 membership the club MEANT to give away.
+--
+-- WRITTEN, NOT APPLIED. Apply from web/ with `npx prisma migrate deploy`
+-- (never `migrate dev` — the shadow database is blocked by the pooler).
+--
+-- ── Why ─────────────────────────────────────────────────────────────────────
+--
+-- "Active member" is being tightened to mean someone who actually holds a
+-- membership. A $0 subscription is ambiguous today: it is either a genuine comp
+-- (a coach's kid, a scholarship) or one of the placeholder rows the migration
+-- bugs left behind. Price alone cannot tell them apart, so the club states it.
+--
+-- Nothing infers this from the price being zero. It defaults to false, which
+-- means every existing $0 row starts as "not a membership" until an owner says
+-- otherwise — deliberately the safe direction, because counting an artifact as
+-- an active member is the failure we are fixing.
+--
+-- ── Safety ──────────────────────────────────────────────────────────────────
+--
+-- Purely additive: one boolean with a default, no backfill, no row rewritten,
+-- no index. Reversible by dropping the column.
+--
+-- ── Operator note ───────────────────────────────────────────────────────────
+--
+-- After applying, three members hold active $0 MS/HS subscriptions and will
+-- read as not-active until reviewed: Barrett David, Wyatt Eastman and Paul
+-- Ortega. If any of them is a real comp, set the flag on that subscription; if
+-- they are placeholders, they were never members and the new reading is right.
+
+ALTER TABLE "member_subscriptions"
+  ADD COLUMN IF NOT EXISTS "deliberateFree" BOOLEAN NOT NULL DEFAULT false;

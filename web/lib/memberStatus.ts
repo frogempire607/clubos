@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { countsAsMembership } from "@/lib/memberTracks";
 import {
   recordSubscriptionEvent,
   SUBSCRIPTION_EVENT_KIND,
@@ -6,7 +7,9 @@ import {
 } from "@/lib/subscriptionEvents";
 
 // Status policy (owner-confirmed 2026-07-13):
-//   - ACTIVE   = currently has an active membership subscription.
+//   - ACTIVE   = currently holds an actual membership — an active subscription
+//     that countsAsMembership() accepts. An active ROW is not enough: a Stripe
+//     trial creates one at full price and charges nothing.
 //   - INACTIVE = previously had a valid membership that ended.
 //   - PROSPECT = has NEVER had a valid membership — regardless of how long
 //     they've had an account or whether they have a saved payment method.
@@ -31,9 +34,51 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
   // PAUSED is sticky — owner controls that explicitly.
   if (member.status === "PAUSED") return;
 
-  const activeCount = await prisma.memberSubscription.count({
+  // An active ROW is not an active MEMBERSHIP. countsAsMembership (memberTracks)
+  // is the single definition both readers share, so the stored Member.status and
+  // the roster's derived track cannot drift apart.
+  const activeRows = await prisma.memberSubscription.findMany({
     where: { memberId, status: "active" },
+    select: {
+      id: true, price: true, billingType: true, deliberateFree: true,
+      stripeSubscriptionId: true,
+    },
   });
+
+  // Has money EVER arrived for these subscriptions? One grouped lookup rather
+  // than one per row. Offline/MANUAL rows never reach this — they are exempt.
+  const needsMoneyProof = activeRows.filter(
+    (r) => r.billingType !== "MANUAL" && Number(r.price ?? 0) > 0,
+  );
+  const paidSubIds = new Set<string>();
+  if (needsMoneyProof.length > 0) {
+    const stripeIds = needsMoneyProof.map((r) => r.stripeSubscriptionId).filter(Boolean) as string[];
+    if (stripeIds.length > 0) {
+      const paid = await prisma.transaction.findMany({
+        where: {
+          stripeSubscriptionId: { in: stripeIds },
+          status: "SUCCEEDED",
+          reconciliationStatus: { not: "VOID" },
+        },
+        select: { stripeSubscriptionId: true },
+        distinct: ["stripeSubscriptionId"],
+      });
+      const paidStripe = new Set(paid.map((t) => t.stripeSubscriptionId));
+      for (const r of needsMoneyProof) {
+        if (r.stripeSubscriptionId && paidStripe.has(r.stripeSubscriptionId)) paidSubIds.add(r.id);
+      }
+    }
+  }
+
+  const activeCount = activeRows.filter((r) =>
+    countsAsMembership({
+      status: "active",
+      price: r.price == null ? null : Number(r.price),
+      billingType: r.billingType,
+      deliberateFree: r.deliberateFree,
+      hasSucceededPayment: paidSubIds.has(r.id),
+    }),
+  ).length;
 
   let next: "ACTIVE" | "INACTIVE" | null = null;
   if (activeCount > 0) {
