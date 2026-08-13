@@ -30,9 +30,10 @@
 > hand. Nothing in the Phase 5 code depends on the constraint existing; it is a
 > public-path double-submit guard, not a correctness assumption.
 >
-> **Still not built:** the reminder cron and escalation schedule (§5.6), and
-> the server-rendered confirmation surface (§5.2.3) with the two remaining
-> §5.2.1 bugs. Everything else in the phase is in and browser-tested.
+> **Phase 5 is complete** as of 2026-08-12 — reminder cron, escalation
+> subcard, confirmation surface and all three §5.2.1 bugs landed in session 3.
+> The full write-up, including the manual checklist, the deployment order and
+> the rollback plan, is [PHASE-5-DELIVERABLE.md](PHASE-5-DELIVERABLE.md).
 
 > ## ✅ Phase 4.5 migration APPLIED — `20260804000000_members_experience`
 >
@@ -158,7 +159,7 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | [3](#phase-3--communications--email) | Communications & Email | 🟢 done (2026-08-02) |
 | [4](#phase-4--client--family-accounts) | Client & Family Accounts | 🟢 done (2026-08-03) · merged `be0bfe0` |
 | [4.5](#phase-45--members-full-design-handoff) | Members — full design handoff (3 tracks, list, profile, Family & access, migration redesign, mobile, source label) | ⬜ pending |
-| [5](#phase-5--event-registration-confirmation) | Event Registration Confirmation | 🟡 in progress — spine built 2026-08-12, migration not applied |
+| [5](#phase-5--event-registration-confirmation) | Event Registration Confirmation | 🟢 complete 2026-08-12 — see [PHASE-5-DELIVERABLE.md](PHASE-5-DELIVERABLE.md) |
 | [6](#phase-6--safety-data-integrity-testing) | Safety, Testing, Deployment & Final Handoff | ⬜ pending |
 
 ## Full migration inventory (M1–M28)
@@ -1581,14 +1582,40 @@ club-wide defaults needs one additive column mirroring `Club.builtInEventColors`
 because the per-event presets already make setup one click and an unapplied
 migration folder sitting in the tree is a liability.
 
+### Session 3 — 2026-08-12 · escalation, the confirmation surface, and the phase closed
+
+Deliverable: **[PHASE-5-DELIVERABLE.md](PHASE-5-DELIVERABLE.md)**. No migration
+created or modified; Phase 5's schema closed on 2026-08-12 and stayed closed.
+
+| # | Item | Where |
+|---|---|---|
+| S-28 | **The escalation sweep** — two passes in one hourly invocation: due reminders, then the coach digest at 09:00 club-local. Stage derived from the anchor (stages can be skipped), row re-verified inside the lock, send outside it, three failures sentinels the row. | `lib/tournamentReminders.ts` |
+| S-29 | **Cron route + Netlify wrapper**, mirroring `event-charges-cron`: `CRON_SECRET`, constant-time compare, 503 when unset. Roster lazy-sweep parity at limit 3. | `/api/cron/tournament-reminders`, `netlify/functions/tournament-reminders-cron.mts` |
+| S-30 | **Reminder + coach-digest emails**, dedupe-keyed by `(regId, stage)` and `(coachId, club-local day)`. Subject urgency comes from the resolver's proximity badge. | `lib/eventLifecycleEmails.ts` |
+| S-31 | **`EVENT_REMINDER_SEND_FAILED` probe.** I dropped the drafted `EVENT_REMINDER_NO_ANCHOR` — `Event.startsAt` is required and is the last anchor fallback, so it could only ever read zero. | `lib/actionCenter.ts` |
+| S-32 | **Escalation subcard**, shipped with the cron rather than before it, with a preview of the exact dates each reminder lands on. | event editor |
+| S-33 | **Confirmation surface** — `/e/[slug]/registered/[id]`, `/r/[id]` for slug-less events, `calendar.ics` on both (TENTATIVE while unapproved), one `RegistrationCard` rendering §5.2.7's slots from the resolver. | `app/e/[slug]/registered/`, `app/r/`, `components/registration/` |
+| S-34 | **§5.2.1 bugs 2 and 3.** The webhook confirms a paid public registration; `success_url` uses `baseUrlFromRequest` and points at the surface; the public page hands off instead of rendering its own success. | webhook, both register routes, `/e/[slug]` |
+| S-35 | **`/pay/complete` deleted**, `bill-registrants` and the charge engine repointed at `registrationUrl` — one address per registration, everywhere. | `lib/registrationUrl.ts` |
+
+**Two things I did not do, both recorded in the deliverable rather than
+smuggled in:** the member CARD checkout still returns to the portal (it creates
+no registration row, and giving it one would reroute a live money path through
+a different webhook branch), and `EVENT_REMINDER_NO_ANCHOR` was dropped as
+unreachable.
+
+**Open decisions** are §13 of the deliverable — the one worth acting on first is
+`Club.timezone`, still null for every club, which currently puts the coach
+digest at 4am Chicago.
+
 ### 5.1 Bug fixes (do first — no schema work)
 
 | # | Task | Class | Status |
 |---|---|---|---|
 | 5.1.1 | Free public path emails confirmation. | Backend | 🟢 done 2026-08-12 — routed through `sendRegistrationLifecycleEmail` (state-driven, dedupe-keyed), not `sendBookingConfirmationEmail`. |
-| 5.1.2 | Paid public path emails confirmation. Add `sendBookingConfirmationEmail` in `stripe/webhook/route.ts:727-770` `eventRegistrationId` branch. | Backend | ⬜ |
+| 5.1.2 | Paid public path emails confirmation. | Backend | 🟢 done 2026-08-12 — via `sendRegistrationLifecycleEmail` (state-driven, same `event-confirm:<regId>` key as the register route). |
 | 5.1.3 | Idempotency key on `stripe.checkout.sessions.create` in all three event registration routes (member, public, at-the-door). | Backend | ⬜ |
-| 5.1.4 | Success URLs — swap `getAppBaseUrl()` → `baseUrlFromRequest(req)` in every event registration route (`register`/`charge`/webhook branches). Same class of fix as the 2026-07-13 batch. | Backend | ⬜ |
+| 5.1.4 | Success URLs — `baseUrlFromRequest` + pointed at the confirmation surface. | Backend | 🟢 done 2026-08-12. The member CARD path keeps its portal return (no registration row to point at) — deliverable §7.1. |
 | 5.1.5 | Member path stamps `discountAmount` on Checkout metadata (parity with owner path). | Backend | ⬜ |
 
 ### 5.2 Server-rendered confirmation page
@@ -1598,8 +1625,8 @@ migration folder sitting in the tree is a liability.
 | 5.2.1 | **M17** — `EventRegistration.status` enum + `canceledAt` + `refundedAt` + `confirmationSentAt`. Backfill: existing string values map 1:1 to enum. | Migration | M17 | ⬜ |
 | 5.2.2 | **M18** — `EventRegistration @@unique([eventId, LOWER(email)])`. Dedup script (dry-run first, per-club report): keep newest, null stale `stripeCheckoutSessionId` on losers. | Migration + script | M18 | ⬜ |
 | 5.2.3 | **M19** — `Booking.bookedByUserId TEXT?`. | Migration | M19 | ⬜ |
-| 5.2.4 | New route `app/e/[slug]/registered/[registrationId]/page.tsx` — server-renders the confirmation from the actual DB row. Shows: registered / event / athlete / date-time / location / amount paid / payment status / discount / confirmation # (the registration id or a short code derived from it) / add-to-calendar / view / return / contact. | UI + Backend | — | ⬜ |
-| 5.2.5 | Rewrite all `success_url`s to point to `/registered/[registrationId]?session_id={CHECKOUT_SESSION_ID}` (Stripe replaces the token). If the row isn't there yet, server-render "Your registration is being processed. This page will refresh — or check your email." with client-side poll every 2s (max 30s), then fall back to instructions. | UI + Backend | — | ⬜ |
+| 5.2.4 | Confirmation surface. | UI + Backend | — | 🟢 done 2026-08-12 — plus `/r/[id]` for slug-less events and `calendar.ics` on both. |
+| 5.2.5 | Success URLs → the surface, which polls while a checkout is in flight. | UI + Backend | — | 🟢 done 2026-08-12. `?src=paid` is a hint, never the state — the page reads the row. |
 | 5.2.6 | `POST /api/events/registrations/[id]/resend-confirmation` — used by owner Registrations modal and member Communications tab. | Backend | — | ⬜ |
 
 ### 5.3 Email template polish
