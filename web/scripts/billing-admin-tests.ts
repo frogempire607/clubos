@@ -8,6 +8,7 @@ import {
   deriveReadiness,
   deriveBillingMode,
   deriveBillingState,
+  BILLING_STATE_META,
   chargeTiming,
   resolveOfferPricing,
   canRemovePaymentMethod,
@@ -91,6 +92,29 @@ check("paid override over a free sub with no offer → DRAFT_CONFIG, never FREE"
   deriveBillingState({ sub: freeSub, configuredPrice: 5, migrationStatus: "COMPLETED" }) === "DRAFT_CONFIG");
 check("genuinely $0 stays FREE",
   deriveBillingState({ sub: freeSub, configuredPrice: 0, migrationStatus: "COMPLETED" }) === "FREE");
+
+// A $0 RECURRING row is the ambiguous one: a real comp and a migration
+// placeholder are identical on price. The club has to say which, and until
+// it does the header must NOT read "genuinely $0" — that sentence is what
+// let placeholder rows pass as memberships.
+const freeRecurring = { billingType: "RECURRING", status: "active", stripeStatus: null, price: 0, hasStripe: false };
+check("$0 recurring with no comp marker → FREE_UNMARKED",
+  deriveBillingState({ sub: freeRecurring, configuredPrice: 0, migrationStatus: "COMPLETED" }) === "FREE_UNMARKED");
+check("$0 recurring marked deliberate → FREE",
+  deriveBillingState({ sub: { ...freeRecurring, deliberateFree: true }, configuredPrice: 0, migrationStatus: "COMPLETED" }) === "FREE");
+check("an absent marker is treated as unmarked, never assumed yes",
+  deliberateFreeAbsentIsUnmarked());
+check("$0 cash membership stays FREE without a marker — MANUAL is exempt",
+  deriveBillingState({ sub: { ...freeSub, deliberateFree: false }, configuredPrice: 0, migrationStatus: "COMPLETED" }) === "FREE");
+check("FREE and FREE_UNMARKED do not share copy",
+  BILLING_STATE_META.FREE.explanation !== BILLING_STATE_META.FREE_UNMARKED.explanation &&
+  BILLING_STATE_META.FREE_UNMARKED.label.includes("not marked"));
+
+function deliberateFreeAbsentIsUnmarked() {
+  const withUndefined = deriveBillingState({ sub: { ...freeRecurring, deliberateFree: undefined }, configuredPrice: 0 });
+  const withNull = deriveBillingState({ sub: { ...freeRecurring, deliberateFree: null }, configuredPrice: 0 });
+  return withUndefined === "FREE_UNMARKED" && withNull === "FREE_UNMARKED";
+}
 check("paid manual sub → MANUAL_OFFLINE",
   deriveBillingState({ sub: { billingType: "MANUAL", status: "active", stripeStatus: null, price: 190, hasStripe: false }, configuredPrice: 190 }) === "MANUAL_OFFLINE");
 check("completed with nothing open → LEAVE_ALONE",

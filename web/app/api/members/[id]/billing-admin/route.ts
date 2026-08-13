@@ -179,6 +179,10 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
         : null,
       notes: s.notes,
       autoRenew: s.autoRenew,
+      // "$0" alone cannot say whether the club MEANT to give this away.
+      // A comp and a migration placeholder look identical on price, and
+      // only one of them is a membership. The club states it here.
+      deliberateFree: s.deliberateFree,
       createdAt: s.createdAt,
     };
   });
@@ -273,6 +277,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
           stripeStatus: activeSub.stripeStatus,
           price: activeSub.price,
           hasStripe: activeSub.hasStripe,
+          deliberateFree: activeSub.deliberateFree,
         }
       : null,
     configuredPrice: hasConfiguredPrice ? pricing.price : null,

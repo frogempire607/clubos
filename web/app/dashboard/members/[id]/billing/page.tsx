@@ -74,7 +74,7 @@ type Data = {
     currentPeriodEnd: string | null; cancelAt: string | null;
     card: { brand?: string; last4?: string } | null;
     lastPayment: { amount: number; at: string } | null;
-    notes: string | null; autoRenew: boolean; createdAt: string;
+    notes: string | null; autoRenew: boolean; deliberateFree: boolean; createdAt: string;
   }[];
   paymentMethods: PaymentMethod[];
   stripeReadError: boolean;
@@ -540,7 +540,11 @@ export default function MemberBillingPage() {
                   <div>
                     <span className="font-medium text-text-primary">{s.optionLabel}</span>{" "}
                     <span className="text-text-muted text-xs">
-                      {s.price <= 0 ? "Free" : `${fmtMoney(s.price)}${s.billingPeriod ? ` ${s.billingPeriod.toLowerCase()}` : ""}`} · {s.billingType.toLowerCase()} · {s.status}
+                      {/* A bare "Free" is what made a comp and a leftover
+                          placeholder indistinguishable. Say which one. */}
+                      {s.price <= 0
+                        ? s.deliberateFree ? "Free — comped on purpose" : "$0 — not marked as a comp"
+                        : `${fmtMoney(s.price)}${s.billingPeriod ? ` ${s.billingPeriod.toLowerCase()}` : ""}`} · {s.billingType.toLowerCase()} · {s.status}
                       {s.stripeStatus && s.stripeStatus !== s.status ? ` (Stripe: ${s.stripeStatus})` : ""}
                     </span>
                     <div className="text-xs text-text-muted">
@@ -550,6 +554,14 @@ export default function MemberBillingPage() {
                     </div>
                     {s.notes && <div className="text-xs text-text-muted italic mt-0.5">{s.notes}</div>}
                   </div>
+                  {s.price <= 0 && (
+                    <CompToggle
+                      memberId={id}
+                      sub={s}
+                      onDone={() => load()}
+                      onMsg={setMsg}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -733,6 +745,86 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
 }
 
 // ── Danger zone ────────────────────────────────────────────────────────────
+
+// The one control that writes MemberSubscription.deliberateFree.
+//
+// It only appears on $0 rows, because that is the only place the flag
+// changes the answer: a priced membership counts once a payment lands,
+// and the API refuses the write there rather than store a no-op that
+// would read as "I comped them" forever after.
+function CompToggle({
+  memberId,
+  sub,
+  onDone,
+  onMsg,
+}: {
+  memberId: string;
+  sub: { id: string; optionLabel: string; deliberateFree: boolean; billingType: string };
+  onDone: () => void;
+  onMsg: (s: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const turningOn = !sub.deliberateFree;
+
+  const run = async () => {
+    const reason = window.prompt(
+      turningOn
+        ? `Mark "${sub.optionLabel}" as a membership the club gives away on purpose?\n\n` +
+          `This member will count as active with no payment expected.\n\n` +
+          `Why is it free? (coach's kid, scholarship, trade — optional, saved to the record)`
+        : `Remove the comp marker from "${sub.optionLabel}"?\n\n` +
+          `A $0 membership with no marker does not count as a membership, so this member ` +
+          `may drop to inactive.\n\nReason (optional):`,
+      "",
+    );
+    // A cancelled prompt returns null — an empty string is a real answer.
+    if (reason === null) return;
+    setBusy(true);
+    const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "set_deliberate_free",
+        confirm: true,
+        subscriptionId: sub.id,
+        deliberateFree: turningOn,
+        reason: reason || undefined,
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (r.ok) {
+      onMsg(
+        turningOn
+          ? `Marked as a deliberate comp${d.memberStatus ? ` — member is now ${String(d.memberStatus).toLowerCase()}` : ""}.`
+          : `Comp marker removed${d.memberStatus ? ` — member is now ${String(d.memberStatus).toLowerCase()}` : ""}.`,
+      );
+      onDone();
+    } else onMsg(d.error || "Could not update.");
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <button
+        disabled={busy}
+        onClick={run}
+        className={`text-xs rounded-lg px-3 py-1.5 border ${
+          turningOn
+            ? "border-app-border text-text-primary hover:bg-app-bg"
+            : "border-app-border text-text-muted hover:bg-app-bg"
+        }`}
+      >
+        {busy ? "Saving…" : turningOn ? "Mark as comped" : "Remove comp"}
+      </button>
+      {/* MANUAL rows are exempt from the money test entirely, so the flag
+          is stored but changes nothing today. Say so rather than let a
+          coach think this is what is keeping them active. */}
+      {sub.billingType === "MANUAL" && (
+        <span className="text-[11px] text-text-muted">Cash membership — counts either way</span>
+      )}
+    </div>
+  );
+}
 
 function DangerCard({ data, memberId, onDone, onMsg }: { data: Data; memberId: string; onDone: () => void; onMsg: (s: string) => void }) {
   const [busy, setBusy] = useState(false);

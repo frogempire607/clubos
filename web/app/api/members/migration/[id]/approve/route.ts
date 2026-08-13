@@ -377,6 +377,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         price,
         billingPeriod: period,
         billingType: "MANUAL",
+        // Approving a $0 membership is the club stating it means to give one.
+        // MANUAL already counts, so this is documentation of intent rather
+        // than a behavior change — but it means the row can answer "was this
+        // deliberate?" without inferring it from the price.
+        ...(Number(price) <= 0 ? { deliberateFree: true } : {}),
         autoRenew: false,
         status: "active",
         ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
