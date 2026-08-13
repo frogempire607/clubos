@@ -180,26 +180,65 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
     }
 
-    const memberSub = await prisma.memberSubscription.create({
-      data: {
+    // ── One pending checkout per member per plan ──────────────────────────
+    //
+    // This row is created BEFORE the member reaches Stripe Checkout, and
+    // nothing deletes it if they abandon the page. Pressing subscribe twice
+    // therefore minted two pending subscriptions — Maximus Alexander ended up
+    // with two on MS/HS, 43 seconds apart on 2026-07-26, neither ever paid.
+    //
+    // The cash branch above already refuses a second request while one is
+    // waiting; the card branch had no equivalent. Reuse the row instead of
+    // adding one: the member is retrying the same purchase, so give them back
+    // a fresh Checkout session against the subscription they already have.
+    const existingPending = await prisma.memberSubscription.findFirst({
+      where: {
         memberId: member.id,
         membershipId,
-        optionLabel,
-        price: finalPrice,
-        billingPeriod: option.billingPeriod,
-        billingType,
-        startDate,
-        endDate,
-        autoRenew: membership.autoRenewDefault,
         status: "pending",
-        discountCode: discount?.code || null,
+        stripeSubscriptionId: null,
       },
+      orderBy: { createdAt: "desc" },
     });
+
+    const memberSub = existingPending
+      ? await prisma.memberSubscription.update({
+          where: { id: existingPending.id },
+          // Re-price to what they are choosing NOW — they may have picked a
+          // different option on the retry.
+          data: {
+            optionLabel,
+            price: finalPrice,
+            billingPeriod: option.billingPeriod,
+            billingType,
+            endDate,
+            autoRenew: membership.autoRenewDefault,
+            discountCode: discount?.code || null,
+          },
+        })
+      : await prisma.memberSubscription.create({
+          data: {
+            memberId: member.id,
+            membershipId,
+            optionLabel,
+            price: finalPrice,
+            billingPeriod: option.billingPeriod,
+            billingType,
+            startDate,
+            endDate,
+            autoRenew: membership.autoRenewDefault,
+            status: "pending",
+            discountCode: discount?.code || null,
+          },
+        });
 
     const amountInCents = Math.round(finalPrice * 100);
     // 4.5.10 — CREATED only. The row is `pending`; ACTIVATED belongs to the
     // webhook that confirms the money, not to opening a checkout page.
-    await recordSubscriptionCreated(memberSub, {
+    // Only a genuinely new row is a CREATED event. Re-opening checkout on an
+    // existing pending row is the same subscription attempt, and logging it
+    // again would inflate every signup figure Reports produces.
+    if (!existingPending) await recordSubscriptionCreated(memberSub, {
       clubId: club.id,
       source: SUBSCRIPTION_EVENT_SOURCE.MEMBER_ACTION,
       detail: { route: "POST /api/member/memberships/subscribe", billingType },

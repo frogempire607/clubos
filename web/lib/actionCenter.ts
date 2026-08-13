@@ -99,6 +99,67 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
     },
   );
 
+  // ── Unbilled training ─────────────────────────────────────────────────
+  //
+  // Members who show up but hold no active subscription. Two distinct causes,
+  // surfaced separately because the fix differs:
+  //
+  //   STALLED_CHECKOUT — a pending, never-paid subscription. The row is
+  //     created before Stripe Checkout opens and nothing expires it, so an
+  //     abandoned checkout sits there indefinitely with the member training
+  //     for free and nobody being told. (Maximus Alexander sat like this from
+  //     2026-07-26 to 2026-08-13, attending throughout.)
+  //
+  //   TRAINING_UNBILLED — attended recently with no active membership at all,
+  //     whatever the reason (expired, canceled, never started). Verified
+  //     2026-08-13: 13 members across the club, 6 of them seen in the past ten
+  //     days.
+  probe(
+    can("billing", "view"),
+    () =>
+      prisma.memberSubscription.count({
+        where: {
+          member: { clubId, deletedAt: null },
+          status: "pending",
+          stripeSubscriptionId: null,
+          createdAt: { lt: new Date(Date.now() - 48 * 3600_000) },
+        },
+      }),
+    {
+      kind: "STALLED_CHECKOUT",
+      label: "Memberships stuck at checkout, never paid",
+      severity: "high",
+      href: "/dashboard/members?filter=stalled_checkout",
+    },
+  );
+  probe(
+    can("members", "view"),
+    async () => {
+      const since = new Date(Date.now() - 30 * 86400_000);
+      const seen = await prisma.attendanceRecord.findMany({
+        where: { member: { clubId, deletedAt: null }, createdAt: { gte: since } },
+        select: { memberId: true },
+        distinct: ["memberId"],
+        take: 500,
+      });
+      const ids = seen.map((a) => a.memberId).filter(Boolean) as string[];
+      if (ids.length === 0) return 0;
+      const withActive = await prisma.memberSubscription.findMany({
+        where: { memberId: { in: ids }, status: "active" },
+        select: { memberId: true },
+        distinct: ["memberId"],
+      });
+      const activeSet = new Set(withActive.map((s) => s.memberId));
+      return ids.filter((id) => !activeSet.has(id)).length;
+    },
+    {
+      kind: "TRAINING_UNBILLED",
+      label: "Attending with no active membership",
+      severity: "high",
+      href: "/dashboard/members?filter=training_unbilled",
+    },
+  );
+
   // ── Messaging (per-user inbox) ────────────────────────────────────────
   probe(
     can("messages", "view") && !!userId,
