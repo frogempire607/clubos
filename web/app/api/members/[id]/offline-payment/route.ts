@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { resolveCoverage, describeCoverage, MAX_PERIODS_PER_PAYMENT } from "@/lib/paidThrough";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -72,6 +73,13 @@ const schema = z.object({
   // What was actually received; must equal the amount due (partial payments
   // are out of scope — adjust the offer instead).
   amountReceived: z.number().positive().optional(),
+  /**
+   * Whole billing periods this payment buys. Defaults to 1. A family handing
+   * over two quarters at once is routine, and recording it as "one payment,
+   * two quarters" is the difference between a paid-up member and one the club
+   * chases in three months.
+   */
+  coversPeriods: z.number().int().min(1).max(MAX_PERIODS_PER_PAYMENT).optional(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -137,6 +145,60 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     await prisma.memberSubscription.update({
       where: { id: pendingSub.id },
       data: { status: "active", startedAt: receivedAt },
+    });
+  }
+
+  // ── Record how far this money reaches ────────────────────────────────────
+  //
+  // The subscription this payment belongs to: the row just activated, else the
+  // member's live offline subscription. Stripe rows are excluded — their
+  // periods come from Stripe, and stamping a hand-entered paid-through onto one
+  // would put two sources of truth on the same field.
+  const coveredSub = await prisma.memberSubscription.findFirst({
+    where: pendingSub
+      ? { id: pendingSub.id }
+      : { memberId, status: "active", stripeSubscriptionId: null },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true, billingPeriod: true, startDate: true,
+      currentPeriodEnd: true, paidThroughDate: true, optionLabel: true,
+    },
+  });
+
+  let coverageNote: string | null = null;
+  if (coveredSub) {
+    const coverage = resolveCoverage({
+      paidThroughDate: coveredSub.paidThroughDate,
+      currentPeriodEnd: coveredSub.currentPeriodEnd,
+      startDate: coveredSub.startDate,
+      billingPeriod: coveredSub.billingPeriod,
+      periods: parsed.data.coversPeriods ?? 1,
+      now: receivedAt,
+    });
+    coverageNote = describeCoverage(coverage, coveredSub.billingPeriod);
+
+    // The auditable half — what THIS payment bought, on the payment itself.
+    await prisma.transaction.update({
+      where: { id: tx.id },
+      data: {
+        coversPeriods: coverage.periods,
+        coversStart: coverage.start,
+        coversEnd: coverage.end,
+      },
+    });
+
+    // The denormalised half — how far the member is paid up. currentPeriodEnd
+    // only moves when it has fallen behind the money; a prepayment must not
+    // drag the billing period forward with it, or a two-quarter payment would
+    // look like the member already consumed both.
+    await prisma.memberSubscription.update({
+      where: { id: coveredSub.id },
+      data: {
+        paidThroughDate: coverage.end,
+        ...(coveredSub.currentPeriodEnd == null || coveredSub.currentPeriodEnd < receivedAt
+          ? { currentPeriodEnd: coverage.firstPeriodEnd }
+          : {}),
+      },
     });
   }
   await recomputeMemberStatus(memberId, clubId);

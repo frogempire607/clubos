@@ -22,6 +22,7 @@ import {
   planPriceChange,
   resolveOption,
   directionForRows,
+  type MoveResult,
   validateNotice,
   stripeUnitAmountCents,
   buildPriceChangeEmail,
@@ -104,6 +105,19 @@ const bodySchema = z.object({
    * /api/attendance/charge-card.
    */
   clientKey: z.string().min(1).max(100).optional(),
+  /**
+   * Move rows onto a different plan/option entirely. Offline rows only — see
+   * PriceChangeRow.canChangeOption for why Stripe rows are refused here rather
+   * than handled. Processed BEFORE the reprice loop, and a moved row is never
+   * also repriced in the same run: it has left the option under review.
+   */
+  moves: z.array(z.object({
+    memberSubscriptionId: z.string().min(1),
+    toMembershipId: z.string().min(1),
+    toOptionLabel: z.string().min(1),
+    toBillingPeriod: z.string().min(1),
+    toPrice: z.number().min(0).max(1_000_000),
+  })).max(200).optional(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -239,10 +253,115 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
   }
 
+  // ── Moves, before any repricing ──────────────────────────────────────────
+  const moveResults: MoveResult[] = [];
+  const movedIds = new Set<string>();
+  for (const mv of body.moves ?? []) {
+    const row = plan.rows.find((r) => r.memberSubscriptionId === mv.memberSubscriptionId);
+    const base = {
+      memberSubscriptionId: mv.memberSubscriptionId,
+      memberId: row?.memberId ?? null,
+      memberName: row?.memberName ?? null,
+      fromPlan: membership.name, fromOption: row?.optionLabel ?? null,
+      fromPeriod: row?.billingPeriod ?? null, fromPrice: row?.currentPrice ?? null,
+      toPlan: null as string | null, toOption: mv.toOptionLabel,
+      toPeriod: mv.toBillingPeriod, toPrice: mv.toPrice,
+      credit: row?.credit ?? null, periodChanged: false,
+    };
+    if (!row) {
+      moveResults.push({ ...base, outcome: "SKIPPED_NOT_FOUND",
+        message: "No longer on this plan and billing period. It was not moved." });
+      continue;
+    }
+    // Enforced server-side, not just greyed out in the UI.
+    if (row.channel === "stripe") {
+      moveResults.push({ ...base, outcome: "REFUSED_STRIPE",
+        message: row.changeBlockedReason });
+      continue;
+    }
+    // The destination must really exist, resolved the same way as the source.
+    const target = await prisma.membership.findFirst({
+      where: { id: mv.toMembershipId, clubId, deletedAt: null },
+      select: { id: true, name: true, options: true },
+    });
+    const targetOpt = target
+      ? resolveOption(parseMembershipOptions(target.options), mv.toOptionLabel, mv.toBillingPeriod)
+      : null;
+    if (!target || !targetOpt?.ok) {
+      moveResults.push({ ...base, outcome: "REFUSED_NO_SUCH_OPTION",
+        message: `No option "${mv.toOptionLabel}" billed ${mv.toBillingPeriod} on that plan. Nothing was changed.` });
+      continue;
+    }
+    const periodChanged = row.billingPeriod !== targetOpt.option.billingPeriod;
+
+    // Compare-and-swap on everything that identified the row when we read it.
+    const res = await prisma.memberSubscription.updateMany({
+      where: {
+        id: row.memberSubscriptionId,
+        membershipId: membership.id,
+        billingPeriod: option.billingPeriod,
+        price: row.currentPrice,
+        stripeSubscriptionId: null,
+        status: { in: [...REPRICEABLE_STATUSES] },
+      },
+      data: {
+        membershipId: target.id,
+        optionLabel: targetOpt.option.label,
+        billingPeriod: targetOpt.option.billingPeriod,
+        price: mv.toPrice,
+        // A changed cadence makes the stored period end describe a schedule the
+        // member is no longer on, so keeping it would make renewal alerts lie.
+        // Cleared rather than guessed; the next recorded payment sets it.
+        ...(periodChanged ? { currentPeriodEnd: null } : {}),
+      },
+    });
+    if (res.count !== 1) {
+      moveResults.push({ ...base, toPlan: target.name, outcome: "SKIPPED_CHANGED_UNDERNEATH",
+        message: "This subscription changed while the move was running, so it was left alone." });
+      continue;
+    }
+    movedIds.add(row.memberSubscriptionId);
+
+    // PLAN_CHANGED is a real lifecycle kind — this genuinely is one.
+    await recordSubscriptionEvent({
+      clubId, memberSubscriptionId: row.memberSubscriptionId, memberId: row.memberId,
+      kind: SUBSCRIPTION_EVENT_KIND.PLAN_CHANGED, at: now,
+      fromPlan: `${membership.name} — ${row.optionLabel}`,
+      toPlan: `${target.name} — ${targetOpt.option.label}`,
+      fromAmount: row.currentPrice, toAmount: mv.toPrice,
+      actorUserId, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      detail: {
+        route: "POST /api/memberships/[id]/price-change/apply",
+        fromBillingPeriod: row.billingPeriod, toBillingPeriod: targetOpt.option.billingPeriod,
+        periodChanged, currentPeriodEndCleared: periodChanged,
+      },
+    });
+    await writeBillingAudit({
+      clubId, memberId: row.memberId, actorUserId,
+      action: "MEMBERSHIP_OPTION_CHANGED",
+      before: { plan: membership.name, optionLabel: row.optionLabel, billingPeriod: row.billingPeriod, price: row.currentPrice },
+      after: {
+        plan: target.name, optionLabel: targetOpt.option.label,
+        billingPeriod: targetOpt.option.billingPeriod, price: mv.toPrice,
+        periodChanged, currentPeriodEndCleared: periodChanged,
+        credit: row.credit ? { kind: row.credit.kind, amount: row.credit.amount, basis: row.credit.basis } : null,
+      },
+      note: row.credit?.kind === "CREDIT_OWED"
+        ? `Credit owed for unused time at the old option: $${(row.credit.amount ?? 0).toFixed(2)}. NOT issued — settle manually.`
+        : row.credit?.kind === "UNKNOWN"
+          ? "Unused-time credit could NOT be computed — no usable period end is stored. Settle by hand."
+          : null,
+    });
+    moveResults.push({ ...base, toPlan: target.name, outcome: "MOVED", periodChanged, message: null });
+  }
+
   const stripeAccount = club.stripeAccountId ?? undefined;
   const targetCents = stripeUnitAmountCents(body.newPrice, club.passProcessingFees);
 
   for (const row of plan.rows) {
+    // A moved row has left this option — repricing it here would write the
+    // option's price over the one the move just set.
+    if (movedIds.has(row.memberSubscriptionId)) continue;
     const fromPrice = row.currentPrice;
     const toPrice = row.newPrice;
 
@@ -665,6 +784,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       direction: targetedDirection,
       planDirection: plan.direction,
       reconcileLabel: body.reconcileLabel,
+      moves: moveResults.map((m) => ({
+        id: m.memberSubscriptionId, member: m.memberName, outcome: m.outcome,
+        from: `${m.fromOption} (${m.fromPeriod}) $${m.fromPrice}`,
+        to: `${m.toPlan} — ${m.toOption} (${m.toPeriod}) $${m.toPrice}`,
+        periodChanged: m.periodChanged, message: m.message,
+      })),
       memo,
       notified: toNotify.length,
       notifySelectionUsed: emailAllowed !== null,
@@ -703,6 +828,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       additionalDue: Math.round(additionalDue * 100) / 100,
       unresolvedCredit,
     },
+    moves: moveResults,
     results,
     notes: [
       "The plan's own price list was not changed — save the membership to update it for new purchases.",
