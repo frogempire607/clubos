@@ -10,6 +10,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
+import { tallyEmailSends, trackingCapableRatio } from "@/lib/emailResults";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -51,36 +52,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     },
   });
 
-  const trackable = rows.filter((r) => r.providerMessageId != null).length;
-  const trackingCapableRatio = rows.length ? trackable / rows.length : 0;
-
   // Aggregate tally. plan §3N: "Never claim an email was opened when
-  // tracking is unavailable or blocked." The counts here reflect the
-  // ROW STATE — the UI is what disclaims the tracking gap.
-  const counts = {
-    intended: rows.length,
-    sent: rows.filter((r) => r.status === "SENT" || r.deliveredAt || r.openedAt || r.clickedAt).length,
-    delivered: rows.filter((r) => r.deliveredAt).length,
-    opened: rows.filter((r) => r.openedAt).length,           // exact — null stays null
-    clicked: rows.filter((r) => r.clickedAt).length,
-    bounced: rows.filter((r) => r.bouncedAt).length,
-    failed: rows.filter((r) => r.status === "FAILED").length,
-    skipped: rows.filter((r) => r.status === "SKIPPED").length,
-    skippedNoEmail: rows.filter((r) => r.skippedReason === "NO_EMAIL").length,
-    skippedOptedOut: rows.filter((r) => r.skippedReason === "OPTED_OUT").length,
-    skippedInvalid: rows.filter((r) => r.skippedReason === "INVALID_ADDRESS").length,
-    skippedDuplicate: rows.filter((r) => r.skippedReason === "DUPLICATE_IN_BATCH").length,
-    // Tracking-capable rows: only Resend sends carry a
-    // providerMessageId. SMTP sends never fire opens. The UI uses this
-    // divisor to render "opened by 45 of 120 recipients whose client
-    // supports tracking" instead of a misleading "45 of 300" percentage.
-    trackingCapable: trackable,
-  };
+  // tracking is unavailable or blocked." The counts reflect ROW STATE —
+  // the UI is what disclaims the tracking gap. Shared with the batch
+  // results endpoint so the two pages can't drift.
+  const counts = tallyEmailSends(rows);
 
   return NextResponse.json({
     announcement,
     counts,
-    trackingCapableRatio,
+    trackingCapableRatio: trackingCapableRatio(counts),
     rows,
   });
 }

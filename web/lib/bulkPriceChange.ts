@@ -297,6 +297,22 @@ export type PriceChangeRow = {
   } | null;
   discountCode: string | null;
   warnings: string[];
+  /**
+   * Whether this row can be moved to a different plan/option from the review
+   * screen. Offline rows only.
+   *
+   * Stripe rows are refused deliberately. Changing a subscription's billing
+   * interval in place cannot preserve the paid-through date: Stripe keeps the
+   * existing billing_cycle_anchor by default, so a monthly member moved to
+   * quarterly is invoiced a full quarter on their next MONTHLY date — roughly
+   * two months early — and `billing_cycle_anchor: "now"` bills immediately
+   * instead. proration_behavior does not fix either; it only suppresses the
+   * credit note. The safe path is cancel-at-period-end plus a new subscription
+   * anchored with trial_end, which is a subscription replacement and belongs in
+   * the billing centre, not behind a dropdown in a price tool.
+   */
+  canChangeOption: boolean;
+  changeBlockedReason: string | null;
 };
 
 export type PriceChangeSummary = {
@@ -411,6 +427,10 @@ export function planPriceChange(input: {
         : null,
       discountCode: s.discountCode,
       warnings,
+      canChangeOption: !isStripe,
+      changeBlockedReason: isStripe
+        ? "Stripe-billed. Changing the billing interval in place would re-anchor the cycle and bill them early — move this one from the billing centre instead."
+        : null,
     };
   });
 
@@ -725,3 +745,46 @@ const PERIOD_WORD: Record<string, string> = {
   ANNUAL: "annually",
   ONE_TIME: "as a one-time payment",
 };
+
+
+// ── Moving a subscription to a different plan / option ──────────────────────
+
+export type OptionMove = {
+  memberSubscriptionId: string;
+  toMembershipId: string;
+  toOptionLabel: string;
+  toBillingPeriod: string;
+  /** Price to land on. Defaults to the target option's price in the UI. */
+  toPrice: number;
+};
+
+export type MoveOutcome =
+  | "MOVED"
+  | "SKIPPED_NOT_FOUND"
+  | "REFUSED_STRIPE"
+  | "REFUSED_NO_SUCH_OPTION"
+  | "SKIPPED_CHANGED_UNDERNEATH";
+
+export type MoveResult = {
+  memberSubscriptionId: string;
+  memberId: string | null;
+  memberName: string | null;
+  outcome: MoveOutcome;
+  fromPlan: string | null;
+  fromOption: string | null;
+  fromPeriod: string | null;
+  fromPrice: number | null;
+  toPlan: string | null;
+  toOption: string | null;
+  toPeriod: string | null;
+  toPrice: number | null;
+  /** Unused-time credit on what they had already paid for, if computable. */
+  credit: CreditResult | null;
+  /** True when the billing cadence changed, which invalidates the stored period end. */
+  periodChanged: boolean;
+  message: string | null;
+};
+
+export function isMoveFailure(o: MoveOutcome): boolean {
+  return o === "REFUSED_STRIPE" || o === "REFUSED_NO_SUCH_OPTION";
+}

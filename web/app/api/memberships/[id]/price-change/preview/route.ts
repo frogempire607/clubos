@@ -139,5 +139,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     now: new Date(),
   });
 
-  return NextResponse.json({ preview: true, ...plan });
+  // Every plan + option in the club, so the review screen can offer a move
+  // target without a second round trip. Read-only, same as everything else here.
+  const allPlans = await prisma.membership.findMany({
+    where: { clubId: session.user.clubId, deletedAt: null, active: true },
+    select: { id: true, name: true, options: true },
+    orderBy: { name: "asc" },
+  });
+  const moveTargets = allPlans.map((m) => ({
+    membershipId: m.id,
+    name: m.name,
+    options: parseMembershipOptions(m.options),
+  }));
+
+  return NextResponse.json({ preview: true, ...plan, moveTargets });
 }

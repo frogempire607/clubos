@@ -1169,6 +1169,8 @@ export default function MembersRoster({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUEUE_LABELS: Record<string, string> = {
+  stalledCheckout: "Stuck at checkout",
+  trainingUnbilled: "Attending, no active membership",
   neverInvited: "Never invited",
   blocked: "Blocked",
   missingContact: "Missing contact",

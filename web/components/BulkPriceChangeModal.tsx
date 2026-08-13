@@ -52,7 +52,11 @@ type Row = {
   stripe: { subscriptionId: string; priceId: string | null; stripeStatus: string | null; currentPeriodEnd: string | null } | null;
   discountCode: string | null;
   warnings: string[];
+  canChangeOption: boolean;
+  changeBlockedReason: string | null;
 };
+
+type MoveTarget = { membershipId: string; name: string; options: PlanOption[] };
 
 type PlanOption = { label: string; price: number; billingPeriod: string };
 
@@ -77,6 +81,14 @@ type Plan = {
     defaultSelectedDelta: number;
   };
   notes: string[];
+  moveTargets: MoveTarget[];
+};
+
+type MoveRow = {
+  memberSubscriptionId: string; memberName: string | null; outcome: string;
+  fromOption: string | null; fromPeriod: string | null; fromPrice: number | null;
+  toPlan: string | null; toOption: string | null; toPeriod: string | null; toPrice: number | null;
+  periodChanged: boolean; message: string | null;
 };
 
 type ApplyRowResult = {
@@ -104,6 +116,7 @@ type ApplyResponse = {
     unresolvedCredit: number;
   };
   results: ApplyRowResult[];
+  moves: MoveRow[];
   notes: string[];
 };
 
@@ -168,6 +181,9 @@ function RowLine({
   emailOn,
   onToggleEmail,
   notifyEnabled,
+  moveTargets,
+  moveValue,
+  onMove,
 }: {
   row: Row;
   checked: boolean;
@@ -175,6 +191,9 @@ function RowLine({
   emailOn: boolean;
   onToggleEmail: (id: string) => void;
   notifyEnabled: boolean;
+  moveTargets: MoveTarget[];
+  moveValue: string;
+  onMove: (id: string, value: string) => void;
 }) {
   return (
     <tr className="border-t border-app-border align-top">
@@ -222,6 +241,38 @@ function RowLine({
       </td>
       <td className="px-3 py-2 text-sm whitespace-nowrap">
         <CreditCell credit={row.credit} />
+      </td>
+      <td className="px-3 py-2 text-sm">
+        {/* Move to a different plan/option. Offline rows only — a Stripe row's
+            billing interval cannot be changed in place without re-anchoring
+            the cycle, so the control is disabled and says why. */}
+        {row.canChangeOption ? (
+          <select
+            value={moveValue}
+            onChange={(e) => onMove(row.memberSubscriptionId, e.target.value)}
+            aria-label={`Move ${row.memberName}`}
+            className="max-w-[190px] px-2 py-1 border border-app-border rounded-lg text-xs bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
+          >
+            <option value="">Stay on this option</option>
+            {moveTargets.map((t) =>
+              t.options.map((o) => {
+                const v = `${t.membershipId}|${o.label}|${o.billingPeriod}`;
+                return (
+                  <option key={v} value={v}>
+                    {t.name} — {o.label} ({usd(o.price)})
+                  </option>
+                );
+              }),
+            )}
+          </select>
+        ) : (
+          <span className="text-[11px] text-text-muted" title={row.changeBlockedReason ?? undefined}>
+            Stripe-billed —{" "}
+            <a href={`/dashboard/members/${row.memberId}/billing`} className="text-brand hover:underline">
+              billing centre
+            </a>
+          </span>
+        )}
       </td>
       <td className="px-3 py-2 text-sm">
         {/* Per-member email control. Only meaningful for rows being changed —
@@ -286,6 +337,9 @@ export default function BulkPriceChangeModal({
   // Per-member email opt-out. Holds the ids explicitly UNCHECKED, so newly
   // selected members default to "will be emailed" rather than silently not.
   const [noEmail, setNoEmail] = useState<Set<string>>(new Set());
+  // Per-row plan/option move. Key is the subscription id; value is
+  // "<membershipId>|<optionLabel>|<billingPeriod>".
+  const [moves, setMoves] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     let alive = true;
@@ -328,6 +382,7 @@ export default function BulkPriceChangeModal({
     setError("");
     setMemo("");
     setNoEmail(new Set());
+    setMoves(new Map());
   }, [optionIndex]);
 
   const recurringRows = useMemo(() => plan?.rows.filter((r) => !r.upfront) ?? [], [plan]);
@@ -356,6 +411,35 @@ export default function BulkPriceChangeModal({
 
   function selectNone() {
     setSelected(new Set());
+  }
+
+  function setMove(id: string, value: string) {
+    setMoves((prev) => {
+      const next = new Map(prev);
+      if (!value) next.delete(id);
+      else next.set(id, value);
+      return next;
+    });
+    // Moving a row implies acting on it.
+    if (value) setSelected((prev) => new Set(prev).add(id));
+  }
+
+  // Resolve the picker values into the payload apply expects.
+  function buildMoves() {
+    const targets = plan?.moveTargets ?? [];
+    const out: Array<{ memberSubscriptionId: string; toMembershipId: string; toOptionLabel: string; toBillingPeriod: string; toPrice: number }> = [];
+    for (const [subId, v] of moves) {
+      const [membershipIdPart, label, period] = v.split("|");
+      const price = targets
+        .find((t) => t.membershipId === membershipIdPart)
+        ?.options.find((o) => o.label === label && o.billingPeriod === period)?.price;
+      if (price == null) continue;
+      out.push({
+        memberSubscriptionId: subId, toMembershipId: membershipIdPart,
+        toOptionLabel: label, toBillingPeriod: period, toPrice: price,
+      });
+    }
+    return out;
   }
 
   function toggleEmail(id: string) {
@@ -433,6 +517,7 @@ export default function BulkPriceChangeModal({
           // Stable for this confirm press: a double-click dedupes at Stripe,
           // a deliberate retry after a failure is allowed to run.
           clientKey,
+          moves: buildMoves(),
         }),
       });
       const json = await res.json();
@@ -614,6 +699,54 @@ export default function BulkPriceChangeModal({
                 </table>
               </div>
 
+              {applied.moves?.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary mb-2">Plan / option moves</h3>
+                  <div className="overflow-x-auto border border-app-border rounded-lg">
+                    <table className="w-full text-left">
+                      <thead className="bg-app-bg">
+                        <tr className="text-[11px] uppercase tracking-wide text-text-muted">
+                          <th className="px-3 py-2">Member</th>
+                          <th className="px-3 py-2">Result</th>
+                          <th className="px-3 py-2">Change</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {applied.moves.map((m) => {
+                          const bad = m.outcome.startsWith("REFUSED");
+                          const skip = m.outcome.startsWith("SKIPPED");
+                          return (
+                            <tr key={m.memberSubscriptionId} className="border-t border-app-border align-top">
+                              <td className="px-3 py-2 text-sm text-text-primary">{m.memberName ?? "(unknown)"}</td>
+                              <td className="px-3 py-2 text-sm">
+                                <span className={bad ? "text-red-700 font-medium" : skip ? "text-amber-700" : "text-emerald-700 font-medium"}>
+                                  {m.outcome.replace(/_/g, " ").toLowerCase()}
+                                </span>
+                                {m.message && <div className="text-[11px] text-text-muted mt-0.5">{m.message}</div>}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-text-primary">
+                                {m.outcome === "MOVED" ? (
+                                  <>
+                                    {m.fromOption} ({m.fromPeriod}) → {m.toPlan} — {m.toOption} ({m.toPeriod}){" "}
+                                    {m.toPrice != null && usd(m.toPrice)}
+                                    {m.periodChanged && (
+                                      <span className="block text-[11px] text-amber-700">
+                                        Billing cadence changed — the stored period end was cleared and will be set
+                                        when you record their next payment.
+                                      </span>
+                                    )}
+                                  </>
+                                ) : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               <ul className="space-y-1">
                 {applied.notes.map((n, i) => (
                   <li key={i} className="text-xs text-text-muted flex gap-1.5">
@@ -694,6 +827,7 @@ export default function BulkPriceChangeModal({
                           <th className="px-3 py-2">Pays today</th>
                           <th className="px-3 py-2">New price</th>
                           <th className="px-3 py-2">Credit / due</th>
+                          <th className="px-3 py-2">Move to</th>
                           <th className="px-3 py-2">Notify</th>
                         </tr>
                       </thead>
@@ -707,6 +841,9 @@ export default function BulkPriceChangeModal({
                             emailOn={!noEmail.has(r.memberSubscriptionId)}
                             onToggleEmail={toggleEmail}
                             notifyEnabled={notify}
+                            moveTargets={plan.moveTargets ?? []}
+                            moveValue={moves.get(r.memberSubscriptionId) ?? ""}
+                            onMove={setMove}
                           />
                         ))}
                       </tbody>
@@ -736,6 +873,7 @@ export default function BulkPriceChangeModal({
                           <th className="px-3 py-2">Pays today</th>
                           <th className="px-3 py-2">New price</th>
                           <th className="px-3 py-2">Credit / due</th>
+                          <th className="px-3 py-2">Move to</th>
                           <th className="px-3 py-2">Notify</th>
                         </tr>
                       </thead>
@@ -749,6 +887,9 @@ export default function BulkPriceChangeModal({
                             emailOn={!noEmail.has(r.memberSubscriptionId)}
                             onToggleEmail={toggleEmail}
                             notifyEnabled={notify}
+                            moveTargets={plan.moveTargets ?? []}
+                            moveValue={moves.get(r.memberSubscriptionId) ?? ""}
+                            onMove={setMove}
                           />
                         ))}
                       </tbody>

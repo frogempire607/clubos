@@ -16,8 +16,10 @@ import {
   stripeUnitAmountCents,
   buildPriceChangeEmail,
   isFailureOutcome,
+  isMoveFailure,
   type PricedSubscription,
 } from "../lib/bulkPriceChange";
+import { resolveCoverage, describeCoverage, MAX_PERIODS_PER_PAYMENT } from "../lib/paidThrough";
 import {
   LIFECYCLE_EVENT_KINDS,
   SUBSCRIPTION_EVENT_KIND,
@@ -419,6 +421,94 @@ const blankMemo = buildPriceChangeEmail({
 check("whitespace-only memo is dropped", blankMemo.blocks.length === noMemoMail.blocks.length);
 check("offline members still get a full notice with the new price",
   flat(memoMail.blocks).includes("$175.00") && flat(memoMail.blocks).includes("nothing has been charged or refunded"));
+
+// ── Moving a subscription: who is allowed ───────────────────────────────────
+console.log("\ncanChangeOption:");
+const movePlan = planPriceChange({
+  membership: { id: "plan1", name: "MS/HS" },
+  option: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" },
+  newPrice: 175, now: NOW,
+  subs: [
+    mk({ first: "Cash", optionLabel: "MS/HS", price: 530, billingPeriod: "MONTHLY", billingType: "MANUAL" }),
+    mk({ first: "Card", optionLabel: "Monthly", price: 190, billingPeriod: "MONTHLY", stripeSubscriptionId: "sub_X", stripeStatus: "active" }),
+  ],
+});
+const cashRow = movePlan.rows.find((r) => r.memberName.startsWith("Cash"))!;
+const cardRow = movePlan.rows.find((r) => r.memberName.startsWith("Card"))!;
+check("offline rows can be moved", cashRow.canChangeOption === true);
+check("offline rows carry no block reason", cashRow.changeBlockedReason === null);
+check("Stripe rows cannot be moved", cardRow.canChangeOption === false);
+check("…and say why, naming the re-anchor risk",
+  (cardRow.changeBlockedReason ?? "").includes("re-anchor"));
+check("…and point at the billing centre",
+  (cardRow.changeBlockedReason ?? "").includes("billing centre"));
+check("REFUSED_STRIPE is a move failure", isMoveFailure("REFUSED_STRIPE") === true);
+check("MOVED is not", isMoveFailure("MOVED") === false);
+check("SKIPPED_NOT_FOUND is not a failure", isMoveFailure("SKIPPED_NOT_FOUND") === false);
+// Colton's exact shape: a quarterly price sitting on a monthly row.
+check("a $530 monthly row is flagged as off the plan price",
+  cashRow.warnings.some((w) => w.includes("$530.00")));
+
+// ── paidThroughDate coverage ────────────────────────────────────────────────
+console.log("\nresolveCoverage:");
+const NOWC = new Date("2026-08-13T12:00:00Z");
+const d = (c: { start: Date; end: Date; firstPeriodEnd: Date }) =>
+  [c.start.toISOString().slice(0, 10), c.firstPeriodEnd.toISOString().slice(0, 10), c.end.toISOString().slice(0, 10)];
+
+const single = resolveCoverage({
+  paidThroughDate: null, currentPeriodEnd: new Date("2026-09-01T00:00:00Z"),
+  startDate: null, billingPeriod: "QUARTERLY", periods: 1, now: NOWC,
+});
+check("one quarter continues from the current period end", d(single)[0] === "2026-09-01");
+check("…and ends one quarter later", d(single)[2] === "2026-12-01");
+check("firstPeriodEnd equals end for a single period", d(single)[1] === d(single)[2]);
+check("basis names the field used", single.basis === "currentPeriodEnd");
+
+// THE case Julian named: two quarters handed over at once.
+const twoQuarters = resolveCoverage({
+  paidThroughDate: null, currentPeriodEnd: new Date("2026-09-01T00:00:00Z"),
+  startDate: null, billingPeriod: "QUARTERLY", periods: 2, now: NOWC,
+});
+check("two quarters reach six months out", d(twoQuarters)[2] === "2027-03-01");
+check("but the CURRENT period still ends in three",
+  d(twoQuarters)[1] === "2026-12-01");
+check("firstPeriodEnd < end when prepaying", twoQuarters.firstPeriodEnd < twoQuarters.end);
+
+// Two single payments must land where one double payment lands.
+const first = resolveCoverage({
+  paidThroughDate: null, currentPeriodEnd: new Date("2026-09-01T00:00:00Z"),
+  startDate: null, billingPeriod: "QUARTERLY", periods: 1, now: NOWC,
+});
+const second = resolveCoverage({
+  paidThroughDate: first.end, currentPeriodEnd: new Date("2026-09-01T00:00:00Z"),
+  startDate: null, billingPeriod: "QUARTERLY", periods: 1, now: NOWC,
+});
+check("two single payments == one double payment", second.end.getTime() === twoQuarters.end.getTime());
+
+// A lapsed member buys forward from today, not retroactively.
+const lapsed = resolveCoverage({
+  paidThroughDate: new Date("2026-05-01T00:00:00Z"), currentPeriodEnd: null,
+  startDate: null, billingPeriod: "MONTHLY", periods: 1, now: NOWC,
+});
+check("coverage never starts in the past", lapsed.start.getTime() === NOWC.getTime());
+check("…and says the anchor was assumed", lapsed.anchorAssumed === true);
+check("a lapse is not silently backdated", lapsed.end.toISOString().slice(0, 10) === "2026-09-13");
+
+const nothing = resolveCoverage({
+  paidThroughDate: null, currentPeriodEnd: null, startDate: null,
+  billingPeriod: "MONTHLY", periods: 1, now: NOWC,
+});
+check("no anchor at all falls back to now, flagged", nothing.basis === "now" && nothing.anchorAssumed === true);
+check("periods are clamped to a sane maximum",
+  resolveCoverage({ paidThroughDate: null, currentPeriodEnd: null, startDate: null, billingPeriod: "MONTHLY", periods: 999, now: NOWC }).periods === MAX_PERIODS_PER_PAYMENT);
+check("zero or negative periods become one",
+  resolveCoverage({ paidThroughDate: null, currentPeriodEnd: null, startDate: null, billingPeriod: "MONTHLY", periods: 0, now: NOWC }).periods === 1);
+
+console.log("\ndescribeCoverage:");
+check("a single quarter reads naturally", describeCoverage(single, "QUARTERLY").includes("1 quarter — paid through December 1, 2026"));
+check("two quarters STATE the count, not just the date",
+  describeCoverage(twoQuarters, "QUARTERLY").includes("2 quarters"));
+check("an assumed anchor is disclosed", describeCoverage(lapsed, "MONTHLY").includes("nothing was on record"));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail > 0 ? 1 : 0);

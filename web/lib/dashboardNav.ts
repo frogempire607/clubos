@@ -80,6 +80,7 @@ export const NAV: NavItem[] = [
       { id: "messages", label: "Messaging", href: "/dashboard/messages" },
       { id: "announcements", label: "Announcements", href: "/dashboard/announcements" },
       { id: "campaigns", label: "Campaigns", href: "/dashboard/communication/campaigns" },
+      { id: "email-results", label: "Email sends", href: "/dashboard/communication/results" },
       { id: "templates", label: "Templates", href: "/dashboard/communication/templates" },
       { id: "audiences", label: "Audiences", href: "/dashboard/communication/audiences" },
       { id: "unsubscribes", label: "Unsubscribes", href: "/dashboard/communication/unsubscribes" },

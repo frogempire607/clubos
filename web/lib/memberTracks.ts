@@ -42,7 +42,38 @@ export type TrackSubscription = {
   currentPeriodEnd?: DateLike;
   canceledAt?: DateLike;
   endDate?: DateLike;
+  /** RECURRING | ONE_TIME | MANUAL */
+  billingType?: string | null;
+  /** An owner said this $0 row is a real comp, not a placeholder. */
+  deliberateFree?: boolean | null;
+  /** At least one SUCCEEDED, non-VOID transaction exists for this subscription. */
+  hasSucceededPayment?: boolean | null;
 };
+
+/**
+ * Does this subscription represent an actual membership?
+ *
+ * "Do they hold a membership" and "is their money current" are different
+ * questions and must not share a flag. This answers only the first.
+ *
+ *   - price > 0 needs evidence money has EVER arrived. A Stripe trial creates
+ *     an active row at full price and charges nothing, so price alone counts a
+ *     trialist as a member. (Levi Schanzenbach: active on $175 with zero
+ *     payments, 2026-08-13.) `stripeStatus: "trialing"` is NOT the test — it
+ *     is a cached snapshot that goes stale, and using it would demote Kellan
+ *     Lister, whose row still says trialing though he paid $545.37 in July.
+ *   - price = 0 needs the club to have said the comp is deliberate.
+ *   - MANUAL is exempt from the money test on purpose. A cash member IS a
+ *     member; unrecorded cash is a bookkeeping gap, not a lapsed membership.
+ *     Those rows surface in the TRAINING_UNBILLED queue instead of silently
+ *     flipping inactive.
+ */
+export function countsAsMembership(s: TrackSubscription): boolean {
+  if (s.billingType === "MANUAL") return true;
+  const price = Number(s.price ?? 0);
+  if (price > 0) return s.hasSucceededPayment === true;
+  return s.deliberateFree === true;
+}
 
 /**
  * Everything the status model reads. Deliberately a flat plain shape rather
@@ -301,7 +332,8 @@ export function membershipTrackFor(m: MemberTrackInput, now: Date = new Date()):
   if (m.status === "PAUSED") return MEMBERSHIP_TRACK.PAUSED;
 
   const subs = m.subscriptions ?? [];
-  if (subs.some((s) => s.status === ACTIVE_SUB)) return MEMBERSHIP_TRACK.ACTIVE;
+  // An active ROW is not the same as an active MEMBERSHIP — see countsAsMembership.
+  if (subs.some((s) => s.status === ACTIVE_SUB && countsAsMembership(s))) return MEMBERSHIP_TRACK.ACTIVE;
   // A live staff-granted trial is real access, so it reads Active even with no
   // subscription row behind it.
   if (isFuture(m.trialEndsAt, now)) return MEMBERSHIP_TRACK.ACTIVE;

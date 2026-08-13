@@ -1062,6 +1062,13 @@ model MemberSubscription {
   discountCode   String?
   discountAmount Decimal? @db.Decimal(10, 2)
 
+  // A $0 membership the club MEANT to give away — a comp, a coach's kid, a
+  // scholarship. Distinguishes a real free membership from the $0 placeholder
+  // rows that migration bugs left behind, which is the difference between
+  // "active member" and "artifact". Only an explicit owner action sets this;
+  // nothing infers it from the price being zero.
+  deliberateFree Boolean @default(false)
+
   // Legacy start mode (kept for backward compat)
   startMode          String    @default("IMMEDIATE") // IMMEDIATE | SPECIFIC_DATE
   effectiveStartDate DateTime?
