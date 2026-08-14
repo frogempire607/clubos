@@ -214,6 +214,15 @@ export default function MembersRoster({
   const [purchasing, setPurchasing] = useState<FullMember | null>(null);
   const [bulkMessaging, setBulkMessaging] = useState<string[] | null>(null);
   const [bulkEmailing, setBulkEmailing] = useState<string[] | null>(null);
+  // Opening a saved draft from the Drafts page. The draft carries its own
+  // recipients, so the roster selection is irrelevant here — the composer
+  // replaces it once the draft loads.
+  const [openDraftId, setOpenDraftId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const d = params.get("draft");
+    if (d) setOpenDraftId(d);
+  }, [params]);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [reset, setReset] = useState<{
@@ -1103,12 +1112,14 @@ export default function MembersRoster({
         />
       )}
 
-      {bulkEmailing && (
+      {(bulkEmailing || openDraftId) && (
         <BulkEmailModal
-          memberIds={bulkEmailing}
-          onClose={() => setBulkEmailing(null)}
+          memberIds={bulkEmailing ?? []}
+          draftId={openDraftId}
+          onClose={() => { setBulkEmailing(null); setOpenDraftId(null); }}
           onSent={() => {
             setBulkEmailing(null);
+            setOpenDraftId(null);
             setSelected(new Set());
             setSelectAllMatching(false);
             setToast({ kind: "ok", text: "Email queued." });

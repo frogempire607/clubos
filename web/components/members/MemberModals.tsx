@@ -283,11 +283,36 @@ type PreviewRow = { memberId: string; memberName: string; recipientEmail: string
 //   5. A stable clientKey per open modal — the server derives the
 //      sendBatchId from clubId + clientKey so retries land on the same
 //      batch and the partial unique index rejects doubles.
-export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: string[]; onClose: () => void; onSent: () => void }) {
+export function BulkEmailModal({
+  memberIds,
+  draftId: initialDraftId,
+  onClose,
+  onSent,
+}: {
+  memberIds: string[];
+  /** Reopening a saved draft — its content and recipients replace the props. */
+  draftId?: string | null;
+  onClose: () => void;
+  onSent: () => void;
+}) {
   const [mode, setMode] = useState<SendMode>("HOUSEHOLD");
   const [subject, setSubject] = useState("");
   const [previewText, setPreviewText] = useState("");
   const [blocks, setBlocks] = useState<EmailBlock[]>([]);
+  // Server-side draft. Distinct from the localStorage draft below, which is a
+  // per-device crash cushion; this one survives the browser, the device, and
+  // the person — and remembers who the message was for.
+  const [draftId, setDraftId] = useState<string | null>(initialDraftId ?? null);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [draftErr, setDraftErr] = useState<string | null>(null);
+  const [draftLoading, setDraftLoading] = useState(!!initialDraftId);
+  const [draftRecipients, setDraftRecipients] = useState<string[] | null>(null);
+  const [droppedFromDraft, setDroppedFromDraft] = useState(0);
+
+  // The recipients in play: a reopened draft's own list wins over the
+  // roster selection that opened the modal.
+  const activeMemberIds = draftRecipients ?? memberIds;
   const [previewData, setPreviewData] = useState<{ counts: PreviewCounts; preview: PreviewRow[]; skipped: PreviewSkipRow[]; truncated: { preview: boolean; skipped: boolean } } | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -361,8 +386,36 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
     [],
   );
 
+  // Load a saved draft before anything else renders against stale state.
+  useEffect(() => {
+    if (!initialDraftId) return;
+    let alive = true;
+    (async () => {
+      const r = await fetch(`/api/emails/drafts/${initialDraftId}`);
+      const d = await r.json().catch(() => ({}));
+      if (!alive) return;
+      if (!r.ok) {
+        setDraftErr(typeof d?.error === "string" ? d.error : "Could not open that draft.");
+        setDraftLoading(false);
+        return;
+      }
+      const draft = d.draft;
+      setSubject(draft.subject ?? "");
+      setPreviewText(draft.previewText ?? "");
+      setBlocks(Array.isArray(draft.blocks) ? draft.blocks : []);
+      setMode(draft.mode as SendMode);
+      setDraftRecipients(draft.memberIds ?? []);
+      setDroppedFromDraft(draft.droppedMemberCount ?? 0);
+      setDraftSavedAt(draft.savedAt ?? null);
+      if (!draft.editable) setDraftErr(draft.notEditableReason);
+      setDraftLoading(false);
+    })();
+    return () => { alive = false; };
+  }, [initialDraftId]);
+
   useEffect(() => {
     let alive = true;
+    if (draftLoading) return;
     setPreviewLoading(true);
     setPreviewErr(null);
     (async () => {
@@ -370,7 +423,7 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
         const res = await fetch("/api/members/bulk/email-preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ memberIds, mode }),
+          body: JSON.stringify({ memberIds: activeMemberIds, mode }),
         });
         const data = await res.json().catch(() => ({}));
         if (!alive) return;
@@ -388,7 +441,38 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
       }
     })();
     return () => { alive = false; };
-  }, [memberIds, mode]);
+  }, [activeMemberIds, mode, draftLoading]);
+
+  async function saveDraft() {
+    setDraftErr(null);
+    setDraftBusy(true);
+    try {
+      const res = await fetch("/api/emails/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: draftId ?? undefined,
+          subject,
+          previewText: previewText || undefined,
+          blocks,
+          mode,
+          memberIds: activeMemberIds,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDraftErr(typeof d?.error === "string" ? d.error : "Could not save the draft.");
+        return;
+      }
+      setDraftId(d.id);
+      setDraftSavedAt(d.savedAt ?? new Date().toISOString());
+      // The server copy is now authoritative, so the per-device localStorage
+      // copy would only be a way to resurrect stale text later.
+      clearComposerDraft(`bulk:${clubCtx?.name ?? "default"}`);
+    } finally {
+      setDraftBusy(false);
+    }
+  }
 
   async function send() {
     setSendErr(null);
@@ -433,13 +517,25 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
       <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-4xl border border-app-border max-h-[95vh] flex flex-col">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold text-text-primary">
-            Email {memberIds.length} member{memberIds.length === 1 ? "" : "s"}
+            Email {activeMemberIds.length} member{activeMemberIds.length === 1 ? "" : "s"}
+            {draftId && <span className="ml-2 text-xs font-normal text-text-muted">· draft</span>}
           </h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none" aria-label="Close">×</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {sendResult ? (
+          {/* A reopened draft may have lost people since it was saved. Say so
+              rather than quietly sending to fewer than the sender chose. */}
+          {droppedFromDraft > 0 && (
+            <div className="bg-orange-accent/10 border border-orange-accent rounded-lg p-3 text-xs text-charcoal">
+              {droppedFromDraft} recipient{droppedFromDraft === 1 ? " was" : "s were"} on this draft but
+              {droppedFromDraft === 1 ? " is" : " are"} no longer in your members list, so
+              {droppedFromDraft === 1 ? " it has" : " they have"} been dropped.
+            </div>
+          )}
+          {draftLoading ? (
+            <div className="text-sm text-text-muted">Opening draft…</div>
+          ) : sendResult ? (
             <div className="text-sm space-y-3">
               <div className="bg-lime-accent/20 border border-lime-accent rounded-lg p-4 text-charcoal">
                 {/* Large sends hand off to the background worker, so
@@ -599,9 +695,27 @@ export function BulkEmailModal({ memberIds, onClose, onSent }: { memberIds: stri
           // 3M — footer wraps on mobile so the long "Review & send to
           // 292 recipients" label doesn't push Cancel off-screen.
           <div className="px-4 sm:px-6 py-4 border-t border-app-border flex flex-wrap items-center justify-between gap-2 shrink-0 pb-[max(env(safe-area-inset-bottom),1rem)]">
-            <button onClick={onClose} className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
-              Cancel
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
+                Cancel
+              </button>
+              {/* Saving requires nothing — a draft is half-written by
+                  definition, and refusing to save an empty subject is how
+                  people lose work they were part-way through. */}
+              <button
+                onClick={saveDraft}
+                disabled={draftBusy}
+                className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg disabled:opacity-50"
+              >
+                {draftBusy ? "Saving…" : draftId ? "Save draft" : "Save as draft"}
+              </button>
+              {draftSavedAt && !draftBusy && (
+                <span className="text-xs text-text-muted">
+                  Saved {new Date(draftSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                </span>
+              )}
+              {draftErr && <span className="text-xs text-red-600">{draftErr}</span>}
+            </div>
             <button
               onClick={() => {
                 // Large sends always require typed confirmation, even
