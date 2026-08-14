@@ -1595,4 +1595,96 @@ Each phase gets one dated entry per meaningful checkpoint below.
 
 ---
 
+## Unnumbered — 2026-08-14, live-use fixes (branch `claude/bulk-price-change-planning-57a9cv`)
+
+None of this belongs to a numbered phase. It came out of running the club on the
+software: a bulk price-change session that turned into fixing what the first real
+sends and the first real roster audit exposed. No migration except the one noted.
+Six items, newest last.
+
+**The ACTIVE rule** (`368ea15`, `6b13884`, `f580ca4`, `4c9eb99`). "Active" used to
+mean *a subscription row exists*, which counted rows nobody had ever paid for.
+`countsAsMembership()` in `lib/memberTracks.ts` is now the one predicate: MANUAL is
+exempt, a priced row needs a payment, and a $0 row needs `deliberateFree`. That last
+column needed a migration (`20260814000000_subscription_deliberate_free`, applied)
+because there was no way to say "this member is free on purpose" — without it every
+comp would have read as broken billing. `set_deliberate_free` on the billing-admin
+actions route is the control (billing:full, confirm-gated, audited, refuses priced
+rows); the member's billing centre carries the toggle.
+
+The distinction that matters, and that I got backwards once: **`migrationPriceOverride
+= $0.00` is the comp tell.** `migrationFinalPeriodPaid` and a frozen option are
+stamped on everyone who had a term, paid or not, so they say nothing. A comp is a $0
+override on a plan whose options are all priced — not a $0 plan option. The sweep
+found two real comps (Barrett, Paul), one prepaid annual with no transaction to prove
+it (Wyatt), one comp with no subscription at all reading PROSPECT and being quoted
+non-member rates (Devin Eggleston), and one prepaid term ending 2026-09-08 with no
+recorded payment (Colton Waite). Event and private-lesson pricing were checked and
+read "does an active subscription row exist" — never `countsAsMembership` or
+`Member.status` — so a comp does keep member pricing. The two definitions have
+diverged, pricing being the more generous; that divergence is pinned by tests rather
+than unified, because unifying it moves money. Also fixed: `trainingUnbilled` scoped
+its money test to `type: "MEMBERSHIP"` — Barrett's $120 College Combine payment was
+masking a missing membership payment, which is the kind of false negative that makes
+a queue not worth opening.
+
+**Audience resolution** (`cc5c07b`) — the one to read first if you touch
+`lib/audienceFilters.ts`. A saved audience of `{rules: [], alwaysIncludeMemberIds:
+[three ids]}` resolved to **every member in the club**: an empty `where` matched
+everyone, and the always-include query passed two `id` keys in one object so the
+second silently won. A hand-picked send to three people would have gone to all 32.
+Production was checked first — nothing had that shape yet, only "Active Members" with
+one rule — then both bugs were fixed and `scripts/audience-filters-tests.ts` (8
+integration tests against the local throwaway DB) was written to fail against the
+pre-fix code.
+
+**Batch results** (`92953de`). Bulk sends create no `Announcement`, so 77 emails had
+nowhere to be seen. `lib/emailResults.ts` tallies a batch and
+`/dashboard/communication/results` renders it, sharing `EmailResultsView` with
+announcement results. `trackingCapable` counts only rows carrying a
+`providerMessageId`, so an SMTP send reports "not tracked" instead of a fake 0% open
+rate. The inline send branch of `/api/members/bulk` was also missing `sentByUserId` —
+only the queued branch had it.
+
+**Drafts** (`a106cc9`). `lib/emailDrafts.ts` + `/api/emails/drafts`, backed by
+`Announcement` with `status=DRAFT` and recipients in `audienceFilters`. GET
+re-resolves recipients against live members and returns `droppedMemberCount`, so a
+draft written last week does not quietly send to someone who has since been archived.
+Rule-driven audiences are refused as drafts on purpose — they are not a fixed list.
+
+**Token picker** (`783ac88`). `lib/personalizationCatalog.ts` describes all 14
+personalization tokens; the composer gets a dropdown above Subject and one in the
+rich-text toolbar instead of a hint telling the sender to type
+`{{member_first_name}}` from memory. Five tokens are context-supplied (event, class,
+coach, registration and payment links) and cannot resolve on a Members-tab send —
+those are grouped under "Not available in this send" and render as *blank in this
+send* in the hint. A test asserts the catalog covers every token the interpolator
+knows, so a new token cannot ship undescribed.
+
+**Member deletion** (`636ac54`). Archiving was a one-line `window.confirm`. It is now
+preflight-driven (`/api/members/[id]/archive-preflight` counts what is attached),
+states what changes and what is kept, and requires the member's name typed back. The
+only hard block is a live Stripe subscription. Two orphans fixed along the way:
+pending approvals for the archived member are closed as `EXPIRED` — that was Alex
+Butler's stuck duplicate, since `/api/approvals` reads `PendingApproval` by
+`{clubId, status: PENDING}` with no join back to whether the member still exists —
+and `ACTIVE_GUARDIAN_LINK` now excludes archived members so an archived child stops
+appearing in their guardian's portal. That constant is spread into `where` clauses at
+three call sites, where a sibling `member` key would silently drop the filter; the
+hazard is noted on the constant itself.
+
+**Verification.** 417 assertions across nine suites (`member-deletion` 29,
+`personalization-catalog` 23, `email-drafts` 25, `email-results` 37, `member-tracks`
+183, `billing-admin` 111, `family-accounts` 28, `family-fixtures` 93,
+`audience-filters` 8 integration), `tsc --noEmit` and `npm run build` clean. Batch
+results, drafts, the token picker and archiving were each driven in a real browser
+against a local Postgres before being handed back — three presentation bugs and one
+pluralisation bug ("1 payment record **stay**") were only visible there, not in the
+tests.
+
+**Left for the owner by hand:** Devin Eggleston, Colton Waite and Wyatt Eastman's
+corrections, and marking Barrett and Paul `deliberateFree`.
+
+---
+
 *See `ARCHITECTURE-NOTES.md` for the discovery findings that back this plan.*
