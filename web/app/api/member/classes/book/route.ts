@@ -54,7 +54,7 @@ export async function POST(req: Request) {
 
     const self = await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email);
     const guardianships = await prisma.memberGuardianUser.findMany({
-      where: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id, member: { clubId: session.user.clubId } },
+      where: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id, member: { clubId: session.user.clubId, deletedAt: null } },
       include: { member: true },
     });
     const accessible = [

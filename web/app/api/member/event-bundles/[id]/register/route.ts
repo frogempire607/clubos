@@ -30,7 +30,7 @@ const schema = z.object({
 async function resolveMember(userId: string, clubId: string, email: string, requestedMemberId?: string) {
   const self = await findOrAutoLinkMember(userId, clubId, email);
   const guardianships = await prisma.memberGuardianUser.findMany({
-    where: { ...ACTIVE_GUARDIAN_LINK, userId, member: { clubId } },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId, member: { clubId, deletedAt: null } },
     include: { member: true },
   });
   const accessible = [...(self ? [self] : []), ...guardianships.map((g) => g.member)];

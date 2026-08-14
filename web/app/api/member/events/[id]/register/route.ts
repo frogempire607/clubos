@@ -92,7 +92,7 @@ async function resolveBookingMember(args: {
 }) {
   const self = await findOrAutoLinkMember(args.userId, args.clubId, args.email);
   const guardianships = await prisma.memberGuardianUser.findMany({
-    where: { ...ACTIVE_GUARDIAN_LINK, userId: args.userId, member: { clubId: args.clubId } },
+    where: { ...ACTIVE_GUARDIAN_LINK, userId: args.userId, member: { clubId: args.clubId, deletedAt: null } },
     include: { member: true },
   });
   const accessible = [

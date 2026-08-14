@@ -10,6 +10,8 @@ import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 import { validateMemberContact } from "@/lib/memberValidation";
 import { resolveIsMinor } from "@/lib/parentalConsent";
+import { writeBillingAudit } from "@/lib/billingAudit";
+import { deletionBlocks, confirmationMatches, type AttachedRecords } from "@/lib/memberDeletion";
 import { loadFamilyForMember } from "@/lib/familyAccess";
 import { MEMBER_TRACK_SELECT, serializeMemberForList, type SerializedMember } from "@/lib/memberDisplay";
 import { buildTrackContext, loadSourceLabels } from "@/lib/membersQuery";
@@ -607,7 +609,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   }
 }
 
-export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -618,6 +620,31 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   const member = await requireMember(params.id, session.user.clubId);
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Typed confirmation. The caller sends the member's own name back; a stale
+  // tab or a mis-aimed click cannot produce it. Older callers that omit it
+  // still work — this route has always been reachable and the action is
+  // reversible — but the roster now always sends it.
+  const body = await req.json().catch(() => ({}) as Record<string, unknown>);
+  const typed = typeof body?.confirmName === "string" ? body.confirmName : null;
+  const fullName = `${member.firstName} ${member.lastName}`.trim();
+  if (typed !== null && !confirmationMatches(typed, fullName)) {
+    return NextResponse.json(
+      { error: `Type the member's name exactly (${fullName}) to confirm.`, code: "CONFIRM_MISMATCH" },
+      { status: 400 },
+    );
+  }
+
+  // Refuse while Stripe is still charging: archiving would hide them from
+  // every surface while the money kept moving.
+  const liveStripeSubs = await prisma.memberSubscription.count({
+    where: { memberId: params.id, status: "active", stripeSubscriptionId: { not: null } },
+  });
+  const attached = { hasLiveStripeSubscription: liveStripeSubs > 0 } as AttachedRecords;
+  const blocks = deletionBlocks(attached);
+  if (blocks.length) {
+    return NextResponse.json({ error: blocks[0].message, code: blocks[0].code }, { status: 409 });
+  }
+
   // Release the unique members_userId slot on delete (the index is global and
   // ignores deletedAt) so the same person can be re-imported / re-activated
   // later without colliding with this dead row.
@@ -626,9 +653,35 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
     data: { deletedAt: new Date(), userId: null },
   });
 
+  // Close anything still waiting on this member. A PendingApproval is fetched
+  // by clubId + status alone, with no join back to whether its member still
+  // exists — so without this the approvals queue keeps a card for somebody who
+  // is gone, and no action on that card can ever succeed. That is the stuck
+  // approval this route is expected to clear.
+  const closedApprovals = await prisma.pendingApproval.updateMany({
+    where: { memberId: params.id, clubId: session.user.clubId, status: "PENDING" },
+    // EXPIRED, not a new status word: the schema documents
+    // PENDING | APPROVED | DECLINED | EXPIRED, and "no longer actionable" is
+    // exactly what EXPIRED means. DECLINED would claim a human refused the
+    // request, which nobody did. The audit note carries the real reason.
+    data: { status: "EXPIRED", respondedAt: new Date(), respondedById: session.user.id },
+  });
+
   // Also remove this member's own login so they can no longer sign in — unless
   // that account is shared (a guardian of another live member) or is owner/staff.
   await deleteOrphanedMemberLogins([member.userId], session.user.clubId);
 
-  return NextResponse.json({ ok: true });
+  await writeBillingAudit({
+    clubId: session.user.clubId,
+    memberId: params.id,
+    actorUserId: session.user.id,
+    action: "MEMBER_ARCHIVED",
+    before: { deletedAt: null, status: member.status, hadLogin: !!member.userId },
+    after: { deletedAt: new Date().toISOString(), closedApprovals: closedApprovals.count },
+    note:
+      `${fullName} archived. Payments, signed documents, attendance and email history are kept.` +
+      (closedApprovals.count ? ` ${closedApprovals.count} pending approval(s) closed.` : ""),
+  });
+
+  return NextResponse.json({ ok: true, closedApprovals: closedApprovals.count });
 }
