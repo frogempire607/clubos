@@ -60,6 +60,8 @@ import type {
   EmailAlign,
 } from "@/lib/emailBlocks";
 import { PERSONALIZATION_TOKENS, extractTokensFromBlocks } from "@/lib/emailPersonalization";
+import { TokenPicker } from "@/components/emails/TokenPicker";
+import { tokenInfo } from "@/lib/personalizationCatalog";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Props + top-level component
@@ -154,6 +156,7 @@ export default function EmailComposer({
   // blocks initial paint — draft read is synchronous but tiny.
   const stored = useMemo(() => readDraft(draftKey), [draftKey]);
   const [subject, setSubject] = useState(stored?.subject ?? initialSubject);
+  const subjectRef = useRef<HTMLInputElement>(null);
   const [previewText, setPreviewText] = useState(stored?.previewText ?? initialPreviewText);
   const [blocks, setBlocks] = useState<EmailBlock[]>(() => stored?.blocks ?? initialBlocks ?? defaultBlocks());
   const [preview, setPreview] = useState<"desktop" | "mobile" | null>(null);
@@ -293,8 +296,29 @@ export default function EmailComposer({
       {/* Subject + preview text — always required, never a block. */}
       <div className="bg-surface border border-app-border rounded-xl p-4 space-y-3">
         <div>
-          <label className="block text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Subject</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-text-muted uppercase tracking-wider">Subject</label>
+            <TokenPicker
+              label="Insert field"
+              onInsert={(syntax) => {
+                // Insert at the caret when the field has focus, otherwise
+                // append — never silently overwrite what was typed.
+                const el = subjectRef.current;
+                if (!el) { setSubject((v) => v + syntax); return; }
+                const start = el.selectionStart ?? subject.length;
+                const end = el.selectionEnd ?? start;
+                const next = subject.slice(0, start) + syntax + subject.slice(end);
+                setSubject(next);
+                requestAnimationFrame(() => {
+                  el.focus();
+                  const caret = start + syntax.length;
+                  el.setSelectionRange(caret, caret);
+                });
+              }}
+            />
+          </div>
           <input
+            ref={subjectRef}
             type="text"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
@@ -1033,6 +1057,12 @@ function RichTextToolbar({ editor }: { editor: Editor }) {
   }
   return (
     <div className="flex items-center gap-0.5 px-1 py-1 border-b border-app-border">
+      <TokenPicker
+        label="Field"
+        className="mr-1"
+        onInsert={(syntax) => editor.chain().focus().insertContent(syntax).run()}
+      />
+      <div className="w-px h-4 bg-app-border mx-1" />
       <button
         type="button"
         onClick={() => editor.chain().focus().toggleBold().run()}
@@ -1352,8 +1382,9 @@ function PersonalizationHint({ subject, blocks }: { subject: string; blocks: Ema
   if (referenced.length === 0) {
     return (
       <div className="text-xs text-text-muted bg-app-bg/40 border border-app-border rounded-lg px-3 py-2">
-        Type <code className="px-1 py-0.5 bg-surface rounded font-mono text-[11px]">{"{{member_first_name}}"}</code> or any other token
-        into the subject / body to personalize per recipient — tokens resolve at send time.
+        Use <strong className="text-text-primary">Insert field</strong> above the subject, or{" "}
+        <strong className="text-text-primary">Field</strong> in a text block&apos;s toolbar, to personalize
+        per recipient — values resolve at send time.
       </div>
     );
   }
@@ -1368,11 +1399,31 @@ function PersonalizationHint({ subject, blocks }: { subject: string; blocks: Ema
         Personalization ({valid.length + typos.length} token{valid.length + typos.length === 1 ? "" : "s"})
       </div>
       <div className="flex flex-wrap gap-1">
-        {valid.map((t) => (
-          <span key={t} className="px-1.5 py-0.5 rounded-md bg-surface border border-app-border font-mono text-[11px]">
-            {"{{"}{t}{"}}"}
-          </span>
-        ))}
+        {valid.map((t) => {
+          const info = tokenInfo(t);
+          // Context tokens resolve from the CALL SITE, and a send composed by
+          // hand has no call site — so they render blank for everyone. Say so
+          // here rather than let the sender find out from a delivered email.
+          const unavailable = info?.source === "CONTEXT";
+          return (
+            <span
+              key={t}
+              title={
+                unavailable
+                  ? `${info?.label}: nothing in this send can fill this in — it will be blank.`
+                  : info?.description ?? t
+              }
+              className={`px-1.5 py-0.5 rounded-md border text-[11px] ${
+                unavailable
+                  ? "bg-orange-accent/20 border-orange-accent text-charcoal"
+                  : "bg-surface border-app-border"
+              }`}
+            >
+              {info?.label ?? t}
+              {unavailable && " — blank in this send"}
+            </span>
+          );
+        })}
         {typos.map((t) => (
           <span key={t} className="px-1.5 py-0.5 rounded-md bg-orange-accent/20 border border-orange-accent text-charcoal font-mono text-[11px]" title="Unknown token — will render blank">
             {"{{"}{t}{"}}"} ← unknown
