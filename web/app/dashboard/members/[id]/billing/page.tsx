@@ -558,6 +558,20 @@ export default function MemberBillingPage() {
                     <CompToggle
                       memberId={id}
                       sub={s}
+                      // Prepaid and comped both read $0, and the tell is the
+                      // OWNER PRICE OVERRIDE, not the term markers. The
+                      // migration stamped finalPeriodPaid on everyone who had
+                      // a term, money or not, so it says nothing — the first
+                      // cut of this guard used it and warned on the two real
+                      // comps. A $0 override is somebody deciding to give the
+                      // membership away; its absence on a non-renewing term
+                      // is what a lump-sum member looks like.
+                      prepaid={
+                        data.billing.priceOverride == null &&
+                        (data.billing.finalPeriodPaid || (!s.autoRenew && !!s.endDate))
+                      }
+                      comped={data.billing.priceOverride === 0}
+                      endDate={s.endDate}
                       onDone={() => load()}
                       onMsg={setMsg}
                     />
@@ -755,11 +769,17 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
 function CompToggle({
   memberId,
   sub,
+  prepaid,
+  comped,
+  endDate,
   onDone,
   onMsg,
 }: {
   memberId: string;
   sub: { id: string; optionLabel: string; deliberateFree: boolean; billingType: string };
+  prepaid: boolean;
+  comped: boolean;
+  endDate: string | null;
   onDone: () => void;
   onMsg: (s: string) => void;
 }) {
@@ -767,9 +787,21 @@ function CompToggle({
   const turningOn = !sub.deliberateFree;
 
   const run = async () => {
+    // Prepaid and comped both look like $0. Every $0 membership in this club
+    // today is prepaid, not comped, so the warning leads.
+    const prepaidWarning =
+      prepaid && turningOn
+        ? `CAUTION — this looks like a PREPAID membership, not a comp.\n\n` +
+          `It is non-renewing${endDate ? ` and ends ${fmtDate(endDate)}` : ""}, which is what a lump-sum ` +
+          `member looks like once the term is paid up front. Marking it comped would record that the club ` +
+          `gave this membership away for nothing, and the renewal would stop looking like money owed.\n\n` +
+          `If they paid up front, cancel this and record the payment instead.\n\n`
+        : "";
+
     const reason = window.prompt(
       turningOn
-        ? `Mark "${sub.optionLabel}" as a membership the club gives away on purpose?\n\n` +
+        ? prepaidWarning +
+          `Mark "${sub.optionLabel}" as a membership the club gives away on purpose?\n\n` +
           `This member will count as active with no payment expected.\n\n` +
           `Why is it free? (coach's kid, scholarship, trade — optional, saved to the record)`
         : `Remove the comp marker from "${sub.optionLabel}"?\n\n` +
@@ -819,9 +851,17 @@ function CompToggle({
       {/* MANUAL rows are exempt from the money test entirely, so the flag
           is stored but changes nothing today. Say so rather than let a
           coach think this is what is keeping them active. */}
-      {sub.billingType === "MANUAL" && (
+      {comped && turningOn ? (
+        <span className="text-[11px] text-text-muted max-w-[13rem] text-right">
+          Owner set a $0 price — looks like a comp
+        </span>
+      ) : prepaid && turningOn ? (
+        <span className="text-[11px] text-orange-accent max-w-[13rem] text-right">
+          Looks prepaid, not comped{endDate ? ` — term ends ${fmtDate(endDate)}` : ""}
+        </span>
+      ) : sub.billingType === "MANUAL" ? (
         <span className="text-[11px] text-text-muted">Cash membership — counts either way</span>
-      )}
+      ) : null}
     </div>
   );
 }

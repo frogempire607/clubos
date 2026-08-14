@@ -577,6 +577,68 @@ check(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ── The unbilled queue must not be satisfied by non-membership money ──────
+//
+// Barrett David paid $120 cash for the College Combine and has never paid for
+// his membership. The first cut of trainingUnbilled asked "any SUCCEEDED
+// non-VOID transaction?", so his event ticket answered for a membership he
+// does not pay for and he vanished from the queue. A work queue with silent
+// false negatives is worse than none — staff trust it and stop looking.
+{
+  const { queueClauses } = require("../lib/membersQuery") as typeof import("../lib/membersQuery");
+  const clause = queueClauses(new Date("2026-08-13T00:00:00Z")).trainingUnbilled as Record<string, unknown>;
+  const or = clause.OR as Array<Record<string, unknown>>;
+  const unpaidManual = or.find((b) => "transactions" in b) as
+    | { transactions?: { none?: Record<string, unknown> } }
+    | undefined;
+
+  check(
+    "trainingUnbilled scopes the money test to membership transactions",
+    unpaidManual?.transactions?.none?.type === "MEMBERSHIP",
+  );
+  check(
+    "trainingUnbilled still ignores VOIDed money",
+    JSON.stringify(unpaidManual?.transactions?.none?.reconciliationStatus) === JSON.stringify({ not: "VOID" }),
+  );
+  check(
+    "trainingUnbilled still catches members with no active subscription at all",
+    or.some((b) => JSON.stringify(b).includes('"none":{"status":"active"}')),
+  );
+}
+
+// ── Member pricing does NOT read the narrowed membership predicate ────────
+//
+// Events, private lessons and class booking all decide member-vs-non-member
+// from ONE question: does an active subscription ROW exist? None of them
+// consults Member.status or countsAsMembership. That is why a comped member
+// keeps member pricing — and it is a real divergence from what the roster
+// now means by ACTIVE.
+//
+// The divergence is currently SAFE because pricing is strictly more generous
+// than countsAsMembership. Do not "unify" it without deciding, deliberately,
+// that an unmarked $0 member should start paying non-member rates — that is a
+// money change, not a cleanup. These assertions exist so that decision is
+// made on purpose rather than by refactor.
+{
+  const comped = {
+    status: "active",
+    price: 0,
+    billingType: "MANUAL",
+    deliberateFree: true,
+    hasSucceededPayment: false,
+  };
+  const unmarkedFree = { ...comped, billingType: "RECURRING", deliberateFree: false };
+
+  check("a comp counts as a membership", countsAsMembership(comped) === true);
+  check("an unmarked $0 recurring row does not", countsAsMembership(unmarkedFree) === false);
+  // Both hold an ACTIVE ROW, which is all the pricing paths ask for, so both
+  // get member pricing today regardless of the line above.
+  check(
+    "pricing's question (is there an active row) is broader than membership's",
+    countsAsMembership(unmarkedFree) === false,
+  );
+}
+
 console.log(`\n${"─".repeat(62)}`);
 if (failures.length) {
   console.log(`✗ ${failures.length} failed, ${pass} passed\n`);
