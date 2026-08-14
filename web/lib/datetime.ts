@@ -118,6 +118,32 @@ export function wallClockNowUTC(timeZone: string | null | undefined, at: Date = 
   return new Date(at.getTime() - 12 * 3_600_000);
 }
 
+/**
+ * Has a class session started yet, in the club's real time?
+ *
+ * `ClassSession.startsAt` is a wall-clock-UTC stamp (see the top of this file),
+ * NOT an instant — so comparing it straight to `new Date()` is a category
+ * error. It made a 7:00 PM class unbookable from 3:00 PM in a UTC-4 club:
+ * stored 19:00Z is already behind real 19:00Z-now while the club clock still
+ * reads 3 PM. Parents were told "Class has already started" hours early
+ * (reported live 2026-08-14).
+ *
+ * Compare in ONE frame: resolve the stamp to its true instant. Without a club
+ * timezone `wallClockUTCToInstant` returns the stamp unchanged, which is the
+ * pre-timezone behavior — still wrong by the club's offset, but no worse than
+ * before, and the club sets a timezone in Settings → Club to fix it.
+ *
+ * Every "has this class started / can it still be booked" test must go through
+ * here. Do not hand-roll `startsAt < new Date()` on a class stamp again.
+ */
+export function classHasStarted(
+  startsAt: Stamp,
+  timeZone: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  return wallClockUTCToInstant(startsAt, timeZone).getTime() <= now.getTime();
+}
+
 // ── "Today" / date-input helpers ─────────────────────────────────────────────
 //
 // CRITICAL: never derive a calendar day from `new Date().toISOString()` — that

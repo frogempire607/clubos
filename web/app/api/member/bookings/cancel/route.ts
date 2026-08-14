@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
+import { classHasStarted } from "@/lib/datetime";
 
 // POST /api/member/bookings/cancel
 //
@@ -70,7 +71,10 @@ export async function POST(req: Request) {
     if (!(await assertOwnership(record.memberId))) {
       return NextResponse.json({ error: "You can't manage this booking." }, { status: 403 });
     }
-    if (record.classSession.startsAt < new Date()) {
+    // Wall-clock-UTC stamp vs a true instant — same frame mismatch that made
+    // booking fail hours early. Cancelling was refused on the same schedule.
+    const cancelClub = await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } });
+    if (classHasStarted(record.classSession.startsAt, cancelClub?.timezone)) {
       return NextResponse.json({ error: "This class has already started." }, { status: 400 });
     }
 
