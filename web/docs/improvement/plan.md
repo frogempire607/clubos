@@ -2378,7 +2378,7 @@ Every column is nullable or defaults to a safe value; every existing row keeps c
 
 **Phase number:** this is **Phase 7**, not 4.6. §4 states "there is no Phase 4.6 — 4.5 is the last decimal phase," and that line was written deliberately to stop decimal sprawl; it is respected here. Two consequences to note when this lands:
 
-- The trailing `## 7. Final Deliverable` section shares the number. Different heading level (`##` vs `#`), so nothing breaks, but **renumber that section to `## 8. Final Deliverable`** when this phase is approved.
+- The trailing Final Deliverable section used to share this number. It was **renumbered to `## 8. Final Deliverable`** on approval (2026-08-15), so nothing in this file is called 7 twice.
 - **Numeric order is not execution order.** Phase 6 is the final safety/verification gate and must still run last. Phase 7.1 is scheduled **first — ahead of 4.5 and 5** — because it is hitting every two-child family in the club today, not one member.
 
 ---
@@ -2542,7 +2542,7 @@ If it is approved: additive, nullable, no backfill of existing rows beyond a det
 
 ---
 
-## 7. Final Deliverable
+## 8. Final Deliverable
 
 When the work is complete, provide:
 

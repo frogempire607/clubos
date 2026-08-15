@@ -8,6 +8,26 @@
 const KEY = "athletixos-active-profile";
 const EVT = "athletixos-active-profile-change";
 
+/**
+ * Sentinel selection meaning "every athlete this account manages", stored in
+ * the same slot as a real member id.
+ *
+ * Why it exists: every booking surface used to be scoped to ONE athlete, so a
+ * guardian who booked two children saw one booking at a time and reasonably
+ * concluded the second had failed. That is exactly what happened to the Hall
+ * family on 2026-08-17 — both bookings landed 38 seconds apart and the parent
+ * reported one missing. The server was never wrong; the view was.
+ *
+ * It is deliberately NOT a valid member id (double underscores), so a stale
+ * value can never collide with a real row, and `accessibleIds.includes(...)`
+ * checks reject it unless the caller opts in via `allowFamily`.
+ */
+export const FAMILY_SCOPE = "__family__";
+
+export function isFamilyScope(id: string | null | undefined): boolean {
+  return id === FAMILY_SCOPE;
+}
+
 export function getActiveProfileId(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -46,8 +66,33 @@ export function onActiveProfileChange(cb: (id: string | null) => void): () => vo
 
 // Pick the profile to show: a persisted choice if it's still one of the
 // accessible profiles, otherwise the first (self) profile.
-export function resolveActiveProfileId(accessibleIds: string[]): string | null {
+//
+// `allowFamily` — this surface can render the family scope, so a stored
+//   FAMILY_SCOPE is honored. Callers that are legitimately per-child
+//   (documents, parental controls, billing) leave it off and a stored family
+//   selection quietly falls back to a real athlete.
+// `defaultFamily` — with nothing stored, start in family scope. Callers pass
+//   `familyEligible(...)` so this only fires for the multi-child families the
+//   scope exists for.
+export function resolveActiveProfileId(
+  accessibleIds: string[],
+  opts?: { allowFamily?: boolean; defaultFamily?: boolean },
+): string | null {
   const stored = getActiveProfileId();
+  if (opts?.allowFamily && isFamilyScope(stored)) return FAMILY_SCOPE;
   if (stored && accessibleIds.includes(stored)) return stored;
+  if (opts?.allowFamily && opts?.defaultFamily) return FAMILY_SCOPE;
   return accessibleIds[0] ?? null;
+}
+
+/**
+ * Does this account get the family scope at all?
+ *
+ * Two or more CHILDREN — not merely two profiles. An adult who trains and has
+ * one child keeps the exact behavior they have today: no family option, no
+ * new default, nothing to re-learn. The scope exists for the parent juggling
+ * siblings, and that is the only account it changes.
+ */
+export function familyEligible(profiles: { kind: "self" | "child" }[]): boolean {
+  return profiles.filter((p) => p.kind === "child").length >= 2;
 }

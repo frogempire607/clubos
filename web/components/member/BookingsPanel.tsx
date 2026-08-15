@@ -10,7 +10,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckSquare, MessageCircle } from "lucide-react";
-import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
+import {
+  resolveActiveProfileId,
+  onActiveProfileChange,
+  isFamilyScope,
+  familyEligible,
+} from "@/lib/activeProfile";
 import SegmentedControl from "@/components/member/SegmentedControl";
 import { EmptyState, AccentButton } from "@/components/member/ui";
 import { kindIsWallClockUTC, wallClockUTCToInstant } from "@/lib/datetime";
@@ -37,6 +42,11 @@ type Booking = {
   status: string;
   kind?: "event" | "class" | "private";
   coach?: string | null;
+  /** Which athlete this reservation belongs to. Carried on the booking itself
+   *  because in family scope the list mixes athletes, and check-in / cancel
+   *  must act on the booking's owner rather than the current selection. */
+  memberId: string;
+  memberFirstName: string;
   // Self check-in target: classSession id for classes, event id for events.
   checkinId?: string | null;
   checkedInAt?: string | null;
@@ -105,7 +115,10 @@ function firstRequestedSlotAt(raw: unknown, fallback: string): string {
   return Number.isNaN(iso.getTime()) ? fallback : iso.toISOString();
 }
 
-function privateBookingsToBookings(records: RawPrivateBooking[] | undefined): Booking[] {
+/** Athlete-agnostic booking shape; the owner is stamped on at assembly. */
+type UnownedBooking = Omit<Booking, "memberId" | "memberFirstName">;
+
+function privateBookingsToBookings(records: RawPrivateBooking[] | undefined): UnownedBooking[] {
   if (!records) return [];
   return records
     .filter((r) => r.lessonType)
@@ -141,7 +154,7 @@ function privateBookingsToBookings(records: RawPrivateBooking[] | undefined): Bo
 function classAttendanceToBookings(
   records: RawAttendanceRecord[] | undefined,
   staffById: Map<string, string>,
-): Booking[] {
+): UnownedBooking[] {
   if (!records) return [];
   return records
     .filter((r) => r.classSession && r.classSession.recurringClass)
@@ -217,7 +230,13 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
   const [filter, setFilter] = useState<"upcoming" | "past" | "all">("upcoming");
   // Manage-booking sheet: privates can cancel or request a time change;
   // classes and events can cancel (refunds always go to staff review).
-  const [manage, setManage] = useState<{ kind: "private" | "class" | "event"; id: string; name: string } | null>(null);
+  const [manage, setManage] = useState<{
+    kind: "private" | "class" | "event";
+    id: string;
+    name: string;
+    /** Owning athlete, so the optimistic update lands on the right row. */
+    memberId: string;
+  } | null>(null);
   const [manageMode, setManageMode] = useState<"menu" | "cancel" | "change">("menu");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -251,7 +270,9 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
     const res = await fetch(`/api/member/checkin/${target}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId: activeId }),
+      // The booking's own athlete — in family scope `activeId` is a sentinel,
+      // and even per-child it would be right only by coincidence.
+      body: JSON.stringify({ memberId: b.memberId }),
     });
     const d = await res.json().catch(() => ({}));
     setCheckinBusy(null);
@@ -266,7 +287,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
       const stamped = new Date().toISOString();
       setMembers((prev) =>
         prev.map((m) =>
-          m.id === activeId
+          m.id === b.memberId
             ? { ...m, bookings: m.bookings.map((x) => (x.id === b.id ? { ...x, checkedInAt: stamped } : x)) }
             : m,
         ),
@@ -311,6 +332,10 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
         for (const u of items) staffById.set(u.id, `${u.firstName} ${u.lastName}`.trim());
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const own = (m: any, rows: UnownedBooking[]): Booking[] =>
+        rows.map((b) => ({ ...b, memberId: m.id, memberFirstName: m.firstName }));
+
       const list: MemberContext[] = [];
       if (portal?.user?.memberProfile) {
         const m = portal.user.memberProfile;
@@ -319,11 +344,11 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
           firstName: m.firstName,
           lastName: m.lastName,
           kind: "self",
-          bookings: [
-            ...((m.bookings ?? []) as Booking[]).map((b) => ({ ...b, kind: "event" as const })),
+          bookings: own(m, [
+            ...((m.bookings ?? []) as UnownedBooking[]).map((b) => ({ ...b, kind: "event" as const })),
             ...classAttendanceToBookings(m.attendanceRecords, staffById),
             ...privateBookingsToBookings(m.privateBookings),
-          ],
+          ]),
         });
       }
       for (const g of portal?.user?.guardianOf ?? []) {
@@ -332,15 +357,20 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
           firstName: g.member.firstName,
           lastName: g.member.lastName,
           kind: "child",
-          bookings: [
-            ...((g.member.bookings ?? []) as Booking[]).map((b) => ({ ...b, kind: "event" as const })),
+          bookings: own(g.member, [
+            ...((g.member.bookings ?? []) as UnownedBooking[]).map((b) => ({ ...b, kind: "event" as const })),
             ...classAttendanceToBookings(g.member.attendanceRecords, staffById),
             ...privateBookingsToBookings(g.member.privateBookings),
-          ],
+          ]),
         });
       }
       setMembers(list);
-      setActiveId(resolveActiveProfileId(list.map((m) => m.id)));
+      setActiveId(
+        resolveActiveProfileId(
+          list.map((m) => m.id),
+          { allowFamily: true, defaultFamily: familyEligible(list) },
+        ),
+      );
       setLoading(false);
     })();
   }, []);
@@ -348,14 +378,22 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
   // Follow the account-level switcher (shared across all portal pages).
   useEffect(() => onActiveProfileChange((id) => id && setActiveId(id)), []);
 
+  const family = isFamilyScope(activeId);
   const active = useMemo(() => members.find((m) => m.id === activeId), [members, activeId]);
+  // Every reservation in scope. The old code collected all accessible members'
+  // bookings and then threw away everyone but `activeId` — which is why
+  // booking a second child appeared to erase the first.
+  const scoped = useMemo(
+    () => (family ? members.flatMap((m) => m.bookings) : active?.bookings ?? []),
+    [family, members, active],
+  );
 
   const now = new Date();
   // Terminal statuses never appear in "upcoming" regardless of time, since
   // they're no longer actionable. DECLINED/COMPLETED come from privates;
   // CANCELED applies to events and classes.
   const TERMINAL = new Set(["CANCELED", "DECLINED", "COMPLETED"]);
-  const filtered = (active?.bookings ?? [])
+  const filtered = scoped
     .filter((b) => {
       const start = new Date(b.event.startsAt);
       if (filter === "upcoming") return start >= now && !TERMINAL.has(b.status);
@@ -386,7 +424,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
       if (action === "CANCEL") {
         setMembers((prev) =>
           prev.map((m) =>
-            m.id === activeId
+            m.id === manage.memberId
               ? {
                   ...m,
                   bookings: m.bookings.map((b) => {
@@ -427,7 +465,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
     if (b.kind === "private") {
       return (
         <button
-          onClick={() => { setManage({ kind: "private", id: b.event.id, name: b.event.name }); setManageMode("menu"); setReason(""); }}
+          onClick={() => { setManage({ kind: "private", id: b.event.id, name: b.event.name, memberId: b.memberId }); setManageMode("menu"); setReason(""); }}
           className="text-xs px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50 whitespace-nowrap"
         >
           Manage
@@ -468,6 +506,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                 kind: b.kind as "class" | "event",
                 id: b.kind === "class" ? b.id.replace(/^class:/, "") : b.id,
                 name: b.event.name,
+                memberId: b.memberId,
               });
               setManageMode("cancel");
               setReason("");
@@ -496,16 +535,18 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
           value={filter}
           onChange={(v) => setFilter(v as typeof filter)}
         />
-        {showContextNote && active && (
+        {showContextNote && (family || active) && (
           <span className="text-xs text-stone-400">
-            Every reservation for {active.kind === "self" ? "you" : active.firstName} — whoever booked it.
+            {family
+              ? "Every reservation across your athletes — whoever booked it."
+              : `Every reservation for ${active!.kind === "self" ? "you" : active!.firstName} — whoever booked it.`}
           </span>
         )}
       </div>
 
       {loading ? (
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
-      ) : !active ? (
+      ) : !family && !active ? (
         <div className="pcard p-12 text-center">
           <p className="text-base font-medium text-stone-900 mb-1">No member context</p>
           <p className="text-sm text-stone-500">Link a child or contact your club to get started.</p>
@@ -516,9 +557,11 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
             icon={<CheckSquare className="h-6 w-6" strokeWidth={2} />}
             title="No bookings found"
             description={
-              filter === "upcoming"
-                ? `${active.kind === "self" ? "You have" : `${active.firstName} has`} no upcoming bookings.`
-                : "No bookings in this category."
+              filter !== "upcoming"
+                ? "No bookings in this category."
+                : family
+                  ? "None of your athletes have upcoming bookings."
+                  : `${active!.kind === "self" ? "You have" : `${active!.firstName} has`} no upcoming bookings.`
             }
             action={<AccentButton href="/member/shop">Browse Book</AccentButton>}
           />
@@ -530,7 +573,10 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-stone-50">
-                  {["Date", "Session", "Type", "Status", ""].map((h, i) => (
+                  {(family
+                    ? ["Date", "Athlete", "Session", "Type", "Status", ""]
+                    : ["Date", "Session", "Type", "Status", ""]
+                  ).map((h, i) => (
                     <th
                       key={i}
                       scope="col"
@@ -550,6 +596,11 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                       <td className="px-4 py-3 text-[12.5px] font-semibold text-stone-900 whitespace-nowrap">
                         {new Date(b.event.startsAt).toLocaleDateString("en-US", dateOpts(b.kind, { month: "short", day: "numeric" }))}
                       </td>
+                      {family && (
+                        <td className="px-4 py-3 text-[12.5px] font-semibold text-stone-700 whitespace-nowrap">
+                          {b.memberFirstName}
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <div className="text-[13px] font-semibold text-stone-900">{b.event.name}</div>
                         <div className="text-[11.5px] text-stone-500">
@@ -596,6 +647,14 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        {family && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                            style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
+                          >
+                            {b.memberFirstName}
+                          </span>
+                        )}
                         <h3 className="text-sm font-semibold text-stone-900">{b.event.name}</h3>
                         <span
                           className="text-[10px] px-1.5 py-0.5 rounded font-medium"

@@ -17,7 +17,12 @@ import {
   Heart,
   type LucideIcon,
 } from "lucide-react";
-import { resolveActiveProfileId, onActiveProfileChange } from "@/lib/activeProfile";
+import {
+  resolveActiveProfileId,
+  onActiveProfileChange,
+  isFamilyScope,
+  familyEligible,
+} from "@/lib/activeProfile";
 import { Skeleton } from "@/components/member/ui";
 import { friendlyDateTime } from "@/lib/friendlyDate";
 
@@ -362,7 +367,17 @@ const UPCOMING_STATUSES = new Set([
   "PENDING_COACH",
 ]);
 
-function UpcomingBookings({ bookings, label }: { bookings: Booking[]; label?: string }) {
+function UpcomingBookings({
+  bookings,
+  label,
+  whoById,
+}: {
+  bookings: Booking[];
+  label?: string;
+  /** booking id → athlete first name. Supplied only in family scope, where
+   *  the list mixes athletes and an untagged row would be ambiguous. */
+  whoById?: Map<string, string>;
+}) {
   const upcoming = bookings.filter((b) => UPCOMING_STATUSES.has(b.status));
 
   return (
@@ -381,6 +396,7 @@ function UpcomingBookings({ bookings, label }: { bookings: Booking[]; label?: st
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-stone-900 truncate">{b.event.name}</p>
                   <p className="text-xs text-stone-400">
+                    {whoById?.get(b.id) ? `${whoById.get(b.id)} · ` : ""}
                     {friendlyDateTime(b.event.startsAt)}
                   </p>
                 </div>
@@ -723,11 +739,28 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
     })),
   ];
 
+  const canFamily = familyEligible(profiles);
   const [activeId, setActiveId] = useState<string | null>(() =>
-    resolveActiveProfileId(profiles.map((p) => p.id)),
+    resolveActiveProfileId(profiles.map((p) => p.id), {
+      allowFamily: canFamily,
+      defaultFamily: canFamily,
+    }),
   );
   useEffect(() => onActiveProfileChange((id) => id && setActiveId(id)), []);
-  const activeProfile = profiles.find((p) => p.id === activeId) ?? profiles[0] ?? null;
+  const family = isFamilyScope(activeId) && canFamily;
+  const activeProfile = family
+    ? null
+    : profiles.find((p) => p.id === activeId) ?? profiles[0] ?? null;
+
+  // Family scope: one chronological list across every athlete, each row
+  // tagged with whose it is. Answers "what does my family have on?" without
+  // switching profiles — the question the portal could not answer before.
+  const familyBookings = profiles
+    .flatMap((p) => p.bookings)
+    .sort((a, b) => a.event.startsAt.localeCompare(b.event.startsAt));
+  const familyWhoById = new Map<string, string>(
+    profiles.flatMap((p) => p.bookings.map((b) => [b.id, p.firstName] as const)),
+  );
   const activeSub = self && activeProfile?.kind === "self"
     ? self.subscriptions?.find((s) => s.status === "active")
     : null;
@@ -766,6 +799,30 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
             Link a child
           </button>
         </div>
+      ) : family ? (
+        <>
+          <div className="pcard p-4 mb-4">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+                style={{ background: "var(--club-accent)", color: "var(--club-accent-contrast)" }}
+              >
+                {profiles.length}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-stone-900">All athletes</p>
+                <p className="text-xs text-stone-500">
+                  {profiles.map((p) => p.firstName).join(" · ")}
+                </p>
+              </div>
+            </div>
+          </div>
+          <UpcomingBookings
+            bookings={familyBookings}
+            whoById={familyWhoById}
+            label="Family schedule"
+          />
+        </>
       ) : (
         activeProfile && (
           <>
