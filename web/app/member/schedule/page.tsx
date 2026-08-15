@@ -12,6 +12,9 @@ import { CalendarPlus } from "lucide-react";
 import {
   onActiveProfileChange,
   resolveActiveProfileId,
+  isFamilyScope,
+  familyEligible,
+  FAMILY_SCOPE,
 } from "@/lib/activeProfile";
 import { friendlyDate, friendlyTimeRange, friendlyTime, datePillParts } from "@/lib/friendlyDate";
 import { kindIsWallClockUTC } from "@/lib/datetime";
@@ -27,6 +30,21 @@ type ScheduleMember = {
   firstName: string;
   lastName: string;
   kind: "self" | "child";
+};
+
+/** One athlete's verdict on one item. Present for every athlete in scope, so
+ *  in family scope the sheet can show "Titus — covered · Max — $25" instead of
+ *  one answer that is only right for whoever happened to be selected. */
+type ItemAthlete = {
+  memberId: string;
+  firstName: string;
+  lastName: string;
+  price: string | null;
+  statusText: string;
+  canBook: boolean;
+  bookingStatus: string | null;
+  bookingTier?: "MEMBERSHIP" | "MEMBER" | "NON_MEMBER" | "DROP_IN" | null;
+  bookingLabel?: string | null;
 };
 
 type ScheduleItem = {
@@ -50,6 +68,7 @@ type ScheduleItem = {
   textColor: string | null;
   bookingTier?: "MEMBERSHIP" | "MEMBER" | "NON_MEMBER" | "DROP_IN" | null;
   bookingLabel?: string | null;
+  athletes?: ItemAthlete[];
 };
 
 type PrivateOffering = {
@@ -62,6 +81,8 @@ type PrivateOffering = {
 type ScheduleResponse = {
   contextMember: ScheduleMember | null;
   accessibleMembers: ScheduleMember[];
+  familyScope?: boolean;
+  scopeMembers?: { id: string; firstName: string; lastName: string }[];
   activeMembershipNames: string[];
   items: ScheduleItem[];
   privateOfferings: PrivateOffering[];
@@ -101,7 +122,20 @@ function withinWindow(startsAt: string, key: (typeof windows)[number]["key"]): b
   return start <= now + days * 86_400_000;
 }
 
-function priceLabel(item: ScheduleItem) {
+// One line summarising where this item stands. In family scope it names the
+// athletes who are booked — "Booked — Titus & Max" — so a parent can see both
+// children on one row instead of switching profiles to check the second.
+function priceLabel(item: ScheduleItem, family = false) {
+  if (family && item.athletes?.length) {
+    const booked = item.athletes.filter((a) => a.bookingStatus);
+    if (booked.length) return `Booked — ${booked.map((a) => a.firstName).join(" & ")}`;
+    const prices = Array.from(
+      new Set(item.athletes.map((a) => (a.price ? `$${a.price}` : "")).filter(Boolean)),
+    );
+    if (prices.length === 1) return prices[0];
+    if (prices.length > 1) return "Price varies by athlete";
+    return item.athletes[0].statusText;
+  }
   if (item.bookingStatus) return item.statusText;
   if (item.price) return `$${item.price}`;
   return item.statusText;
@@ -122,7 +156,7 @@ function sameDay(a: Date, b: Date): boolean {
   );
 }
 
-function ItemCard({ item, onClick }: { item: ScheduleItem; onClick: () => void }) {
+function ItemCard({ item, onClick, family = false }: { item: ScheduleItem; onClick: () => void; family?: boolean }) {
   const c = itemColors(item);
   return (
     <button onClick={onClick} className="w-full text-left pcard pcard-hover p-4">
@@ -153,7 +187,7 @@ function ItemCard({ item, onClick }: { item: ScheduleItem; onClick: () => void }
             <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
           )}
         </div>
-        <span className="text-xs text-stone-600 flex-shrink-0">{priceLabel(item)}</span>
+        <span className="text-xs text-stone-600 flex-shrink-0">{priceLabel(item, family)}</span>
       </div>
     </button>
   );
@@ -200,6 +234,32 @@ function ScheduleInner() {
   const [showSubscribe, setShowSubscribe] = useState(false);
   const [info, setInfo] = useState("");
 
+  // Family scope is a property of the response, not of local state — the
+  // server decides which athletes the feed covers.
+  const family = !!data?.familyScope;
+  const scopeMembers = data?.scopeMembers ?? [];
+  /** Per-athlete verdicts for an item, falling back to the single-athlete
+   *  fields so this works identically in both scopes. */
+  function athletesFor(item: ScheduleItem): ItemAthlete[] {
+    if (item.athletes?.length) return item.athletes;
+    const ctx = data?.contextMember;
+    return ctx
+      ? [
+          {
+            memberId: ctx.id,
+            firstName: ctx.firstName,
+            lastName: ctx.lastName,
+            price: item.price,
+            statusText: item.statusText,
+            canBook: item.canBook,
+            bookingStatus: item.bookingStatus,
+            bookingTier: item.bookingTier,
+            bookingLabel: item.bookingLabel,
+          },
+        ]
+      : [];
+  }
+
   async function load(memberId?: string | null) {
     setLoading(true);
     setError("");
@@ -211,9 +271,22 @@ function ScheduleInner() {
       setLoading(false);
       return;
     }
-    const resolved = resolveActiveProfileId(next.accessibleMembers.map((m) => m.id));
-    if (!memberId && resolved && next.contextMember?.id !== resolved) {
+    const canFamily = familyEligible(
+      next.accessibleMembers.map((m) => ({ kind: m.kind })),
+    );
+    const resolved = resolveActiveProfileId(
+      next.accessibleMembers.map((m) => m.id),
+      { allowFamily: canFamily, defaultFamily: canFamily },
+    );
+    // The first call comes back scoped to whoever the server picked. If the
+    // account's real selection differs — including "all athletes" — refetch
+    // once with it rather than rendering the wrong athlete's feed.
+    if (!memberId && resolved && !isFamilyScope(resolved) && next.contextMember?.id !== resolved) {
       await load(resolved);
+      return;
+    }
+    if (!memberId && isFamilyScope(resolved) && !next.familyScope) {
+      await load(FAMILY_SCOPE);
       return;
     }
     setData(next);
@@ -253,7 +326,7 @@ function ScheduleInner() {
     return now >= start - 60 * 60_000 && now <= end + 12 * 3_600_000;
   }
 
-  async function checkIn(item: ScheduleItem) {
+  async function checkIn(item: ScheduleItem, memberId?: string) {
     // Class items are classSession ids; event items may be composite
     // "<eventId>:<sessionId>" — the check-in endpoint takes the event id.
     const target = item.kind === "class" ? item.id : item.refId;
@@ -262,7 +335,9 @@ function ScheduleInner() {
     const res = await fetch(`/api/member/checkin/${target}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId: activeId }),
+      // In family scope `activeId` is a sentinel — check in the athlete whose
+      // booking this row represents.
+      body: JSON.stringify({ memberId: memberId ?? activeId }),
     });
     const d = await res.json().catch(() => ({}));
     setCheckinBusy(null);
@@ -280,7 +355,15 @@ function ScheduleInner() {
   const bookedUpcoming = useMemo(() => {
     const list = data?.items ?? [];
     const nowMs = Date.now();
-    return list.filter((item) => item.bookingStatus && new Date(item.endsAt).getTime() >= nowMs);
+    // In family scope an item is pinned if ANY athlete is booked into it —
+    // otherwise a class only one sibling attends would drop out of "your
+    // upcoming schedule" entirely.
+    return list.filter(
+      (item) =>
+        (item.athletes?.length
+          ? item.athletes.some((a) => a.bookingStatus)
+          : !!item.bookingStatus) && new Date(item.endsAt).getTime() >= nowMs,
+    );
   }, [data]);
 
   const items = useMemo(() => {
@@ -342,8 +425,13 @@ function ScheduleInner() {
       .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
   }, [calendarItems, calDay]);
 
-  async function bookClass(item: ScheduleItem) {
-    setBusy(item.id);
+  // `target` is always an explicit athlete — never the current selection,
+  // which in family scope is a sentinel and in per-child scope is right only
+  // by coincidence. `who` prefixes every message so a parent booking siblings
+  // one after another can tell the two confirmations apart.
+  async function bookClass(item: ScheduleItem, target: { memberId: string; firstName: string }) {
+    const who = family ? `${target.firstName} — ` : "";
+    setBusy(`${item.id}:${target.memberId}`);
     setError("");
     setInfo("");
     const res = await fetch("/api/member/classes/book", {
@@ -351,22 +439,23 @@ function ScheduleInner() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         classSessionId: item.id,
-        memberId: activeId,
+        memberId: target.memberId,
         discountCode: discountCode.trim() || null,
       }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) {
-      setError(d.error || "Could not book this class.");
+      // Stated per athlete: one child failing is not the whole request failing.
+      setError(`${who}${d.error || "Could not book this class."}`);
       return;
     }
     // Parental gate (P4) — server returns 202 + { pendingApproval } when
     // a controlled minor queues an action. Don't show "Booked" — the
     // booking is on hold until the guardian responds.
     if (d.pendingApproval) {
-      setSelected(null);
-      setInfo(d.message || "Sent to your guardian for approval.");
+      if (!family) setSelected(null);
+      setInfo(`${who}${d.message || "Sent to your guardian for approval."}`);
       return;
     }
     if (d.url) {
@@ -378,16 +467,21 @@ function ScheduleInner() {
     // back. Guards against a spurious 2xx with no booking payload from
     // ever rendering a green badge again.
     if (d.coveredByMembership || d.attendanceRecordId) {
-      setSelected(null);
-      setInfo(d.coveredByMembership ? "Booked — covered by your membership." : "Booked.");
+      // In family scope the sheet stays open so the parent can book the next
+      // child and watch the first one flip to Booked — the whole point of 7.1.
+      if (!family) setSelected(null);
+      setInfo(
+        `${who}${d.coveredByMembership ? "Booked — covered by their membership." : "Booked."}`,
+      );
       await load(activeId);
       return;
     }
-    setError("We couldn't confirm your booking. Contact your club if this keeps happening.");
+    setError(`${who}We couldn't confirm this booking. Contact your club if this keeps happening.`);
   }
 
-  async function register(item: ScheduleItem) {
-    setBusy(item.id);
+  async function register(item: ScheduleItem, target: { memberId: string; firstName: string }) {
+    const who = family ? `${target.firstName} — ` : "";
+    setBusy(`${item.id}:${target.memberId}`);
     setError("");
     setInfo("");
     const res = await fetch(`/api/member/events/${item.refId}/register`, {
@@ -395,39 +489,41 @@ function ScheduleInner() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pricingType: "MEMBER",
-        memberId: activeId,
+        memberId: target.memberId,
         discountCode: discountCode.trim() || null,
       }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) {
-      setError(d.error || "Could not register for this event.");
+      setError(`${who}${d.error || "Could not register for this event."}`);
       return;
     }
     // Same P4 parental gate handling as bookClass — 202 + pendingApproval
     // means the registration is on hold, not done.
     if (d.pendingApproval) {
-      setSelected(null);
-      setInfo(d.message || "Sent to your guardian for approval.");
+      if (!family) setSelected(null);
+      setInfo(`${who}${d.message || "Sent to your guardian for approval."}`);
       return;
     }
     if (d.url) {
       window.location.href = d.url;
       return;
     }
-    setSelected(null);
-    setInfo(d.status === "WAITLISTED" ? "You're on the waitlist." : "Registered.");
+    if (!family) setSelected(null);
+    setInfo(`${who}${d.status === "WAITLISTED" ? "On the waitlist." : "Registered."}`);
     await load(activeId);
   }
 
   const activeMember = data?.contextMember;
   const hasRail = profiles.length >= 2;
-  const forName = activeMember
-    ? activeMember.kind === "self"
-      ? "you"
-      : `${activeMember.firstName} ${activeMember.lastName}`
-    : "you";
+  const forName = family
+    ? "your athletes"
+    : activeMember
+      ? activeMember.kind === "self"
+        ? "you"
+        : `${activeMember.firstName} ${activeMember.lastName}`
+      : "you";
 
   return (
     <div className={hasRail ? "md:grid md:grid-cols-[250px_minmax(0,1fr)] md:gap-6 md:items-start" : ""}>
@@ -545,7 +641,10 @@ function ScheduleInner() {
 
             {loading ? (
               <div className="text-center py-10 text-stone-400 text-sm">Loading schedule…</div>
-            ) : !activeMember ? (
+            ) : !activeMember && !family ? (
+              // Family scope has no single contextMember by design — gating on
+              // one showed "No member profile linked" to guardians whose
+              // children were right there in the rail.
               <div className="pcard p-10 text-center">
                 <p className="text-base font-medium text-stone-900 mb-1">No member profile linked</p>
                 <p className="text-sm text-stone-500">Contact your club to connect this login to an athlete profile.</p>
@@ -591,7 +690,7 @@ function ScheduleInner() {
                                 {" "}
                                 {friendlyTime(item.startsAt, kindIsWallClockUTC(item.kind))}
                                 {" · "}
-                                {item.bookingStatus ? item.statusText : item.price ? `$${item.price}` : item.statusText}
+                                {priceLabel(item, family)}
                               </span>
                             </span>
                           </button>
@@ -612,7 +711,7 @@ function ScheduleInner() {
                         <p className="text-sm text-stone-400 px-0.5 pb-2">Nothing on this day.</p>
                       ) : (
                         calDayItems.map((item) => (
-                          <ItemCard key={item.id} item={item} onClick={() => setSelected(item)} />
+                          <ItemCard key={item.id} item={item} family={family} onClick={() => setSelected(item)} />
                         ))
                       )}
                     </>
@@ -629,7 +728,7 @@ function ScheduleInner() {
                     <div className="space-y-3">
                       {bookedUpcoming.map((item) => (
                         <div key={item.id}>
-                          <ItemCard item={item} onClick={() => setSelected(item)} />
+                          <ItemCard item={item} family={family} onClick={() => setSelected(item)} />
                           {withinCheckinWindow(item) && (
                             <div className="mt-1.5 flex justify-end">
                               {checkedIn.has(item.id) ? (
@@ -672,7 +771,7 @@ function ScheduleInner() {
                         <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">{group.label}</h2>
                         <div className="space-y-3">
                           {group.items.map((item) => (
-                            <ItemCard key={item.id} item={item} onClick={() => setSelected(item)} />
+                            <ItemCard key={item.id} item={item} family={family} onClick={() => setSelected(item)} />
                           ))}
                         </div>
                       </section>
@@ -745,6 +844,51 @@ function ScheduleInner() {
                   </div>
                 )}
 
+                {family ? (
+                  <div className="rounded-xl bg-stone-50 border border-stone-200 divide-y divide-stone-200">
+                    {athletesFor(selected).map((a) => {
+                      const key = `${selected.id}:${a.memberId}`;
+                      const booked = !!a.bookingStatus;
+                      return (
+                        <div key={a.memberId} className="flex items-center gap-3 p-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-stone-900">{a.firstName}</p>
+                            <p className="text-xs text-stone-500">
+                              {a.statusText}
+                              {!booked && a.price ? ` — $${a.price}` : ""}
+                            </p>
+                          </div>
+                          {booked ? (
+                            <span className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 font-semibold whitespace-nowrap">
+                              {a.bookingStatus === "WAITLISTED" ? "Waitlisted" : "Booked"}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!a.canBook || busy === key}
+                              onClick={() =>
+                                selected.kind === "class"
+                                  ? bookClass(selected, { memberId: a.memberId, firstName: a.firstName })
+                                  : register(selected, { memberId: a.memberId, firstName: a.firstName })
+                              }
+                              className="px-3 py-1.5 pbtn-accent rounded-md text-xs font-semibold disabled:opacity-50 whitespace-nowrap"
+                            >
+                              {busy === key
+                                ? "Booking…"
+                                : !a.canBook
+                                  ? "Unavailable"
+                                  : a.bookingTier === "MEMBERSHIP"
+                                    ? "Book (covered)"
+                                    : a.price
+                                      ? `Book — $${a.price}`
+                                      : "Book"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
                 <div className="rounded-xl bg-stone-50 border border-stone-200 p-4">
                   <p className="text-sm font-semibold text-stone-900">{selected.statusText}</p>
                   {selected.kind === "class" && selected.bookingLabel && (
@@ -765,6 +909,7 @@ function ScheduleInner() {
                         : "Registration is not available from your account right now."}
                   </p>
                 </div>
+                )}
 
                 {selected.canBook && !!selected.price && (
                   <div>
@@ -789,24 +934,34 @@ function ScheduleInner() {
                   >
                     Close
                   </button>
-                  {selected.kind === "event" && (
+                  {!family && selected.kind === "event" && data?.contextMember && (
                     <button
                       type="button"
-                      disabled={!selected.canBook || busy === selected.id}
-                      onClick={() => register(selected)}
+                      disabled={!selected.canBook || busy === `${selected.id}:${data.contextMember.id}`}
+                      onClick={() =>
+                        register(selected, {
+                          memberId: data.contextMember!.id,
+                          firstName: data.contextMember!.firstName,
+                        })
+                      }
                       className="flex-1 px-4 py-2 pbtn-accent rounded-lg text-sm font-semibold disabled:opacity-50"
                     >
-                      {busy === selected.id ? "Registering..." : selected.canBook ? "Register" : selected.statusText}
+                      {busy === `${selected.id}:${data.contextMember.id}` ? "Registering..." : selected.canBook ? "Register" : selected.statusText}
                     </button>
                   )}
-                  {selected.kind === "class" && (
+                  {!family && selected.kind === "class" && data?.contextMember && (
                     <button
                       type="button"
-                      disabled={!selected.canBook || busy === selected.id}
-                      onClick={() => bookClass(selected)}
+                      disabled={!selected.canBook || busy === `${selected.id}:${data.contextMember.id}`}
+                      onClick={() =>
+                        bookClass(selected, {
+                          memberId: data.contextMember!.id,
+                          firstName: data.contextMember!.firstName,
+                        })
+                      }
                       className="flex-1 px-4 py-2 pbtn-accent rounded-lg text-sm font-semibold disabled:opacity-50"
                     >
-                      {busy === selected.id
+                      {busy === `${selected.id}:${data.contextMember.id}`
                         ? "Booking..."
                         : selected.canBook
                           ? selected.bookingTier === "MEMBERSHIP"

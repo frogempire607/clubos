@@ -7,6 +7,9 @@ import {
   setActiveProfileId,
   onActiveProfileChange,
   resolveActiveProfileId,
+  familyEligible,
+  isFamilyScope,
+  FAMILY_SCOPE,
 } from "@/lib/activeProfile";
 import { Avatar, Pill } from "@/components/member/ui";
 
@@ -120,15 +123,24 @@ export function useAthleteProfiles(): { profiles: AthleteProfile[]; loaded: bool
   return { profiles, loaded };
 }
 
-/** Active-profile id synced with lib/activeProfile (shared with the chips). */
+/**
+ * Active-profile id synced with lib/activeProfile (shared with the chips).
+ *
+ * Family-aware: an account managing 2+ children can select "All athletes",
+ * and starts there. Everyone else resolves exactly as before.
+ */
 export function useActiveAthlete(profiles: AthleteProfile[]): [string | null, (id: string) => void] {
   const [activeId, setActiveId] = useState<string | null>(getActiveProfileId());
+  const canFamily = familyEligible(profiles);
   useEffect(() => {
     if (!profiles.length) return;
-    const resolved = resolveActiveProfileId(profiles.map((p) => p.id));
+    const resolved = resolveActiveProfileId(profiles.map((p) => p.id), {
+      allowFamily: canFamily,
+      defaultFamily: canFamily,
+    });
     setActiveId(resolved);
     if (resolved && resolved !== getActiveProfileId()) setActiveProfileId(resolved);
-  }, [profiles]);
+  }, [profiles, canFamily]);
   useEffect(() => onActiveProfileChange(setActiveId), []);
   return [activeId, setActiveProfileId];
 }
@@ -174,9 +186,37 @@ export default function AthleteRail({
 
   if (profiles.length < 2) return null;
 
+  const canFamily = familyEligible(profiles);
+  const familyOn = isFamilyScope(active);
+
   return (
     <aside className={`hidden md:flex flex-col gap-1.5 md:sticky md:top-20 self-start w-full ${className}`}>
       <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1.5 mb-0.5">{label}</p>
+      {canFamily && (
+        <button
+          type="button"
+          onClick={() => select(FAMILY_SCOPE)}
+          aria-pressed={familyOn}
+          aria-label="Show all athletes together"
+          className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--club-accent-ring)] ${
+            familyOn ? "" : "border-transparent hover:bg-stone-50"
+          }`}
+          style={familyOn ? { background: "var(--club-accent-soft)", borderColor: "var(--club-accent-ring)" } : {}}
+        >
+          <span
+            className="flex h-[34px] w-[34px] flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+            style={{ background: "var(--club-accent)", color: "var(--club-accent-contrast)" }}
+          >
+            {profiles.length}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold text-stone-900 leading-tight">All athletes</span>
+            <span className="block text-[11px] text-stone-500 mt-0.5 truncate">
+              {profiles.reduce((n, p) => n + p.upcoming, 0)} upcoming
+            </span>
+          </span>
+        </button>
+      )}
       {profiles.map((p) => {
         const on = p.id === active;
         return (
