@@ -41,6 +41,7 @@ import {
 } from "@/components/members/MemberTracks";
 import { MemberActionsMenu } from "@/components/members/MemberActionsMenu";
 import { PasswordResetDialog, type ResetState } from "@/components/members/PasswordResetDialog";
+import { ArchiveMemberDialog } from "@/components/members/ArchiveMemberDialog";
 import {
   BulkEmailModal,
   BulkMessageModal,
@@ -218,6 +219,7 @@ export default function MembersRoster({
   // recipients, so the roster selection is irrelevant here — the composer
   // replaces it once the draft loads.
   const [openDraftId, setOpenDraftId] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     const d = params.get("draft");
@@ -490,20 +492,12 @@ export default function MembersRoster({
           case "checkin":
             router.push(`/dashboard/attendance?member=${m.id}`);
             break;
-          case "archive": {
-            if (
-              !confirm(
-                `Archive ${m.fullName}?\n\nThey stop appearing in the roster, billing and messaging. Nothing is deleted — history, payments and documents are kept, and an owner can restore them.`,
-              )
-            )
-              break;
-            setBusy(m.id);
-            const r = await fetch(`/api/members/${m.id}`, { method: "DELETE" });
-            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not archive");
-            setToast({ kind: "ok", text: `${m.fullName} archived.` });
-            reload();
+          case "archive":
+            // Full confirmation path — the dialog loads what is attached and
+            // requires the name typed back. A one-line confirm() could not
+            // say "this closes 2 approvals and disables their login".
+            setArchiving({ id: m.id, name: m.fullName });
             break;
-          }
         }
       } catch (e) {
         setToast({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong" });
@@ -1109,6 +1103,14 @@ export default function MembersRoster({
             setSelectAllMatching(false);
             setToast({ kind: "ok", text: "Message sent." });
           }}
+        />
+      )}
+
+      {archiving && (
+        <ArchiveMemberDialog
+          memberId={archiving.id}
+          onClose={() => setArchiving(null)}
+          onArchived={(msg) => { setArchiving(null); setToast({ kind: "ok", text: msg }); reload(); }}
         />
       )}
 

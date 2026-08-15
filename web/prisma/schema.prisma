@@ -369,6 +369,8 @@ model PendingApproval {
   // or amount-unknown actions.
   amount        Decimal?  @db.Decimal(10, 2)
   // PENDING | APPROVED | DECLINED | EXPIRED
+  // EXPIRED also covers "no longer actionable" — e.g. the subject member was
+  // archived, so the request can never be completed and must leave the queue.
   status        String    @default("PENDING")
   requestedAt   DateTime  @default(now())
   respondedAt   DateTime?

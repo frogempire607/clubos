@@ -11,6 +11,7 @@ import { sendBookingConfirmationEmail } from "@/lib/email";
 import { trialCoversClass } from "@/lib/freeTrial";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { classHasStarted } from "@/lib/datetime";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
 
     const self = await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email);
     const guardianships = await prisma.memberGuardianUser.findMany({
-      where: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id, member: { clubId: session.user.clubId } },
+      where: { ...ACTIVE_GUARDIAN_LINK, userId: session.user.id, member: { clubId: session.user.clubId, deletedAt: null } },
       include: { member: true },
     });
     const accessible = [
@@ -90,7 +91,15 @@ export async function POST(req: Request) {
     if (cls.visibility === "PRIVATE") {
       return NextResponse.json({ error: "Class not available" }, { status: 403 });
     }
-    if (classSession.startsAt < new Date()) {
+    // Class stamps are wall-clock-UTC, not instants — compare in one frame via
+    // classHasStarted, exactly as /api/member/schedule filters the feed. The
+    // raw `startsAt < new Date()` this replaces blocked booking from
+    // (start − club offset): 3 PM for a 7 PM class in a UTC-4 club.
+    const bookingClub = await prisma.club.findUnique({
+      where: { id: session.user.clubId },
+      select: { timezone: true },
+    });
+    if (classHasStarted(classSession.startsAt, bookingClub?.timezone)) {
       return NextResponse.json({ error: "Class has already started" }, { status: 400 });
     }
 

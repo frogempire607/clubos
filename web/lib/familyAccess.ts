@@ -50,7 +50,19 @@ export const GUARDIAN_LINK_SOURCE = {
  * The ONLY filter that means "this link currently grants access".
  * Spread it into any `guardianOf` / `guardianLinks` where-clause.
  */
-export const ACTIVE_GUARDIAN_LINK = { status: GUARDIAN_LINK_STATUS.CONFIRMED } as const;
+export const ACTIVE_GUARDIAN_LINK = {
+  status: GUARDIAN_LINK_STATUS.CONFIRMED,
+  // An archived member grants no access. Without this an archived child kept
+  // appearing in their guardian's profile switcher, schedule and documents —
+  // the link was still CONFIRMED, and nothing else checked whether the member
+  // it pointed at still existed.
+  //
+  // NOTE FOR SPREAD SITES: this object now carries a `member` key. A call site
+  // that writes `{ ...ACTIVE_GUARDIAN_LINK, member: { clubId } }` REPLACES it
+  // and loses the archived-member exclusion. Merge into the same object
+  // instead: `member: { clubId, deletedAt: null }`.
+  member: { deletedAt: null },
+} as const;
 
 /** Same rule, expressed for a top-level `memberGuardianUser.findMany` query. */
 export function activeGuardianLinkWhere<T extends Prisma.MemberGuardianUserWhereInput>(
