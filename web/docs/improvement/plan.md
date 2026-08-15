@@ -2372,6 +2372,176 @@ Every column is nullable or defaults to a safe value; every existing row keeps c
 
 ---
 
+# PHASE 7 — The Family Model in the Experience
+
+**Goal:** the family model is real in the database and absent in the experience. Signup does not make it obvious you are creating a child's account, and once inside, the portal treats a family as individuals you toggle between. Both halves of this phase close that gap.
+
+**Phase number:** this is **Phase 7**, not 4.6. §4 states "there is no Phase 4.6 — 4.5 is the last decimal phase," and that line was written deliberately to stop decimal sprawl; it is respected here. Two consequences to note when this lands:
+
+- The trailing `## 7. Final Deliverable` section shares the number. Different heading level (`##` vs `#`), so nothing breaks, but **renumber that section to `## 8. Final Deliverable`** when this phase is approved.
+- **Numeric order is not execution order.** Phase 6 is the final safety/verification gate and must still run last. Phase 7.1 is scheduled **first — ahead of 4.5 and 5** — because it is hitting every two-child family in the club today, not one member.
+
+---
+
+## 7.0 Audit — every path that creates an account or a member
+
+Traced 2026-08-15 against `frogempire607/clubos` and read-only production. Ordered by how often they fire.
+
+### The seven paths
+
+| # | Path | Entry | Records created, in order | Who ends up the athlete | Who ends up the guardian |
+|---|---|---|---|---|---|
+| 1 | **Member portal signup — ADULT_ATHLETE** | `/member/signup` → `POST /api/member/signup` | `User` (role MEMBER) → nested `Member` (`status PROSPECT`, `isMinor false`, `email` = signup email) via `memberProfile.create`; `LegalAcceptance` ×2; optional `DocumentSignature` rows; optional `trialEndsAt` | The signer | Nobody. No guardian link. Correct for a genuine adult athlete. |
+| 2 | **Member portal signup — MINOR_ATHLETE** | same | `User` **named after the child** but carrying whatever email was typed → nested `Member` (`isMinor true`, `email` = **signup email**, `guardianName`/`guardianEmail` from the form) → `GuardianConsentRequest` + consent email → (on click) `ParentalConsent` + `MemberGuardianUser` | The child | **Whoever owns the email in `guardianEmail`** — resolved by email lookup at consent time |
+| 3 | **Member portal signup — PARENT** | same | `User` only. **No `Member` row** (deliberate, CLAUDE.md "Guardian-only accounts are not members"). Then the vouched sweep: every live member with `guardianEmail == signup email` is linked via `requestGuardianLink` | Nobody — no athlete is created | The signer, for each swept child |
+| 4 | **Free trial** | `?trial=1` on either signup, or a club Free Trial offer | `Member.trialEndsAt` on **`user.memberProfile`** — the member this signup created | Whoever that member is | n/a |
+| 5 | **Staff-created member** | `/dashboard/members` → `POST /api/members` | `Member` → if `guardianEmail` matches a live `User`, `memberGuardianUser.upsert` (route.ts:232) | The typed athlete | The matched account, owner-vouched |
+| 6 | **Migration activation** | `/activate/[token]` → `POST /api/members/migration/activate/[token]` | resurrect-or-create `User` → `Member.userId` link → `memberGuardianUser.upsert` (route.ts:623) for guardian-managed minors → documents, card setup | The imported member | The activation contact when `guardianManaged` |
+| 7 | **Public event registration** | `/e/[slug]` → `POST /api/public/events/[slug]/register` | `EventRegistration` (+ `Booking` if an existing member matched by email). **Creates no `User` and no `Member`** | Nobody new | Nobody |
+
+### What the person actually sees
+
+- **Paths 1–3** share one wizard. Step 1 is a three-way picker (Adult Athlete / Young Athlete / Parent). The copy names the roles but the form that follows is the same shape for all three, and **the email field is not labelled by role** — on MINOR_ATHLETE it reads as "your email" while the record it writes is the *child's* `Member.email`. A parent filling in a child's signup types their own email there, correctly, and it lands on the child.
+- **Path 3 (PARENT) creates no athlete and offers no next step.** The wizard finishes, the parent lands in an empty portal, and nothing prompts them to onboard the child. This is the "emails me asking how to add their kid" case when they picked the right option.
+- **Path 4** is silent on the PARENT path: `user.memberProfile` is null, so the trial is skipped with no message. A parent who clicked a trial link and chose "Parent" gets no trial and no explanation.
+
+### Which paths can produce AJ Dorn's shape
+
+**Only path 2**, and it needs one more condition: the guardian email must equal the email the account was created under. Then:
+
+1. Dad opens `/member/signup`, picks **Young Athlete**, types `Adam (AJ) Dorn` as the name, `adamjdorn@gmail.com` (his own) as the email, and the same address as guardian email with `Adam j Dorn, Sr` as guardian name.
+2. Route creates `User` `cmsno0z49…` — **email = dad's, first/last name = "Adam (AJ) Dorn"**, i.e. the dad's login is named after his son — and nests `Member` `cmsno0z4a…` with `isMinor true`, `email` = dad's address, `Member.userId` pointed at that user.
+3. `isMinor` → `createGuardianConsentRequest` → consent email sent **to `adamjdorn@gmail.com`** — the same inbox that just signed up.
+4. Dad clicks the consent link. `app/api/guardian-consent/[token]/route.ts:72` resolves `guardianUser` **by `request.guardianEmail`** and finds the account created in step 2. Line 101 upserts `MemberGuardianUser { userId: <AJ's own login>, memberId: <AJ> }`.
+5. `trialEndsAt` 2026-08-17 written to the member (step 4 of the table — behaving as designed).
+
+**The result is one `User` that is simultaneously the athlete, the athlete's own login, and the athlete's own guardian.** This is the exact inversion CLAUDE.md forbids ("never point a minor's `userId` at the guardian… inverts parental controls and, because `userId` is unique, makes a second child invisible"), reached without anyone pointing anything anywhere — the email lookup did it.
+
+Two live consequences, both matching the owner's report:
+
+- **`applyParentalControls` keys oversight on `member.userId !== bookerUserId`.** Here they are equal, so the guardian is treated as the child acting alone. Controls are inverted for this member.
+- **`Member.userId` is globally unique.** A second Dorn child cannot attach to this login as `userId`, and the portal offers no path to add one from this state — so the dad's only recourse was email.
+
+AJ is also a **duplicate**: an imported `Adam Dorn` (`cmr7b603d…`, migration `INVITED`, DOB 2011-09-15) already existed from the 2026-07-05 CSV, with `guardianName` "Adam Dorn" — the dad's name in the child's guardian field. The self-signup created a second record (DOB 2012-09-15) rather than matching it.
+
+### How many members are in this shape today
+
+Read-only counts, club `cmq9xyrjx…`, live members only, 2026-08-15:
+
+| Shape | Count | Reading |
+|---|---|---|
+| **A. Self-guardian** — `Member.userId` == a `MemberGuardianUser.userId` on the same member | **4** | AJ Dorn's exact defect. 3 are minors created by self-signup (Dakota Mastrantonio 07-17, Paris Battaglia 07-21, Adam (AJ) Dorn 08-10); the 4th is a non-minor. |
+| **B. Minors holding their own login** | **9** | The at-risk class. 4 are 07-05 CSV imports where the child's own email was supplied (Drayke Ulrich, Delos Stone, Maximus Alexander, Cael Bruce) — those are *legitimate*, guardian differs. The other 5 are self-signups from 07-17 onward. |
+| **C. Minors whose `Member.email` == their `guardianEmail`** | **30** | Parent's address sitting on the child record. Not itself broken, but it is the precondition that turns path 2 into shape A. |
+| **D. Minors with no CONFIRMED guardian link** | **227** of 287 | Mostly un-activated CSV imports — they have `guardianEmail` text but no account behind it. This is the backlog for "every child appears under their parent's Family & access." |
+| **E. Members with a trial window set** | 15 | Trial attachment is correct in all cases inspected (always on the athlete member). |
+| **F. Guardian-only users (login, no member row)** | 51 | Path 3 working as designed. |
+| **G. Total live members** | 287 | |
+
+**Rate of arrival:** shape A did not exist before 2026-07-17. Three of the four appeared in the 24 days since. Every self-signup minor where the parent uses their own address for both fields produces it.
+
+---
+
+## 7.1 Family-wide view — **build this first**
+
+**Problem:** every booking surface is scoped to one athlete. `/member/schedule` fetches `?memberId=<activeId>`; `BookingsPanel` gathers records for all accessible members then filters to `activeId` (`m.id === activeId`); `/api/member/schedule` keys its booked-state lookups on `context.id`. A parent who books two children sees one child's booking at a time and concludes the second failed. This is what happened to Shannan Hall — **both** Titus's and Max's Aug 17 bookings landed, 38 seconds apart, and she reported one had not.
+
+### Surfaces that change
+
+| Surface | Change |
+|---|---|
+| `app/member/page.tsx` (Home) | "This week" block becomes family-wide: every child's next items in one chronological list, each row carrying the athlete's name + avatar. |
+| `app/member/schedule/page.tsx` | Adds an **All athletes** option to the athlete selector, and makes it the **default for guardians with ≥2 children**. Booked items pin to the top as today, but across the family. |
+| `components/member/BookingsPanel.tsx` | Drop the `m.id === activeId` filter when the family scope is selected. It already collects every accessible member's records — it throws them away. |
+| `app/api/member/schedule/route.ts` | Accept `memberId=all` (or omit). Returns one feed with a `forMember: { id, firstName }` tag per item. Booked-state lookups move from `context.id` to `{ in: accessibleIds }`. |
+| `app/api/member/portal/route.ts` | No change — it already returns per-member `summaries` + `attendanceRecords` for self + `guardianOf`. |
+| `app/member/documents`, `/member/family/[id]` | Unchanged. Documents and controls are legitimately per-child. |
+
+### What a parent sees after booking two children
+
+This is the acceptance case. Booking Titus and Max into MS/HS Preseason on Monday must end with, on one screen and without switching profiles:
+
+1. **Inline confirmation naming both children**, e.g. `Booked — Titus and Max, MS/HS Preseason, Mon Aug 17, 7:00 PM. Covered by their memberships.` One line per child if the outcomes differ (one covered, one paid).
+2. **Both rows visible in the family feed**, each tagged with the athlete's name, without a profile switch.
+3. **A per-child failure is stated per child, never as a whole-request failure** — "Titus booked. Max could not: his membership doesn't include this class." Today a mixed result is indistinguishable from a total failure.
+
+### Does the profile switcher survive?
+
+**Yes — it stays, with a family option added.** It is not replaced.
+
+- It gains an **All athletes** entry that becomes the default when the guardian has ≥2 confirmed children. One child → unchanged behavior, no family option, no regression.
+- Per-child scope remains for the surfaces that genuinely need it (documents, controls, billing) and for any parent who prefers it — the selection persists via the existing `lib/activeProfile.ts`.
+- `components/ProfileSwitcher.tsx` and `AthleteRail` keep their current role. Do **not** remove the layout Managing bar; it is the single control (2026-07-03 decision).
+
+### Booking two children in one action — explicitly out of scope for 7.1
+
+7.1 makes the *result* visible. A multi-select "book both" control is a separate change to `POST /api/member/classes/book` (which takes one `memberId`) and is deferred to 7.6 so the visibility fix is not held up behind a write-path change.
+
+### Acceptance
+
+- Guardian with 2+ children lands on a family-scoped schedule by default and sees both children's upcoming items in one list.
+- Booking child A then child B produces two visible confirmed rows without a profile switch.
+- Single-child guardians and adult athletes see no change.
+- Mobile 390×844: the athlete tag on each row does not push the time off-screen.
+- No new N+1: the family feed is one query over `accessibleIds`, not one per child.
+
+---
+
+## 7.2 Signup states whose account is being created
+
+**Code change, future members only.**
+
+- Step 1's three-way picker stays, but each option states the outcome in the person's words: *"I'm signing my child up — I'll manage their account"* / *"I train here myself"* / *"I only manage someone else's account."*
+- On the child path, **label the fields by role**: "Your child's name", "Your email (you'll manage this account)", "Your name". Today both name and email read as if they belong to one person, which is how a dad's login came to be named "Adam (AJ) Dorn".
+- **Create the guardian account immediately after the child**, in the same submission — a separate `User` for the parent, guardian-linked to the child, rather than one account doing both jobs. This is the structural fix for shape A: no self-guardian link is possible when the guardian is a different row.
+- **From the guardian side, prompt to onboard the child next.** Path 3 currently ends in an empty portal. It should end on "Add your athlete" with the sweep result shown ("We found 2 children already listed under your email").
+- **A parent who also trains is explicitly supported** — the guardian account can gain an adult athlete profile via the existing idempotent `POST /api/member/self-profile`. Offer it as a choice, never infer it, and never block it.
+
+## 7.3 Trial attaches to the athlete
+
+**Code change.** The rule already holds where a member exists (`Member.trialEndsAt` on `user.memberProfile`). Two gaps:
+
+- **PARENT signups silently grant nothing** — `user.memberProfile` is null, the block is skipped, no message. With 7.2 creating the child first, the trial attaches to the child; until then, say so rather than failing quietly.
+- The trial must **never** be written to a guardian-only account. Add an explicit guard: refuse to set `trialEndsAt` on a member whose `userId` is also a guardian link on the same member (shape A), because that record's identity is ambiguous.
+
+## 7.4 Repair the existing records — **data corrections, not code**
+
+These are **existing-member corrections** and must follow the established pattern: a script that is **dry-run by default, requires an explicit `--apply --members <ids>` allowlist, writes audit rows, hard-deletes nothing, and is run by the owner from his own terminal** (CLAUDE.md, Supabase MCP is read-only). Model on `scripts/fix-status-truth.ts`.
+
+| Correction | Scope | What it does |
+|---|---|---|
+| **SELF_GUARDIAN** | 4 members (shape A) | Split the conflated account: create/identify the parent's own `User`, move the `MemberGuardianUser` link to it, null the child's `Member.userId`, rename the parent login off the child's name. Requires a per-family decision on the parent's email — **owner-reviewed, one at a time**, not a sweep. |
+| **CHILD_EMAIL** | 30 members (shape C) | Where `Member.email == guardianEmail` on a minor, move the address to `guardianEmail` only and null the child's own `email`, per the centralized contact rule. Safe to batch; still allowlisted. |
+| **ORPHAN_MINORS** | up to 227 (shape D) | Where a minor's `guardianEmail` matches a live `User`, create the CONFIRMED guardian link (owner-vouched, the rule `requestGuardianLink` already enforces). Where no account exists, leave it — that is an invite, not a repair. |
+| **AJ_DUPLICATE** | 1 | Adam Dorn (`cmr7b603d…`, imported) and Adam (AJ) Dorn (`cmsno0z4a…`, self-signup) are the same athlete with different DOBs. Route through the existing confirmation-gated merge on `/dashboard/members/duplicates`, which preserves history — **not** through this script. |
+
+**Ordering:** SELF_GUARDIAN before ORPHAN_MINORS, or the sweep will re-link a conflated account to itself.
+
+## 7.5 Tests
+
+Extend the Phase 4D matrix rather than starting a new one. New cases: family-scoped feed returns every child's items in one query; per-child failure renders per child; single-child guardian sees no family option; a parent who is also an athlete appears in both roles; **a signup whose guardian email equals the account email produces two `User` rows and zero self-guardian links** (the AJ regression); trial never lands on a guardian-only account. Pure-function coverage in `scripts/`, integration coverage against the local throwaway Postgres as `scripts/audience-filters-tests.ts` does.
+
+## 7.6 Deferred
+
+Multi-select "book both children in one action" (write-path change to `POST /api/member/classes/book`). Do not fold into 7.1.
+
+---
+
+## Schema
+
+**7.1, 7.3, 7.4 need no schema change.** The family view is a read-scope change over data `/api/member/portal` already returns; the trial column exists; the corrections are row edits.
+
+**7.2 may need one additive column** — a `Member.createdVia` / `signupIntent` enum (`ADULT_SELF | CHILD_BY_GUARDIAN | STAFF | IMPORT | ACTIVATION`) so a record's origin is legible later. Today the only way to tell how a member was created is to infer it from `migrationStatus` and timestamps, which is how this audit had to be done. **Recommended but not required for 7.1** — decide before 7.2 starts.
+
+If it is approved: additive, nullable, no backfill of existing rows beyond a deterministic inference pass, folder timestamp sorting after `20260803000000_family_accounts`, RLS policy matching `web/rls/`. **No migration is written in this spec** — per instruction.
+
+## Code changes vs data corrections
+
+- **Code, future members only:** 7.1 (family view), 7.2 (signup intent + guardian account creation), 7.3 (trial guards), 7.5 (tests).
+- **Data corrections, existing members only:** 7.4 in full — 4 self-guardian splits, 30 child-email moves, up to 227 orphan-minor links, 1 duplicate merge. None of these are fixed by shipping code; none of the code changes repair a row already written.
+
+---
+
 ## 7. Final Deliverable
 
 When the work is complete, provide:
