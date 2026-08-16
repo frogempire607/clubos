@@ -674,6 +674,12 @@ model Member {
   leadSource           String       @default("UNKNOWN")
   leadStage            String       @default("NEW")
   leadSourceUpdatedAt  DateTime?
+  // How this athlete record came to exist. Vocabulary + the reasons it differs
+  // from the migration's comment live in `lib/memberOrigin.ts`, which is the
+  // authoritative list — TEXT, not an enum, so a new signup path needs no
+  // migration. NULL means "created before 2026-08-16", not a default bucket:
+  // the migration deliberately did not backfill.
+  createdVia           String?
   // Minor / guardian fields
   isMinor              Boolean      @default(false)
   guardianName         String?
@@ -875,6 +881,7 @@ model Member {
   @@index([clubId, normalizedEmail], map: "members_clubId_normalizedEmail_idx")
   @@index([clubId, normalizedPhone], map: "members_clubId_normalizedPhone_idx")
   @@index([clubId, isHistoricalOnly], map: "members_clubId_isHistoricalOnly_idx")
+  @@index([clubId, createdVia], map: "members_clubId_createdVia_idx")
   @@index([importBatchId], map: "members_importBatchId_idx")
   @@map("members")
 }

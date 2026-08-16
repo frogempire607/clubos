@@ -28,6 +28,12 @@ import {
   GUARDIAN_EMAIL_REQUIRED,
   DOB_REQUIRED,
 } from "../lib/signupIntent";
+import {
+  MEMBER_ORIGIN,
+  originForSignupPlan,
+  isMemberOrigin,
+  memberOriginLabel,
+} from "../lib/memberOrigin";
 
 let pass = 0;
 const failures: string[] = [];
@@ -480,6 +486,69 @@ console.log("\nEvery intent states whose account is being created");
     "…and promises the account is the PARENT's",
     /YOUR account/i.test(SIGNUP_INTENT_COPY.MINOR_ATHLETE.accountLine),
   );
+}
+
+// ── Member.createdVia — the origin recorded for each planned signup ──────────
+//
+// The column exists so the next audit is a SELECT instead of inference from
+// migrationStatus and timestamps. That only holds if the recorded value is the
+// PLANNER's decision — which came from the date of birth — rather than a second
+// derivation from a different input.
+console.log("\nEvery signup plan records an honest origin");
+{
+  const adult = planSignup({
+    intent: "ADULT_ATHLETE", accountEmail: "adult@x.test",
+    accountFirstName: "A", accountLastName: "Adult", dateOfBirth: "1990-01-01",
+  });
+  const minorSelf = planSignup({
+    intent: "MINOR_SELF", accountEmail: "teen@x.test",
+    accountFirstName: "T", accountLastName: "Teen", dateOfBirth: "2010-05-05",
+    guardianEmail: "parent@x.test", guardianName: "P Parent",
+  });
+  const child = planSignup({
+    intent: "MINOR_ATHLETE", accountEmail: "parent@x.test",
+    accountFirstName: "P", accountLastName: "Parent",
+    childFirstName: "Kid", childLastName: "Parent",
+    // Required by the planner — the DOB is what decides minor status, so a
+    // child signup cannot be planned without it.
+    dateOfBirth: "2014-03-02",
+  });
+
+  check("an adult self-signup is ADULT_SELF",
+    adult.ok && originForSignupPlan(adult.plan.kind as never) === MEMBER_ORIGIN.ADULT_SELF);
+
+  // The cohort the column is most useful for. Collapsing this into ADULT_SELF
+  // would erase exactly the shape the four-year-old audit needed to find.
+  check("a MINOR signing themselves up is MINOR_SELF, not ADULT_SELF",
+    minorSelf.ok && originForSignupPlan(minorSelf.plan.kind as never) === MEMBER_ORIGIN.MINOR_SELF,
+    minorSelf.ok ? minorSelf.plan.kind : "plan rejected");
+  check("…and every origin value is distinct",
+    new Set(Object.values(MEMBER_ORIGIN)).size === Object.values(MEMBER_ORIGIN).length);
+
+  check("a guardian adding their child is CHILD_BY_GUARDIAN",
+    child.ok && originForSignupPlan(child.plan.kind as never) === MEMBER_ORIGIN.CHILD_BY_GUARDIAN);
+
+  // GUARDIAN_ONLY creates no Member row, so it has no origin to record. The
+  // route never reaches originForSignupPlan on that path — the nested create
+  // sits inside the `accountIsAthlete` branch — and the narrow parameter type
+  // is what makes that a compile error rather than a silent mislabel.
+  const guardianOnly = planSignup({
+    intent: "PARENT", accountEmail: "solo@x.test",
+    accountFirstName: "S", accountLastName: "Solo",
+  });
+  check("a guardian-only signup plans NO athlete record",
+    guardianOnly.ok && guardianOnly.plan.accountIsAthlete === false && guardianOnly.plan.createsChildMember === false);
+
+  check("every writable origin is recognised by the validator",
+    Object.values(MEMBER_ORIGIN).every((v) => isMemberOrigin(v)));
+  check("NULL is not an origin — it means 'created before this was recorded'",
+    !isMemberOrigin(null) && !isMemberOrigin(undefined) && !isMemberOrigin(""));
+  check("ACTIVATION is deliberately NOT writable — activation updates, never creates",
+    !isMemberOrigin("ACTIVATION"));
+  check("every origin has a distinct human label",
+    new Set(Object.values(MEMBER_ORIGIN).map(memberOriginLabel)).size === Object.values(MEMBER_ORIGIN).length);
+  check("an unknown value still renders a sentence, not a crash",
+    /unknown/i.test(memberOriginLabel(null)));
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────

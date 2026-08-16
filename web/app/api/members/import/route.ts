@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { upsertGuardianProfile, type GuardianInput } from "@/lib/guardian";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { normalizeImportedMemberContact, validateMemberContact } from "@/lib/memberValidation";
@@ -260,6 +261,9 @@ export async function POST(req: Request) {
             const created = await prisma.member.create({
               data: {
                 clubId,
+                // IMPORT, not ACTIVATION. Activation later gives this athlete a
+                // login, but it does not create the record — this does.
+                createdVia: MEMBER_ORIGIN.IMPORT,
                 firstName: p.firstName,
                 lastName: p.lastName,
                 email: p.email,

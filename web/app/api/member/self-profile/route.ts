@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 
 // POST /api/member/self-profile
@@ -57,6 +58,10 @@ export async function POST() {
       isMinor: false,
       // status defaults to PROSPECT — no membership/billing is created here.
       leadSource: "PARENT_SELF",
+      // Not ADULT_SELF: that is the portal SIGNUP path. This is a guardian who
+      // already holds a login choosing to become an athlete too — a different
+      // origin with the same resulting shape.
+      createdVia: MEMBER_ORIGIN.SELF_PROFILE,
     },
     select: { id: true },
   });

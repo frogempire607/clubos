@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { ensurePrimaryGuardian } from "@/lib/guardianLink";
@@ -194,6 +195,7 @@ export async function POST(req: Request) {
     const member = await prisma.member.create({
       data: {
         clubId: session.user.clubId,
+        createdVia: MEMBER_ORIGIN.STAFF,
         firstName: data.firstName,
         lastName: data.lastName,
         email: data.email ? data.email.toLowerCase() : null,

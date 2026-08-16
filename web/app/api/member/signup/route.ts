@@ -12,6 +12,7 @@ import { createGuardianConsentRequest, recordParentalConsent } from "@/lib/paren
 import { sendGuardianConsentRequestEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { isMinorAge } from "@/lib/age";
+import { originForSignupPlan, MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import {
   planSignup,
   trialTargetFor,
@@ -248,6 +249,11 @@ export async function POST(req: Request) {
                         // a valid membership exists. New signups are PROSPECT
                         // until they purchase / are assigned a membership.
                         status: "PROSPECT",
+                        // ADULT_SELF vs MINOR_SELF comes from the PLANNER, which
+                        // decided it from the date of birth. Re-deriving it here
+                        // from a different input is exactly how `isMinor` came to
+                        // disagree with the birthday in the first place.
+                        createdVia: originForSignupPlan(plan.kind),
                         isMinor,
                         dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
                         guardianName: data.guardianName || null,
@@ -293,6 +299,11 @@ export async function POST(req: Request) {
                         // a valid membership exists. New signups are PROSPECT
                         // until they purchase / are assigned a membership.
                         status: "PROSPECT",
+                        // ADULT_SELF vs MINOR_SELF comes from the PLANNER, which
+                        // decided it from the date of birth. Re-deriving it here
+                        // from a different input is exactly how `isMinor` came to
+                        // disagree with the birthday in the first place.
+                        createdVia: originForSignupPlan(plan.kind),
                         isMinor,
                         dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
                         guardianName: data.guardianName || null,
@@ -342,6 +353,7 @@ export async function POST(req: Request) {
           // self-guardians in the first place.
           email: null,
           status: "PROSPECT",
+          createdVia: MEMBER_ORIGIN.CHILD_BY_GUARDIAN,
           // Derived from the DOB, not assumed from the path. A guardian may
           // legitimately manage a 19-year-old's account, and storing that
           // athlete as a minor would contradict `resolveIsMinor` everywhere

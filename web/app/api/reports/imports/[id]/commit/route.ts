@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { requirePermission } from "@/lib/apiGuard";
 import { hasReportScope } from "@/lib/reportsPermissions";
 import { Prisma } from "@prisma/client";
@@ -85,6 +86,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
           const member = await prisma.member.create({
             data: {
               clubId: session.user.clubId,
+              createdVia: MEMBER_ORIGIN.IMPORT,
               firstName: first || "Imported",
               lastName: last || "",
               email: getField(raw, "email"),

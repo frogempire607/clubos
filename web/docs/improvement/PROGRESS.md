@@ -2249,3 +2249,76 @@ npx tsx scripts/fix-family-shapes.ts --only DETACHED_MINOR --apply \
 
 Then the parent re-signs the Liability Waiver and Code of Conduct from the
 portal, which is what actually fixes the legal record.
+
+---
+
+## 2026-08-16 (later) — `Member.createdVia` wired
+
+Migration `20260815000000_member_created_via` is applied and verified in
+production (`text`, nullable, `members_clubId_createdVia_idx` present), so the
+second half of its own instructions could finally run: the field is now in
+`schema.prisma` and every path that creates a member records how.
+
+The migration was explicit that this order is load-bearing — Prisma selects
+every scalar a model declares, so naming the column before it exists takes down
+**every member read**, not just signup. Checked the live column before touching
+the schema rather than trusting that it had been applied.
+
+### Six write sites, not four
+
+`grep prisma.member.create` finds four. Two more are **nested** creates inside
+the signup route's `user.create`/`user.update` (`memberProfile: { create: … }`),
+which that grep misses entirely:
+
+| path | value |
+|---|---|
+| `/api/member/signup` — nested, both branches | `originForSignupPlan(plan.kind)` |
+| `/api/member/signup` — the guardian's child | `CHILD_BY_GUARDIAN` |
+| `/api/member/self-profile` | `SELF_PROFILE` |
+| `/api/members` (staff) | `STAFF` |
+| `/api/members/import` | `IMPORT` |
+| `/api/reports/imports/[id]/commit` | `IMPORT` |
+
+### The vocabulary drifted from the migration comment — deliberately
+
+`lib/memberOrigin.ts` is the authoritative list, which is where the migration
+said validation would live. It differs from that file's SQL comment in two ways,
+and the migration cannot be edited to match (its checksum is recorded in
+`_prisma_migrations`), so the reasons are documented in the module:
+
+- **`MINOR_SELF` added.** The migration listed only `ADULT_SELF` for "the signer
+  is the athlete". But `planSignup` separates the two **by date of birth**, and
+  collapsing them would erase the one cohort this column is most useful for — a
+  minor who signed themselves up, which is Zachary Lawell's shape. "Find every
+  member who self-registered while under 18" should be a SELECT. Recording him
+  as ADULT_SELF would make the column lie about the case it exists to surface.
+- **`SELF_PROFILE` added** — a guardian who already holds a login opting into
+  their own athlete profile. Same resulting shape as ADULT_SELF, different
+  origin, and the migration frames these values as paths, not shapes.
+- **`ACTIVATION` is listed but nothing writes it.** Activation does not create
+  members — it resolves one the CSV import already created and updates it
+  (`findFirst` → `update`/`updateMany`; there is no `member.create` in that
+  route at all). Those rows are `IMPORT`, which is the truth: activation is
+  where an imported athlete gains a login, not where the record is born. So it
+  is not exported as writable — a constant nothing produces reads as "we track
+  this" when we don't.
+
+`originForSignupPlan` takes the planner's own `kind` rather than re-deriving
+adult-vs-minor from a second input; that re-derivation is how `isMinor` came to
+disagree with the birthday in the first place. Its parameter type excludes
+`GUARDIAN_ONLY`, and because `accountIsAthlete` is a discriminated-union literal,
+TypeScript narrows it out at the call site — mislabelling a guardian-only signup
+is a compile error, not a silent bug.
+
+**NULL stays NULL.** The migration deliberately did not backfill; every
+pre-2026-08-16 row reads as "created before this was recorded". Inferring an
+origin for 287 historical rows would manufacture the guesswork the column exists
+to end.
+
+Tests: 10 origin assertions appended to `scripts/signup-intent-tests.ts` (96).
+One caught a real thing — the planner **refuses a child signup with no date of
+birth** (`DOB_REQUIRED`), so every new child record carries one by construction.
+That is the mechanism that keeps DOB coverage from decaying below today's 90.9%.
+
+**Verification.** 675 assertions across ten suites; `prisma validate`,
+`prisma generate`, `tsc --noEmit`, `npm run build` all clean.
