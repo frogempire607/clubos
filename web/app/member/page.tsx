@@ -697,6 +697,42 @@ function LinkChildModal({ onClose, onLinked }: { onClose: () => void; onLinked: 
 }
 
 /* ─── Parent View ─── */
+/**
+ * What just happened, said plainly on arrival: who was added, how many
+ * siblings we found under this email, and — §7.3 — whether the free trial
+ * landed and on WHOM. A trial that silently grants nothing is the bug; a
+ * sentence naming the athlete is the fix.
+ */
+function SignupResultBanner() {
+  const [msg, setMsg] = useState<{ headline: string; detail: string | null } | null>(null);
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("welcome") !== "guardian") return;
+    const athlete = sp.get("athlete");
+    const swept = Number(sp.get("swept") || 0) || 0;
+    const trial = sp.get("trial");
+    const trialNote = sp.get("trialnote");
+    const parts: string[] = [];
+    if (athlete) parts.push(`${athlete} is on your account.`);
+    if (swept > 0) parts.push(`We also found ${swept} athlete${swept === 1 ? "" : "s"} already listed under your email.`);
+    if (!parts.length) return;
+    setMsg({
+      headline: parts.join(" "),
+      detail: trial ? `Free trial started for ${trial}.` : trialNote,
+    });
+  }, []);
+  if (!msg) return null;
+  return (
+    <div
+      className="pcard p-4 mb-4"
+      style={{ background: "var(--club-accent-soft)", borderColor: "var(--club-accent)" }}
+    >
+      <p className="text-sm font-semibold text-stone-900">{msg.headline}</p>
+      {msg.detail && <p className="text-sm text-stone-600 mt-0.5">{msg.detail}</p>}
+    </div>
+  );
+}
+
 function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => void }) {
   const [showLinkChild, setShowLinkChild] = useState(false);
   const children = data.user.guardianOf;
@@ -780,6 +816,8 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
           + Link child
         </button>
       </div>
+
+      <SignupResultBanner />
 
       <ClubBanner />
 
@@ -910,6 +948,80 @@ function HomeSkeleton() {
   );
 }
 
+/**
+ * §7.2 — where a brand-new guardian account lands.
+ *
+ * Before this, a PARENT signup finished into `AdultAthleteView` with no
+ * athlete, no bookings and no next step: an empty portal. That dead end is
+ * what produced the "how do I add my kid?" emails, and it is also what pushed
+ * parents back to the signup form to try again as a "Young Athlete" — which is
+ * the path that minted self-guardian accounts.
+ */
+function GuardianOnboardingView({ data }: { data: PortalData }) {
+  const [swept, setSwept] = useState(0);
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    setSwept(Number(sp.get("swept") || 0) || 0);
+  }, []);
+
+  return (
+    <>
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-stone-900">Welcome, {data.user.firstName}</h1>
+        <p className="text-sm text-stone-500">{data.club.name} · Parent/Guardian account</p>
+      </div>
+
+      <ClubBanner />
+
+      <div className="pcard p-6 mb-4">
+        <div
+          className="mb-3 w-12 h-12 rounded-2xl flex items-center justify-center"
+          style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
+        >
+          <UsersIcon size={22} strokeWidth={2} />
+        </div>
+        <h2 className="text-base font-semibold text-stone-900 mb-1">Add your athlete</h2>
+        <p className="text-sm text-stone-500 mb-4">
+          {swept > 0
+            ? `We found ${swept} athlete${swept === 1 ? "" : "s"} already listed under your email and connected ${
+                swept === 1 ? "them" : "them"
+              } to your account. If someone's missing, add them here.`
+            : "Your account is ready. It doesn't have an athlete on it yet — add the child you're signing up, or connect one the club has already registered."}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/member/signup"
+            className="pbtn-accent px-4 py-2.5 rounded-xl text-sm font-semibold"
+          >
+            Add an athlete
+          </Link>
+          <Link
+            href="/member/profile"
+            className="px-4 py-2.5 rounded-xl border border-stone-300 text-sm font-medium text-stone-700 hover:bg-stone-50"
+          >
+            Connect an existing athlete
+          </Link>
+        </div>
+      </div>
+
+      <div className="pcard p-5">
+        <p className="text-sm font-semibold text-stone-900 mb-1">Do you train here too?</p>
+        <p className="text-sm text-stone-500 mb-3">
+          A parent account can also hold your own athlete profile — you&apos;ll be able to switch between
+          yourself and your children. This is never assumed; add it only if you want it.
+        </p>
+        <Link
+          href="/member/profile"
+          className="text-sm font-medium"
+          style={{ color: "var(--club-accent)" }}
+        >
+          Add my own athlete profile →
+        </Link>
+      </div>
+    </>
+  );
+}
+
 /* ─── Main ─── */
 export default function MemberHome() {
   const [data, setData] = useState<PortalData | null>(null);
@@ -935,5 +1047,8 @@ export default function MemberHome() {
 
   if (hasChildren) return <ParentView data={data} onRefresh={load} />;
   if (isMinor) return <MinorAthleteView data={data} />;
+  // A guardian-only login: no athlete profile of their own AND no linked
+  // children. Never show them an athlete dashboard with nothing in it.
+  if (!member) return <GuardianOnboardingView data={data} />;
   return <AdultAthleteView data={data} />;
 }

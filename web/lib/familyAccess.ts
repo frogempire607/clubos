@@ -40,6 +40,9 @@ export const GUARDIAN_LINK_SOURCE = {
   OWNER_VOUCHED: "OWNER_VOUCHED",
   STAFF_LINKED: "STAFF_LINKED",
   SIGNUP_SWEEP: "SIGNUP_SWEEP",
+  // The guardian created this athlete during their own signup (§7.2). No
+  // vouching needed — the child record did not exist until they typed it.
+  CHILD_SIGNUP: "CHILD_SIGNUP",
   MIGRATION_ACTIVATION: "MIGRATION_ACTIVATION",
   APPROVAL: "APPROVAL",
   CONSENT_TOKEN: "CONSENT_TOKEN",
