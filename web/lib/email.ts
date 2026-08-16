@@ -229,12 +229,17 @@ export async function sendGuardianConsentRequestEmail({
   childName,
   clubName,
   consentUrl,
+  setPasswordUrl,
 }: {
   to: string;
   guardianName?: string | null;
   childName: string;
   clubName: string;
   consentUrl: string;
+  // Set when the signup ALSO created a portal account for this guardian
+  // (§7.2 — the guardian gets their own login rather than sharing the
+  // athlete's). Null when they already had one; they sign in as normal.
+  setPasswordUrl?: string | null;
 }) {
   const greeting = guardianName?.trim() ? `Hi ${guardianName.trim()},` : "Hi,";
   await sendEmail({
@@ -257,6 +262,19 @@ export async function sendGuardianConsentRequestEmail({
       <a href="${consentUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
         Review &amp; give consent
       </a>
+      ${
+        setPasswordUrl
+          ? `<p style="color:#57534e;line-height:1.6;margin:20px 0 8px">
+        We've also started a parent account for you at <strong>${clubName}</strong>, so ${childName}'s
+        schedule, documents and billing sit under your own login — not theirs. Choose a password to
+        finish setting it up:
+      </p>
+      <p style="margin:0 0 4px">
+        <a href="${setPasswordUrl}" style="color:#534AB7;font-weight:600;font-size:14px">Set your password</a>
+      </p>
+      <p style="color:#a8a29e;font-size:12px;margin:0">This setup link expires in 14 days.</p>`
+          : ""
+      }
       <p style="color:#a8a29e;font-size:12px;margin:16px 0 0">
         If you didn't expect this, you can ignore this email and no account will be activated.
       </p>

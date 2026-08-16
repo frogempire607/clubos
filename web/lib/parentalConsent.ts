@@ -39,16 +39,11 @@ export function parentalConsentEnforced(): boolean {
 // guardian cannot mark a 10-year-old as an adult to dodge the consent gate.
 // ---------------------------------------------------------------------------
 
-export function ageFromDOB(dob: Date | string | null | undefined): number | null {
-  if (!dob) return null;
-  const d = dob instanceof Date ? dob : new Date(dob);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  let age = now.getFullYear() - d.getFullYear();
-  const m = now.getMonth() - d.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
-  return age;
-}
+// Moved to lib/age.ts so the signup planner (which must stay prisma-free) and
+// this module share ONE derivation. Re-exported here so existing callers are
+// unchanged. See lib/age.ts for why that matters.
+import { ageFromDOB } from "@/lib/age";
+export { ageFromDOB };
 
 // Authoritative minor test. If a DOB is on file it wins (<18 = minor);
 // otherwise fall back to the stored isMinor flag.
