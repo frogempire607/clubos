@@ -715,10 +715,13 @@ function SignupResultBanner() {
     const parts: string[] = [];
     if (athlete) parts.push(`${athlete} is on your account.`);
     if (swept > 0) parts.push(`We also found ${swept} athlete${swept === 1 ? "" : "s"} already listed under your email.`);
-    if (!parts.length) return;
+    const detail = trial ? `Free trial started for ${trial}.` : trialNote;
+    // A trial note must surface even when there is nothing else to report —
+    // that IS the guardian-only case, and saying nothing is the bug §7.3 fixes.
+    if (!parts.length && !detail) return;
     setMsg({
-      headline: parts.join(" "),
-      detail: trial ? `Free trial started for ${trial}.` : trialNote,
+      headline: parts.length ? parts.join(" ") : "About your free trial",
+      detail,
     });
   }, []);
   if (!msg) return null;
@@ -971,6 +974,8 @@ function GuardianOnboardingView({ data }: { data: PortalData }) {
         <p className="text-sm text-stone-500">{data.club.name} · Parent/Guardian account</p>
       </div>
 
+      <SignupResultBanner />
+
       <ClubBanner />
 
       <div className="pcard p-6 mb-4">
@@ -1030,7 +1035,11 @@ export default function MemberHome() {
   function load() {
     fetch("/api/member/portal")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { setData(d); setLoading(false); });
+      .then((d) => { setData(d); setLoading(false); })
+      // Without this, a rejected fetch (dropped connection, offline WebView)
+      // leaves `loading` true forever and the portal renders its skeleton
+      // permanently — no error, no retry, just a page that never arrives.
+      .catch(() => { setData(null); setLoading(false); });
   }
 
   useEffect(() => { load(); }, []);

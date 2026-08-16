@@ -1908,3 +1908,114 @@ corrections, and marking Barrett and Paul `deliberateFree`.
 ---
 
 *See `ARCHITECTURE-NOTES.md` for the discovery findings that back this plan.*
+
+---
+
+## Phase 7.2–7.5 — 2026-08-16, signup intent (branch `claude/bulk-price-change-planning-57a9cv`)
+
+7.1 (family view) merged as `943b65e` and deployed. This is the rest of Phase 7.
+**Not merged** — the branch carries 7.2–7.5 on top of `main`.
+
+**The defect, restated from the §7.0 audit.** AJ Dorn's account was one `User`
+that was simultaneously the athlete, the athlete's login, and the athlete's
+guardian. Nobody pointed anything anywhere: a dad chose "Young Athlete", typed
+his son's name, his own email, and that same address again as the guardian
+email. The consent route then resolved the guardian **by email** and found the
+account it had just created. `applyParentalControls` keys oversight on
+`member.userId !== bookerUserId`, so the child read as acting alone; and because
+`Member.userId` is globally unique, a second Dorn child could never attach.
+Shape A did not exist before 2026-07-17 and three of the four appeared in the 24
+days after — it arrives with every parent who uses one inbox for both fields.
+
+**7.2 — `lib/signupIntent.ts` is the model.** Pure, no prisma. `planSignup()`
+decides what a submission may create *before* anything is written, and the route
+executes that decision rather than re-deriving it. Three outcomes matter:
+
+- **`CHILD_BY_GUARDIAN`** (the new default child path). The account holder is the
+  **guardian**; the athlete is a separate `Member` with `userId: null` and
+  `email: null`, joined by a CONFIRMED `MemberGuardianUser`. A self-guardian is
+  unreachable, not discouraged — the child has no login to conflate with. COPPA
+  consent is recorded in-session (`ParentalConsent`, attributed to the guardian's
+  account) instead of round-tripping an email.
+- **`MINOR_SELF_LEGACY`** (a stale cached client, or a genuine teen with their own
+  address). Behaves as before *plus* two fixes: the guardian-email-equals-account-
+  email submission is refused outright, and a guardian `User` is now created right
+  after the child's when none exists. Before, consent was recorded but
+  `MemberGuardianUser` never was — the consent route can only link a guardian that
+  already exists — so those children ended up with **no guardian at all**. The
+  account is created with an unusable random secret + a 14-day invite token, and
+  `sendGuardianConsentRequestEmail` gained an optional `setPasswordUrl`.
+- **`GUARDIAN_ONLY`**. Ends on "Add your athlete" with the sweep result, never in
+  an empty portal. That dead end is what sent parents back to the form to try
+  again as a "Young Athlete" — i.e. it *fed* shape A. `app/member/page.tsx` gained
+  `GuardianOnboardingView`; a guardian-only login no longer falls through to
+  `AdultAthleteView`. The vouched sweep now runs for **every** guardian-shaped
+  account, not just PARENT, so an older CSV-imported sibling appears immediately.
+
+The form states whose account is being created **before anything is typed**
+(`SIGNUP_INTENT_COPY.accountLine`), labels step 2 as the parent's own details,
+and asks for the child's name + DOB separately on step 3. There is deliberately
+**no second email field** on the child path — the collision is impossible to
+type, not merely rejected.
+
+**7.3 — the trial attaches to the athlete.** `trialTargetFor(plan)`: child path →
+the child; adult/legacy-minor → the account holder's own profile; guardian-only →
+nothing, **with a reason**. The old code gated on `user.memberProfile` and a
+parent who clicked a trial link got silence. `trialBlockedBySelfGuardian()`
+refuses to stamp `trialEndsAt` on a shape-A record — whose entitlement would it
+be? Also fixed while here: `app/member/page.tsx`'s portal fetch had no `.catch`,
+so a rejected request left the skeleton rendering forever (found in the browser,
+not the tests).
+
+**7.4 — `scripts/fix-family-shapes.ts`.** Dry-run by default, `--apply` refuses
+without `--members` *and* without `--only`. SELF_GUARDIAN (4) / CHILD_EMAIL (30) /
+ORPHAN_MINORS (≤227) / AJ_DUPLICATE (1). Every write leaves a `BillingAuditLog`
+row; nothing is hard-deleted; each mode re-checks its evidence at write time so a
+row that moved since the survey is skipped, not rewritten.
+
+**The ordering is enforced, not documented.** ORPHAN_MINORS `--apply` counts
+remaining shape-A members and **exits 2** if any are left. A conflated account's
+`guardianEmail` points at itself, so the sweep would find a "live User" there and
+re-create the exact link SELF_GUARDIAN just removed. It is a live-data check, so
+it cannot be forgotten or lied to. SELF_GUARDIAN takes **one member per run** and
+demands `--parent-email` (two real branches: the account becomes the parent's and
+the child loses the login, or the child keeps theirs and a new parent account
+takes the link) plus `--parent-name` so the login stops being named after the
+child. AJ_DUPLICATE has **no `--apply` path** on purpose — it prints the pair and
+points at `/dashboard/members/duplicates`, which is confirmation-gated, lets you
+pick surviving values field by field, and soft-deletes.
+
+**7.5 — tests.** `scripts/signup-intent-tests.ts` (54 pure) replays AJ's exact
+submission and asserts it is refused, plus 135 input combinations proving no
+accepted plan yields a self-guardian (tsc now rejects that combination outright —
+the runtime check is kept in case a future variant loosens the union).
+`scripts/family-shapes-repair-tests.ts` (54 integration) drives the real CLI as a
+subprocess and asserts exit codes **and** database state — including that the
+out-of-order run wrote nothing despite being asked to.
+
+**Verification.** 666 assertions across twelve suites (signup-intent 54,
+family-shapes-repair 54, family-scope 21, family-accounts 28, family-fixtures 93,
+member-tracks 183, billing-admin 111, member-deletion 29, audience-filters 8,
+personalization-catalog 23, email-drafts 25, email-results 37). `tsc --noEmit`
+and `npm run build` clean. **Browser-tested** end to end in Chromium at 390×844
+(`scripts/browser-signup-intent.ts`, 34 checks, seed
+`scripts/seed-signup-intent-test.ts`, server `scripts/dev-signup-intent-test.sh`):
+AJ's signup re-run against the fixed form produces one account named **"Adam
+Dorn"** with zero athlete profiles, AJ as a minor holding **no login and no
+email**, the CSV sibling swept in unprompted, and the trial on **AJ**. Two
+presentation bugs were only visible there — the permanent skeleton above, and the
+trial note being dropped for guardian-only signups because the banner required an
+athlete to render.
+
+**MIGRATION WRITTEN, NOT APPLIED:** `20260815000000_member_created_via`
+(`members.createdVia TEXT` + index, additive, nullable, no backfill).
+`prisma/schema.prisma` is **deliberately unchanged** — Prisma selects every scalar
+a model declares, so naming a column the database lacks would 500 *every member
+read*, not just the signup path. Order: apply the migration first, *then* add the
+field to the schema and start writing it.
+
+**Left for Julian:** apply the migration if wanted; run
+`npx tsx scripts/fix-family-shapes.ts` (survey) from his own terminal, then the
+four SELF_GUARDIAN splits one at a time, then CHILD_EMAIL, then ORPHAN_MINORS —
+the script will refuse if that order is broken. The AJ duplicate merge goes
+through `/dashboard/members/duplicates`.
