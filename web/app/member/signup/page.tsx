@@ -6,8 +6,9 @@ import Link from "next/link";
 import { User, Baby, Users, type LucideIcon } from "lucide-react";
 import { TERMS_VERSION, PRIVACY_VERSION } from "@/legal/versions";
 import { SIGNUP_INTENT_COPY } from "@/lib/signupIntent";
+import { ageFromDOB, isMinorAge } from "@/lib/age";
 
-type AccountType = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "PARENT";
+type AccountType = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "MINOR_SELF" | "PARENT";
 type SignupDocument = {
   id: string;
   title: string;
@@ -78,6 +79,10 @@ export default function MemberSignupPage() {
   const [childLastName, setChildLastName] = useState("");
   const [guardianPhone, setGuardianPhone] = useState("");
   const [guardianRelationship, setGuardianRelationship] = useState("Parent");
+  // MINOR_SELF — a junior or senior signing themselves up. They get their own
+  // login; these name the parent who has to approve it.
+  const [guardianName, setGuardianName] = useState("");
+  const [guardianEmail, setGuardianEmail] = useState("");
 
   // Parent fields
   const [childEmail, setChildEmail] = useState("");
@@ -130,6 +135,18 @@ export default function MemberSignupPage() {
         return;
       }
     }
+    if ((isSelfSignup || accountType === "MINOR_ATHLETE") && !dateOfBirth) {
+      setError(
+        isSelfSignup
+          ? "Please enter your date of birth — it decides whether a parent has to approve the account."
+          : "Please enter your child's date of birth.",
+      );
+      return;
+    }
+    if (needsGuardian && !guardianEmail.trim()) {
+      setError("Please enter a parent or guardian's email — they'll need to approve the account.");
+      return;
+    }
     if (signupDocs.some((doc) => !signedDocIds.includes(doc.id))) {
       setError("Please review and acknowledge all required club documents.");
       return;
@@ -147,17 +164,25 @@ export default function MemberSignupPage() {
         lastName,
         email,
         password,
-        accountType,
-        // On the child path this is the CHILD's date of birth — the account
-        // holder is the guardian and we never ask for theirs.
+        // The DOB-derived intent, not the button they clicked.
+        accountType: effectiveIntent,
+        // On the guardian path this is the CHILD's date of birth — the account
+        // holder is the guardian and we never ask for theirs. On the two
+        // self-signup paths it is the athlete's own, and it is what decides
+        // whether a guardian is required at all.
         dateOfBirth: dateOfBirth || undefined,
         childFirstName: accountType === "MINOR_ATHLETE" ? childFirstName.trim() : undefined,
         childLastName: accountType === "MINOR_ATHLETE" ? childLastName.trim() : undefined,
-        // Deliberately NOT sending guardianEmail on the child path: the
-        // guardian IS the account holder, so the server derives it from the
-        // signup email. Sending both is what created the self-guardian shape.
-        guardianPhone: accountType === "MINOR_ATHLETE" ? guardianPhone : undefined,
-        guardianRelationship: accountType === "MINOR_ATHLETE" ? guardianRelationship : undefined,
+        // A self-signing minor names their parent here. Deliberately NOT sent
+        // on the guardian path: the guardian IS the account holder, so the
+        // server derives it from the signup email. Sending both on that path
+        // is what created the self-guardian shape.
+        guardianName: needsGuardian ? guardianName.trim() || undefined : undefined,
+        guardianEmail: needsGuardian ? guardianEmail.trim() || undefined : undefined,
+        guardianPhone:
+          accountType === "MINOR_ATHLETE" || needsGuardian ? guardianPhone || undefined : undefined,
+        guardianRelationship:
+          accountType === "MINOR_ATHLETE" || needsGuardian ? guardianRelationship : undefined,
         childEmail: accountType === "PARENT" ? childEmail : undefined,
         relationship: accountType === "PARENT" ? relationship : undefined,
         parentalConsent:
@@ -248,10 +273,27 @@ export default function MemberSignupPage() {
   const ACCOUNT_TYPES: { id: AccountType; Icon: LucideIcon }[] = [
     { id: "MINOR_ATHLETE", Icon: Baby },
     { id: "ADULT_ATHLETE", Icon: User },
+    { id: "MINOR_SELF", Icon: Baby },
     { id: "PARENT", Icon: Users },
   ];
   const isChildPath = accountType === "MINOR_ATHLETE";
   const isGuardianAccount = accountType === "MINOR_ATHLETE" || accountType === "PARENT";
+  // The two paths where the person filling this in IS the athlete.
+  const isSelfSignup = accountType === "ADULT_ATHLETE" || accountType === "MINOR_SELF";
+
+  // THE DOB BACKSTOP, client side. The server enforces the same rule — this
+  // just means the person sees the right fields instead of a rejection. Which
+  // option they clicked does not decide whether a guardian is required; their
+  // date of birth does, exactly as `resolveIsMinor` decides it at the login
+  // gate, in age brackets and in waivers.
+  const dobAge = ageFromDOB(dateOfBirth || null);
+  const effectiveIntent: AccountType = isSelfSignup && dobAge !== null
+    ? (isMinorAge(dateOfBirth) ? "MINOR_SELF" : "ADULT_ATHLETE")
+    : accountType;
+  const needsGuardian = effectiveIntent === "MINOR_SELF";
+  // They picked one thing and their birthday says the other. Say so plainly
+  // rather than silently reclassifying them.
+  const dobOverrodePick = isSelfSignup && dobAge !== null && effectiveIntent !== accountType;
 
   useEffect(() => {
     if (step !== 3 || !clubSlug.trim()) return;
@@ -430,15 +472,31 @@ export default function MemberSignupPage() {
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
                 </div>
 
-                {/* Only the adult path asks for the account holder's DOB. On
-                    the child path the DOB that matters is the athlete's, and it
-                    is asked for next to their name so it can't be mistaken for
-                    the parent's. */}
-                {accountType === "ADULT_ATHLETE" && (
+                {/* REQUIRED on both self-signup paths, and it is what actually
+                    decides the outcome — not the option above. On the guardian
+                    path the DOB that matters is the athlete's, so it is asked
+                    for next to their name where it can't be mistaken for the
+                    parent's. */}
+                {isSelfSignup && (
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Date of birth (optional)</label>
-                    <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)}
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Your date of birth</label>
+                    <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} required
                       className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                    {dobOverrodePick && needsGuardian && (
+                      <p className="mt-1.5 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-600">
+                        That makes you {dobAge}. You&apos;ll still get your own login — we just need a parent or
+                        guardian to approve it first. We&apos;ll ask for their email on the next step.
+                      </p>
+                    )}
+                    {dobOverrodePick && !needsGuardian && (
+                      <p className="mt-1.5 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-600">
+                        That makes you {dobAge}, so you don&apos;t need a parent to approve anything — we&apos;ll
+                        set you up as an adult athlete.
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-stone-400">
+                      We use this for age brackets, waivers, and whether a parent needs to approve the account.
+                    </p>
                   </div>
                 )}
 
@@ -534,7 +592,56 @@ export default function MemberSignupPage() {
                   </>
                 )}
 
-                {accountType === "ADULT_ATHLETE" && (
+                {/* A self-signing minor: their own login, their own email, and
+                    a SEPARATE parent who has to approve it. This is the path
+                    juniors and seniors actually use. */}
+                {needsGuardian && (
+                  <>
+                    <div className="p-3 bg-stone-50 border border-stone-200 rounded-lg text-xs text-stone-600">
+                      You&apos;re under 18, so a parent or guardian has to approve your account before you can sign
+                      in. The account stays <strong>yours</strong> — your own login at{" "}
+                      <strong>{email || "your email"}</strong>. We&apos;ll email them a link to approve it, and
+                      they&apos;ll get their own account to manage things with you.
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-stone-700 mb-1">
+                        Parent or guardian&apos;s full name
+                      </label>
+                      <input type="text" value={guardianName} onChange={(e) => setGuardianName(e.target.value)}
+                        className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">
+                          Their email
+                        </label>
+                        <input type="email" value={guardianEmail} onChange={(e) => setGuardianEmail(e.target.value)} required
+                          className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                        {/* The AJ Dorn rule, said before they can trip it. */}
+                        <p className="mt-1 text-xs text-stone-400">
+                          Must be different from your own email above.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">They are your…</label>
+                        <select value={guardianRelationship} onChange={(e) => setGuardianRelationship(e.target.value)}
+                          className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none">
+                          <option>Parent</option>
+                          <option>Guardian</option>
+                          <option>Grandparent</option>
+                          <option>Other</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-stone-700 mb-1">Their phone (optional)</label>
+                      <input type="tel" value={guardianPhone} onChange={(e) => setGuardianPhone(e.target.value)}
+                        className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
+                    </div>
+                  </>
+                )}
+
+                {isSelfSignup && !needsGuardian && (
                   <div className="py-4 text-center">
                     <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-stone-100 text-stone-700">
                       <User className="h-6 w-6" strokeWidth={2} />
@@ -628,7 +735,7 @@ export default function MemberSignupPage() {
                     className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 rounded-lg text-sm hover:bg-stone-50">
                     Back
                   </button>
-                  <button type="submit" disabled={loading || !acceptedTerms || (isChildPath && (!childFirstName.trim() || !parentalConsent)) || signupDocs.some((doc) => !signedDocIds.includes(doc.id))}
+                  <button type="submit" disabled={loading || !acceptedTerms || (isChildPath && (!childFirstName.trim() || !parentalConsent)) || (isSelfSignup && !dateOfBirth) || (needsGuardian && !guardianEmail.trim()) || signupDocs.some((doc) => !signedDocIds.includes(doc.id))}
                     className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50">
                     {loading ? "Creating account…" : "Create account"}
                   </button>

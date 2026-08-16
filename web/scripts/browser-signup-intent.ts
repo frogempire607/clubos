@@ -235,6 +235,138 @@ async function main() {
   check("no athlete profile was invented for them", soloPortal?.user?.memberProfile == null);
   check("and no athlete was linked", (soloPortal?.user?.guardianOf ?? []).length === 0);
 
+  // ── The self-signing minor ─────────────────────────────────────────────────
+  // Juniors and seniors sign themselves up here with their own email. They must
+  // end up with their OWN login AND a guardian — `Member.userId` and a guardian
+  // link are different things, and a member may hold both.
+  console.log("\nA 17-year-old signing themselves up");
+  const page3 = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page3.goto(`${BASE}/member/signup?club=${SLUG}`);
+  await page3.waitForLoadState("networkidle");
+  const picker = await page3.locator("body").innerText();
+  check("there IS an option for an athlete under 18", /I train here myself and I'm under 18/i.test(picker), picker.slice(0, 400));
+
+  await page3.locator("label", { hasText: "I train here myself and I'm under 18" }).first().click();
+  const minorPick = await page3.locator("body").innerText();
+  check(
+    "…and it promises them their own login",
+    /We'll create YOUR account with your own email/i.test(minorPick),
+  );
+  await page3.locator("button", { hasText: "Continue" }).first().click();
+  await page3.waitForTimeout(200);
+
+  const step2 = await page3.locator("body").innerText();
+  check("a date of birth is asked for", /Your date of birth/i.test(step2), step2.slice(0, 400));
+  check(
+    "…and says what it is used for",
+    /age brackets, waivers, and whether a parent needs to approve/i.test(step2),
+  );
+
+  await page3.locator('input[type="text"]').first().fill("Kayla");
+  await page3.locator('input[type="text"]').nth(1).fill("Reyes");
+  await page3.locator('input[type="email"]').fill("kayla@school.test");
+  await page3.locator('input[type="password"]').fill(PASSWORD);
+  await page3.locator('input[type="date"]').fill("2009-05-04"); // 17
+  await page3.locator("button", { hasText: "Continue" }).first().click();
+  await page3.waitForTimeout(300);
+
+  const step3 = await page3.locator("body").innerText();
+  check("the account is stated to stay theirs", /The account stays/i.test(step3), step3.slice(0, 500));
+  check("a parent's email is asked for", /Parent or guardian's full name/i.test(step3));
+  check("…and must differ from their own", /Must be different from your own email/i.test(step3));
+
+  await page3.locator('input[type="text"]').first().fill("Renee Reyes");
+  await page3.locator('input[type="email"]').first().fill("renee@home.test");
+  await page3.locator('input[type="checkbox"]').first().check();
+  await page3.screenshot({ path: `${SHOT}/signup-minor-self.png`, fullPage: true });
+  await page3.locator("button", { hasText: "Create account" }).click();
+  await page3.waitForTimeout(2500);
+
+  const afterMinor = await page3.locator("body").innerText();
+  check(
+    "they're told a guardian must consent before sign-in",
+    /Almost there/i.test(afterMinor) && /complete consent/i.test(afterMinor),
+    afterMinor.slice(0, 400),
+  );
+
+  // The AJ rule, from the other side: their own address as the guardian.
+  const selfGuardianAttempt = await page3.evaluate(
+    async (slug) => {
+      const r = await fetch("/api/member/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clubSlug: slug,
+          firstName: "Devon", lastName: "Park",
+          email: "devon@school.test", password: "localtest123",
+          accountType: "MINOR_SELF", dateOfBirth: "2009-11-20",
+          guardianEmail: "devon@school.test", guardianName: "Devon Park",
+          acceptedTerms: true, termsVersion: "t", privacyVersion: "p",
+        }),
+      });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    },
+    SLUG,
+  );
+  check("a minor naming THEMSELVES as guardian is rejected", selfGuardianAttempt.status === 400);
+  check(
+    "…with the AJ code",
+    selfGuardianAttempt.body?.code === "GUARDIAN_EMAIL_IS_ACCOUNT_EMAIL",
+    JSON.stringify(selfGuardianAttempt.body).slice(0, 200),
+  );
+
+  // ── THE DOB BACKSTOP, end to end ───────────────────────────────────────────
+  // The live Nia row: a 17-year-old who picks "I train here myself" and would
+  // have been stored as an adult with no guardian and no consent.
+  console.log("\nThe DOB backstop — a mis-picked adult path");
+  const mispick = await page3.evaluate(
+    async (slug) => {
+      const r = await fetch("/api/member/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clubSlug: slug,
+          firstName: "Nia", lastName: "Okafor",
+          email: "nia@school.test", password: "localtest123",
+          // They clicked the ADULT option…
+          accountType: "ADULT_ATHLETE",
+          // …but their birthday says otherwise, and no guardian was given.
+          dateOfBirth: "2009-05-04",
+          acceptedTerms: true, termsVersion: "t", privacyVersion: "p",
+        }),
+      });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    },
+    SLUG,
+  );
+  check("a minor DOB on the adult path is REFUSED", mispick.status === 400, `got ${mispick.status}`);
+  check("…with the guardian-required code", mispick.body?.code === "GUARDIAN_EMAIL_REQUIRED");
+  check(
+    "…telling them how old that birthday makes them",
+    /makes you 1[6-7]/.test(String(mispick.body?.error ?? "")),
+    String(mispick.body?.error ?? "").slice(0, 200),
+  );
+
+  // A DOB is not optional on a self-signup any more.
+  const noDob = await page3.evaluate(
+    async (slug) => {
+      const r = await fetch("/api/member/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clubSlug: slug,
+          firstName: "Nodob", lastName: "Person",
+          email: "nodob@school.test", password: "localtest123",
+          accountType: "ADULT_ATHLETE",
+          acceptedTerms: true, termsVersion: "t", privacyVersion: "p",
+        }),
+      });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    },
+    SLUG,
+  );
+  check("a self-signup with no DOB is refused", noDob.status === 400 && noDob.body?.code === "DOB_REQUIRED");
+
   await browser.close();
   console.log(failures === 0 ? "\nAll browser checks passed." : `\n${failures} browser check(s) failed.`);
   process.exit(failures === 0 ? 0 : 1);

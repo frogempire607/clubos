@@ -19,11 +19,14 @@
 //
 // PURE — no prisma, no next, no env. `scripts/signup-intent-tests.ts` covers it.
 
-export type SignupIntent = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "PARENT";
+import { ageFromDOB, isMinorAge } from "@/lib/age";
+
+export type SignupIntent = "ADULT_ATHLETE" | "MINOR_ATHLETE" | "MINOR_SELF" | "PARENT";
 
 export const SIGNUP_INTENTS: readonly SignupIntent[] = [
   "ADULT_ATHLETE",
   "MINOR_ATHLETE",
+  "MINOR_SELF",
   "PARENT",
 ] as const;
 
@@ -44,8 +47,18 @@ export const SIGNUP_INTENT_COPY: Record<
   },
   ADULT_ATHLETE: {
     label: "I train here myself",
-    description: "I'm the athlete (18+)",
+    description: "I'm the athlete, 18 or older",
     accountLine: "We'll create your account and your athlete profile.",
+  },
+  // Juniors and seniors sign themselves up here with their own email — a real
+  // population, not an edge case. They get their OWN login (a member may hold
+  // `userId` AND a guardian link; those are different things), and a parent
+  // still has to approve before it can be used.
+  MINOR_SELF: {
+    label: "I train here myself and I'm under 18",
+    description: "I'll have my own login once a parent approves it",
+    accountLine:
+      "We'll create YOUR account with your own email, and ask a parent or guardian to approve it before you can sign in.",
   },
   PARENT: {
     label: "I only manage someone else's account",
@@ -81,11 +94,13 @@ export function guardianEmailConflictsWithAccount(
 export const GUARDIAN_EMAIL_IS_ACCOUNT_EMAIL = "GUARDIAN_EMAIL_IS_ACCOUNT_EMAIL" as const;
 export const CHILD_NAME_REQUIRED = "CHILD_NAME_REQUIRED" as const;
 export const GUARDIAN_EMAIL_REQUIRED = "GUARDIAN_EMAIL_REQUIRED" as const;
+export const DOB_REQUIRED = "DOB_REQUIRED" as const;
 
 export type SignupRejectionCode =
   | typeof GUARDIAN_EMAIL_IS_ACCOUNT_EMAIL
   | typeof CHILD_NAME_REQUIRED
-  | typeof GUARDIAN_EMAIL_REQUIRED;
+  | typeof GUARDIAN_EMAIL_REQUIRED
+  | typeof DOB_REQUIRED;
 
 export type SignupPlanInput = {
   intent: SignupIntent;
@@ -93,13 +108,20 @@ export type SignupPlanInput = {
   accountEmail: string;
   accountFirstName: string;
   accountLastName: string;
-  /** Present on the modern child path: the athlete is a separate person. */
+  /**
+   * The ATHLETE's date of birth: the account holder's on the two self-signup
+   * paths, the child's on the guardian path. Required on every path that
+   * creates an athlete — see `planSignup` for why it is not merely collected
+   * but ROUTED ON.
+   */
+  dateOfBirth?: string | null;
+  /** Present on the guardian path: the athlete is a separate person. */
   childFirstName?: string | null;
   childLastName?: string | null;
   /**
-   * Only the LEGACY minor shape sends this — a young athlete signing up with
-   * their own login, naming a parent. The modern child path derives the
-   * guardian from the account holder, so it sends nothing here.
+   * The parent's address on a self-signing minor's submission. Must differ
+   * from `accountEmail` — that is the AJ Dorn rule. The guardian path derives
+   * the guardian from the account holder and sends nothing here.
    */
   guardianEmail?: string | null;
   guardianName?: string | null;
@@ -130,13 +152,15 @@ export type SignupPlan =
   /** Guardian-only login. No athlete created; the vouched sweep links existing ones. */
   | { kind: "GUARDIAN_ONLY"; accountIsAthlete: false; createsChildMember: false; guardianLink: "sweep" }
   /**
-   * LEGACY: a minor with their OWN login naming a separate parent. Kept so an
-   * older cached client can still submit, and so a genuine teen-with-own-email
-   * keeps working. The guardian is a DIFFERENT User — created right after the
-   * child's — and consent still routes through the emailed link.
+   * A minor signing THEMSELVES up: their own login, their own email, naming a
+   * separate parent. `Member.userId` and a guardian link are different things
+   * and a member may hold both — that is the whole point of this shape.
+   *
+   * The guardian is a DIFFERENT User, created right after the athlete's, and
+   * the login stays blocked until consent is recorded against the emailed link.
    */
   | {
-      kind: "MINOR_SELF_LEGACY";
+      kind: "MINOR_SELF";
       accountIsAthlete: true;
       createsChildMember: false;
       guardianLink: "consent-email";
@@ -153,28 +177,20 @@ export function planSignup(input: SignupPlanInput): SignupPlanResult {
   const childFirst = (input.childFirstName || "").trim();
   const childLast = (input.childLastName || "").trim();
   const hasChildName = !!childFirst;
-
-  if (input.intent === "ADULT_ATHLETE") {
-    // An adult athlete has no guardian. If a caller sends one anyway and it is
-    // their own address, that is still the conflated shape — refuse it rather
-    // than quietly storing a member who is their own guardian.
-    if (guardianEmailConflictsWithAccount(accountEmail, guardianEmail)) {
-      return rejectSameEmail();
-    }
-    return { ok: true, plan: { kind: "ADULT_SELF", accountIsAthlete: true, createsChildMember: false, guardianLink: "none" } };
-  }
+  const age = ageFromDOB(input.dateOfBirth);
 
   if (input.intent === "PARENT") {
+    // A guardian-only account creates no athlete, so there is no age to check.
     if (guardianEmailConflictsWithAccount(accountEmail, guardianEmail)) {
       return rejectSameEmail();
     }
     return { ok: true, plan: { kind: "GUARDIAN_ONLY", accountIsAthlete: false, createsChildMember: false, guardianLink: "sweep" } };
   }
 
-  // ── MINOR_ATHLETE ──────────────────────────────────────────────────────────
-  // The modern form sends the child's name separately, which is how we know the
-  // account holder is the guardian rather than the athlete.
-  if (hasChildName) {
+  // ── The guardian path ──────────────────────────────────────────────────────
+  // A separate child name is what says the account holder is the guardian.
+  if (input.intent === "MINOR_ATHLETE" && hasChildName) {
+    if (age === null) return rejectMissingDob("your child's");
     // The guardian IS the account. A caller that also sends a DIFFERENT guardian
     // email is describing two guardians, which this form cannot express — the
     // co-guardian invite exists for that. Same address is the normal case here
@@ -191,27 +207,63 @@ export function planSignup(input: SignupPlanInput): SignupPlanResult {
     };
   }
 
-  // LEGACY shape: firstName/lastName are the CHILD's and the account is theirs.
-  if (!guardianEmail) {
+  // ── The two self-signup paths, routed by DOB ───────────────────────────────
+  //
+  // THE BACKSTOP. Which radio button was clicked does not decide this — the
+  // date of birth does. `resolveIsMinor` already lets DOB outrank the stored
+  // flag at the login gate, in age brackets, in waivers and in minor rules;
+  // signup was the one place that trusted the click instead, and it produced a
+  // live 4-year-old holding his own login flagged as an adult with no guardian.
+  //
+  // So a 17-year-old who picks "I train here myself" is routed to the minor
+  // path anyway, and an adult who picks "I'm under 18" is routed out of it.
+  // Neither can mis-classify themselves, by mistake or on purpose.
+  if (age === null) return rejectMissingDob("your");
+
+  if (isMinorAge(input.dateOfBirth)) {
+    if (!guardianEmail) {
+      return {
+        ok: false,
+        code: GUARDIAN_EMAIL_REQUIRED,
+        error:
+          input.intent === "ADULT_ATHLETE"
+            ? `That date of birth makes you ${age}, so we need a parent or guardian's email — they'll approve the account before you can sign in.`
+            : "A parent or guardian email is required. Their approval is needed before the account can be used.",
+      };
+    }
+    // The AJ Dorn rule, and the reason this shape is safe: the athlete's own
+    // login and their guardian must be two different people.
+    if (guardianEmailConflictsWithAccount(accountEmail, guardianEmail)) {
+      return rejectSameEmail();
+    }
     return {
-      ok: false,
-      code: GUARDIAN_EMAIL_REQUIRED,
-      error:
-        "A parent or guardian email is required to sign up a minor. Their consent is needed before the account can be used.",
+      ok: true,
+      plan: {
+        kind: "MINOR_SELF",
+        accountIsAthlete: true,
+        createsChildMember: false,
+        guardianLink: "consent-email",
+        guardian: { email: guardianEmail, name: (input.guardianName || "").trim() || null },
+      },
     };
   }
+
+  // 18+. An adult athlete has no guardian; if a caller sends one that is their
+  // own address, that is still the conflated shape — refuse rather than store
+  // a member who is their own guardian.
   if (guardianEmailConflictsWithAccount(accountEmail, guardianEmail)) {
     return rejectSameEmail();
   }
+  return { ok: true, plan: { kind: "ADULT_SELF", accountIsAthlete: true, createsChildMember: false, guardianLink: "none" } };
+}
+
+function rejectMissingDob(whose: string): SignupPlanResult {
   return {
-    ok: true,
-    plan: {
-      kind: "MINOR_SELF_LEGACY",
-      accountIsAthlete: true,
-      createsChildMember: false,
-      guardianLink: "consent-email",
-      guardian: { email: guardianEmail, name: (input.guardianName || "").trim() || null },
-    },
+    ok: false,
+    code: DOB_REQUIRED,
+    error:
+      `Please enter ${whose} date of birth. It decides whether a parent or guardian has to approve the account, ` +
+      `and it drives age brackets and waivers across the club — so we can't leave it blank.`,
   };
 }
 
@@ -244,7 +296,7 @@ export type TrialTarget =
 export function trialTargetFor(plan: SignupPlan): TrialTarget {
   switch (plan.kind) {
     case "ADULT_SELF":
-    case "MINOR_SELF_LEGACY":
+    case "MINOR_SELF":
       return { target: "account-athlete" };
     case "CHILD_BY_GUARDIAN":
       return { target: "child" };

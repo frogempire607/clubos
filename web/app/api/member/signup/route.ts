@@ -11,6 +11,7 @@ import { normalizeFreeTrialConfig, trialWindowDays } from "@/lib/freeTrial";
 import { createGuardianConsentRequest, recordParentalConsent } from "@/lib/parentalConsent";
 import { sendGuardianConsentRequestEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { isMinorAge } from "@/lib/age";
 import {
   planSignup,
   trialTargetFor,
@@ -25,7 +26,7 @@ const schema = z.object({
   lastName: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(8),
-  accountType: z.enum(["ADULT_ATHLETE", "MINOR_ATHLETE", "PARENT"]),
+  accountType: z.enum(["ADULT_ATHLETE", "MINOR_ATHLETE", "MINOR_SELF", "PARENT"]),
   dateOfBirth: z.string().optional(),
   // §7.2 — the modern child path. When these are present, `firstName`/
   // `lastName`/`email` describe the GUARDIAN (the account holder) and these
@@ -33,9 +34,10 @@ const schema = z.object({
   // two minor shapes it is looking at.
   childFirstName: z.string().optional(),
   childLastName: z.string().optional(),
-  // Guardian info (LEGACY minor shape only — a young athlete with their own
-  // login naming a separate parent. The modern child path derives the guardian
-  // from the account holder and sends none of this except phone/relationship.)
+  // Guardian info. Sent by a SELF-SIGNING MINOR naming their parent — the
+  // juniors and seniors who sign up with their own email. The guardian path
+  // derives the guardian from the account holder and sends none of this except
+  // phone/relationship.
   guardianName: z.string().optional(),
   guardianEmail: z.string().email().optional().or(z.literal("")),
   guardianPhone: z.string().optional(),
@@ -144,6 +146,7 @@ export async function POST(req: Request) {
       accountEmail: data.email,
       accountFirstName: data.firstName,
       accountLastName: data.lastName,
+      dateOfBirth: data.dateOfBirth,
       childFirstName: data.childFirstName,
       childLastName: data.childLastName,
       guardianEmail: data.guardianEmail || null,
@@ -176,10 +179,12 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(data.password, 12);
-    // Whether the ACCOUNT HOLDER is a minor athlete. On the modern child path
-    // the account holder is the guardian — an adult — and the minor is the
-    // separate child Member created below.
-    const isMinor = plan.kind === "MINOR_SELF_LEGACY";
+    // Whether the ACCOUNT HOLDER is a minor athlete. `planSignup` decided this
+    // from the DATE OF BIRTH, not from which option was clicked, so this agrees
+    // with `resolveIsMinor` at the login gate rather than contradicting it.
+    // On the guardian path the account holder is the guardian — an adult — and
+    // the minor is the separate child Member created below.
+    const isMinor = plan.kind === "MINOR_SELF";
 
     // Find existing Member record by email (case-insensitive via stored lowercase) to link up
     const existingMember = await prisma.member.findFirst({
@@ -337,7 +342,11 @@ export async function POST(req: Request) {
           // self-guardians in the first place.
           email: null,
           status: "PROSPECT",
-          isMinor: true,
+          // Derived from the DOB, not assumed from the path. A guardian may
+          // legitimately manage a 19-year-old's account, and storing that
+          // athlete as a minor would contradict `resolveIsMinor` everywhere
+          // else — age brackets, waivers, the login gate.
+          isMinor: isMinorAge(data.dateOfBirth),
           dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
           guardianId: guardianProfile.id,
           guardianName: guardianFullName,

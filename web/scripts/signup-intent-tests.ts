@@ -26,6 +26,7 @@ import {
   SIGNUP_INTENTS,
   GUARDIAN_EMAIL_IS_ACCOUNT_EMAIL,
   GUARDIAN_EMAIL_REQUIRED,
+  DOB_REQUIRED,
 } from "../lib/signupIntent";
 
 let pass = 0;
@@ -42,12 +43,18 @@ function check(label: string, ok: boolean, detail?: string) {
 
 const DAD = "adamjdorn@gmail.com";
 
+// A DOB is REQUIRED on every athlete-creating path now, so the shared base
+// supplies an adult one. Cases that care about age override it explicitly.
+const ADULT_DOB = "1990-04-01";
+const MINOR_DOB = "2009-05-04"; // 17 as of 2026-08-16
+
 function base(over: Partial<Parameters<typeof planSignup>[0]> = {}) {
   return {
     intent: "ADULT_ATHLETE" as const,
     accountEmail: "someone@example.com",
     accountFirstName: "Some",
     accountLastName: "One",
+    dateOfBirth: ADULT_DOB,
     ...over,
   };
 }
@@ -89,10 +96,12 @@ console.log("\nThe AJ Dorn regression — guardian email == account email");
     check(`${intent} with both addresses the same is rejected`, !r.ok);
   }
 
-  // A genuine second family address is fine.
+  // A genuine second family address is fine — this is the real 17-year-old
+  // with a school address and a parent at home.
   const ok = planSignup(
     base({
-      intent: "MINOR_ATHLETE",
+      intent: "MINOR_SELF",
+      dateOfBirth: MINOR_DOB,
       accountEmail: "aj.dorn@school.edu",
       guardianEmail: DAD,
       guardianName: "Adam j Dorn, Sr",
@@ -101,7 +110,140 @@ console.log("\nThe AJ Dorn regression — guardian email == account email");
   check("a DIFFERENT guardian address is accepted", ok.ok);
   check(
     "…and plans a separate guardian, not a self-link",
-    ok.ok && ok.plan.kind === "MINOR_SELF_LEGACY" && ok.plan.guardian.email === DAD,
+    ok.ok && ok.plan.kind === "MINOR_SELF" && ok.plan.guardian.email === DAD,
+  );
+}
+
+// ── The self-signing minor — juniors and seniors, a real population ──────────
+// They sign up here with their own email. `Member.userId` and a guardian link
+// are DIFFERENT things and a member may hold both; removing their form path
+// would have pushed them onto "I train here myself", where they'd be stored as
+// adults with no guardian and no consent at all.
+console.log("\nA junior or senior signing themselves up");
+{
+  const teen = planSignup(
+    base({
+      intent: "MINOR_SELF",
+      dateOfBirth: MINOR_DOB,
+      accountEmail: "kayla@school.test",
+      guardianEmail: "mom@home.test",
+      guardianName: "Renee Reyes",
+    }),
+  );
+  check("is accepted", teen.ok, !teen.ok ? teen.code : undefined);
+  check("…the athlete IS the account holder", teen.ok && teen.plan.accountIsAthlete === true);
+  check("…so they keep their own login", teen.ok && teen.plan.kind === "MINOR_SELF");
+  check("…no separate child Member is invented", teen.ok && teen.plan.createsChildMember === false);
+  check(
+    "…and a SEPARATE guardian is named",
+    teen.ok && teen.plan.kind === "MINOR_SELF" && teen.plan.guardian.email === "mom@home.test",
+  );
+  check(
+    "…reached through the consent link, not an instant link",
+    teen.ok && teen.plan.guardianLink === "consent-email",
+  );
+
+  const noGuardian = planSignup(
+    base({ intent: "MINOR_SELF", dateOfBirth: MINOR_DOB, accountEmail: "kayla@school.test" }),
+  );
+  check("a minor with no guardian email is rejected", !noGuardian.ok);
+  check(
+    "…with the guardian-required code",
+    !noGuardian.ok && noGuardian.code === GUARDIAN_EMAIL_REQUIRED,
+  );
+
+  // The AJ rule still bites here, and this is exactly where it should: one
+  // address cannot be both the athlete's login and the athlete's guardian.
+  const sameAddress = planSignup(
+    base({
+      intent: "MINOR_SELF",
+      dateOfBirth: MINOR_DOB,
+      accountEmail: "kayla@school.test",
+      guardianEmail: "kayla@school.test",
+    }),
+  );
+  check("their own address as the guardian is rejected", !sameAddress.ok);
+  check(
+    "…with the AJ code",
+    !sameAddress.ok && sameAddress.code === GUARDIAN_EMAIL_IS_ACCOUNT_EMAIL,
+  );
+}
+
+// ── THE DOB BACKSTOP ─────────────────────────────────────────────────────────
+// The radio button does not decide this. The date of birth does — the same
+// derivation `resolveIsMinor` uses at the login gate. Signup was the one place
+// that trusted the click, and it produced a live 4-year-old holding his own
+// login flagged as an adult with no guardian on record.
+console.log("\nThe DOB backstop — the birthday decides, not the button");
+{
+  // A 17-year-old who picks "I train here myself".
+  const mispick = planSignup(
+    base({
+      intent: "ADULT_ATHLETE",
+      dateOfBirth: MINOR_DOB,
+      accountEmail: "nia@school.test",
+      guardianEmail: "parent@home.test",
+    }),
+  );
+  check("a minor DOB on the ADULT path routes to the minor plan", mispick.ok && mispick.plan.kind === "MINOR_SELF");
+  check("…they still keep their own login", mispick.ok && mispick.plan.accountIsAthlete === true);
+  check(
+    "…and a guardian is now on record",
+    mispick.ok && mispick.plan.kind === "MINOR_SELF" && mispick.plan.guardian.email === "parent@home.test",
+  );
+
+  // …and the same mis-pick with no guardian email is REFUSED rather than
+  // quietly stored as an adult. This is the Nia row, made impossible.
+  const mispickNoGuardian = planSignup(
+    base({ intent: "ADULT_ATHLETE", dateOfBirth: MINOR_DOB, accountEmail: "nia@school.test" }),
+  );
+  check("a minor DOB on the ADULT path with no guardian is REFUSED", !mispickNoGuardian.ok);
+  check(
+    "…rather than silently creating a guardian-less adult",
+    !mispickNoGuardian.ok && mispickNoGuardian.code === GUARDIAN_EMAIL_REQUIRED,
+  );
+  check(
+    "…and the message says how old the DOB makes them",
+    !mispickNoGuardian.ok && /makes you 1[6-7]/.test(mispickNoGuardian.error),
+    !mispickNoGuardian.ok ? mispickNoGuardian.error : undefined,
+  );
+
+  // The inverse: an adult who picks "I'm under 18" is routed OUT of the minor
+  // path, so nobody is saddled with a guardian they don't need.
+  const inverse = planSignup(
+    base({ intent: "MINOR_SELF", dateOfBirth: ADULT_DOB, accountEmail: "grownup@example.com" }),
+  );
+  check("an adult DOB on the MINOR path routes to the adult plan", inverse.ok && inverse.plan.kind === "ADULT_SELF");
+  check("…with no guardian required", inverse.ok && inverse.plan.guardianLink === "none");
+
+  // A 4-year-old — the live Zachary Lawell row — cannot be stored as an adult.
+  const toddler = planSignup(
+    base({ intent: "ADULT_ATHLETE", dateOfBirth: "2021-12-06", accountEmail: "parent@home.test" }),
+  );
+  check("a 4-year-old cannot be created as an adult athlete", !toddler.ok || toddler.plan.kind === "MINOR_SELF");
+
+  // DOB is REQUIRED on every path that creates an athlete.
+  for (const intent of ["ADULT_ATHLETE", "MINOR_SELF"] as const) {
+    const noDob = planSignup(base({ intent, dateOfBirth: null }));
+    check(`${intent} without a DOB is refused`, !noDob.ok);
+    check(`…with the DOB-required code`, !noDob.ok && noDob.code === DOB_REQUIRED);
+  }
+  const childNoDob = planSignup(
+    base({ intent: "MINOR_ATHLETE", dateOfBirth: null, childFirstName: "Max", accountEmail: "mom@example.com" }),
+  );
+  check("the guardian path without the CHILD's DOB is refused", !childNoDob.ok);
+  check(
+    "…naming whose birthday is missing",
+    !childNoDob.ok && /your child's date of birth/i.test(childNoDob.error),
+  );
+
+  // A guardian-only account creates no athlete, so it needs no DOB.
+  check("a guardian-only signup needs no DOB", planSignup(base({ intent: "PARENT", dateOfBirth: null })).ok);
+
+  // Garbage in the field is treated as absent, never as an adult.
+  check(
+    "an unparseable DOB is refused, not read as adult",
+    !planSignup(base({ intent: "ADULT_ATHLETE", dateOfBirth: "not-a-date" })).ok,
   );
 }
 
@@ -193,9 +335,26 @@ console.log("\nWhat each intent is allowed to create");
 }
 
 // ── Legacy shape still needs a guardian ──────────────────────────────────────
-console.log("\nLegacy minor shape (a cached client, or a teen with their own email)");
+// MINOR_ATHLETE means "I'm signing my child up", and the child's NAME is what
+// says so. A stale cached client that sends the intent WITHOUT a child name is
+// describing a self-signup, and falls through to the same DOB routing as
+// everything else rather than to a special legacy branch.
+console.log("\nBack-compat: MINOR_ATHLETE with no child name falls through to DOB routing");
 {
-  const noGuardian = planSignup(base({ intent: "MINOR_ATHLETE", accountEmail: "kid@example.com" }));
+  // A cached client sending the old teen-with-own-email shape.
+  const teenLegacy = planSignup(
+    base({
+      intent: "MINOR_ATHLETE",
+      dateOfBirth: MINOR_DOB,
+      accountEmail: "kid@example.com",
+      guardianEmail: "mom@example.com",
+    }),
+  );
+  check("a minor DOB + a separate guardian still works", teenLegacy.ok && teenLegacy.plan.kind === "MINOR_SELF");
+
+  const noGuardian = planSignup(
+    base({ intent: "MINOR_ATHLETE", dateOfBirth: MINOR_DOB, accountEmail: "kid@example.com" }),
+  );
   check("a minor with no guardian email is rejected", !noGuardian.ok);
   check(
     "…with the guardian-required code",
@@ -203,13 +362,21 @@ console.log("\nLegacy minor shape (a cached client, or a teen with their own ema
   );
   check(
     "an empty-string guardian email is not a guardian",
-    !planSignup(base({ intent: "MINOR_ATHLETE", accountEmail: "kid@example.com", guardianEmail: "   " })).ok,
+    !planSignup(
+      base({ intent: "MINOR_ATHLETE", dateOfBirth: MINOR_DOB, accountEmail: "kid@example.com", guardianEmail: "   " }),
+    ).ok,
   );
-  // Presence of a child NAME is what distinguishes the two minor shapes.
+  // Presence of a child NAME is what distinguishes the guardian shape.
   const modern = planSignup(
-    base({ intent: "MINOR_ATHLETE", accountEmail: "mom@example.com", childFirstName: "Max" }),
+    base({ intent: "MINOR_ATHLETE", accountEmail: "mom@example.com", childFirstName: "Max", dateOfBirth: MINOR_DOB }),
   );
   check("a child name switches to the guardian-account shape", modern.ok && modern.plan.kind === "CHILD_BY_GUARDIAN");
+  // A guardian may legitimately manage an adult child's account — the plan is
+  // the same, and the route derives `isMinor` from the DOB rather than assuming.
+  const adultChild = planSignup(
+    base({ intent: "MINOR_ATHLETE", accountEmail: "mom@example.com", childFirstName: "Max", dateOfBirth: ADULT_DOB }),
+  );
+  check("a guardian may manage an ADULT child", adultChild.ok && adultChild.plan.kind === "CHILD_BY_GUARDIAN");
 }
 
 // ── The conflict predicate on its own ────────────────────────────────────────

@@ -2019,3 +2019,96 @@ field to the schema and start writing it.
 four SELF_GUARDIAN splits one at a time, then CHILD_EMAIL, then ORPHAN_MINORS —
 the script will refuse if that order is broken. The AJ duplicate merge goes
 through `/dashboard/members/duplicates`.
+
+---
+
+## Phase 7.2 follow-up — 2026-08-16, the self-signing minor + DOB backstop
+
+Julian caught a regression in the 7.2 picker before merging: **juniors and seniors
+sign themselves up here with their own email — a real population, not an edge
+case** — and the rewritten three-way picker had no option that described them.
+
+**What they got before this fix.** Traced against a running server, not inferred.
+The picker offered "I'm signing my child up" / "I train here myself" / "I only
+manage someone else's account", so a 17-year-old picked the true-sounding middle
+one and the route wrote:
+
+| athlete | `isMinor` | own login | guardianEmail | consent records |
+|---|---|---|---|---|
+| Nia (DOB 17y) | **false** | yes | **(none)** | **0** |
+
+Worse than the outcome Julian feared. The under-18-with-own-login shape still
+worked at the API — posting it by hand produced own login + `isMinor` true +
+guardian email + consent email — but **the form had no door to it**. The model
+was fine; 7.2 removed the room's entrance.
+
+**Four things built.**
+
+1. **The option is back**, as a fourth entry: *"I train here myself and I'm under
+   18 — you'll get your own login; a parent has to approve it first."*
+2. **`MINOR_SELF` is a first-class intent**, not an inference. The old planner
+   distinguished the two minor shapes by whether `childFirstName` was present;
+   now `accountType` says it outright and the name-absence rule survives only as
+   back-compat for a stale cached client. `MINOR_SELF_LEGACY` was renamed
+   `MINOR_SELF` — it is the supported path, not a fallback.
+3. **The DOB backstop.** `resolveIsMinor` is DOB-authoritative at the login gate,
+   in age brackets and in waivers; signup was the one place that trusted the
+   radio button. Now a date of birth is REQUIRED on both self-signup paths and
+   **routes the plan regardless of what was clicked** — a minor DOB on the adult
+   path becomes `MINOR_SELF` (and is refused outright if no guardian email is
+   given, rather than stored as a guardian-less adult); an adult DOB on the minor
+   path becomes `ADULT_SELF`. The child path derives the child's `isMinor` from
+   the DOB too, so a guardian managing a 19-year-old's account no longer stores
+   them as a minor. `ageFromDOB` moved to a new pure `lib/age.ts` and
+   `lib/parentalConsent.ts` imports it — ONE derivation, no second copy to drift.
+4. **Tests.** 86 pure (up from 54) and 47 browser checks (up from 34).
+
+**Verified end to end** (`scripts/browser-signup-intent.ts`): a 17-year-old
+signing up as Kayla produces `isMinor` true, **her own login**, her own email,
+`guardianEmail` = her mother's, a consent email sent, and a **separate** parent
+account carrying an invite token she cannot log into until she sets a password.
+The mis-picked adult path wrote **zero** rows.
+
+### FEATURE_PARENTAL_CONSENT — asked, and answered empirically
+
+**It is OFF in production.** Not inferred from `.env.example` (which doesn't
+document it) — the login gate throws BEFORE `lastLoginAt` is written, and
+Zachary Lawell (DOB 4 years old, zero consent rows) has `lastLoginAt` of
+**2026-08-13 03:32 UTC**. A consent-less minor could not have reached that write
+with the flag on. Netlify env vars are not exposed through the MCP, so if you
+want the setting itself: Netlify → athletix-os → Site configuration →
+Environment variables.
+
+### Production sweep — Nia-shaped rows, and the real blast radius
+
+Two members have a DOB under 18 while their record says adult:
+
+| athlete | age | `isMinor` | own login | guardian email | links | consents |
+|---|---|---|---|---|---|---|
+| **Zachary Lawell** | **4** | false | yes | **(none)** | 0 | 0 |
+| **Colin LoGalbo** | 15 | false | yes | kjlogalbo@gmail.com | 1 | 0 |
+
+Zachary is the exact Nia shape — a four-year-old holding his own portal login,
+flagged as an adult, with no guardian on record at all. Colin is **also a
+self-guardian** (shape A, one of the four) *and* shape C (`Member.email` ==
+`guardianEmail`), so `scripts/fix-family-shapes.ts` already covers him.
+
+**The bigger number, which the question surfaced:** the login gate keys on
+`parental_consents`, not on guardian links, so it blocks any minor-by-DOB with
+their own login and no consent row — **7 members today**, not 2:
+
+- 2 with no guardian at all (Zachary, Leandro Petrilli)
+- 4 with a real guardian link but no consent row (Maximus Alexander, Delos Stone,
+  Drayke Ulrich, Cael Bruce — all 07-05 CSV imports activated through
+  `/activate/[token]`, which never wrote `ParentalConsent`)
+- 1 self-guardian (Colin)
+
+**Do not enable `FEATURE_PARENTAL_CONSENT` until those 7 have consent rows**, or
+they are locked out of accounts they already use. That is a backfill this branch
+does not do — flagged, not built, because recording consent on someone's behalf
+is the owner's call, not a script's.
+
+**Known cosmetic:** `/member/signup` sits under the `/member` layout, so a
+logged-in visitor sees portal chrome (dark header, bottom nav) around the wizard.
+Pre-existing; visible in `signup-minor-self.png` because the browser test reuses
+one browser across scenarios.
