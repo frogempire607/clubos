@@ -132,11 +132,15 @@ async function main() {
   }
 
   // ── The production sweep, as a standing assertion ──────────────────────────
-  // The live count today is 6 SELF signatures: 2 by Zachary (age 4 — wrong) and
-  // 4 by two members with no DOB on file (Michael Lister, Kelly Merrill — adults
-  // by every other signal, unprovable by date). This query is the shape the
-  // owner should be able to run again after any change; here it runs against
-  // the local DB and simply proves the detection works.
+  // Live production today: 4 SELF signatures against 76 GUARDIAN. Two are
+  // Zachary's, at age 4 — the defect. The other two are Michael Lister's, who
+  // has no DOB, so his age cannot be checked (an adult by every other signal).
+  //
+  // NOTE THE `deletedAt` FILTER BELOW — it is load-bearing. `document_signatures`
+  // carries no tenancy or liveness column of its own, so a sweep that does not
+  // join `members` and filter `m.deletedAt IS NULL` counts signatures belonging
+  // to soft-deleted members. The first pass at this audit didn't, reported 6
+  // rows instead of 4, and named a member who has never signed anything.
   console.log("\nThe detection query finds a self-signed minor");
   {
     const CLUB = "club_sig_test";
@@ -145,6 +149,8 @@ async function main() {
       update: {},
       create: { id: CLUB, name: "Signature Test Club", slug: "sig-test-club" },
     });
+    // findMany does NOT ignore deletedAt here — these are explicit cleanups, so
+    // the soft-deleted fixture from a previous run is swept too.
     const stale = await prisma.member.findMany({ where: { clubId: CLUB }, select: { id: true } });
     await prisma.documentSignature.deleteMany({ where: { memberId: { in: stale.map((s) => s.id) } } });
     await prisma.member.deleteMany({ where: { clubId: CLUB } });
@@ -174,24 +180,49 @@ async function main() {
         isMinor: false, dateOfBirth: new Date("1990-01-01"), status: "ACTIVE",
       },
     });
+    // A SOFT-DELETED member who also self-signed. This is the row that made the
+    // first audit over-count: it is still in `document_signatures`, and nothing
+    // on that table says the member is gone.
+    const ghost = await prisma.member.create({
+      data: {
+        clubId: CLUB, firstName: "Removed", lastName: "Member",
+        isMinor: false, dateOfBirth: new Date("2010-01-01"), status: "INACTIVE",
+        deletedAt: new Date(),
+      },
+    });
     await prisma.documentSignature.createMany({
       data: [
         { documentId: doc.id, memberId: child.id, signerUserId: signer.id, signerName: "Tiny Signer", relationship: "SELF", signedAt: new Date() },
         { documentId: doc.id, memberId: adult.id, signerUserId: signer.id, signerName: "Grown Adult", relationship: "SELF", signedAt: new Date() },
+        { documentId: doc.id, memberId: ghost.id, signerUserId: signer.id, signerName: "Removed Member", relationship: "SELF", signedAt: new Date() },
       ],
     });
 
+    // The unfiltered sweep — what the first pass ran, kept here so the
+    // over-count is a demonstrated failure mode rather than a warning comment.
+    const unfiltered = await prisma.documentSignature.findMany({
+      where: { relationship: "SELF", member: { clubId: CLUB } },
+      select: { signerName: true },
+    });
+    check("an unfiltered sweep over-counts by the soft-deleted member", unfiltered.length === 3, String(unfiltered.length));
+
     const rows = await prisma.documentSignature.findMany({
-      where: { relationship: "SELF", member: { clubId: CLUB, dateOfBirth: { not: null } } },
+      where: {
+        relationship: "SELF",
+        // Load-bearing: document_signatures has no liveness column of its own.
+        member: { clubId: CLUB, deletedAt: null, dateOfBirth: { not: null } },
+      },
       select: { signerName: true, signedAt: true, member: { select: { dateOfBirth: true } } },
     });
+    check("…and filtering deletedAt drops it", rows.length === 2, String(rows.length));
+    check("…specifically the removed member", !rows.some((r) => r.signerName === "Removed Member"));
     // Age AT SIGNING, not age now — someone who has since turned 18 still counts.
     const minorsAtSigning = rows.filter(
       (r) => ageFromDOB(r.member.dateOfBirth) !== null && isMinorAge(r.member.dateOfBirth),
     );
     check("finds exactly the one self-signed minor", minorsAtSigning.length === 1, String(minorsAtSigning.length));
     check("…and it's the four-year-old", minorsAtSigning[0]?.signerName === "Tiny Signer");
-    check("the adult's self-signature is not flagged", rows.length === 2);
+    check("the adult's self-signature is not flagged", minorsAtSigning.every((r) => r.signerName !== "Grown Adult"));
   }
 
   console.log(`\n${pass} passed, ${failures.length} failed`);

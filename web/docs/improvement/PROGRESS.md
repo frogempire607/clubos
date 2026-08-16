@@ -2129,14 +2129,27 @@ the moment of signing and the relationship is SELF:**
 | Zachary Lawell | **4** | Liability Waiver | yes |
 | Zachary Lawell | **4** | Code of Conduct | yes |
 
-That is the whole list — but only among members **with a DOB on file**. The
-complete SELF population is 6 rows; the other 4 belong to Michael Lister and
-Kelly Merrill, who have **no DOB**, so their age cannot be checked. Both are
-adults by every other signal (Lister carries a $545/quarter subscription;
-Merrill is the original adult self-signup). Worth noting for completeness:
-**all 6 SELF signatures sit on guardian-required documents, and not one is
-provably by an adult** — because both club documents carry
-`requiresGuardianSignature: true` and only two members have a DOB.
+That is the whole list. **The live SELF population is 4 rows, not 6** — the
+other 2 belong to Michael Lister, who has no DOB, so his age cannot be checked
+(he is an adult by every other signal: a $545/quarter subscription). All 4 sit
+on guardian-required documents, because both club documents carry
+`requiresGuardianSignature: true`. Against 76 GUARDIAN signatures, SELF is the
+rare case.
+
+> **Corrected 2026-08-16** — the first pass reported 6 SELF rows and named Kelly
+> Merrill. Both were wrong: the sweep did not filter `deletedAt`, so it counted
+> 2 signatures belonging to soft-deleted members. Kelly Merrill has no
+> signatures at all. **Any query over `document_signatures` must join
+> `members` and filter `m."deletedAt" IS NULL`** — the table has no tenancy or
+> liveness column of its own.
+
+**DOB coverage is not the problem** (also checked, because the fix makes DOB
+authoritative): **261 of 287 live members have one — 90.9%.** Of the 26 without,
+25 are flagged minors with a guardian email, no login, PROSPECT, from the
+2026-07-05 CSV import — so the fallback lands on the flag and treats them as
+minors, which is the safe direction. Exactly **one** member sits in the
+dangerous cell (no DOB, flag says adult, therefore treated as adult and
+unprovable): Michael Lister, the same person above.
 
 **The gate was never missing.** `/api/member/documents/[id]/sign` has always
 refused a minor self-signing a guardian-required document. It read
@@ -2163,6 +2176,33 @@ DOB backstop, one layer over.
 `scripts/signature-attribution-tests.ts` (18) pins the rule with the flag
 deliberately lying in **both** directions, plus the 18th-birthday boundary and
 the detection query itself.
+
+**Where the flag and the birthday actually disagree**, across all 287 live
+members — this is the blast radius of making DOB authoritative:
+
+| cell | members | hold a login |
+|---|---|---|
+| DOB minor, flag minor — agree | 241 | 9 |
+| no DOB, flag minor → treated as minor (safe fallback) | 25 | 0 |
+| **DOB adult, flag MINOR** → now treated as adult | 17 | 0 |
+| **DOB MINOR, flag adult** — the Zachary class | 2 | 2 |
+| no DOB, flag adult → treated as adult, unprovable | 1 | 1 |
+| DOB adult, flag adult — agree | 1 | 1 |
+
+Two things worth stating plainly about that table:
+
+- **The Zachary class is exactly two, and both are already covered.** Zachary
+  Lawell (4) is `DETACHED_MINOR`. The other is **Colin LoGalbo (15)**, whose
+  guardian link points at his own login — shape A, which `SELF_GUARDIAN` already
+  detects, and whose account is already named after his dad. He has no
+  signatures, so nothing legal is wrong for him yet; the closed gate is what
+  keeps it that way.
+- **This change RELAXES the gate for 17 members** — adults (18–46 by DOB) whose
+  rows were imported with `isMinor` set, all 17 carrying a guardian email
+  because the importer routes contact to `guardianEmail` for anyone flagged
+  minor. Under the old flag-only gate they could not self-sign a
+  guardian-required document; now they can. That is correct — they are adults —
+  but it is a real behaviour change and not merely a tightening.
 
 ### DETACHED_MINOR — shape E
 
