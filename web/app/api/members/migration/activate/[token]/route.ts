@@ -13,6 +13,7 @@ import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/
 import { inviteChildLogin } from "@/lib/childLogin";
 import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { resolveActivationAccount } from "@/lib/familyRules";
+import { resolveIsMinor } from "@/lib/parentalConsent";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -984,17 +985,39 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     const onboardingSignature = isValidSignatureDataUrl(body.signatureDataUrl)
       ? body.signatureDataUrl
       : null;
+    // Who is actually at the keyboard decides the attribution — not the
+    // member's minor flag. `guardianManaged` means the activation contact IS
+    // the guardian, so GUARDIAN is honest; otherwise the member is activating
+    // their own account and the signature is SELF.
+    //
+    // This used to read `member.isMinor ? "GUARDIAN" : "SELF"`, which stamped
+    // GUARDIAN on a signature the minor made themselves — a worse record than
+    // an honest SELF, because it names a parent who was never present.
+    const activatorIsGuardian = !!guardianManaged;
     const sig = {
       signerUserId: user.id,
       signerName: guardianManaged
         ? `${accountFirstName} ${accountLastName}`.trim()
         : `${member.firstName} ${member.lastName}`.trim(),
-      relationship: member.isMinor ? "GUARDIAN" : "SELF",
+      relationship: activatorIsGuardian ? "GUARDIAN" : "SELF",
       ipAddress: ipHeader ? ipHeader.split(",")[0].trim() : null,
       userAgent: req.headers.get("user-agent"),
       signatureDataUrl: onboardingSignature,
     };
+    // A minor activating their own account cannot satisfy a document that
+    // requires a guardian. Leave those unsigned for the guardian rather than
+    // recording a signature that does not do what the club thinks it does.
+    const memberIsMinor = resolveIsMinor(member);
+    const guardianRequiredIds = new Set(
+      (
+        await prisma.document.findMany({
+          where: { id: { in: validDocs.map((d) => d.id) }, requiresGuardianSignature: true },
+          select: { id: true },
+        })
+      ).map((d) => d.id),
+    );
     for (const doc of validDocs) {
+      if (memberIsMinor && !activatorIsGuardian && guardianRequiredIds.has(doc.id)) continue;
       await prisma.documentSignature.upsert({
         where: { documentId_memberId: { documentId: doc.id, memberId: member.id } },
         update: { ...sig, signedAt: new Date() } as Prisma.DocumentSignatureUncheckedUpdateInput,

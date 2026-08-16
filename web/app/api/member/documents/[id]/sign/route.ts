@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
+import { guardianActionBlocked, CONSENT_BLOCK_BODY, resolveIsMinor } from "@/lib/parentalConsent";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
@@ -47,15 +47,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       email: true,
       firstName: true,
       lastName: true,
-      memberProfile: { select: { id: true, isMinor: true } },
-      guardianOf: { where: ACTIVE_GUARDIAN_LINK, select: { member: { select: { id: true, isMinor: true } } } },
+      // dateOfBirth is selected because `resolveIsMinor` lets it OUTRANK the
+      // stored `isMinor` flag — see the guardian-signature rule below.
+      memberProfile: { select: { id: true, isMinor: true, dateOfBirth: true } },
+      guardianOf: {
+        where: ACTIVE_GUARDIAN_LINK,
+        select: { member: { select: { id: true, isMinor: true, dateOfBirth: true } } },
+      },
     },
   });
   if (!viewer) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Resolve own member profile — auto-link by email if not yet linked
   let ownMemberId = viewer.memberProfile?.id ?? null;
-  let ownMemberIsMinor = !!viewer.memberProfile?.isMinor;
+  let ownMemberIsMinor = viewer.memberProfile ? resolveIsMinor(viewer.memberProfile) : false;
   if (!ownMemberId) {
     const autoLinked = await findOrAutoLinkMember(
       session.user.id,
@@ -64,7 +69,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     );
     if (autoLinked) {
       ownMemberId = autoLinked.id;
-      ownMemberIsMinor = autoLinked.isMinor;
+      ownMemberIsMinor = resolveIsMinor(autoLinked);
     }
   }
 
@@ -85,7 +90,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
   }
 
-  const targetIsMinor = isSelf ? ownMemberIsMinor : !!linkedChild?.member.isMinor;
+  // DOB decides, not the stored flag. This gate used to read `Member.isMinor`
+  // directly, and that is exactly how a FOUR-YEAR-OLD came to be recorded as
+  // having personally signed his own liability waiver: his row said
+  // `isMinor: false` because signup stored whichever option was clicked, so
+  // `targetIsMinor` was false and the guard below never fired. `resolveIsMinor`
+  // exists precisely so a birthday outranks that flag — the login gate has
+  // always used it; the document layer never did.
+  const targetIsMinor = isSelf
+    ? ownMemberIsMinor
+    : linkedChild
+      ? resolveIsMinor(linkedChild.member)
+      : false;
 
   // Guardian-signature rule: if the document requires guardian sig and the
   // target is a minor, the signer must be a guardian (not the minor signing

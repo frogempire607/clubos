@@ -65,9 +65,13 @@ async function seed() {
   });
 
   const members = await prisma.member.findMany({ where: { clubId: club.id }, select: { id: true } });
-  await prisma.memberGuardianUser.deleteMany({ where: { memberId: { in: members.map((m) => m.id) } } });
+  const ids = members.map((m) => m.id);
+  await prisma.memberGuardianUser.deleteMany({ where: { memberId: { in: ids } } });
+  await prisma.documentSignature.deleteMany({ where: { memberId: { in: ids } } });
+  await prisma.memberSubscription.deleteMany({ where: { memberId: { in: ids } } });
   await prisma.billingAuditLog.deleteMany({ where: { clubId: club.id } });
   await prisma.member.deleteMany({ where: { clubId: club.id } });
+  await prisma.guardian.deleteMany({ where: { clubId: club.id } });
   await prisma.user.deleteMany({ where: { clubId: club.id } });
 
   const hash = await bcrypt.hash("localtest123", 10);
@@ -183,6 +187,109 @@ async function seed() {
       guardianEmail: "luis@nowhere.test",
     },
   });
+
+  // ── Shape E: Zachary Lawell. A FOUR-YEAR-OLD by DOB holding his own portal
+  // login, flagged as an adult, with no guardian of any kind — and a live
+  // subscription plus a liability waiver recorded as signed by the child.
+  // SELF_GUARDIAN cannot see him: there is no self-link, because there is no
+  // link at all.
+  const parentInbox = await prisma.user.create({
+    data: {
+      id: "u_lawell_parent_inbox",
+      clubId: club.id,
+      email: "cclin@shapes.test",
+      passwordHash: hash,
+      // The tell, again: a parent's inbox wearing the child's name.
+      firstName: "Zachary",
+      lastName: "Lawell",
+      role: "MEMBER",
+    },
+  });
+  const zach = await prisma.member.create({
+    data: {
+      id: "m_detached_minor",
+      clubId: club.id,
+      userId: parentInbox.id,
+      firstName: "Zachary",
+      lastName: "Lawell",
+      isMinor: false, // flagged adult — the defect
+      status: "ACTIVE",
+      dateOfBirth: new Date("2021-12-06"),
+      email: "cclin@shapes.test", // the parent's address on the child row
+      guardianName: null,
+      guardianEmail: null,
+    },
+  });
+  const plan = await prisma.membership.upsert({
+    where: { id: "mem_tadpoles" },
+    update: {},
+    create: {
+      id: "mem_tadpoles",
+      clubId: club.id,
+      name: "Tadpoles",
+      options: [{ label: "Monthly", price: 60, billingPeriod: "MONTHLY" }],
+    },
+  });
+  await prisma.memberSubscription.create({
+    data: {
+      memberId: zach.id,
+      membershipId: plan.id,
+      status: "active",
+      billingType: "RECURRING",
+      price: 60,
+      optionLabel: "Monthly",
+      stripeSubscriptionId: "sub_fake_zach",
+    },
+  });
+  const waiver = await prisma.document.upsert({
+    where: { id: "doc_waiver" },
+    update: {},
+    create: {
+      id: "doc_waiver",
+      clubId: club.id,
+      title: "Liability Waiver",
+      type: "WAIVER",
+      requiresGuardianSignature: true,
+    },
+  });
+  // A SECOND detached minor, so the one-member-per-run guard is genuinely
+  // exercised rather than passing by accident on a single-row fixture.
+  const inbox2 = await prisma.user.create({
+    data: {
+      id: "u_reed_parent_inbox",
+      clubId: club.id,
+      email: "dreed@shapes.test",
+      passwordHash: hash,
+      firstName: "Mila",
+      lastName: "Reed",
+      role: "MEMBER",
+    },
+  });
+  await prisma.member.create({
+    data: {
+      id: "m_detached_minor_2",
+      clubId: club.id,
+      userId: inbox2.id,
+      firstName: "Mila",
+      lastName: "Reed",
+      isMinor: false,
+      status: "ACTIVE",
+      dateOfBirth: new Date("2015-03-11"),
+      email: "dreed@shapes.test",
+    },
+  });
+
+  await prisma.documentSignature.create({
+    data: {
+      documentId: waiver.id,
+      memberId: zach.id,
+      signerUserId: parentInbox.id,
+      signerName: "Zachary Lawell",
+      // The legally worthless record: a four-year-old signing for himself.
+      relationship: "SELF",
+      signedAt: new Date(),
+    },
+  });
 }
 
 async function selfGuardianCount(): Promise<number> {
@@ -230,7 +337,7 @@ async function main() {
   check("applying out of order exits non-zero", outOfOrder.code === 2, `exit ${outOfOrder.code}`);
   check("…and says why", /REFUSING to apply ORPHAN_MINORS/.test(outOfOrder.out));
   check("…naming the member that blocks it", /Adam \(AJ\) Dorn/.test(outOfOrder.out));
-  check("…and printing the command to run first", /--only SELF_GUARDIAN --apply/.test(outOfOrder.out));
+  check("…and printing the command to run first", /--only SELF_GUARDIAN\s+--apply/.test(outOfOrder.out));
   const linkedAnyway = await prisma.memberGuardianUser.count({ where: { memberId: "m_orphan_linkable" } });
   check("…and wrote NOTHING despite being asked to", linkedAnyway === 0, `${linkedAnyway} links created`);
 
@@ -273,7 +380,10 @@ async function main() {
   check("an audit row was written", audit.some((a) => a.action === "SELF_GUARDIAN_SPLIT"));
 
   // ── Now the sweep is allowed ───────────────────────────────────────────────
-  console.log("\nWith shape A resolved, ORPHAN_MINORS may run");
+  // BOTH identity repairs must be done first — that is the enforced order.
+  run("--only", "DETACHED_MINOR", "--apply", "--members", "m_detached_minor", "--parent-name", "Christina Lin");
+  run("--only", "DETACHED_MINOR", "--apply", "--members", "m_detached_minor_2", "--parent-name", "Dana Reed");
+  console.log("\nWith both identity repairs done, ORPHAN_MINORS may run");
   const nowOk = run("--only", "ORPHAN_MINORS", "--apply", "--members", "m_orphan_linkable");
   check("the sweep now succeeds", nowOk.code === 0, nowOk.out.slice(-400));
   const clintLinks = await prisma.memberGuardianUser.findMany({
@@ -336,6 +446,95 @@ async function main() {
   check("the parent account exists", !!parentAcct);
   check("…named after the parent", `${parentAcct?.firstName} ${parentAcct?.lastName}` === "Adam Dorn Sr");
   check("…and cannot be logged into until they set a password", !!parentAcct?.resetToken);
+
+  // ── DETACHED_MINOR — the Zachary Lawell shape ──────────────────────────────
+  console.log("\nDETACHED_MINOR — a four-year-old holding his own login");
+  await seed();
+
+  const dmSurvey = run("--only", "DETACHED_MINOR");
+  check("the survey finds him", /DETACHED_MINOR Zachary Lawell/.test(dmSurvey.out), dmSurvey.out.slice(-400));
+  check("…and reports his age", /age 4/.test(dmSurvey.out));
+  check("…and the live subscription", /1 live subscription/.test(dmSurvey.out));
+  check("…and the self-signed guardian-required doc", /1 guardian-required doc\(s\) recorded as self-signed/.test(dmSurvey.out));
+  check(
+    "SELF_GUARDIAN does NOT see him (there is no self-link to detect)",
+    !/Zachary/.test(run("--only", "SELF_GUARDIAN").out),
+  );
+
+  const dmNoName = run("--only", "DETACHED_MINOR", "--apply", "--members", "m_detached_minor");
+  check("refuses without --parent-name", dmNoName.code !== 0);
+  check("…explaining the login is really the parent's", /That address is the PARENT's/.test(dmNoName.out));
+
+  const dmOk = run(
+    "--only", "DETACHED_MINOR", "--apply", "--members", "m_detached_minor",
+    "--parent-name", "Christina Lin",
+  );
+  check("the repair succeeds", dmOk.code === 0, dmOk.out.slice(-500));
+
+  const zachAfter = await prisma.member.findUnique({
+    where: { id: "m_detached_minor" },
+    select: {
+      userId: true, email: true, isMinor: true, guardianEmail: true, guardianName: true, guardianId: true,
+      guardianLinks: { select: { userId: true, status: true, isPrimary: true } },
+      subscriptions: { select: { status: true, stripeSubscriptionId: true } },
+    },
+  });
+  check("the child no longer holds a login", zachAfter?.userId === null);
+  check("the parent's address is off the child row", zachAfter?.email === null);
+  check("the flag now agrees with the DOB", zachAfter?.isMinor === true);
+  check("a guardian is on record", zachAfter?.guardianEmail === "cclin@shapes.test");
+  check("…named", zachAfter?.guardianName === "Christina Lin");
+  check("…with a Guardian profile", !!zachAfter?.guardianId);
+  check("the guardian link exists and is CONFIRMED + primary",
+    zachAfter?.guardianLinks?.[0]?.status === "CONFIRMED" && zachAfter?.guardianLinks?.[0]?.isPrimary === true);
+  check("…pointing at the account that was the child's", zachAfter?.guardianLinks?.[0]?.userId === "u_lawell_parent_inbox");
+
+  const loginAfter = await prisma.user.findUnique({
+    where: { id: "u_lawell_parent_inbox" },
+    select: { firstName: true, lastName: true, email: true, deletedAt: true, passwordHash: true },
+  });
+  check("the login is renamed off the child's name",
+    `${loginAfter?.firstName} ${loginAfter?.lastName}` === "Christina Lin",
+    `${loginAfter?.firstName} ${loginAfter?.lastName}`);
+  check("the login is NOT deleted", !loginAfter?.deletedAt);
+  check("…and its password is unchanged", !!loginAfter?.passwordHash);
+  check("the live subscription is untouched",
+    zachAfter?.subscriptions?.[0]?.status === "active" &&
+      zachAfter?.subscriptions?.[0]?.stripeSubscriptionId === "sub_fake_zach");
+
+  // The waiver is deliberately NOT repaired by the script — it must be re-signed.
+  const sigAfter = await prisma.documentSignature.findFirst({
+    where: { memberId: "m_detached_minor" },
+    select: { relationship: true },
+  });
+  check("the self-signed waiver is left for the parent to re-sign", sigAfter?.relationship === "SELF");
+  check("…and the script says so", /NOT FIXED HERE/.test(dmOk.out));
+
+  const dmAudit = await prisma.billingAuditLog.findMany({
+    where: { memberId: "m_detached_minor" }, select: { action: true },
+  });
+  check("an audit row was written", dmAudit.some((a) => a.action === "DETACHED_MINOR_REPAIRED"));
+  check("he no longer appears in the survey", !/Zachary/.test(run("--only", "DETACHED_MINOR").out));
+
+  // ── DETACHED_MINOR blocks the orphan sweep too ─────────────────────────────
+  console.log("\nORPHAN_MINORS also refuses while a detached minor remains");
+  await seed();
+  const blockedByDetached = run("--only", "ORPHAN_MINORS", "--apply", "--members", "m_orphan_linkable");
+  check("applying is refused", blockedByDetached.code === 2, `exit ${blockedByDetached.code}`);
+  check("…naming the detached minor", /DETACHED_MINOR Zachary Lawell/.test(blockedByDetached.out));
+  check("…and the self-guardian", /SELF_GUARDIAN\s+Adam \(AJ\) Dorn/.test(blockedByDetached.out));
+  check("…and printing both commands", /--only DETACHED_MINOR --apply/.test(blockedByDetached.out));
+
+  const dmSingle = run(
+    "--only", "DETACHED_MINOR", "--apply", "--members", "m_detached_minor,m_detached_minor_2",
+    "--parent-name", "Christina Lin",
+  );
+  check("DETACHED_MINOR refuses TWO members in one run", dmSingle.code !== 0, `exit ${dmSingle.code}`);
+  check("…because --parent-name is one family's answer", /ONE member per run/.test(dmSingle.out));
+  const untouchedPair = await prisma.member.count({
+    where: { id: { in: ["m_detached_minor", "m_detached_minor_2"] }, userId: { not: null } },
+  });
+  check("…and wrote nothing for either", untouchedPair === 2, `${untouchedPair}/2 still hold logins`);
 
   // ── Allowlist ──────────────────────────────────────────────────────────────
   console.log("\nThe allowlist is honoured");

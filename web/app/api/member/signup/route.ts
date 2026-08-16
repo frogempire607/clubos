@@ -720,15 +720,19 @@ export async function POST(req: Request) {
       const ipAddress = ipFromRequest(req);
       const signedAt = new Date();
       for (const doc of signupDocs.filter((d) => signed.has(d.id))) {
-        // On the guardian path the guardian signs everything for the child, not
-        // just the docs flagged as guardian-required — they are the only adult
-        // in the transaction and the child has no login to sign with.
-        const signerIsGuardian = !!createdChild || (docMember.isMinor && doc.requiresGuardianSignature);
-        const signerName = createdChild
-          ? `${data.firstName} ${data.lastName}`.trim()
-          : signerIsGuardian
-            ? data.guardianName || `${data.firstName} ${data.lastName}`.trim()
-            : `${data.firstName} ${data.lastName}`.trim();
+        // A SELF-SIGNING MINOR cannot satisfy a guardian-required document.
+        // Their parent isn't here — they're about to be emailed a consent
+        // link. Recording anything for these would either claim a four-year-old
+        // signed his own waiver (relationship SELF) or invent a signature by a
+        // parent who was never present (relationship GUARDIAN). Skip them, and
+        // let the guardian sign from the portal once consent is on file.
+        if (isMinor && doc.requiresGuardianSignature) continue;
+
+        // On the guardian path the guardian signs everything for the child —
+        // they are the only adult in the transaction and the child has no login
+        // to sign with, so GUARDIAN is the honest attribution.
+        const signerIsGuardian = !!createdChild;
+        const signerName = `${data.firstName} ${data.lastName}`.trim();
         await prisma.documentSignature.upsert({
           where: { documentId_memberId: { documentId: doc.id, memberId: docMember.id } },
           update: {

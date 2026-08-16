@@ -2112,3 +2112,100 @@ is the owner's call, not a script's.
 logged-in visitor sees portal chrome (dark header, bottom nav) around the wizard.
 Pre-existing; visible in `signup-minor-self.png` because the browser test reuses
 one browser across scenarios.
+
+---
+
+## 2026-08-16 — Self-signed waivers, and DETACHED_MINOR
+
+Two things, both starting from Zachary Lawell.
+
+### The signing sweep — the gate was open, not missing
+
+**Every signed document in production where the signer was a minor by DOB at
+the moment of signing and the relationship is SELF:**
+
+| athlete | age at signing | document | guardian-required |
+|---|---|---|---|
+| Zachary Lawell | **4** | Liability Waiver | yes |
+| Zachary Lawell | **4** | Code of Conduct | yes |
+
+That is the whole list — but only among members **with a DOB on file**. The
+complete SELF population is 6 rows; the other 4 belong to Michael Lister and
+Kelly Merrill, who have **no DOB**, so their age cannot be checked. Both are
+adults by every other signal (Lister carries a $545/quarter subscription;
+Merrill is the original adult self-signup). Worth noting for completeness:
+**all 6 SELF signatures sit on guardian-required documents, and not one is
+provably by an adult** — because both club documents carry
+`requiresGuardianSignature: true` and only two members have a DOB.
+
+**The gate was never missing.** `/api/member/documents/[id]/sign` has always
+refused a minor self-signing a guardian-required document. It read
+`Member.isMinor` — the stored flag — and Zachary's row said `false`, because
+signup wrote whichever radio button was clicked. `resolveIsMinor` exists
+precisely so a date of birth outranks that flag; the **login gate has always
+used it, and the document layer never did.** Same class of bug as the signup
+DOB backstop, one layer over.
+
+**Closed in three places**, all of which keyed on the stored flag:
+
+1. `/api/member/documents/[id]/sign` — now `resolveIsMinor(target)`, with
+   `dateOfBirth` added to both selects. This is the open gate.
+2. `/activate/[token]` — attribution was `member.isMinor ? "GUARDIAN" : "SELF"`,
+   which stamped GUARDIAN on a signature a minor made themselves, naming a
+   parent who was never present. Now keyed on `guardianManaged` (who is actually
+   at the keyboard), and a minor activating their own account **skips**
+   guardian-required documents rather than producing a record that doesn't do
+   what the club thinks it does.
+3. `/api/member/signup` — a self-signing minor no longer records anything for a
+   guardian-required document. Their parent is about to be emailed a consent
+   link; the honest state is unsigned.
+
+`scripts/signature-attribution-tests.ts` (18) pins the rule with the flag
+deliberately lying in **both** directions, plus the 18th-birthday boundary and
+the detection query itself.
+
+### DETACHED_MINOR — shape E
+
+Zachary is AJ Dorn's shape **minus the guardian link**, which is exactly why
+`SELF_GUARDIAN` cannot see him: there is no self-link, because there is no link
+at all. New mode, one member per run, `--parent-name` required:
+
+- A minor **by DOB** holding their own login with **no guardian of any kind** —
+  no link, no `guardianEmail`, no `Guardian` profile.
+- The login is **not the child's**. `cclin203@yahoo.com` logged in three days
+  ago; a four-year-old does not own that inbox. It is the parent's account
+  wearing the child's name, so the repair **renames it to the parent, detaches
+  it from the child, and links it as guardian** — never deletes it.
+- One transaction, ordered so the guardian link is created **before** the child's
+  `userId` is cleared: the parent never loses access, and the child is never —
+  even momentarily — their own guardian.
+- Also clears the parent's address off the child row, sets `isMinor` true so the
+  flag agrees with the DOB, writes a `Guardian` profile, and leaves a
+  `BillingAuditLog` row.
+- **Refuses to touch the self-signed waiver.** It prints what is left instead:
+  the parent re-signs from `/member/documents`, and because the signature table
+  is keyed `(documentId, memberId)` and the route upserts, re-signing REPLACES
+  the four-year-old's row rather than leaving it beside a correction.
+
+`ORPHAN_MINORS` now counts **both** blockers and refuses while either remains —
+a detached minor's login is about to change hands, so linking a child to it
+first attaches them to the wrong account.
+
+`scripts/family-shapes-repair-tests.ts` grew to 85, including a second detached
+minor purely so the one-per-run guard is genuinely exercised rather than passing
+on a single-row fixture.
+
+**Verification.** 662 assertions across ten suites; `tsc --noEmit` and
+`npm run build` clean.
+
+**Zachary is still not repaired** — it needs the parent's name, which is not
+recoverable from the data (every field says "Zachary Lawell"). Julian is calling
+the Lawells. The command, once he has it:
+
+```
+npx tsx scripts/fix-family-shapes.ts --only DETACHED_MINOR --apply \
+  --members cmrzg3rlz0005n244b7u37cd1 --parent-name "First Last"
+```
+
+Then the parent re-signs the Liability Waiver and Code of Conduct from the
+portal, which is what actually fixes the legal record.
