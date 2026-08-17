@@ -2663,3 +2663,111 @@ undeliverable. Now `http://127.0.0.1:3000`, with a timestamped backup beside it.
 Both are gitignored. This is the stale-worktree-`.env` hazard CLAUDE.md already
 warns about; it is worth checking `grep NEXTAUTH_URL .env` at the start of any
 session that will run the app locally.
+
+---
+
+## 2026-08-17 — Phase 8 build starts: the option model, and D5
+
+All six decisions answered (D2 no · D5 drop · D6 one row, synchronous · D7 yes,
+option-level · D8 queue · D12 yes but via the mode control, last). Julian's
+reason for D6 is better than the one in §8.15.3 and is now recorded there:
+`member_subscription_events` already **is** the history layer and is what
+Reports reads for churn, so chained subscription rows would be a SECOND history
+mechanism, and two of those drift — the `memberDuplicates` lesson. A
+billing-history tab should be built from the event log, not from rows.
+
+**A note on build order.** The answer order was by reversal cost. The build
+order is §8.13's dependency order, which is different: D8 and D6 are both the
+autopay transition (step 11) and depend on option identity existing first, and
+D2 is a decision *not* to build something. D5 lands early anyway, because
+dropping `allowManualRenewal` is part of the option-shape work.
+
+### `lib/membershipOptions.ts` — one model, and it REPLACES the old parser
+
+Pure, no prisma. Parses the stored JSON-string-inside-a-json-column, mints
+stable option ids, resolves which option a subscription is on, resolves term
+inheritance, derives the member-facing sentence, and evaluates weekday coverage.
+
+It does not sit *beside* `lib/bulkPriceChange.parseMembershipOptions` — it
+replaces it, and that module now re-exports from here. Two parsers for one JSON
+blob drift the first time somebody adds a key to one of them, which is exactly
+the failure mode Julian named for D6.
+
+Design points worth keeping:
+
+- **Every Phase 8 field is nullable and means "inherit the plan"** — never false
+  or zero. An option carrying none of them behaves identically to today, which
+  is what makes this shippable against live data.
+- **`serializeOptions` omits every null**, so round-tripping an untouched plan
+  is byte-identical. Pinned by a test: saving a plan nobody edited must not
+  rewrite its options column.
+- **Entitlement parsing fails OPEN.** A malformed blob degrades to `ALL`, not to
+  "grants nothing". Direction matters: a wrong *covered* costs a drop-in fee, a
+  wrong *not covered* turns a family away at the door.
+- **`resolveSubscriptionOption` has three states, not two** — exact / inferred /
+  unresolved — because screens must render them differently. Label matching is
+  deliberately not a step at any point.
+- **`findDuplicateOptions`** refuses two options sharing BOTH period and price,
+  the only condition that makes the inference ambiguous. Two options billing the
+  same amount on the same schedule are one option with two names, so this costs
+  the owner nothing.
+- **`describeOption` is the only thing allowed to build a price sentence**, and
+  it suppresses a term that merely restates the billing period — "$450 every 3
+  months", not "$450 every 3 months for 3 months".
+
+`scripts/membership-options-tests.ts` — 82 assertions, no DB
+(`npm run test:membership-options`). Fixtures are Frog Empire's real MS/HS
+options, including Hunter Meyer's inferrable row, Kellan Lister's renamed
+option, Colton Waite's unmatchable $530, and the six-option card the collapse
+produces (four MONTHLY, no collision, three distinct term lengths).
+
+### D5 shipped
+
+`allowManualRenewal` is gone from the membership editor and from both API
+schemas. The **column stays and keeps its value** — the PATCH route simply no
+longer sends the key, and Prisma ignores an absent key, so nothing is
+overwritten. `duplicate` still copies it verbatim, which is right: duplicating a
+plan should preserve the row. It is documented as deliberately absent in
+`lib/membershipOptions.ts` so nobody re-adds it.
+
+### Migration written, NOT applied
+
+`20260817000000_membership_option_identity` — `MemberSubscription.optionId`,
+`MemberSubscription.minimumTermEndsAt`, and the `(membershipId, optionId)`
+index. **`schema.prisma` is deliberately unchanged**; the ordering hazard is
+spelled out in the migration header. Apply first, verify the live columns, then
+name them in the schema — otherwise every subscription read fails, not just the
+new code.
+
+    cd web && npx prisma migrate deploy
+
+### Found in passing, logged not fixed: `addBillingPeriod` drifts by a day
+
+`bulk-price-change-tests.ts` has been red — 152 passed, **4 failed** — before any
+of this session's changes, and the four are all one bug:
+
+    addBillingPeriod(2026-09-01T00:00Z, "MONTHLY")   → 2026-10-02  (want 10-01)
+    addBillingPeriod(2026-09-01T00:00Z, "QUARTERLY") → 2026-12-02T01:00Z (want 12-01)
+
+`lib/billingAdmin.addBillingPeriod` uses local-time setters on dates stored at
+UTC midnight. 2026-09-01T00:00Z is Aug 31 20:00 in America/New_York, so
+`setMonth(+1)` asks for "Sept 31", which JavaScript rolls forward to Oct 1 local
+= Oct 2 UTC. The quarterly case additionally crosses the DST boundary and picks
+up the stray hour. It misbehaves whenever the local date differs from the UTC
+date — i.e. every date-only value in a negative-offset timezone, which is what
+`commitmentEndDate`, `billingAnchorDate` and `membershipStartDate` all are.
+
+Consumers are money-adjacent: `paidThrough.resolveCoverage` (which feeds
+`paidThroughDate` and "who owes money"), `bulkPriceChange.periodStartFor` (the
+inverse, same pattern — it sets the days-in-period denominator for the
+unused-time credit shown during a price change), migration approve, reactivation
+confirm, and both subscribe routes. **The tests encode the correct expectation
+and the implementation is wrong**, so this shipped red rather than untested.
+
+Not fixed here — it is not Phase 8 and a hasty change to date arithmetic used in
+six money paths needs its own batch with month-end and DST cases pinned in both
+directions. Spawned as a task with the full reproduction and consumer list.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean,
+membership-options 82/82, renewal-surfacing 28/28, member-tracks 183/183,
+bulk-price-change 152/156 (the 4 pre-existing failures above, unchanged).

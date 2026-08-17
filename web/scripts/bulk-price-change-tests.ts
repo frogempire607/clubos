@@ -4,6 +4,7 @@
  *   npx tsx scripts/bulk-price-change-tests.ts
  * Exits non-zero on any failure.
  */
+import { makeOption } from "../lib/membershipOptions";
 import {
   parseMembershipOptions,
   isUpfrontPeriod,
@@ -121,7 +122,7 @@ const mk = (
 // and the plan name, prices include a $0 placeholder and a $5 override.
 const plan = planPriceChange({
   membership: { id: "plan1", name: "MS/HS" },
-  option: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" },
+  option: makeOption({ label: "Monthly", price: 190, billingPeriod: "MONTHLY" }),
   newPrice: 175,
   now: NOW,
   subs: [
@@ -151,7 +152,7 @@ check("a MANUAL row with no stripe id is offline", plan.rows.find((r) => r.membe
 // Upfront rows: never pre-selected, sorted last.
 const upfrontPlan = planPriceChange({
   membership: { id: "plan1", name: "MS/HS" },
-  option: { label: "Upfront", price: 530, billingPeriod: "QUARTERLY" },
+  option: makeOption({ label: "Upfront", price: 530, billingPeriod: "QUARTERLY" }),
   newPrice: 430,
   now: NOW,
   subs: [
@@ -169,7 +170,7 @@ check("notes always state nothing was written", upfrontPlan.notes.some((n) => n.
 // Sorting: recurring before upfront, stripe before offline.
 const sorted = planPriceChange({
   membership: { id: "p", name: "P" },
-  option: { label: "Monthly", price: 100, billingPeriod: "MONTHLY" },
+  option: makeOption({ label: "Monthly", price: 100, billingPeriod: "MONTHLY" }),
   newPrice: 90,
   now: NOW,
   subs: [
@@ -184,7 +185,7 @@ check("upfront sorts last", sorted.rows[sorted.rows.length - 1].memberName.start
 // An empty book of business is a legitimate answer, not an error.
 const empty = planPriceChange({
   membership: { id: "p", name: "P" },
-  option: { label: "Monthly", price: 100, billingPeriod: "MONTHLY" },
+  option: makeOption({ label: "Monthly", price: 100, billingPeriod: "MONTHLY" }),
   newPrice: 90, now: NOW, subs: [],
 });
 check("no subscribers → total 0, no throw", empty.summary.total === 0);
@@ -193,7 +194,7 @@ check("no subscribers → zero credit totals", empty.summary.totalCreditOwed ===
 // A member already at the new price is surfaced, not silently included.
 const noop = planPriceChange({
   membership: { id: "p", name: "P" },
-  option: { label: "Monthly", price: 100, billingPeriod: "MONTHLY" },
+  option: makeOption({ label: "Monthly", price: 100, billingPeriod: "MONTHLY" }),
   newPrice: 100, now: NOW,
   subs: [mk({ first: "Ida", optionLabel: "Monthly", price: 100, billingPeriod: "MONTHLY" })],
 });
@@ -348,7 +349,7 @@ check("THE GAP THIS CLOSES: a $0 comp moved onto the plan price needs notice",
 console.log("\nplanPriceChange (current mode):");
 const currentPlan = planPriceChange({
   membership: { id: "plan1", name: "MS/HS" },
-  option: { label: "Monthly", price: 175, billingPeriod: "MONTHLY" },
+  option: makeOption({ label: "Monthly", price: 175, billingPeriod: "MONTHLY" }),
   newPrice: null,
   now: NOW,
   subs: [
@@ -381,7 +382,7 @@ check("selected-row direction over the stranded set is an increase (the comp)",
 console.log("\nplanPriceChange (proposed mode still pre-selects):");
 const proposed = planPriceChange({
   membership: { id: "plan1", name: "MS/HS" },
-  option: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" },
+  option: makeOption({ label: "Monthly", price: 190, billingPeriod: "MONTHLY" }),
   newPrice: 175,
   now: NOW,
   subs: [
@@ -426,7 +427,7 @@ check("offline members still get a full notice with the new price",
 console.log("\ncanChangeOption:");
 const movePlan = planPriceChange({
   membership: { id: "plan1", name: "MS/HS" },
-  option: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" },
+  option: makeOption({ label: "Monthly", price: 190, billingPeriod: "MONTHLY" }),
   newPrice: 175, now: NOW,
   subs: [
     mk({ first: "Cash", optionLabel: "MS/HS", price: 530, billingPeriod: "MONTHLY", billingType: "MANUAL" }),
