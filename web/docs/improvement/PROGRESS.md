@@ -2862,3 +2862,75 @@ clean, membership-options 82 passed / 0 failed, renewal-surfacing 28 passed / 0
 failed, member-tracks 183 passed / 0 failed, billing-admin 108 passed / 3
 failed and bulk-price-change 152 passed / 4 failed (both pre-existing, same
 cause).
+
+---
+
+## 2026-08-17 (later) — merged the other session's work; two corrections
+
+Pulled `main` into the phase branch. Two commits from the parallel session land
+in Phase 8 territory and are reviewed and kept as-is.
+
+### `84719e5` caught a bug that was mine
+
+The memberships editor was dropping `id`, `contractMonths`, `autoRenewDefault`,
+`entitlement` and `requiredDocumentIds` from every option on every save. One
+routine edit would have orphaned the option ids that had just been minted and
+the subscriptions that had just been stamped against them.
+
+**The gap was mine.** I added five fields to the option shape in
+`lib/membershipOptions.ts` and never touched the two route `optionSchema`s that
+gate writes — closed three-key `z.object`s, and Zod strips unknown keys, so the
+new fields were deleted at the door. The editor's own hand-rolled three-field
+`Option` type and `cleanOptions` spread were the other two causes. Each was
+independently sufficient.
+
+The fix is right and matches what the option model was consolidated for: both
+routes now accept options loosely (`z.record(z.unknown())`) and run them
+through `parseOptions` → `serializeOptions`, so there is one parser and one
+serializer. Loose is not weaker — `readOptions` compares the parsed count
+against the submitted count and 400s on any entry the parser cannot read, which
+is stricter than the old closed schema for malformed values and lossless for
+unknown ones.
+
+### `31d24a1` — per-option terms are done
+
+Off the Phase 8 list (§8.13.3). The three-state inheritance is handled
+properly: "same terms as the plan" is its own explicit checkbox rather than a
+magic blank, and unticking seeds the override from the currently-resolved value
+so making terms explicit never silently changes them.
+
+### Correction: the backfill stamped 20, not the 19 I predicted
+
+Actual production state: **20 stamped, 9 null, 0 ambiguous** across 29 live
+subscriptions. I measured 28/19/9 earlier the same day. The difference is a
+subscription created at 14:14 that day — **chase Robertson**, `Jr Frogs Monthly
+Commitment`, "3 months", $90 — which stamped cleanly. The nine left null are
+exactly the nine predicted.
+
+### Correction: §8.10 Step 10 is no longer a no-op
+
+`Jr Frogs Monthly Commitment` had zero subscribers when §8.10 was written. It
+has one now — the same chase Robertson row. So the Jr Frogs collapse needs the
+full repoint (Steps 6, 7 and 9), not just the option append. And the same
+coverage argument applies: that plan is in no class's `pricingOptions`, so chase
+is currently drop-in priced for the Jr Frogs class and Sunday Funday, and the
+collapse fixes it.
+
+**The general lesson, now written into §8.10:** "zero subscribers, safe to skip"
+is only true on the day it was measured. Re-run the count immediately before the
+collapse, not from the spec.
+
+### Still open and mine: `findDuplicateOptions` is not wired
+
+`lib/membershipOptions.findDuplicateOptions` exists and is tested but nothing
+calls it. The editor can therefore still save two options at the same billing
+period AND the same price — the one condition that makes
+`resolveSubscriptionOption`'s inference ambiguous, permanently, for any row not
+yet stamped. Per-option terms make richer option sets easy to build, so this got
+more likely, not less. It is the next thing.
+
+**Verification after merge:** `npx tsc --noEmit` clean, `npm run build` clean,
+membership-options 96 passed / 0 failed, renewal-surfacing 28 passed / 0 failed,
+member-tracks 183 passed / 0 failed, billing-admin 132 passed / 0 failed,
+bulk-price-change 165 passed / 0 failed. **All 7 previously-red assertions are
+now green** — the UTC billing-period fix landed in the same pull.

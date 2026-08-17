@@ -3676,8 +3676,23 @@ what the club can charge him — confirm before Step 6. **Decision D4, §8.12.**
 
 Append `{"3 months", 90, MONTHLY, contractMonths: 3}` and
 `{"12 months", 80, MONTHLY, contractMonths: 12}` to Jr Frogs; deactivate
-`Jr Frogs Monthly Commitment`. **Zero live subscribers** — Steps 6, 7 and 9 are
-no-ops. Set `Monthly` → `{kind:"ALL"}`; Jr Frogs classes run Mon·Wed and Sun and
+`Jr Frogs Monthly Commitment`.
+
+**No longer a no-op — corrected 2026-08-17.** This plan had zero subscribers
+when §8.10 was written. It now has one: **chase Robertson**, "3 months", $90
+MONTHLY, active, created 2026-08-17. So Steps 6, 7 and 9 apply to Jr Frogs
+exactly as they do to MS/HS — repoint the subscription's `membershipId` and
+`optionId`, repoint `Member.membershipId`, write the equal-amount
+`PLAN_CHANGED` event, and confirm the class-coverage change before running it.
+
+That coverage change matters here for the same reason it does for Maximus:
+`Jr Frogs Monthly Commitment` is **not** in any class's `pricingOptions`, so
+chase is currently drop-in priced for the Jr Frogs class and Sunday Funday. The
+collapse fixes it.
+
+The lesson worth keeping: a "zero subscribers, safe to skip" step is only true
+on the day it was measured. Re-run the count immediately before the collapse,
+not from the spec. Set `Monthly` → `{kind:"ALL"}`; Jr Frogs classes run Mon·Wed and Sun and
 there is no day-restricted Jr Frogs option today.
 
 ### Step 11 — Explicitly out of scope
