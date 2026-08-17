@@ -39,7 +39,6 @@ const createSchema = z.object({
   active:                  z.boolean().default(true),
   purchaseAccess:          z.enum(["ANYONE", "STAFF_ONLY"]).default("ANYONE"),
   autoRenewDefault:        z.boolean().default(true),
-  allowManualRenewal:      z.boolean().default(true),
   allowCustomDates:        z.boolean().default(false),
   allowBillingDayOverride: z.boolean().default(false),
   defaultBillingDay:       z.number().int().min(1).max(28).optional().nullable(),
@@ -68,7 +67,8 @@ export async function POST(req: Request) {
         active:                  data.active,
         purchaseAccess:          data.purchaseAccess,
         autoRenewDefault:        data.autoRenewDefault,
-        allowManualRenewal:      data.allowManualRenewal,
+        // allowManualRenewal is intentionally not set here (decision D5) — the
+        // column keeps its default and nothing reads it. See lib/membershipOptions.ts.
         allowCustomDates:        data.allowCustomDates,
         allowBillingDayOverride: data.allowBillingDayOverride,
         defaultBillingDay:       data.defaultBillingDay ?? null,

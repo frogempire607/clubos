@@ -20,7 +20,6 @@ type Membership = {
   active: boolean;
   purchaseAccess: string;
   autoRenewDefault: boolean;
-  allowManualRenewal: boolean;
   allowCustomDates: boolean;
   allowBillingDayOverride: boolean;
   defaultBillingDay: number | null;
@@ -472,7 +471,6 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
   const [options, setOptions] = useState<Option[]>(initialOptions);
   const [purchaseAccess, setPurchaseAccess] = useState(membership?.purchaseAccess || "ANYONE");
   const [autoRenewDefault, setAutoRenewDefault] = useState(membership?.autoRenewDefault ?? true);
-  const [allowManualRenewal, setAllowManualRenewal] = useState(membership?.allowManualRenewal ?? true);
   const [allowCustomDates, setAllowCustomDates] = useState(membership?.allowCustomDates ?? false);
   const [allowBillingDayOverride, setAllowBillingDayOverride] = useState(membership?.allowBillingDayOverride ?? false);
   const [defaultBillingDay, setDefaultBillingDay] = useState(membership?.defaultBillingDay ? String(membership.defaultBillingDay) : "");
@@ -532,7 +530,7 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name, description, options: cleanOptions, purchaseAccess,
-        autoRenewDefault, allowManualRenewal, allowCustomDates, allowBillingDayOverride,
+        autoRenewDefault, allowCustomDates, allowBillingDayOverride,
         defaultBillingDay: defaultBillingDay ? parseInt(defaultBillingDay, 10) : null,
         contractMonths: contractMonths ? parseInt(contractMonths, 10) : null,
       }),
@@ -587,13 +585,6 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
               <label className="text-sm text-text-primary">Auto-renew by default</label>
               <button type="button" onClick={() => setAutoRenewDefault(!autoRenewDefault)} className={`relative inline-flex h-5 w-9 rounded-full transition ${autoRenewDefault ? "bg-brand" : "bg-app-border"}`}>
                 <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${autoRenewDefault ? "translate-x-4" : "translate-x-0.5"}`} />
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <label className="text-sm text-text-primary">Allow manual renewal</label>
-              <button type="button" onClick={() => setAllowManualRenewal(!allowManualRenewal)} className={`relative inline-flex h-5 w-9 rounded-full transition ${allowManualRenewal ? "bg-brand" : "bg-app-border"}`}>
-                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${allowManualRenewal ? "translate-x-4" : "translate-x-0.5"}`} />
               </button>
             </div>
 

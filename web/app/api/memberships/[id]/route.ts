@@ -26,7 +26,6 @@ const updateSchema = z.object({
   active:                 z.boolean().optional(),
   purchaseAccess:         z.enum(["ANYONE", "STAFF_ONLY"]).optional(),
   autoRenewDefault:       z.boolean().optional(),
-  allowManualRenewal:     z.boolean().optional(),
   allowCustomDates:       z.boolean().optional(),
   allowBillingDayOverride: z.boolean().optional(),
   defaultBillingDay:      z.number().int().min(1).max(28).optional().nullable(),
@@ -75,7 +74,8 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         active:                  data.active,
         purchaseAccess:          data.purchaseAccess,
         autoRenewDefault:        data.autoRenewDefault,
-        allowManualRenewal:      data.allowManualRenewal,
+        // D5: no longer accepted or written. Prisma ignores an absent key, so
+        // whatever value a plan already holds is preserved untouched.
         allowCustomDates:        data.allowCustomDates,
         allowBillingDayOverride: data.allowBillingDayOverride,
         defaultBillingDay:       data.defaultBillingDay,

@@ -34,11 +34,19 @@ import { addUTCDays, addUTCMonths } from "@/lib/billingAdmin";
 import { recurringUnitWithFee, feeBreakdown } from "@/lib/fees";
 import type { EmailBlock } from "@/lib/emailBlocks";
 
-export type MembershipOption = {
-  label: string;
-  price: number;
-  billingPeriod: string;
-};
+// ── The option model lives in lib/membershipOptions.ts ──────────────────────
+//
+// This file used to carry its own `MembershipOption` type and its own
+// `parseMembershipOptions`. Phase 8 adds four fields to that shape (a stable
+// id, per-option contract length, per-option auto-renew, and day
+// entitlements), and two parsers for one JSON blob drift the first time
+// somebody adds a key to one of them. Both are re-exported here so every
+// existing caller of `parseMembershipOptions` keeps working unchanged.
+export {
+  parseOptions as parseMembershipOptions,
+  type MembershipOption,
+} from "@/lib/membershipOptions";
+import { parseOptions, type MembershipOption } from "@/lib/membershipOptions";
 
 /**
  * Which question the review screen is answering.
@@ -57,30 +65,6 @@ export type MembershipOption = {
  *                silently reprice someone's negotiated rate.
  */
 export type PriceChangeMode = "proposed" | "current";
-
-/** `memberships.options` is stored as a JSON *string*, not a JSON object. */
-export function parseMembershipOptions(raw: unknown): MembershipOption[] {
-  let value: unknown = raw;
-  if (typeof value === "string") {
-    try {
-      value = JSON.parse(value || "[]");
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(value)) return [];
-  const out: MembershipOption[] = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const label = typeof o.label === "string" ? o.label : null;
-    const billingPeriod = typeof o.billingPeriod === "string" ? o.billingPeriod : null;
-    const price = Number(o.price);
-    if (!label || !billingPeriod || !Number.isFinite(price)) continue;
-    out.push({ label, price, billingPeriod });
-  }
-  return out;
-}
 
 export type OptionResolution =
   | { ok: true; option: MembershipOption }

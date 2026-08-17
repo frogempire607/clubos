@@ -23,6 +23,7 @@
     "test:phase4": "npm run test:family && npm run test:family-fixtures",
     "test:member-tracks": "tsx scripts/member-tracks-tests.ts",
     "test:renewal-surfacing": "tsx scripts/renewal-surfacing-tests.ts",
+    "test:membership-options": "tsx scripts/membership-options-tests.ts",
     "test:members-guards": "tsx scripts/members-grep-guards.ts",
     "test:sport-terms": "tsx scripts/sport-terms-guard.ts",
     "test:phase45": "npm run test:member-tracks && npm run test:member-ui && npm run test:members-guards",
