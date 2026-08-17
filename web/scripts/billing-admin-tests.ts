@@ -329,5 +329,49 @@ check("SEMI_ANNUAL +6m", P("2026-01-15", "SEMI_ANNUAL") === "2026-07-15", P("202
 check("ANNUAL +1y", P("2026-01-15", "ANNUAL") === "2027-01-15", P("2026-01-15", "ANNUAL"));
 check("an unknown period still falls back to 1 year", P("2026-01-15", "WHAT") === "2027-01-15");
 
+// ── The date-only / timezone contract ──────────────────────────────────────
+// Every date this helper is handed is a date-only value stored at 00:00Z
+// (commitmentEndDate, billingAnchorDate, membershipStartDate/EndDate,
+// currentPeriodEnd). The original implementation used LOCAL setters on them,
+// so in any negative-offset zone the whole calculation ran against the
+// previous local day: 2026-09-01T00:00Z is Aug 31 20:00 in New York, "+1
+// month" asked for September 31, and JavaScript rolled that to October 2 UTC.
+// QUARTERLY additionally crossed the November DST change and picked up a
+// stray hour. Both are money bugs — this is what paidThroughDate, renewal
+// alerts and non-renewing end dates are computed from.
+//
+// The timezone assertions below are only meaningful when the process runs in
+// a negative-offset zone; TZ=America/New_York reproduces the original report
+// exactly. They are correct in every zone, which is the point.
+console.log("\naddBillingPeriod — UTC-midnight dates must not drift:");
+check("MONTHLY from a UTC-midnight 1st stays on the 1st",
+  P("2026-09-01", "MONTHLY") === "2026-10-01", P("2026-09-01", "MONTHLY"));
+check("QUARTERLY across the November DST change stays on the 1st",
+  P("2026-09-01", "QUARTERLY") === "2026-12-01", P("2026-09-01", "QUARTERLY"));
+check("…and keeps 00:00Z exactly — no stray DST hour",
+  addBillingPeriod(new Date("2026-09-01T00:00:00Z"), "QUARTERLY").toISOString() === "2026-12-01T00:00:00.000Z",
+  addBillingPeriod(new Date("2026-09-01T00:00:00Z"), "QUARTERLY").toISOString());
+check("ANNUAL across DST stays on the same calendar day",
+  P("2026-09-01", "ANNUAL") === "2027-09-01", P("2026-09-01", "ANNUAL"));
+check("MONTHLY across the March DST change holds the day",
+  P("2026-03-01", "MONTHLY") === "2026-04-01", P("2026-03-01", "MONTHLY"));
+
+console.log("\naddBillingPeriod — month ends clamp, never roll forward:");
+check("Jan 31 +1m is Feb 28 in a common year, not Mar 3",
+  P("2026-01-31", "MONTHLY") === "2026-02-28", P("2026-01-31", "MONTHLY"));
+check("Jan 31 +1m is Feb 29 in a leap year",
+  P("2028-01-31", "MONTHLY") === "2028-02-29", P("2028-01-31", "MONTHLY"));
+check("Aug 31 +1m is Sep 30, not Oct 1",
+  P("2026-08-31", "MONTHLY") === "2026-09-30", P("2026-08-31", "MONTHLY"));
+check("Nov 30 +3m is Feb 28 (quarter off a 30-day month)",
+  P("2026-11-30", "QUARTERLY") === "2027-02-28", P("2026-11-30", "QUARTERLY"));
+check("Feb 29 +1y is Feb 28 the following year",
+  P("2028-02-29", "ANNUAL") === "2029-02-28", P("2028-02-29", "ANNUAL"));
+check("a month end that survives clamps to the real last day each time",
+  P(P("2026-01-31", "MONTHLY"), "MONTHLY") === "2026-03-28", P(P("2026-01-31", "MONTHLY"), "MONTHLY"));
+check("time of day is preserved, only the date moves",
+  addBillingPeriod(new Date("2026-01-31T13:45:07.250Z"), "MONTHLY").toISOString() === "2026-02-28T13:45:07.250Z",
+  addBillingPeriod(new Date("2026-01-31T13:45:07.250Z"), "MONTHLY").toISOString());
+
 console.log(`\n=== FINAL: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

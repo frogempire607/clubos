@@ -397,18 +397,61 @@ export function chargeTiming(firstChargeDate: Date | null | undefined, now: Date
  * for genuinely unknown values.
  */
 export function addBillingPeriod(start: Date, period: string): Date {
-  const d = new Date(start);
   switch (period) {
-    case "WEEKLY":        d.setDate(d.getDate() + 7);   break;
-    case "MONTHLY":       d.setMonth(d.getMonth() + 1); break;
-    case "QUARTERLY":     d.setMonth(d.getMonth() + 3); break;
-    case "QUADRIMESTRAL": d.setMonth(d.getMonth() + 4); break;
-    case "SEMI_ANNUAL":   d.setMonth(d.getMonth() + 6); break;
-    case "ANNUAL":        d.setFullYear(d.getFullYear() + 1); break;
-    case "ONE_TIME":      d.setFullYear(d.getFullYear() + 1); break;
-    default:              d.setFullYear(d.getFullYear() + 1); break; // unknown → 1 year
+    case "WEEKLY":        return addUTCDays(start, 7);
+    case "MONTHLY":       return addUTCMonths(start, 1);
+    case "QUARTERLY":     return addUTCMonths(start, 3);
+    case "QUADRIMESTRAL": return addUTCMonths(start, 4);
+    case "SEMI_ANNUAL":   return addUTCMonths(start, 6);
+    case "ANNUAL":        return addUTCMonths(start, 12);
+    case "ONE_TIME":      return addUTCMonths(start, 12);
+    default:              return addUTCMonths(start, 12); // unknown → 1 year
   }
+}
+
+/**
+ * Add (or subtract, with a negative count) whole months in UTC, clamping the
+ * day-of-month instead of letting JavaScript roll the overflow forward.
+ *
+ * Two bugs live in the obvious `d.setMonth(d.getMonth() + n)` version, and
+ * both of them moved money:
+ *
+ * 1. **Local-time setters on UTC-midnight dates.** Every date-only value in
+ *    this system (commitmentEndDate, billingAnchorDate, membershipStartDate,
+ *    membershipEndDate, currentPeriodEnd) is stored at 00:00Z. In a negative
+ *    offset zone that instant is the PREVIOUS local day, so `getMonth()`/
+ *    `getDate()` read the wrong calendar date and every result was a day late
+ *    — plus a stray hour whenever the span crossed a DST boundary. Reading and
+ *    writing purely in UTC keeps the arithmetic in the same frame the value
+ *    was stored in, so the result no longer depends on the server's timezone.
+ * 2. **Overflow rolls forward.** Asking for "September 31" gives October 1.
+ *    One month after January 31 must be February 28/29, not March 3 — a
+ *    month-end subscription would otherwise walk forward through the calendar
+ *    a few days at a time, every renewal.
+ *
+ * Time-of-day is preserved: only the date components are touched.
+ */
+export function addUTCMonths(start: Date, months: number): Date {
+  const d = new Date(start.getTime());
+  const day = d.getUTCDate();
+  // Park on the 1st first, so setting the month can't itself overflow (Jan 31
+  // → setUTCMonth(1) would land in March before we ever get to clamp).
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  d.setUTCDate(Math.min(day, daysInUTCMonth(d.getUTCFullYear(), d.getUTCMonth())));
   return d;
+}
+
+/** Add (or subtract) whole days in UTC. No clamping needed — days never overflow a month. */
+export function addUTCDays(start: Date, days: number): Date {
+  const d = new Date(start.getTime());
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+/** Day count of a UTC month. `month` is 0-indexed, matching Date. */
+function daysInUTCMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 }
 
 // ── Offer pricing precedence ─────────────────────────────────────────────

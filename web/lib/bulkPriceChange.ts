@@ -30,6 +30,7 @@
 // pre-selected, because "everyone on the sticker price" and "everyone on this
 // plan" are different questions and only the first is safe to default to.
 
+import { addUTCDays, addUTCMonths } from "@/lib/billingAdmin";
 import { recurringUnitWithFee, feeBreakdown } from "@/lib/fees";
 import type { EmailBlock } from "@/lib/emailBlocks";
 
@@ -126,19 +127,23 @@ export function isUpfrontPeriod(period: string | null | undefined): boolean {
 
 const DAY_MS = 86_400_000;
 
-/** Inverse of lib/billingAdmin.addBillingPeriod — the start of the period that ends at `end`. */
+/**
+ * Inverse of lib/billingAdmin.addBillingPeriod — the start of the period that
+ * ends at `end`. Same UTC arithmetic and day-of-month clamping as the forward
+ * direction (see addUTCMonths for why); this feeds the days-in-period
+ * denominator of the unused-time credit, so a day of drift here moves a
+ * refund figure the owner is shown.
+ */
 export function periodStartFor(end: Date, period: string): Date {
-  const d = new Date(end);
   switch (period) {
-    case "WEEKLY": d.setDate(d.getDate() - 7); break;
-    case "MONTHLY": d.setMonth(d.getMonth() - 1); break;
-    case "QUARTERLY": d.setMonth(d.getMonth() - 3); break;
-    case "QUADRIMESTRAL": d.setMonth(d.getMonth() - 4); break;
-    case "SEMI_ANNUAL": d.setMonth(d.getMonth() - 6); break;
-    case "ANNUAL": d.setFullYear(d.getFullYear() - 1); break;
-    default: d.setFullYear(d.getFullYear() - 1); break;
+    case "WEEKLY": return addUTCDays(end, -7);
+    case "MONTHLY": return addUTCMonths(end, -1);
+    case "QUARTERLY": return addUTCMonths(end, -3);
+    case "QUADRIMESTRAL": return addUTCMonths(end, -4);
+    case "SEMI_ANNUAL": return addUTCMonths(end, -6);
+    case "ANNUAL": return addUTCMonths(end, -12);
+    default: return addUTCMonths(end, -12);
   }
-  return d;
 }
 
 export type CreditBasis =
