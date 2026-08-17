@@ -2322,3 +2322,263 @@ That is the mechanism that keeps DOB coverage from decaying below today's 90.9%.
 
 **Verification.** 675 assertions across ten suites; `prisma validate`,
 `prisma generate`, `tsc --noEmit`, `npm run build` all clean.
+
+---
+
+## Phase 8 spec — 2026-08-16, membership structure & entitlements (branch `claude/membership-pricing-structure-5f7585`)
+
+**Spec session. No code, no migrations written.** The full phase is in
+`plan.md` under `# PHASE 8 — Membership Structure, Entitlements, and
+Per-Member Pricing`. This entry is the pointer plus the audit facts a fresh
+session should not have to re-derive.
+
+**The problem.** The club runs two membership records for one class because an
+option holds only `{label, price, billingPeriod}`. Contract length, auto-renew,
+manual-renewal and day grants live one level up on `Membership`, with one slot
+each for all options to share. So "MS/HS" and "MS/HS 3 or 12 months Commitment"
+are two cards for one class — and the second is already wrong, because its two
+options need 3- and 12-month terms and `contractMonths` is a single `Int?`.
+
+**Verified against production (read-only MCP), and worth keeping:**
+
+- MS/HS already has **two options sharing `billingPeriod: MONTHLY`** ($175 full,
+  $110 Tue/Thu). That is why the review modal says *"more than one option billed
+  MONTHLY, so a subscription's billing period no longer says which one it is
+  on"* — `resolveOption` returning `AMBIGUOUS_PERIOD`, correctly refusing to
+  guess. The collapse makes it four MONTHLY options, so `optionId` has to land
+  first.
+- **`contractMonths` is read by nothing.** Written, shown on the portal card,
+  never enforced or quoted. `allowManualRenewal` is read by nothing at all.
+- **No route writes `MemberSubscription.autoRenew`** after creation. Neither a
+  member nor a coach can change it.
+- **Day entitlement cannot be class access.** Ms/HS Olympic Season and MS/HS
+  Preseason each run `daysOfWeek: [1,2,4]` — one class spanning Mon, Tue and
+  Thu. The $175 and $110 members attend the *same* class and differ only on
+  Monday. It has to be per-weekday against the `ClassSession`.
+- **Read the weekday as `getUTCDay()`, never through `Club.timezone`.**
+  `lib/classSessions.ts` walks UTC midnights and stamps wall-clock as UTC;
+  production sessions store `date 2026-11-12 00:00`, `startsAt 2026-11-12 19:00`,
+  both DOW 4. A timezone conversion here would *introduce* the off-by-one, not
+  fix it. `Club.timezone` is not a blocker for this phase.
+- **Neither commitment plan appears in any class's `pricingOptions`.** Maximus
+  Alexander ($150/mo) is not membership-covered for any class today. The
+  collapse fixes that structurally — confirm it is intended before repointing
+  him (Decision D4).
+- **Option-id backfill is deterministic today: 27 live subs → 18 resolve to
+  exactly one option by `(billingPeriod, price)`, 9 resolve to none, 0
+  ambiguous.** The nine are Barrett David, Paul Ortega, Wyatt Eastman, Colton
+  Waite (all four still open from 2026-08-14), Adelynn Bergen, Riley Bergen,
+  Aylen Grubusic, Clint Dwyer, John Doe. Run the backfill before anyone buys
+  the $110 option.
+- **`resolveOfferPricing` quotes five of eleven MS/HS members wrong** — Levi
+  Schanzenbach, Max Hall and Orson Chorba would renew at $190 against a $175
+  subscription; Kellan Lister at $530 under a label MS/HS no longer has; Oren
+  Oren as "not configured". It reads member-level frozen fields, never
+  `MemberSubscription.price`. Not fixed in Phase 8, but `optionId` is its
+  prerequisite (Decision D9).
+- **Eleven active Stripe subs carry a local `endDate` *and* `autoRenew: true`,
+  with an empty `stripeSnapshot`.** The DB cannot say whether Stripe holds those
+  `cancel_at` values. Reconcile before any autopay or renewal work ships.
+
+**Stripe, answered plainly.** No minimum-term primitive exists — Subscription
+Schedules do not prevent cancellation. The commitment lives in
+`MemberSubscription.minimumTermEndsAt` plus the cancellation door, which is
+already ours: `request-cancel` only queues a `PendingApproval`, and no Stripe
+Customer Portal cancel button was ever exposed. Autopay OFF/ON are subscription
+lifecycle events, not toggles — OFF is `cancel_at_period_end` then flip to
+MANUAL on the deletion webhook; ON creates a subscription with `trial_end` at
+the paid-through date, off the member's own `price` through
+`recurringUnitWithFee`. Day entitlements never reach Stripe and never need to.
+
+**Schema: one migration, two nullable columns, one index** —
+`MemberSubscription.optionId`, `MemberSubscription.minimumTermEndsAt`,
+`@@index([membershipId, optionId])`. Everything else is JSON shape inside
+`Membership.options` plus code. Apply and verify the live columns *before*
+naming them in `schema.prisma` — Prisma selects every declared scalar, so the
+wrong order takes down every subscription read.
+
+**Ten decisions (D1–D10) are open in `plan.md` §8.12 and gate the build.**
+
+---
+
+## 2026-08-16 (later) — the cancel_at audit, and three fixes it exposed
+
+Julian ran `scripts/audit-stripe-cancel-at.ts` (new, read-only, no `--apply`).
+**The dates are real.** Every commitment end date is genuine and Skylor Day's
+cancellation was requested by his mother and approved by Julian. Nothing about
+anyone's subscription was changed, and no script exists to remove a `cancel_at`.
+
+What the audit exposed was three bugs and one open semantics question.
+
+### The two divergences, and how each happened
+
+**Skylor Day — Stripe told us, and we threw it away.** Local `endDate`
+2026-10-26, Stripe 2026-08-27. Sixty days apart on the one fact a cancellation
+is about. `/api/approvals/membership-cancel` sets `cancel_at_period_end: true`,
+captures Stripe's `current_period_end` into `periodEndTs` — and uses it **only
+in the member's email**. The DB update wrote `{autoRenew: false, notes}` and
+never `endDate`, so the row kept the date approval had stamped from
+`Member.commitmentEndDate` months earlier. His mother's confirmation email said
+August while every screen in the app said October.
+
+**Titus Hall — the exact inverse.** Local `endDate` 2027-07-14, Stripe holds no
+`cancel_at`. His row was created through the staff assign-membership modal,
+whose form has a free-text **End date** field. `/api/members/subscribe` writes
+it locally and tells Stripe nothing: Checkout rejects `cancel_at_period_end` in
+`subscription_data`, so the only end-date mechanism is the webhook's
+`autoRenew === false` branch — which did not run, because his `autoRenew` is
+`true`. The date has been decoration since 2026-07-14. **Which is true is
+Julian's call** (plan.md D13); it is a data correction either way. Note also
+`commitmentEndDate` 2027-07-20 vs `endDate` 2027-07-14, and a recorded
+`membershipStartDate` of 2026-07-20 against a subscription starting 07-14.
+
+### Three fixes shipped. No member data touched.
+
+- **F1 — the cancellation writes back.** `endDate` is now set from Stripe's
+  `current_period_end`, and **only** when Stripe actually returned it; absent,
+  the existing date is left alone rather than overwritten with a guess.
+  `canceledAt` still stays null — PERIOD_END has not ended anything yet, which
+  is the same reasoning the existing CANCELED-event comment gives.
+- **F2 — the silent divergence is closed.** An End date on a card-billed
+  RECURRING membership is now a 400 naming the two real alternatives (Auto
+  Renew off, or assign as manual). `ONE_TIME` is unaffected — there the end
+  date is a local access window the webhook already computes. This is a
+  refusal, not a policy: whether an End date *should* become a Stripe
+  `cancel_at` is D12, and until renewal mode is settled, refusing is the only
+  answer that cannot make things worse.
+- **F3 — ending memberships are surfaced.** `EXPIRING_MEMBERSHIP` was a 14-day
+  rollup naming at most three people, drilling through to
+  `?filter=expiring` — **a filter this app never parsed**. It is now per-member
+  cards over 90 days, severity by proximity (≤14d high, ≤45d medium, else low),
+  each independently snoozable via the existing `(kind, targetId)` snooze key,
+  with an overflow card past 20 that states how many it stands for. A new
+  `endingSoon` queue in `lib/membersQuery.ts` backs the drill-through, with both
+  predicates inside one `some` so it is the same subscription that is active and
+  ending. On the day it was written, all eight memberships ending between
+  2026-08-27 and 2026-11-23 were outside the old window — the card showed none
+  of them.
+
+### Open: `autoRenew` conflates two things (D11)
+
+Julian's read is right. `autoRenew` describes a decision made at creation, not
+the subscription — its only mechanical effect is one webhook branch. Eleven
+rows say `true` beside a real Stripe `cancel_at` because the end date arrived
+through a different door entirely (`Member.commitmentEndDate` → the approve
+route's `cancel_at`) that never touched the flag.
+
+Recommendation in plan.md §8.14: **three derived modes, no new column** —
+`OPEN_ENDED` / `TERM_THEN_ENDS` / `TERM_THEN_RENEWS` — and redefine `autoRenew`
+to mean strictly "Stripe will bill this again", written from Stripe on any
+Stripe-billed row. Then the contradiction is structurally impossible, because
+both facts come from the same read. `TERM_THEN_RENEWS` is the mode the collapsed
+commitment options need, which is why §8.2 moves `autoRenewDefault` onto the
+option.
+
+### Process note — an edit landed in the wrong checkout
+
+Two `lib/` edits were written to the **main checkout** (`~/Desktop/clubos`)
+instead of this worktree, because the shell's cwd resets between commands and
+`cd web` resolved to the main tree. Caught by `git status`, both files copied
+across, main checkout reverted to clean (`git status` empty), and verification
+re-run in the worktree. `web/package-lock.json` was also reverted in both trees —
+`npm install` had dropped an unrelated optional peer entry. This is exactly the
+hazard the CLAUDE.md worktree note describes; **use absolute paths for every
+write when working in a worktree.**
+
+**Verification (in the worktree):** `npx tsc --noEmit` clean, `npm run build`
+succeeded. `playwright` was declared in devDependencies but installed in neither
+checkout, so `npm run build` had been failing on `scripts/browser-archive-member.ts`
+before any of this session's changes; `npm install` in the worktree fixed it.
+
+---
+
+## 2026-08-16 (later still) — coverage for the renewal surfaces, and five more dead links
+
+Julian: *"That dead `?filter=expiring` link is the second time a probe has
+pointed at a parameter nothing parses, so it's worth pinning."* Writing the pin
+found that it was not the second time. It was the **sixth link, across five
+Action Items**, all shipped in 2.5.1a:
+
+| Action Item | Linked to | Why it did nothing |
+|---|---|---|
+| `EXPIRING_MEMBERSHIP` | `/dashboard/members?filter=expiring` | `filter` is not a roster parameter |
+| `UPCOMING_RENEWAL_LARGE` | `/dashboard/members?filter=upcoming_renewals` | same |
+| `UNRECONCILED_DEPOSIT` | `/dashboard/financials?tab=stripe` | Financials parses **no** query params — `tab` is `useState` |
+| `OFFLINE_PAYMENT_PENDING` | `/dashboard/financials?tab=offline&filter=pending` | same |
+| `UNCATEGORIZED_LARGE_BANK` | `/dashboard/financials?tab=bank&filter=needs_review` | same |
+
+A dead query parameter is silent — the page renders, it just renders the wrong
+thing — which is why five of them survived months of green builds.
+`EXPIRING_MEMBERSHIP` now points at the real `?queue=endingSoon`; the other four
+were reduced to bare links, because giving them real queues (or teaching
+Financials to read its tab from the URL) is a feature and inventing features
+inside a fix batch is how the original mistake happened.
+
+### The window is 120 days, not 90 — the test caught it
+
+Orson Chorba ends 99 days out, so the 90-day window I first wrote still missed
+the furthest of the eight. `ENDING_SOON_WINDOW_DAYS = 120` now lives in
+`lib/membersQuery.ts` and `lib/reportsActionItems.ts` imports it, so the card and
+the queue cannot drift apart. All eight real dates are pinned.
+
+### `scripts/renewal-surfacing-tests.ts` — 28 assertions, no database
+
+`npm run test:renewal-surfacing`. Four groups:
+
+1. **Clause shape** — both predicates inside ONE `subscriptions.some`, nothing
+   leaking to the Member level, window opening at `now`, and the window moving
+   with the injected `now` rather than freezing at module load.
+2. **Real dates** — every one of the eight admitted, the already-past and the
+   far-future rejected, and an assertion that the old 14-day window would have
+   admitted none of them as stored.
+3. **Severity boundaries** — 0/14/15/45/46/90, plus every day in the window
+   resolving to something.
+4. **Link guard** — sweeps 648 files in `lib/`, `app/` and `components/` for
+   static `/dashboard/members?…` links and fails on any parameter the roster does
+   not read, checked against `MEMBER_FILTER_PARAM_KEYS` +
+   `MEMBER_NON_FILTER_PARAM_KEYS` (both newly exported). `add=1` is in the
+   non-filter list because `MembersRoster.tsx:324` genuinely consumes it. A
+   companion assertion proves each declared key really does change the parsed
+   filter, so a stale entry fails too — and the guard **self-checks** against the
+   exact string that shipped broken, so it cannot rot into a test that passes
+   because it stopped looking.
+
+### Browser verification — actually run, not just written
+
+`scripts/browser-ending-soon-queue.ts`, driven headless against a throwaway
+Postgres seeded with the production shape (subscriptions ending in 11 / 26 / 33 /
+71 / 99 / 330 days). Results: `?queue=endingSoon` returned **5 of 23** roster
+members — the five inside 120 days, correctly excluding the one at 330 — the
+Reports card rendered one item per member with proximity severity (11d red,
+26d/33d orange, 71d/99d grey), the drill-through resolved, and there were no page
+errors. Screenshot captured.
+
+Standing this up needed three things worth writing down for next time: the
+throwaway Postgres socket path must be short (`-k /tmp/aoxpg`; the scratchpad
+path exceeds the 103-byte limit), `LC_ALL=C` is required or the postmaster dies
+with *"became multithreaded during startup"*, and **the dev server and the
+browser must agree on one hostname** — driving `127.0.0.1` while the app
+redirects to `localhost` silently drops the session cookie and bounces every
+login back to `/login`. The worktree `.env` still carries
+`NEXTAUTH_URL=http://athletix-os.com`, which is the stale-worktree-.env hazard
+CLAUDE.md already warns about.
+
+### Decisions closed
+
+- **D11 APPROVED** — three renewal modes (`OPEN_ENDED` / `TERM_THEN_ENDS` /
+  `TERM_THEN_RENEWS`), derived, no new column; `autoRenew` redefined to "Stripe
+  will bill this again" and written from Stripe on Stripe-billed rows.
+- **D13 ANSWERED — Titus does not renew.** The local `endDate` is right and
+  Stripe is wrong. Use `cancel_at_period_end: true` rather than an absolute
+  `cancel_at` so Stripe resolves the boundary and F1's write-back stamps the
+  agreed date. Still to settle in the same pass: `endDate` 2027-07-14 vs
+  `commitmentEndDate` 2027-07-20, and `membershipStartDate` 2026-07-20 against a
+  subscription starting 07-14.
+- **D1a ANSWERED — Sunday Funday stays included** for MS/HS and the rest. No
+  class-acceptance edit. Full = `ALL` therefore means Mon·Tue·Thu·Sun; the $110
+  option is Tue·Thu only, which changes nothing today (no subscribers).
+
+**Phase 8 now waits on D2, D5–D8 and D12 only.**
+
+**Verification:** `npm run test:renewal-surfacing` 28/28, `npx tsc --noEmit`
+clean, `npm run build` clean, browser check 5/5 against a real database.

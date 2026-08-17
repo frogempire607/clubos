@@ -5,6 +5,18 @@
 // the exact fix.
 
 import { prisma } from "@/lib/prisma";
+import { ENDING_SOON_WINDOW_DAYS } from "@/lib/membersQuery";
+
+/**
+ * How urgent an ending membership is, purely as a function of how far away it
+ * is. Exported so it can be tested at its boundaries without a database —
+ * the thresholds are the product decision here, not the query.
+ */
+export function renewalSeverity(daysAway: number): ActionItem["severity"] {
+  if (daysAway <= 14) return "high";
+  if (daysAway <= 45) return "medium";
+  return "low";
+}
 
 export const ACTION_ITEM_KINDS = [
   "FAILED_PAYMENT",
@@ -103,40 +115,93 @@ export async function buildActionItems(
     });
   }
 
-  // 2. EXPIRING_MEMBERSHIP — active subs ending in the next 14 days.
-  const in14d = new Date(now.getTime() + 14 * 86400000);
-  const expiring = await prisma.memberSubscription.findMany({
+  // 2. EXPIRING_MEMBERSHIP — live memberships with a date on which they STOP.
+  //
+  // ── Why ENDING_SOON_WINDOW_DAYS and one card per member ──────────────────
+  //
+  // This probe used to look 14 days ahead and roll everyone into a single card
+  // naming at most three of them. On 2026-08-16 Frog Empire had eight
+  // memberships ending between 2026-09-11 and 2026-11-23 as stored — genuine
+  // commitment end dates, every one needing a re-sign conversation — and the
+  // card showed NONE of them: the nearest was 26 days out.
+  //
+  // Fourteen days is not a lead time for a conversation about money; it is a
+  // notice period. The window is 120 days (lib/membersQuery.ts), tiered by
+  // proximity. 90 was the first attempt and it still missed the furthest of the
+  // eight by nine days — the test in scripts/renewal-surfacing-tests.ts pins
+  // every one of those real dates so a future narrowing fails loudly.
+  //
+  // One item per member, not a rollup: each one is a different phone call, and
+  // the snooze table is already keyed by (kind, targetId) so an owner can
+  // clear the ones they have already handled without silencing the rest.
+  const windowEnd = new Date(now.getTime() + ENDING_SOON_WINDOW_DAYS * 86400000);
+  const ending = await prisma.memberSubscription.findMany({
     where: {
       status: "active",
+      endDate: { gte: now, lte: windowEnd },
       member: { clubId, deletedAt: null },
-      OR: [
-        { endDate: { gte: now, lte: in14d } },
-      ],
     },
     select: {
       id: true,
       endDate: true,
+      price: true,
+      optionLabel: true,
       member: { select: { id: true, firstName: true, lastName: true } },
       membership: { select: { name: true } },
     },
-    take: 50,
+    orderBy: { endDate: "asc" },
+    take: 100,
   });
-  if (expiring.length > 0 && !isSnoozed("EXPIRING_MEMBERSHIP")) {
+
+  // Per-member cards for the nearest ones; anything past PER_MEMBER_LIMIT is
+  // rolled into a single trailing card so a large roster cannot bury every
+  // other action item under sixty renewal reminders. The rollup states how
+  // many it stands for — a truncated list that does not say it was truncated
+  // reads as "that is all of them".
+  const PER_MEMBER_LIMIT = 20;
+  const visible = ending.slice(0, PER_MEMBER_LIMIT);
+  const overflow = ending.length - visible.length;
+
+  const dayFmt = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  for (const sub of visible) {
+    if (isSnoozed("EXPIRING_MEMBERSHIP", sub.member.id)) continue;
+    const days = Math.max(0, Math.round((sub.endDate!.getTime() - now.getTime()) / 86400000));
     items.push({
-      id: itemId("EXPIRING_MEMBERSHIP"),
+      id: itemId("EXPIRING_MEMBERSHIP", sub.member.id),
       kind: "EXPIRING_MEMBERSHIP",
-      severity: "medium",
-      title: `${expiring.length} membership${expiring.length === 1 ? "" : "s"} expiring in 14 days`,
+      // Proximity IS the severity here. A membership ending next week and one
+      // ending in three months are the same fact and completely different
+      // tasks.
+      severity: renewalSeverity(days),
+      title: `${sub.member.firstName} ${sub.member.lastName} — membership ends ${dayFmt(sub.endDate!)}`,
       detail:
-        expiring.length <= 3
-          ? expiring
-              .map((s) => `${s.member.firstName} ${s.member.lastName} (${s.membership?.name ?? "plan"})`)
-              .join(", ")
-          : "Reach out before they lapse.",
-      count: expiring.length,
+        `${sub.membership?.name ?? "Membership"}` +
+        `${sub.optionLabel ? ` · ${sub.optionLabel}` : ""} · $${Number(sub.price ?? 0).toFixed(2)} · ` +
+        `${days === 0 ? "ends today" : `${days} day${days === 1 ? "" : "s"} away`}. ` +
+        `Re-sign them before it lapses.`,
+      count: null,
+      amount: Number(sub.price ?? 0) || null,
+      href: `/dashboard/members/${sub.member.id}/billing`,
+      action: { label: "Open billing", kind: "OPEN", permission: "billing:view" },
+    });
+  }
+
+  if (overflow > 0 && !isSnoozed("EXPIRING_MEMBERSHIP")) {
+    items.push({
+      id: itemId("EXPIRING_MEMBERSHIP", "_overflow"),
+      kind: "EXPIRING_MEMBERSHIP",
+      severity: "low",
+      title: `${overflow} more membership${overflow === 1 ? "" : "s"} ending within ${ENDING_SOON_WINDOW_DAYS} days`,
+      detail: "Not listed individually here — open the roster queue to work through them.",
+      count: overflow,
       amount: null,
-      href: "/dashboard/members?filter=expiring",
-      action: { label: "Message", kind: "OPEN", permission: "messages:send" },
+      // The real queue, added alongside this in lib/membersQuery.ts. The old
+      // href pointed at `?filter=expiring`, which was never a filter this app
+      // parsed — the card's only call to action opened an unfiltered roster.
+      href: "/dashboard/members?queue=endingSoon",
+      action: { label: "Open queue", kind: "OPEN", permission: "members:view" },
     });
   }
 
@@ -162,7 +227,9 @@ export async function buildActionItems(
       detail: "Older than 10 days without a matching charge ID.",
       count: unreconciled,
       amount: null,
-      href: "/dashboard/financials?tab=stripe",
+      // Bare link — see the note on OFFLINE_PAYMENT_PENDING below. `?tab=stripe`
+      // never selected the Stripe tab; that tab is useState.
+      href: "/dashboard/financials",
       action: { label: "Reconcile", kind: "OPEN", permission: "finances:full" },
     });
   }
@@ -189,7 +256,12 @@ export async function buildActionItems(
       detail: `Total: $${amount.toFixed(2)}. Older than 3 days.`,
       count: offlinePending.length,
       amount,
-      href: "/dashboard/financials?tab=offline&filter=pending",
+      // Bare link: /dashboard/financials parses NO query parameters at all —
+      // its `tab` is useState, not a URL param — so `?tab=offline&filter=pending`
+      // selected nothing and filtered nothing. Fourth of five dead Action Item
+      // links found on 2026-08-16. Deep-linking Financials means teaching that
+      // page to read its tab from the URL, which is a feature, not a bug fix.
+      href: "/dashboard/financials",
       action: { label: "Record", kind: "OPEN", permission: "billing:full" },
     });
   }
@@ -220,7 +292,8 @@ export async function buildActionItems(
       detail: `Total abs: $${totalAbs.toFixed(2)}. Categorize so tax + P&L stay accurate.`,
       count: largeUncategorized.length,
       amount: totalAbs,
-      href: "/dashboard/financials?tab=bank&filter=needs_review",
+      // Same as above — no query parameter here was ever read.
+      href: "/dashboard/financials",
       action: { label: "Categorize", kind: "OPEN", permission: "finances:full" },
     });
   }
@@ -258,7 +331,13 @@ export async function buildActionItems(
       detail: `Total incoming: $${total.toFixed(2)}. Confirm payment methods are on file.`,
       count: upcomingRenewals.length,
       amount: total,
-      href: "/dashboard/members?filter=upcoming_renewals",
+      // No query string: there is no roster queue for "large renewals billing
+      // within 7 days", and this used to link to `?filter=upcoming_renewals`,
+      // which the roster has never parsed — the same dead-link bug as
+      // EXPIRING_MEMBERSHIP's `?filter=expiring`. A bare link that opens the
+      // real roster is honest; a parameter that silently does nothing is not.
+      // Giving this card its own queue is a product decision, not a bug fix.
+      href: "/dashboard/members",
       action: { label: "Review", kind: "OPEN", permission: "billing:view" },
     });
   }

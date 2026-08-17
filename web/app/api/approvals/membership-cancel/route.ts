@@ -156,10 +156,34 @@ export async function POST(req: Request) {
   }
 
   const periodEnd = mode === "PERIOD_END" && !!sub.stripeSubscriptionId;
+  // PERIOD_END: Stripe has just told us, in `periodEndTs`, the exact date this
+  // membership stops. Write it to `endDate`.
+  //
+  // Before this, that number was used for the member's email and then thrown
+  // away, so the row kept whatever `endDate` approval had stamped from
+  // `Member.commitmentEndDate` — a date chosen months earlier that has nothing
+  // to do with where the billing period actually falls. Skylor Day's
+  // cancellation was approved on 2026-08-12: Stripe ends him 2026-08-27, the
+  // row said 2026-10-26, and his mother's confirmation email said August while
+  // every screen in the app said October. Sixty days apart, on the one fact a
+  // cancellation is about.
+  //
+  // Only ever written from Stripe's answer. If `periodEndTs` is absent (no
+  // Stripe subscription, or the update came back without it) the existing
+  // `endDate` is left alone — an unknown end date must not be overwritten with
+  // a guess, and a stale date is at least traceable to whoever typed it.
+  //
+  // `canceledAt` deliberately stays null: PERIOD_END has not ended anything
+  // yet. The webhook records the real transition when it happens, which is the
+  // same reasoning as the CANCELED event below.
   await prisma.memberSubscription.update({
     where: { id: sub.id },
     data: periodEnd
-      ? { autoRenew: false, notes: "Cancellation approved — ends at period end" }
+      ? {
+          autoRenew: false,
+          notes: "Cancellation approved — ends at period end",
+          ...(periodEndTs ? { endDate: new Date(periodEndTs * 1000) } : {}),
+        }
       : { status: "canceled", canceledAt: new Date(), autoRenew: false },
   });
   // 4.5.10 — PERIOD_END has not ended anything yet, so it is not a

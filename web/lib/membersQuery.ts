@@ -61,6 +61,16 @@ export async function loadSourceLabels(
   return new Map(rows.map((r) => [r.id, r.sourceLabel]));
 }
 
+/**
+ * How far ahead the "ending soon" renewal surfaces look.
+ *
+ * Exported and shared on purpose. The roster queue below and the Reports
+ * EXPIRING_MEMBERSHIP card are two views of one question, and the whole reason
+ * that card was useless is that its window and its drill-through disagreed.
+ * lib/reportsActionItems.ts imports this rather than restating 90.
+ */
+export const ENDING_SOON_WINDOW_DAYS = 120;
+
 export const COUNT_CAP = 20_000;
 export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 200;
@@ -84,11 +94,51 @@ export type MemberListFilters = {
   tag: string | null;
   gender: string | null;
   /** Work-queue shortcuts from the 4-card strip. */
-  queue: "neverInvited" | "blocked" | "missingContact" | "stalledCheckout" | "trainingUnbilled" | null;
+  queue:
+    | "neverInvited"
+    | "blocked"
+    | "missingContact"
+    | "stalledCheckout"
+    | "trainingUnbilled"
+    | "endingSoon"
+    | null;
   sort: "lastSeen" | "name" | "joined" | "balance";
   page: number;
   pageSize: number;
 };
+
+/**
+ * Every query parameter the roster actually reads, and the ONLY ones a link
+ * into /dashboard/members may carry as a filter.
+ *
+ * This exists because dead links are silent. `?filter=expiring` and
+ * `?filter=upcoming_renewals` both shipped on owner-facing Action Items and
+ * both did nothing — the page renders fine, it just renders an unfiltered
+ * roster, so nothing ever surfaced the mistake. scripts/renewal-surfacing-tests.ts
+ * checks every static members link in the codebase against this list.
+ *
+ * Keep in sync with parseMemberFilters below; the suite asserts each key here
+ * genuinely changes the parsed filter, so a stale entry fails.
+ */
+export const MEMBER_FILTER_PARAM_KEYS = [
+  "search",
+  "personType",
+  "setupState",
+  "membership",
+  "tag",
+  "gender",
+  "queue",
+  "sort",
+  "page",
+  "pageSize",
+] as const;
+
+/**
+ * Parameters the roster page consumes for something OTHER than filtering, and
+ * which a link may therefore legitimately carry. `add=1` opens the add-member
+ * modal and is cleared immediately (components/members/MembersRoster.tsx).
+ */
+export const MEMBER_NON_FILTER_PARAM_KEYS = ["add"] as const;
 
 export function parseMemberFilters(url: URL): MemberListFilters {
   const num = (k: string, d: number) => {
@@ -226,6 +276,35 @@ export function queueClauses(now: Date = new Date()): Record<
     // purpose — a cash member IS a member and must not silently flip inactive
     // because nobody keyed the receipt. The gap does not disappear, it moves
     // here: "member, owes money" is the honest reading, and it is actionable.
+    // A live membership with a date on which it STOPS, close enough to have
+    // the re-sign conversation. This is the queue the EXPIRING_MEMBERSHIP
+    // action item has linked to since 2.5.1a — `?filter=expiring` was never a
+    // real filter, so the card's only call to action opened an unfiltered
+    // roster.
+    //
+    // 90 days, not 14. A three-month commitment ending in six weeks needs a
+    // conversation now; finding out a fortnight before means asking a family
+    // to re-sign under time pressure. Eight of Frog Empire's memberships end
+    // between 2026-08-27 and 2026-11-23 and not one of them was inside the old
+    // window on the day this was written.
+    //
+    // `endDate` is the honest field here even though it is unreliable — the
+    // two bugs that made it unreliable (a cancellation that never wrote back,
+    // an end date Stripe never received) are fixed in this same batch, so from
+    // here it means what it says. A row whose endDate is already past is
+    // excluded: that is an expiry to sweep, not a renewal to sell.
+    // Both conditions live inside ONE `some`, so it is the same subscription
+    // that is active AND ending. Split across two clauses this would match a
+    // member with a live open-ended plan and a separate long-dead row that
+    // happens to carry a date, which is not a renewal conversation.
+    endingSoon: {
+      subscriptions: {
+        some: {
+          status: "active",
+          endDate: { gte: now, lte: new Date(now.getTime() + ENDING_SOON_WINDOW_DAYS * 86400_000) },
+        },
+      },
+    },
     trainingUnbilled: {
       attendanceRecords: { some: { createdAt: { gte: new Date(now.getTime() - 30 * 86400_000) } } },
       OR: [
