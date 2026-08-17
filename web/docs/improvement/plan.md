@@ -3740,16 +3740,16 @@ so until they are settled, four members are outside the entitlement system.
 |---|---|---|
 | ~~**D1**~~ | Does `{kind:"DAYS", days:[2,4]}` gate **every** class the plan is accepted for? | ✅ **ANSWERED 2026-08-16 — absolute.** Day sets settled: Full = `ALL`, 2-day = `DAYS[2,4]`. §8.3.5 |
 | ~~**D1a**~~ | Should MS/HS stay in the **Sunday Funday class's** accepted-plans list? | ✅ **ANSWERED 2026-08-16 — yes, Sunday Funday stays included** for MS/HS and the rest. No class-acceptance edit. `ALL` on the Full option therefore means Mon·Tue·Thu·Sun. §8.3.5 |
-| **D2** | Should class acceptance become option-level? | **No.** Day entitlements cover the real shape; reserve `optionIds` in `pricingOptions` for later. §8.5 |
+| **D2** | Should class acceptance become option-level? | **No** — reserve `optionIds`, do not read it. Cheap to add later, expensive to remove. §8.15.1 |
 | ~~**D3**~~ | Does a member's entitlement snapshot at purchase, or track the option? | ✅ **ANSWERED 2026-08-16 — live, not snapshotted.** No `entitlementSnapshot` column; the editor's affected-member count becomes required UI. §8.3.4 |
 | ~~**D4**~~ | Repointing Maximus grants him class coverage he lacks today. Intended? | ✅ **ANSWERED 2026-08-16 — yes, fix it; commitment members should be covered.** See §8.10-0 for the interim fix that does not wait on the collapse. §8.0.6 |
-| **D5** | `allowManualRenewal` has no reader. Give it one, or delete it? | Give it the one honest meaning in §8.2, or remove it from the option shape and the edit UI. Do not carry a dead switch onto six options. |
-| **D6** | Autopay OFF→ON: one row with a churning `stripeSubscriptionId`, or a new row chained by `renewedFromId`? | **One row.** Every other reader keeps working; both Stripe ids live in the event `detail`. §8.6.2 |
-| **D7** | Should an option with `contractMonths` require a signed document at purchase? | **Yes.** It is the only enforcement that survives a dispute; the machinery already exists (`Document.requiredAt: ["PURCHASE"]`). §8.8.1 |
-| **D8** | Member-initiated autopay change: queue for approval, or immediate? | **Queue**, matching `request-cancel`. §8.6.3 |
+| **D5** | `allowManualRenewal` has no reader. Give it one, or delete it? | **Drop it** from the option shape and the editor; keep the column. D11's modes answer the question it was gesturing at. §8.15.2 |
+| **D6** | Autopay OFF→ON: one row with a churning `stripeSubscriptionId`, or a new row chained by `renewedFromId`? | **One row, transition completed synchronously — not on the deletion webhook.** The closest call on this list. §8.15.3 |
+| **D7** | Should an option with `contractMonths` require a signed document at purchase? | **Yes, option-level**, built alongside the term work. The club-wide PURCHASE mechanism cannot express it. §8.15.4 |
+| **D8** | Member-initiated autopay change: queue for approval, or immediate? | **Queue**, matching `request-cancel`. Trivially reversible, and an asymmetric middle exists. §8.15.5 |
 | **D9** | `resolveOfferPricing` quotes five of eleven MS/HS members wrong today (§8.0.7). Fix in Phase 8, or as its own item? | Its own item — but it **depends on** `optionId`, so land §8.1 first and schedule it immediately after. |
 | ~~**D11**~~ | **`autoRenew` conflates two things.** Boolean, or a three-value renewal mode? | ✅ **APPROVED 2026-08-16 — three modes**, `OPEN_ENDED` / `TERM_THEN_ENDS` / `TERM_THEN_RENEWS`, derived, no new column; `autoRenew` redefined to "Stripe will bill this again", written from Stripe on Stripe-billed rows. §8.14.2 |
-| **D12** | Should a staff-entered **End date** on a card-billed recurring membership become a Stripe `cancel_at`, or keep being refused? | Refused today (the guard shipped 2026-08-16). Answer with D11 — it is the same question. §8.14 |
+| **D12** | Should a staff-entered **End date** on a card-billed recurring membership become a Stripe `cancel_at`, or keep being refused? | **Yes — but only through D11's renewal-mode control, never as a bare date field.** The one one-way door on this list. §8.15.6 |
 | ~~**D13**~~ | **Titus Hall:** local `endDate` 2027-07-14, Stripe holds no `cancel_at`. Which is true? | ✅ **ANSWERED 2026-08-16 — he does not renew.** The local `endDate` is right and Stripe is wrong; a `cancel_at` has to be set. Data correction, §8.14.3. |
 | **D10** | "Monthly Full Membership" — `ALL`, or explicitly Mon·Tue·Thu? | **`ALL`.** Enumerating today's schedule silently un-covers members when a day is added. §8.3.3 |
 
@@ -3943,6 +3943,171 @@ of the eight real dates is pinned in the suite.
 **F2 is a refusal, not a policy.** Whether an End date *should* become a Stripe
 `cancel_at` is D12, and it is the same question as D11 — until renewal mode is
 settled, refusing is the only answer that cannot make anything worse.
+
+
+---
+
+## 8.15 The six open decisions — recommendation and cost to reverse
+
+Written 2026-08-17 so all six can be cleared in one pass. Each says what I would
+do, why, and — the part that usually decides it — **what it costs to change your
+mind later.** They are not equally reversible, and two of them are not really
+reversible at all.
+
+### 8.15.1 D2 — should class acceptance become option-level?
+
+**Recommend: no.** Ship day entitlements (§8.3), keep acceptance plan-level,
+reserve `optionIds?: string[]` in the `pricingOptions` entry shape and never
+read it.
+
+**Why.** The only thing option-level acceptance buys beyond day entitlements is
+one configuration: exclude an option from a class on *every* day that class
+runs, while a different option with the *same* days stays included. No such
+case exists at Frog Empire and none is planned. The Tue/Thu problem — the one
+that actually motivated this — is fully solved by the day rule.
+
+**Cost to reverse (add it later): moderate, and entirely safe.** Additive
+optional key on a JSON blob, absent meaning "all options", so every existing row
+keeps working. The work is the nine coverage call-sites in §8.0.5 gaining one
+predicate, the class editor's checkbox list becoming a two-level tree, and
+`trialCoversClass` getting the same treatment. No migration, no data rewrite,
+nothing to undo.
+
+**Cost to reverse the other way (build it now, then decide against): high.** You
+would be stripping a predicate out of nine hot paths and un-teaching coaches a
+two-level UI they had learned. That asymmetry *is* the argument — not building
+is cheap to undo, building is not.
+
+### 8.15.2 D5 — `allowManualRenewal` has no reader
+
+**Recommend: drop it from the option shape and hide it from the membership
+editor. Keep the column.**
+
+**Why.** It has had no reader since it shipped and nobody has reported missing
+it. Carrying it onto six options multiplies a dead control sixfold and invites a
+coach to toggle something that does nothing — which is worse than not having it,
+because a switch that does nothing teaches people the settings are unreliable.
+And with **D11 approved**, the question it was vaguely gesturing at now has a
+precise home: "what happens when a term ends" is `TERM_THEN_ENDS` vs
+`TERM_THEN_RENEWS`, which is a better answer than a boolean.
+
+**Cost to reverse: trivial.** The column stays — nothing is dropped, nothing is
+backfilled, and any value an owner has already set is preserved untouched.
+Re-surfacing it is rendering a field and reading it.
+
+**One caveat worth naming:** it is currently a *visible* toggle in the membership
+editor. Removing a control an owner can see is a change they may notice even
+though it changes no behaviour. If that matters, leave it visible and disabled
+with a note; I would just remove it.
+
+### 8.15.3 D6 — autopay OFF→ON: one row, or two chained rows?
+
+**Recommend: one row — and complete the transition synchronously rather than
+waiting for the deletion webhook.** This is the closest call on the list and the
+recommendation changed while writing it.
+
+**Why it changed.** The obvious one-row design was "set `cancel_at_period_end`,
+then flip the row to MANUAL when `customer.subscription.deleted` arrives." That
+does not work. That handler (`app/api/stripe/webhook/route.ts`) does an
+unconditional `updateMany` setting `status: "canceled"` on **any** row matching
+the subscription id. An autopay handoff would land as a cancellation, the member
+would read as churned, and `recomputeMemberStatus` would flip them inactive.
+
+Two ways out: teach the webhook to tell a handoff from a termination — which
+needs a marker on the row, i.e. exactly the new column D6 was trying to avoid —
+or don't wait for the webhook.
+
+**Don't wait for it.** `cancel_at_period_end: true` means Stripe will not bill
+again, and the current period is already paid. So at the moment of the
+transition everything is already known: read back `current_period_end`, then in
+one write set `billingType: "MANUAL"`, `paidThroughDate = current_period_end`,
+`stripeSubscriptionId = null`, and leave `status: "active"`. The deletion
+webhook later matches no row and is a harmless no-op. No new column, no webhook
+change, one row, every existing reader untouched.
+
+**Late-webhook safety, checked rather than assumed:** `invoice.paid` already has
+a metadata fallback that resolves the member from subscription metadata when the
+local row lookup misses, and `charge.refunded` / `charge.dispute.created` resolve
+by charge rather than subscription. So nulling the id does not orphan money
+events arriving afterwards.
+
+**Cost to reverse: moderate-to-high — the one I would push back on.** If you
+later want per-Stripe-subscription rows (say, a billing-history tab that lists
+every subscription a member has ever had), the history exists only inside
+`member_subscription_events.detail` as JSON. Reconstructing rows from it is a
+migration plus a JSON-parsing backfill. Not lossy, but not cheap, and the
+two-row shape is far easier to collapse into one than one is to expand into two.
+
+**So: if you have any instinct that Stripe subscription history should be
+first-class rows rather than audit entries, say so now and I will spec two rows
+instead.** Everything else about the phase is unaffected by which you pick.
+
+### 8.15.4 D7 — required document on `contractMonths` options?
+
+**Recommend: yes, option-level, and build it with the term work rather than
+ahead of it.**
+
+**Why.** §8.8.1 concluded that nothing in code stops a month-2 cancellation and
+the only instrument that survives a dispute is a signed agreement. The machinery
+already exists — `Document.requiredAt: ["PURCHASE"]` plus the audited
+`DocumentSignature` table. What does *not* work here is the existing club-wide
+PURCHASE mechanism: the collapsed MS/HS card carries both a no-minimum option
+and a 12-month option, and a club-wide purchase document would gate both
+identically. It has to be per-option — `requiredDocumentIds?: string[]`, already
+reserved in §8.9.3.
+
+**Cost to reverse: low.** Additive optional JSON key, read at purchase. Removing
+it means no longer reading it; signatures already collected stay valid and stay
+in the audit trail. No migration either way.
+
+**Caveat worth knowing before you turn it on:** it adds a step to the member
+purchase flow for those options. That is the point, and it will still cost some
+conversion on the 12-month option.
+
+### 8.15.5 D8 — member-initiated autopay: queue, or immediate?
+
+**Recommend: queue**, filing a `MEMBERSHIP_AUTOPAY_CHANGE` `PendingApproval`
+exactly the way `request-cancel` files a cancellation.
+
+**Why.** Both directions move money. OFF stops a card being charged and hands
+collection to the front desk, which the club has to know about or the money
+simply stops arriving. ON creates a Stripe subscription with a first-charge
+date, and getting that date wrong is a surprise charge on a family's card.
+Members have never been able to self-cancel for precisely this reason; an
+immediate self-serve autopay switch would be the first place a member could
+change their own billing without the club seeing it.
+
+**Cost to reverse: trivial** — one branch. And there is an asymmetric middle
+available at any time if the queue proves to be friction: make OFF immediate (it
+never charges anybody) while keeping ON queued.
+
+### 8.15.6 D12 — should a staff End date become a Stripe `cancel_at`?
+
+**Recommend: yes — but only through D11's renewal-mode control, never as a bare
+date field. Keep today's refusal (F2, §8.14.4) until those modes ship.**
+
+**Why.** D11 gives "this membership ends on a date" a first-class name:
+`TERM_THEN_ENDS`. Once the staff form asks the question outright — *renews* /
+*ends on `<date>`* / *minimum term until `<date>`* — an End date stops being an
+ambiguous input and becomes an instruction, which can be honoured by setting
+`cancel_at_period_end` (or an absolute `cancel_at` when the date genuinely is
+not a period boundary) and writing the resolved date back. The bare "End date"
+input disappears in the same change. That input is what produced Titus Hall.
+
+**Cost to reverse: this is the one-way door.** Once staff can set a membership to
+end, memberships will end — on real families' accounts, with money stopping.
+Reversing means those dates quietly stop being honoured, which recreates exactly
+the divergence just fixed, except now with owners who have learned to trust the
+field. So build it with the mode selector or do not build it. **Do not ship a
+version where the date is honoured sometimes.**
+
+### 8.15.7 Suggested order
+
+D5 and D8 are free and can be answered in any order. D2 and D7 are additive and
+low-risk. **D6 is the one to think about**, because it is the only one whose
+reversal costs a migration. D12 should be answered last and built last, after
+D11's modes exist — it is the only decision that changes what happens to money
+on accounts that are working correctly today.
 
 
 ---
