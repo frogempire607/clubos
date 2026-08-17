@@ -1015,7 +1015,23 @@ model MemberSubscription {
   memberId     String
   membershipId String
 
-  // Snapshot of what was purchased
+  // Snapshot of what was purchased.
+  //
+  // `optionLabel` is a DISPLAY snapshot — what the member saw when they bought
+  // — and is NOT an identity. The migration/approve path writes the PLAN name
+  // here, so production carries rows labelled "MS/HS" beside rows labelled
+  // "Monthly" on the same plan at the same price, and a renamed option leaves
+  // the old label behind (Kellan Lister reads "Upfront" for an option now
+  // called "3 months Upfront"). Receipts should not change retroactively, so
+  // this keeps being written. Never match on it.
+  //
+  // `optionId` is the identity: an opaque key into the `Membership.options`
+  // JSON array, minted once and stable under rename. Null on every row written
+  // before 2026-08-17; lib/membershipOptions.resolveSubscriptionOption falls
+  // back to a unique (billingPeriod, price) match, flags it as inferred, and
+  // refuses to guess when that is not unique. No FK — the target is a key
+  // inside a JSON array, not a table.
+  optionId      String?
   optionLabel   String
   price         Decimal @default(0) @db.Decimal(10, 2)
   billingPeriod String? // WEEKLY | MONTHLY | … | ONE_TIME — snapshot at purchase
@@ -1064,6 +1080,18 @@ model MemberSubscription {
   stripeStatus     String? //   raw Stripe status: trialing|active|past_due|canceled|…
   stripeSnapshot   Json? //     { defaultPaymentMethod:{brand,last4}, latestInvoice:{amountPaid,paidAt}, cancelAt, unitAmount, interval, syncedAt }
 
+  // The date before which this member may not leave — a FLOOR, computed at
+  // purchase from the option's contractMonths.
+  //
+  // Deliberately NOT `Member.commitmentEndDate`, which means the opposite: that
+  // value is passed to Stripe as `cancel_at` and copied to `endDate` above,
+  // i.e. the date the membership ENDS. A ceiling and a floor must not share a
+  // name. Stripe has no minimum-term primitive — Subscription Schedules define
+  // phases but do not prevent cancellation — so this can only live here, and
+  // it is enforced at the one door members can reach: the cancellation request
+  // queue, which flags an early termination rather than blocking it.
+  minimumTermEndsAt DateTime?
+
   // Renewal chain — plain string ref to avoid self-relation complexity
   renewedFromId String?
 
@@ -1103,6 +1131,8 @@ model MemberSubscription {
   @@index([status])
   @@index([endDate])
   @@index([payerUserId])
+  // The bulk price tool groups a plan's subscribers by option.
+  @@index([membershipId, optionId])
   @@map("member_subscriptions")
 }
 
