@@ -336,6 +336,53 @@ console.log("\nvocabulary:");
   }));
 }
 
+// ── The editor round-trip ───────────────────────────────────────────────────
+// The memberships editor used to declare its own three-field option type and
+// rebuild options from scratch on save, and both membership routes validated
+// with a closed three-key z.object. Zod strips unknown keys, so a routine
+// "Save" on a plan deleted every Phase 8 field — including `id`, the identity
+// `member_subscriptions.optionId` resolves against. One owner edit would have
+// undone the id mint and the subscription backfill.
+//
+// These pin the contract the editor and both routes now rely on: whatever the
+// parser produced must survive being serialized straight back.
+console.log("\neditor round-trip (preserves every field):");
+{
+  const stored = JSON.stringify([{
+    id: "opt_7fK2mQ",
+    label: "Upfront",
+    price: 530,
+    billingPeriod: "QUARTERLY",
+    contractMonths: 12,
+    autoRenewDefault: false,
+    entitlement: { kind: "DAYS", days: [1, 3, 5] },
+    requiredDocumentIds: ["doc_a"],
+  }]);
+
+  const roundTripped = parseOptions(serializeOptions(parseOptions(stored)));
+  const o = roundTripped[0];
+  check("id survives a parse → serialize → parse cycle", o?.id === "opt_7fK2mQ", o?.id);
+  check("contractMonths survives", o?.contractMonths === 12, o?.contractMonths);
+  check("autoRenewDefault survives, including an explicit false",
+    o?.autoRenewDefault === false, o?.autoRenewDefault);
+  check("entitlement survives", o?.entitlement.kind === "DAYS", o?.entitlement);
+  check("requiredDocumentIds survive", o?.requiredDocumentIds?.[0] === "doc_a", o?.requiredDocumentIds);
+
+  // The editor only renders label/price/billingPeriod. Editing one of those
+  // must not disturb the fields it never shows.
+  const edited = parseOptions(stored).map((opt) => ({ ...opt, price: 545 }));
+  const afterSave = parseOptions(serializeOptions(edited))[0];
+  check("editing the price keeps the option id", afterSave?.id === "opt_7fK2mQ", afterSave?.id);
+  check("editing the price keeps contractMonths", afterSave?.contractMonths === 12, afterSave?.contractMonths);
+  check("editing the price keeps the entitlement", afterSave?.entitlement.kind === "DAYS", afterSave?.entitlement);
+  check("the price change itself lands", afterSave?.price === 545, afterSave?.price);
+
+  // An untouched plan must not have its JSON rewritten (serializeOptions omits nulls).
+  const plain = JSON.stringify([{ label: "Monthly", price: 190, billingPeriod: "MONTHLY" }]);
+  check("a plan with no Phase 8 fields round-trips to byte-identical JSON",
+    serializeOptions(parseOptions(plain)) === plain, serializeOptions(parseOptions(plain)));
+}
+
 console.log(`\n${pass} passed, ${failures.length} failed`);
 if (failures.length) {
   console.error("\nFailures:");

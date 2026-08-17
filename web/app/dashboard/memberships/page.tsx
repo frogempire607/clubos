@@ -3,14 +3,19 @@
 import { useEffect, useState } from "react";
 import { Ticket } from "lucide-react";
 import BulkPriceChangeModal from "@/components/BulkPriceChangeModal";
+import {
+  parseOptions,
+  makeOption,
+  type BillingPeriod,
+  type MembershipOption,
+} from "@/lib/membershipOptions";
 
-type BillingPeriod = "WEEKLY" | "MONTHLY" | "QUADRIMESTRAL" | "QUARTERLY" | "SEMI_ANNUAL" | "ANNUAL" | "ONE_TIME";
-
-type Option = {
-  label: string;
-  price: number;
-  billingPeriod: BillingPeriod;
-};
+// The editor edits the SAME option shape the rest of the app reads. It used to
+// declare its own three-field type and rebuild options from scratch on every
+// save, which silently dropped `id`, `contractMonths`, `autoRenewDefault`,
+// `entitlement` and `requiredDocumentIds` — so one routine "Save" on a plan
+// wiped the option identity that `member_subscriptions.optionId` points at.
+type Option = MembershipOption;
 
 type Membership = {
   id: string;
@@ -459,11 +464,10 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
 }) {
   const isEdit = !!membership;
   const initialOptions: Option[] = (() => {
-    if (!membership) return [{ label: "Monthly", price: 0, billingPeriod: "MONTHLY" }];
-    try {
-      const parsed = JSON.parse(membership.options);
-      return parsed.map((o: any) => ({ label: o.label, price: o.price, billingPeriod: o.billingPeriod || "MONTHLY" }));
-    } catch { return [{ label: "Monthly", price: 0, billingPeriod: "MONTHLY" }]; }
+    const blank = makeOption({ label: "Monthly", price: 0, billingPeriod: "MONTHLY" });
+    if (!membership) return [blank];
+    const parsed = parseOptions(membership.options);
+    return parsed.length ? parsed : [blank];
   })();
 
   const [name, setName] = useState(membership?.name || "");
@@ -511,7 +515,7 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
     const after = Number(options[i]?.price);
     return Number.isFinite(after) && after !== before;
   }
-  function addOption() { setOptions([...options, { label: "", price: 0, billingPeriod: "MONTHLY" }]); }
+  function addOption() { setOptions([...options, makeOption({ label: "", price: 0, billingPeriod: "MONTHLY" })]); }
   function removeOption(i: number) { setOptions(options.filter((_, idx) => idx !== i)); }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -519,6 +523,9 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
     setError("");
     setSaving(true);
 
+    // Spread keeps every field the parser produced — including the ones this
+    // form does not render. An editor must not be able to delete data it does
+    // not show.
     const cleanOptions = options.filter((o) => o.label.trim()).map((o) => ({ ...o, price: Number(o.price) || 0 }));
     if (cleanOptions.length === 0) { setError("Add at least one purchase option"); setSaving(false); return; }
 
