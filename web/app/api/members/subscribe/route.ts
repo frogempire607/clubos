@@ -204,6 +204,41 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Connect Stripe first, or use manual assignment" }, { status: 400 });
     }
 
+    // ── An End date on a card-billed RECURRING subscription is a promise we
+    //    cannot keep, so refuse it rather than record it. ──────────────────
+    //
+    // The row below writes `endDate: resolvedEndDate` locally, and nothing in
+    // this route or the checkout webhook ever tells Stripe about it. Checkout
+    // has no `cancel_at` / `cancel_at_period_end` in `subscription_data`
+    // (Stripe rejects the whole session), so the ONLY mechanism that ends a
+    // recurring subscription today is the webhook's `autoRenew === false`
+    // branch — which sets `cancel_at_period_end` AND writes the real date back
+    // from Stripe. With `autoRenew` true, a typed End date is pure decoration:
+    // the app says the membership ends and Stripe bills forever.
+    //
+    // That is Titus Hall. Staff typed 2027-07-14 into this form on 2026-07-14;
+    // the row says he ends then, Stripe holds no cancel_at, and he renews.
+    //
+    // ONE_TIME is unaffected — `mode: "payment"` has no subscription to cancel
+    // and the end date is a local access window the webhook already computes.
+    //
+    // This is a refusal, not a silent correction: whether "ends on this date"
+    // should become a Stripe `cancel_at` is a product decision about what a
+    // term means (plan.md §8.12 D11), and until it is made the honest answer
+    // is that this form cannot express it.
+    if (resolvedEndDate && resolvedBillingType === "RECURRING") {
+      return NextResponse.json(
+        {
+          error:
+            "An end date can't be set on a card-billed recurring membership — Stripe would keep billing past it. " +
+            "Turn Auto Renew off to end it at the close of its billing period, or assign it as a manual membership " +
+            "if the club is collecting offline. Nothing was created.",
+          code: "END_DATE_NOT_SUPPORTED_ON_RECURRING",
+        },
+        { status: 400 },
+      );
+    }
+
     const amountInCents = Math.round(finalPrice * 100);
     const platformFee = calculatePlatformFee(amountInCents, club.tier);
     const stripeInterval = billingPeriodToStripeInterval(option.billingPeriod);

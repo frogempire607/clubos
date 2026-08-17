@@ -95,8 +95,12 @@ Treat each phase as a complete product area before moving to the next.
 | **4.5** | **Members — full design handoff** (3 tracks, list, profile, Family & access, migration redesign, mobile, imports source label) | ⬜ Planned |
 | 5 | Event Registration Confirmation | ⬜ Planned |
 | 6 | Safety, Data Integrity, Testing, Deployment & Final Handoff | ⬜ Planned |
+| 7 | The Family Model in the Experience | ⬜ In progress |
+| **8** | **Membership Structure, Entitlements & Per-Member Pricing** (one card per class, option-level terms + day grants, attendance enforcement, membership-first price tool) | ⬜ Spec written 2026-08-16 — awaiting decisions D1–D10 |
 
-**Remaining work: 4.5, 5, 6.** (There is no Phase 4.6 in this plan — 4.5 is the last decimal phase.)
+**Remaining work: 4.5, 5, 6, 7, 8.** (There is no Phase 4.6 in this plan — 4.5 is the last decimal phase.)
+
+**The ⬜ statuses in this table are the plan's original schedule and lag reality — 4.5 and 5 have close-out entries in `PROGRESS.md`, and 7.1 is merged. `PROGRESS.md` is the current state; this table is the ordering.**
 
 **Phase 2.5 carve-out:** 2.5.12 (mobile + responsive audit + regression pass) was deliberately held back by the owner and is the one 2.5 sub-phase not shipped. Everything else in 2.5, including 2.5.13's 238-test suite, is live. Do not re-open the rest of 2.5 to get at 2.5.12.
 
@@ -2540,6 +2544,1406 @@ If it is approved: additive, nullable, no backfill of existing rows beyond a det
 
 - **Code, future members only:** 7.1 (family view), 7.2 (signup intent + guardian account creation), 7.3 (trial guards), 7.5 (tests).
 - **Data corrections, existing members only:** 7.4 in full — 4 self-guardian splits, 30 child-email moves, up to 227 orphan-minor links, 1 duplicate merge. None of these are fixed by shipping code; none of the code changes repair a row already written.
+
+---
+
+# PHASE 8 — Membership Structure, Entitlements, and Per-Member Pricing
+
+**Status: spec only. No implementation, no migrations written.** Audited against
+production (read-only Supabase MCP) and the working tree on
+`claude/membership-pricing-structure-5f7585` on 2026-08-16.
+
+**The problem, in one sentence:** the club runs two membership records for one
+class because an option can only carry a label, a price and a billing period —
+every other fact about a purchase (how long you are committed, whether it
+renews, which days it buys) lives one level up on the plan, where there is one
+slot for all options to share.
+
+---
+
+## 8.0 Audit — what is already there
+
+### 8.0.1 What exists and must not be rebuilt
+
+The bulk price tool from the 2026-08-14 session is substantially built and
+substantially right. `lib/bulkPriceChange.ts` (790 lines, pure, no Prisma) +
+`/api/memberships/[id]/price-change/{preview,apply}` +
+`components/BulkPriceChangeModal.tsx` already provide:
+
+- read-only preview that provably writes nothing (owner-gated, same as apply,
+  because the preview discloses every member's negotiated price);
+- per-row `channel` (stripe/offline), `onListPrice`, `upfront`, `credit`
+  (unused-time credit or additional-due, `UNKNOWN` rather than a fabricated
+  figure when no period end is stored), `warnings`, `defaultSelected`;
+- an advance-notice gate — increases refuse without a future effective date
+  (`validateNotice`), and `directionForRows` computes direction from the rows
+  actually being changed, not from the plan's list price;
+- Stripe-first-then-verify-then-DB ordering, per-row independence, rollback of
+  the Stripe item if the DB write fails, `proration_behavior: "none"`,
+  `stripeUnitAmountCents` preserving the `passProcessingFees` passthrough;
+- `moves` — relocating an **offline** row to a different plan/option, with
+  Stripe rows refused and the reason spelled out on the row
+  (`canChangeOption` / `changeBlockedReason`);
+- `member_subscription_events` rows on every change, `BillingAuditLog`, a
+  notification email with per-member opt-out, and `clientKey`-scoped Stripe
+  idempotency.
+
+Phase 8 **extends** this. It does not replace it. Everything above survives.
+
+### 8.0.2 The production shape, verified
+
+Six live plans. The two the brief names, exactly as stored:
+
+| Plan | Options (label · price · billingPeriod) | `contractMonths` | Live subs |
+|---|---|---|---|
+| **MS/HS** `cmq9zoo3n…` | Monthly Full Membership · 175 · MONTHLY<br>Monthly 2 days (Tue/Thu) · 110 · MONTHLY<br>3 months Upfront · 450 · QUARTERLY<br>1 year · 1500 · ANNUAL | 1 | 11 |
+| **MS/HS 3 or 12 months Commitment** `cmspjh1bq…` | 3 Months · 160 · MONTHLY<br>12 months · 150 · MONTHLY | 3 | **1** |
+| **Jr Frogs** `cmq9zok7u…` | Monthly · 110 · MONTHLY<br>Upfront · 250 · QUARTERLY<br>1 Year · 900 · ANNUAL | 1 | 7 |
+| **Jr Frogs Monthly Commitment** `cmsqv1ldd…` | 3 months · 90 · MONTHLY<br>12 months · 80 · MONTHLY | 3 | **0** |
+
+Also live and **out of scope for this phase**: Girls MS/HS (still on the old
+190/530/2000 list), Girls Jr Frogs (110/300/1000), Girls Only, Sunday Funday,
+Tadpoles.
+
+Two facts from that table drive most of the design:
+
+1. **MS/HS already has two options sharing `billingPeriod: MONTHLY`.** The
+   review screen's message — *"This plan has more than one option billed
+   MONTHLY, so a subscription's billing period no longer says which one it is
+   on"* — is `resolveOption` returning `AMBIGUOUS_PERIOD` (409). It is not a
+   bug. It is the matcher correctly refusing to guess, because
+   `(membershipId, billingPeriod)` stopped being an identity the day the
+   Tue/Thu option was added. Collapsing the two plans puts **four** MONTHLY
+   options on one card, so this gets worse before it gets better.
+2. **The commitment plan is already wrong, and the brief is right about why.**
+   Its two options need 3-month and 12-month terms; `contractMonths` is one
+   `Int?` on the plan and holds `3`. Maximus Alexander is on "12 months" under
+   a plan that says 3.
+
+### 8.0.3 Five defects that force the two-card workaround
+
+**D1 — Option identity is a label string, matched with `===`.** Every write
+path does `options.find(o => o.label === optionLabel)`
+(`/api/member/memberships/subscribe:88`). `MemberSubscription.optionLabel` is
+the only stored pointer, and it is unreliable: the migration-approve path writes
+`optionLabel: planName` (`migration/[id]/approve:614`), so production carries
+rows labelled "MS/HS" and "Jr Frogs" beside rows labelled "Monthly" and
+"1 Year", on the same plan, at the same price. Kellan Lister reads *"Stored
+option label is 'Upfront', not '3 months Upfront'"* because the option was
+renamed after he bought. Case drift is live too — MS/HS has both `1 year` and
+`1 Year` on ANNUAL/$1500.
+
+**D2 — Terms are plan-level.** `contractMonths`, `autoRenewDefault`,
+`allowManualRenewal` are columns on `Membership`. One value each, for all
+options.
+
+**D3 — `contractMonths` is read by nothing.** Grepped: it is written by the
+membership create/edit/duplicate routes, rendered on the member portal plan card
+(*"3-month minimum commitment"*), and consulted by **zero** enforcement, quote,
+or cancellation path. It is a label today.
+
+**D4 — `allowManualRenewal` is read by nothing at all.** Written, editable,
+duplicated, never consulted. Dead field.
+
+**D5 — There is no writer for `MemberSubscription.autoRenew`.** It is set at
+creation from `Membership.autoRenewDefault`, at cancel-approval, and at
+reactivation confirm. No route toggles it afterwards. Neither a member nor a
+coach can change it.
+
+### 8.0.4 The class schedule — why day entitlements cannot be modelled as class access
+
+Verified against `recurring_classes`:
+
+| Class | `daysOfWeek` | Accepted plans |
+|---|---|---|
+| Ms/HS Olympic Season | `[1,2,4]` Mon·Tue·Thu | MS/HS, Girls MS/HS |
+| MS/HS Preseason | `[1,2,4]` Mon·Tue·Thu | MS/HS, Girls MS/HS |
+| Sunday Funday | `[0]` Sun | MS/HS, Girls MS/HS, Jr Frogs, Girls Jr Frogs, Sunday Funday |
+| Jr Frogs | `[1,3]` Mon·Wed | Jr Frogs, Girls Jr Frogs |
+| Girls Class | `[5]` Fri | Girls MS/HS, Girls Jr Frogs, Girls Only |
+| Tadpoles | `[3,0]` Wed·Sun | Tadpoles |
+
+**One `RecurringClass` spans both entitled and non-entitled days.** The $175
+full member and the $110 Tue/Thu member attend *the same class* — Olympic Season
+— and differ only on Monday. So the entitlement cannot be expressed as "which
+classes this option grants", at any granularity. It has to be **which weekdays**,
+evaluated against the individual `ClassSession`.
+
+**And the weekday must be read as `getUTCDay()`, with no timezone conversion.**
+`lib/classSessions.ts:34-49` generates sessions by walking UTC midnights,
+selecting on `cur.getUTCDay()`, and stamping wall-clock times as UTC
+(`startsAt.setUTCHours(sh, sm)`). Verified in production: MS/HS Preseason
+sessions store `date = 2026-11-12 00:00:00`, `startsAt = 2026-11-12 19:00:00`,
+and both yield DOW 4 — matching `daysOfWeek: [1,2,4]`. The class system stores
+wall clock as UTC by design. Converting through `Club.timezone` here would
+*introduce* the off-by-one-day bug, not fix it. `Club.timezone` is therefore
+**not** a blocker for this phase.
+
+### 8.0.5 Where coverage is decided today — nine call-sites, one rule
+
+Every one of them asks the same question: *does this member have an `active`
+`MemberSubscription` whose `membershipId` is in the class's/event's accepted
+list?* No option, no day, no term.
+
+| # | Call-site | Shape |
+|---|---|---|
+| 1 | `api/classes/[id]/charge:68` | staff adds to attendance / charges |
+| 2 | `api/member/classes/book:121` | member self-books a class |
+| 3 | `api/member/checkin/[id]:303-311` | QR / self check-in |
+| 4 | `api/member/schedule:146,394` | schedule feed "Included in your membership" |
+| 5 | `api/events/[id]/charge:77` | staff event charge |
+| 6 | `api/member/events/[id]/register:281` | member event registration |
+| 7 | `api/member/events:55` + `app/member/events/page.tsx:376` | event list pricing |
+| 8 | `api/member/privates:120` | private-lesson member vs non-member rate |
+| 9 | `api/attendance:95` | TRIAL guard ("already has an active membership") |
+
+Sites 8 and 9 ask only "any active sub", not "an accepted one" — deliberately,
+and unchanged by this phase.
+
+### 8.0.6 A live bug the collapse fixes
+
+**Neither commitment plan appears in any class's `pricingOptions`.** Maximus
+Alexander, paying $150/month on "MS/HS 3 or 12 months Commitment", is not
+membership-covered for Olympic Season, Preseason, or Sunday Funday. Every
+coverage call-site above returns false for him; he is priced as a non-member or
+drop-in. That is a direct consequence of the two-card workaround — a second plan
+was created and nobody added it to six classes. Collapsing to one card fixes it
+structurally.
+
+### 8.0.7 The renewal-quote hazard is live, and this phase makes it worse before better
+
+`resolveOfferPricing` (`lib/billingAdmin.ts:454`) builds every renewal /
+reactivation quote from **member-level frozen fields** —
+`migrationSelectedOption`, `migrationPriceOverride`, `legacyMembership*` — and,
+when a plan is assigned with no selected option, from `options[0]`, the first
+option in the array. It never reads `MemberSubscription.price`. Production
+today:
+
+| Member | Actually pays | `migrationSelectedOption` | Quote would be |
+|---|---|---|---|
+| Levi Schanzenbach | $175 MONTHLY | `{Monthly, 190, MONTHLY}` | **$190** |
+| Max Hall | $175 MONTHLY | `{Monthly, 190, MONTHLY}` | **$190** |
+| Orson Chorba | $175 MONTHLY | `{Monthly, 190, MONTHLY}` | **$190** |
+| Kellan Lister | $450 QUARTERLY | `{Upfront, 530, QUARTERLY}` | **$530**, under a label MS/HS no longer has |
+| Oren Oren | $175 MONTHLY | `null`, and `Member.membershipId` is null | **not configured / $0** |
+
+The brief's constraint — *"a member can look right and still renew wrong"* — is
+not hypothetical; it is five of eleven MS/HS members. Phase 8 does not fix
+`resolveOfferPricing` (that is its own decision, §8.12-D9), but **§8.1's
+`optionId` is the prerequisite**: once a subscription names its option, a quote
+can be built from `(optionId, subscription.price)` instead of a frozen JSON blob
+written at import time.
+
+### 8.0.8 Eleven Stripe subscriptions carry a local `endDate` and `autoRenew: true`
+
+`endDate` is written from `commitmentEndDate` / `requestedCancellationDate` at
+approval, and the same value is passed to Stripe as `cancel_at`
+(`migration/[id]/approve:509-518`). So the local row says both "renews" and
+"ends on 2026-09-16". `stripeSnapshot` is empty on all but one row, so the DB
+**cannot** tell us whether Stripe actually holds those `cancel_at` values.
+
+This must be reconciled against Stripe **before** any autopay or renewal work in
+this phase ships — see §8.11. It is pre-existing and not caused by Phase 8, but
+Phase 8 is the first thing that will read those fields for money.
+
+---
+
+## 8.1 Option identity — `optionId`
+
+**Add a stable, opaque `id` to every option, and `MemberSubscription.optionId`.**
+
+```jsonc
+// Membership.options — an entry after this phase
+{
+  "id": "opt_k3f9c1qa",          // minted once, never reused, never derived
+  "label": "Monthly 2 days (Tue/Thu)",
+  "price": 110,
+  "billingPeriod": "MONTHLY"
+}
+```
+
+**Why an id rather than "make labels unique".** The label is what the member
+sees on the portal card, on receipts, on the price-change email. Owners rename
+it — that is the whole point of a display label — and Kellan Lister is the
+receipt for what a rename costs today. The billing period is not an identity
+either: MS/HS has two MONTHLY options now and will have four after the collapse.
+An opaque id is the only field that can be simultaneously stable under rename,
+unique within a plan, and meaningless enough that nobody is tempted to parse it.
+
+**Resolution order for a subscription's option** — one function,
+`lib/membershipOptions.ts resolveSubscriptionOption(sub, plan)`:
+
+1. `sub.optionId` matches an option id → **exact**.
+2. `optionId` is null → infer by unique `(billingPeriod, price)` match against
+   the plan's options. Exactly one match → **inferred**, flagged.
+3. Zero or multiple matches → **unresolved**. Never guessed.
+
+Every screen renders the three states differently. An inferred option is never
+silently presented as fact — the price tool shows it as *"matched by price"*,
+and an unresolved one shows *"option not identified"* and is excluded from
+bulk selection.
+
+**The backfill is deterministic today. Exact figures, dry-run against
+production:** 27 live (`active|pending|past_due`) subscriptions on non-deleted
+plans → **18 resolve to exactly one option, 9 resolve to none, 0 are
+ambiguous.**
+
+The nine that do not resolve, and why — every one is either a known-open item or
+a deliberate override:
+
+| Member | Plan | Stored | Why no match |
+|---|---|---|---|
+| Barrett David | MS/HS | MONTHLY $0 | comp — `migrationPriceOverride = 0.00`, still not marked `deliberateFree` |
+| Paul Ortega | MS/HS | MONTHLY $0 | comp — same, still not marked |
+| Wyatt Eastman | MS/HS | MONTHLY $0 | prepaid annual with no recorded payment (open since 2026-08-14) |
+| Colton Waite | MS/HS | MONTHLY $530 | quarterly lump on a row labelled MONTHLY (open since 2026-08-14) |
+| Adelynn Bergen | Girls Jr Frogs | ANNUAL $750 | legacy rate; plan lists $1000 |
+| Riley Bergen | Jr Frogs | ANNUAL $750 | legacy rate; plan lists $900 |
+| Aylen Grubusic | Sunday Funday | MONTHLY $80 | plan lists $75 |
+| Clint Dwyer | Sunday Funday | MONTHLY $80 | plan lists $75 |
+| John Doe | Jr Frogs | MONTHLY $5 | test row |
+
+Those stay `optionId = null` and get a report, not a guess. **Zero ambiguous is
+the load-bearing result** — it means the inference is safe to run once, now,
+before anyone buys the $110 Tue/Thu option. After that, `(MONTHLY, 110)` on
+MS/HS is still unique, so the inference stays safe; it only breaks if two
+options share both period *and* price, which the option editor should refuse to
+create.
+
+**Where `optionId` must be written going forward** (all currently label-only):
+`/api/member/memberships/subscribe`, `/api/members/subscribe`,
+`/api/members/migration/[id]/approve` (which also stops writing
+`optionLabel: planName`), `/api/members/migration/activate/[token]`,
+`/api/approvals/membership-purchase`, `/api/reactivate/[token]/confirm`,
+`/api/members/[id]/billing-admin` (the offer editor), and the price tool's
+`moves` path. `optionLabel` keeps being written as a **display snapshot** — it
+is what the member saw when they bought, and receipts should not retroactively
+change.
+
+`PendingApproval.payload` and the reactivation offer JSON also carry
+`optionLabel` today; both gain `optionId` and resolve by id first, label second.
+
+---
+
+## 8.2 Terms move onto the option
+
+Three plan columns become per-option, with the plan column kept as the fallback:
+
+| Field | On the option | Plan column | Read order |
+|---|---|---|---|
+| `contractMonths` | `number \| null` | keep `Membership.contractMonths` | option → plan → none |
+| `autoRenewDefault` | `boolean` | keep `Membership.autoRenewDefault` | option → plan → `true` |
+| `allowManualRenewal` | `boolean` | keep `Membership.allowManualRenewal` | option → plan → `true` |
+
+**No column is dropped and no value is migrated.** An option with the key absent
+inherits the plan, which is today's behaviour exactly. That is what makes this
+shippable without touching a single existing subscription.
+
+**`contractMonths` and `billingPeriod` are independent, and the option must
+carry both.** This is the brief's point 4, stated as a rule:
+
+- *billingPeriod* — how often money moves. `MONTHLY`, `QUARTERLY`, `ANNUAL`.
+- *contractMonths* — how long the member is committed. Independent of the above.
+
+| Option | price | billingPeriod | contractMonths |
+|---|---|---|---|
+| Monthly Full Membership | 175 | MONTHLY | `null` (no minimum) |
+| Monthly 2 days (Tue/Thu) | 110 | MONTHLY | `null` |
+| 3 Months | 160 | MONTHLY | **3** |
+| 12 months | 150 | MONTHLY | **12** |
+| 3 months Upfront | 450 | QUARTERLY | **3** |
+| 1 year | 1500 | ANNUAL | **12** |
+
+Six options, four of them MONTHLY, three distinct commitment lengths. One card.
+That is the whole ask, and it is unrepresentable today.
+
+**English is derived, never typed.** `lib/membershipOptions.ts` exports
+`describeOption(option)` producing the member-facing sentence from the
+structured fields:
+
+- `{160, MONTHLY, 3}` → *"$160 per month for 3 months"*
+- `{450, QUARTERLY, 3}` → *"$450 every 3 months"*
+- `{110, MONTHLY, null, days:[2,4]}` → *"$110 per month · Tue & Thu · no minimum"*
+
+Nothing else in the app is allowed to concatenate a price sentence. The reason
+is on the current card: *"3 Months $160"* and *"12 months $150"* are two labels
+that encode a term the database does not hold, which is precisely how the
+second plan came to be wrong.
+
+**`allowManualRenewal` gets a reader or gets deleted.** It has none today
+(§8.0.3-D4). Recommendation: keep the field, and give it its one honest
+meaning — *"when this term ends and autopay is off, the club may re-open it as a
+manual period rather than requiring a new purchase."* If that is not a real
+workflow, drop it from the option shape and from the edit UI rather than
+carrying a switch that does nothing. **Decision D5, §8.12.**
+
+---
+
+## 8.3 Day entitlements
+
+### 8.3.1 The data
+
+A fourth optional key on the option:
+
+```jsonc
+{
+  "id": "opt_k3f9c1qa",
+  "label": "Monthly 2 days (Tue/Thu)",
+  "price": 110,
+  "billingPeriod": "MONTHLY",
+  "contractMonths": null,
+  "entitlement": { "kind": "DAYS", "days": [2, 4] }
+}
+```
+
+```ts
+type Entitlement =
+  | { kind: "ALL" }                          // default when the key is absent
+  | { kind: "DAYS"; days: number[] }         // 0=Sun … 6=Sat, same convention
+                                             // as RecurringClass.daysOfWeek
+  | { kind: "COUNT"; perWeek: number };      // RESERVED — not built in Phase 8
+```
+
+`ALL` is the default for a missing key, so every existing option keeps behaving
+exactly as it does today. `COUNT` ("any two sessions a week") is a real club
+shape but needs a per-week usage ledger and a "which two did they use" answer
+that attendance alone cannot give — it is **reserved in the discriminant now and
+deferred**, so that adding it later is a code change and not a second reshape of
+stored data.
+
+`days` uses the same 0=Sunday convention as `RecurringClass.daysOfWeek`, on
+purpose: the two arrays are intersected constantly and a second convention would
+be a permanent off-by-one hazard.
+
+### 8.3.2 How it interacts with the class's own schedule
+
+They are different questions and both must be answered:
+
+- **`RecurringClass.daysOfWeek` (+ `dayOverrides`)** — when the class meets.
+  Owned by the class. Generates `ClassSession` rows.
+- **`option.entitlement.days`** — which weekdays the member bought. Owned by the
+  membership option. Grants nothing on its own.
+
+Coverage of one `ClassSession` is the conjunction:
+
+```
+covered =
+     class accepts the member's plan            (existing pricingOptions check)
+  && subscription is active                     (existing)
+  && countsAsMembership(subscription)           (existing, lib/memberTracks.ts)
+  && ( entitlement.kind === "ALL"
+       || entitlement.days.includes(dowUTC(session.date)) )
+```
+
+`dowUTC` reads `ClassSession.date.getUTCDay()` — see §8.0.4. No `Club.timezone`
+conversion, deliberately, with that reasoning written on the function.
+
+### 8.3.3 The editor
+
+On each option row in the membership edit screen, a day picker that appears only
+when at least one class accepts this plan, **seeded from the union of those
+classes' `daysOfWeek`**. For MS/HS that is `{Mon, Tue, Thu}` from Olympic
+Season and Preseason plus `{Sun}` from Sunday Funday — so the coach picks from
+the four days the club actually runs, not an abstract seven-day grid, and the
+picker names the classes each day comes from.
+
+Two rules on the picker:
+
+- Selecting **every** offered day stores `{kind:"ALL"}`, not the enumerated
+  list. An option that enumerates today's schedule silently un-covers its
+  members the day the club adds a Wednesday session. `ALL` means "everything
+  this plan is accepted for" and stays true.
+- A day-restricted option shows a live count: *"12 members are on this option —
+  changing these days changes what they are entitled to."* Because entitlement
+  is **not snapshotted** (§8.3.4), this is the honest warning.
+
+### 8.3.4 Entitlement tracks the option; price does not
+
+Price is snapshotted onto `MemberSubscription.price` at purchase — that is the
+whole reason the bulk price tool exists. Entitlement is **read live from the
+option**. The asymmetry is deliberate and has to be stated because it will look
+like an inconsistency:
+
+- A price change moves money and must never happen without the owner ticking a
+  row. Hence the snapshot.
+- An entitlement change is the club changing what it offers. Two people on
+  "Tue/Thu" must mean the same thing, or the front desk cannot answer a question
+  from the card. Hence no snapshot.
+
+The cost is that a coach editing days changes existing members' access with no
+per-member review. That is mitigated by the count warning above, and by
+`member_subscription_events` recording the option edit against every affected
+subscription so the change is auditable after the fact.
+
+**D3 answered, 2026-08-16: live, not snapshotted.** The owner's reasoning is the
+better statement of the rule and is recorded verbatim: *"If I change what an
+option grants, it should apply to everyone on it. A snapshot means a silent
+second tier nobody can see."* So there is no `entitlementSnapshot` column, and
+the option editor's affected-member count is a required part of the UI rather
+than a nicety — it is the only thing between a coach and a silent access
+change.
+
+### 8.3.5 The day sets — settled, except for one class-acceptance question
+
+**Owner correction, 2026-08-16: the $110 option is Tue/Thu only. It does not
+include Sunday.** An earlier note suggesting otherwise was stale.
+
+**D1 answered: the day set is absolute** — these weekdays, everywhere this plan
+is accepted.
+
+**What the class table actually says** (verified, all active classes):
+
+| Class | Days | Time | Accepted plans | Drop-in |
+|---|---|---|---|---|
+| Ms/HS Olympic Season | Mon·Tue·Thu | 18:30–20:30 | Girls MS/HS, **MS/HS** | $25 |
+| MS/HS Preseason | Mon·Tue·Thu | 19:00–20:30 | Girls MS/HS, **MS/HS** | $25 |
+| **Sunday Funday** | **Sun** | 11:00–13:00 | Girls Jr Frogs, Girls MS/HS, Jr Frogs, **MS/HS**, Sunday Funday | $25 |
+| Jr Frogs | Mon·Wed | 17:30–18:30 | Girls Jr Frogs, **Jr Frogs** | $25 |
+| Girls Class | Fri | 17:00–18:30 | Girls Jr Frogs, Girls MS/HS, Girls Only | $40 |
+| Tadpoles | Wed·Sun | 17:30–18:15 | Tadpoles | $25 |
+
+So **MS/HS is accepted for Sunday Funday today**, at the plan level — a $175
+member currently gets Sunday free, and so would a $110 Tue/Thu member, because
+acceptance is plan-wide and nothing looks at the option.
+
+**Both day sets are settled, and neither depends on the Sunday answer:**
+
+| Option | `entitlement` |
+|---|---|
+| Monthly Full Membership | `{kind:"ALL"}` |
+| Monthly 2 days (Tue/Thu) | `{kind:"DAYS", days:[2,4]}` |
+
+Under absolute, `days:[2,4]` excludes Sunday Funday for the $110 member, which
+is exactly what the option is sold as. **No live member loses anything** —
+nobody is on the $110 option yet.
+
+**The Sunday question is not an option question.** *"Does $175 include Sunday?"*
+is answered on the Sunday Funday class's accepted-plans list, not on the MS/HS
+option:
+
+- **Keep MS/HS accepted for Sunday Funday** → `ALL` means Mon·Tue·Thu·Sun. A
+  $175 member gets four days, and the separate $80 Sunday Funday plan is for
+  people who want *only* Sunday.
+- **Remove MS/HS from Sunday Funday's accepted list** → `ALL` means
+  Mon·Tue·Thu, because those become the only classes MS/HS is accepted for.
+  Sunday then needs the $80 plan or the $25 drop-in.
+
+**D1a answered, 2026-08-16: Sunday Funday stays included** for MS/HS and every
+other plan currently on it. No class-acceptance edit. So a $175 Full member is
+entitled Mon·Tue·Thu·Sun, and the $110 Tue/Thu member is entitled Tue·Thu only —
+which is the one behaviour change in this area, and it affects nobody today
+because the $110 option has no subscribers.
+
+**Never enumerate `days:[1,2,4]` on the Full option to express this.** It gives
+the same behaviour today and silently un-covers every full member the day the
+club adds a Wednesday session. Acceptance controls *which classes*; `ALL` then
+means "all of them" and stays true as the schedule changes. That is why `ALL` is
+a distinct kind and not sugar for a full day list.
+
+**Related finding, its own decision.** Aylen Grubusic and Clint Dwyer each pay
+$80/month for the Sunday Funday plan — for a class every MS/HS, Girls MS/HS, Jr
+Frogs and Girls Jr Frogs member already attends free under the current
+acceptance list. If Sunday is meant to be separately sold, that list is where it
+leaks. (Their $80 is also above the plan's listed $75 — §8.11 X7.)
+
+---
+
+## 8.4 Attendance enforcement — the warning
+
+This is what makes the entitlement real. It is a **warning with a reason and an
+amount, never a block.**
+
+### 8.4.1 One resolver
+
+`lib/entitlements.ts` — pure, no Prisma, fed by the caller, so a fixture can
+construct every branch by hand (same discipline as `lib/memberTracks.ts` and
+`lib/bulkPriceChange.ts`).
+
+```ts
+export type CoverageReason =
+  | "COVERED"
+  | "NO_ACTIVE_MEMBERSHIP"     // no sub, or the sub doesn't countAsMembership
+  | "PLAN_NOT_ACCEPTED"        // has a plan; this class doesn't take it
+  | "DAY_NOT_INCLUDED"         // the one this phase adds
+  | "TERM_ENDED"               // sub active but endDate/paidThroughDate passed
+  | "OPTION_UNIDENTIFIED";     // optionId null and inference failed
+
+export type CoverageVerdict = {
+  covered: boolean;
+  reason: CoverageReason;
+  /** One front-desk sentence. Never a stack of clauses. */
+  message: string;
+  planName: string | null;
+  optionLabel: string | null;
+  optionResolution: "exact" | "inferred" | "unresolved" | "none";
+  entitledDays: number[] | null;
+  sessionWeekday: number;
+  /** From the class's existing pricingOptions. Null when none is configured. */
+  dropIn: { amount: number; source: "dropin" | "nonmember" } | null;
+};
+```
+
+**`OPTION_UNIDENTIFIED` fails open.** `covered: true`, and the message reads
+*"Could not identify which option Colton is on — coverage not checked."* It
+never claims a member owes money. A warning system that cries wolf on the nine
+rows in §8.1 would be switched off within a week, and the nine rows are exactly
+the members whose billing is already unusual. **Warn only on a positive day
+mismatch.**
+
+`dropIn` reads the class's existing `pricingOptions` — `dropin` price first,
+then `nonmember`. If neither is configured, `dropIn: null` and the message says
+*"no drop-in price is set on this class"* rather than inventing one.
+
+### 8.4.2 Where it surfaces
+
+| Surface | Change |
+|---|---|
+| `GET /api/attendance/[sessionId]` | add `coverage: CoverageVerdict` per existing attendance row; add `acceptedOptions` alongside the existing `acceptedMemberships` |
+| `GET /api/attendance/[sessionId]/coverage?memberIds=…` | **new**, read-only. Feeds `QuickAddForm`'s search results so the chip is visible *before* staff click Add |
+| `POST /api/attendance` | return `coverage` in the response. **Never a 4xx on a coverage verdict** |
+| `POST /api/attendance/charge` | same |
+| `POST /api/classes/[id]/charge` | same — and when `coveredByMembership` would be returned on a `DAY_NOT_INCLUDED` day, it must **not** be; the member falls through to the priced tier with the verdict attached |
+| `POST /api/member/classes/book` | same rule on the self-serve path. A Tue/Thu member booking Monday is quoted the drop-in, not booked free |
+| `GET /api/member/schedule` | `bookingLabel` stops saying *"Included in your membership"* on a non-entitled day; says *"Drop-in $25 — your plan covers Tue & Thu"* |
+| `POST /api/member/checkin/[id]` | verdict decides `PRESENT` vs `TRIAL`-equivalent; today it is `covered ? PRESENT : TRIAL` |
+
+**Staff paths warn. Member self-serve paths price.** A coach can always record
+attendance; a member self-booking a day they did not buy gets quoted rather than
+silently given a free session. That asymmetry is the point — the front desk has
+judgement, the portal does not.
+
+### 8.4.3 The UI
+
+Reuse the **`OwesChip`** pattern already in `app/dashboard/attendance/page.tsx`
+(a chip on the row plus an expandable panel, with the existing precedent
+*"Attendance allowed — payment still due; the chip stays until it's
+recorded"*). Do not invent a second warning idiom.
+
+Copy, on the row:
+
+> **Tue/Thu plan** · Monday isn't included · Drop-in $25
+
+Expanding gives the sentence and one action: **Record drop-in**, which opens the
+existing drop-in sub-panel pre-filled with `dropIn.amount` and the member
+selected. It does **not** create a new payment path — it points at the one that
+already handles cash / check / comp / invoice / saved card / Stripe checkout.
+
+If staff record attendance and take no payment, the existing **Owes** chip is
+the follow-through, and it already persists until money is recorded. The two
+chips are complementary: *not entitled* is about the plan, *owes* is about the
+money.
+
+### 8.4.4 What it must not do
+
+- Never block. `requirePermission(session, "attendance", "edit")` is the only
+  gate; entitlement is information.
+- Never write. The coverage endpoint is read-only, like the price preview.
+- Never fire on `OPTION_UNIDENTIFIED`, `TERM_ENDED` where `paidThroughDate` is
+  null (unknown ≠ expired), or on a member with no plan at all — that last case
+  is already served by the existing non-member pricing and would double up.
+
+---
+
+## 8.5 Does class acceptance have to become option-level?
+
+**No — and this is the cheap answer, which is why it is the recommended one.**
+
+The brief's worry is correct in general and does not bite here: *"If MS/HS
+collapses to one plan, a $110 two-day member gains access to three-day classes."*
+With §8.3, they do not. They are accepted by Olympic Season at the plan level
+and blocked on Monday by the day rule. Acceptance answers *which classes*; the
+entitlement answers *which days*. The pair covers the actual shape.
+
+**What option-level acceptance would additionally buy:** the ability to exclude
+an option from a class on *every* day that class runs, while another option with
+the *same* days is included. That configuration does not exist in the club today
+and there is no plan to create it.
+
+**What it would cost, if ever wanted:** `pricingOptions` entries grow an
+optional field —
+
+```jsonc
+{ "type": "membership", "membershipId": "cmq9zoo3n…", "optionIds": ["opt_a","opt_b"] }
+```
+
+— `null`/absent meaning "all options on this plan", so every existing row keeps
+working. Then **all nine coverage call-sites in §8.0.5 need the extra predicate**,
+plus the class editor's "Accepted Memberships / Purchase Options" checkbox list
+becomes a two-level tree, plus `trialCoversClass` and the free-trial scoping
+need the same treatment. That is roughly the same surface area as §8.4 itself,
+for a case with no current instance.
+
+**Recommendation: ship day entitlements, keep acceptance plan-level, and
+reserve `optionIds` in the `pricingOptions` shape** so adding it later needs no
+data reshape. **Decision D2, §8.12.**
+
+---
+
+## 8.6 Autopay per member
+
+### 8.6.1 The field the schema does not have
+
+`MemberSubscription.autoRenew` is currently doing two jobs and only names one.
+They must be separated before anything is built:
+
+- **Auto-renew** — *does this membership continue after this term.* Stripe
+  expresses it: `cancel_at_period_end` / `cancel_at`. Today's `autoRenew: false`
+  on the Stripe path is implemented as `cancel_at` computed at creation
+  (`approve:509-518`), which goes stale the moment the anchor moves.
+- **Autopay** — *is the club charging a card automatically, or collecting cash
+  each period.* Stripe expresses it by the **existence of a subscription**.
+  There is no field: today it is implied by
+  `billingType === "MANUAL" || stripeSubscriptionId === null`.
+
+The brief's item 5 is about **autopay**. It already states the right conclusion
+and this spec confirms it: *both directions are subscription lifecycle events,
+not toggles.*
+
+**No new column for autopay.** It is derivable, and a stored flag that can
+disagree with Stripe is worse than a derived one. Add a *transition*, not a
+field.
+
+### 8.6.2 The two transitions
+
+**Autopay ON → OFF** (Stripe-billed → MANUAL):
+
+1. Refuse unless a period end is known (`currentPeriodEnd` or
+   `paidThroughDate`). Without it nobody knows when cash is next due, and the
+   member silently stops being billed. Offer "reconcile from Stripe first".
+2. `stripe.subscriptions.update(id, { cancel_at_period_end: true })` — **not**
+   an immediate cancel, which voids time already paid for.
+3. Read back and verify before writing locally (same discipline as the price
+   tool's apply).
+4. On the `customer.subscription.deleted` webhook: set
+   `billingType: "MANUAL"`, `stripeSubscriptionId: null`,
+   `stripePriceId: null`, keep `price`, stamp
+   `paidThroughDate` from the last paid invoice, keep `status: "active"`.
+5. `member_subscription_events` row, `kind: PLAN_CHANGED`,
+   `fromAmount = toAmount` (nothing about the money changed),
+   `detail: { autopay: "off", stripeSubscriptionId: "sub_…" }`.
+   Per the brief, `PLAN_CHANGED` is the right kind and churn reads it.
+6. `BillingAuditLog`.
+
+Between (2) and (4) the row is *"autopay ending on <date>"* — a real state the
+billing centre must render, not a gap.
+
+**Autopay OFF → ON** (MANUAL → Stripe-billed):
+
+1. Require a verified, attached payment method —
+   `resolveChargeablePaymentMethodId` (the Mack Munroe guard). No card →
+   `CARD_SETUP_REQUIRED`, send the setup link, **change nothing**. Never flip
+   optimistically.
+2. Amount = `recurringUnitWithFee(Math.round(sub.price * 100), club.passProcessingFees)`
+   — from **the subscription's own price**, not the plan's option price. Reading
+   the option here is how you silently reprice a member who holds an override.
+   `stripeUnitAmountCents` already does exactly this and must be reused.
+3. `trial_end` = `paidThroughDate ?? currentPeriodEnd`, so the first charge lands
+   when the paid period ends. Never charge on the day the toggle is flipped —
+   the same rule the migration-approve path already follows.
+4. Create the subscription with a params-hashed idempotency key (the Mack Munroe
+   burned-key lesson: a static per-member key is permanently poisoned by one
+   failure).
+5. Write `stripeSubscriptionId`, `stripePriceId`, `billingType: "RECURRING"`;
+   `PLAN_CHANGED` + `BillingAuditLog` as above.
+
+**One row, not two.** `stripeSubscriptionId` is `@unique`, so the OFF path must
+null it before a later ON path can attach a new one. The alternative — a new row
+chained by `renewedFromId` — keeps a cleaner Stripe history but changes which
+row every other reader considers "the" subscription (the billing centre, all
+nine coverage call-sites, the price tool, `countsAsMembership`). Recommend one
+row, with both Stripe ids recorded in the event `detail` so the history is
+recoverable. **Decision D6, §8.12.**
+
+### 8.6.3 Who can do it
+
+| Actor | Route | Behaviour |
+|---|---|---|
+| Owner / staff | `POST /api/members/[id]/billing-admin/actions` → `action: "set_autopay"` | `billing:full`, `confirm: true` required, audited. Same shape as the existing `set_deliberate_free`. Executes immediately. |
+| Member / guardian | `POST /api/member/subscriptions/[id]/autopay` | **queues a `PendingApproval`**, kind `MEMBERSHIP_AUTOPAY_CHANGE`. Returns 202. |
+
+The member path queues for the same reason `request-cancel` queues: the
+subscription lifecycle is the club's money, and members have never been given a
+Stripe Customer Portal button. It also means "turn autopay on" cannot be used to
+start a charge the club did not agree to. The approvals queue shows the exact
+next charge date and amount before the owner approves. **Decision D8, §8.12.**
+
+The confirm dialog on both sides states, verbatim from the computed values:
+*"Autopay off — Stripe will stop after 16 Sep 2026. From then the club collects
+$175 every month by cash or check."* / *"Autopay on — first card charge $180.08
+on 16 Sep 2026."* (The $180.08 is the $175 sticker with the club's 2.9%
+passthrough; the dialog must show what the card will actually be charged, not
+the sticker.)
+
+### 8.6.4 Auto-renew gets a writer too
+
+Separately from autopay, add `action: "set_auto_renew"` on the billing-admin
+actions route. On a Stripe row it maps to `cancel_at_period_end`, **not** a
+recomputed `cancel_at` — a `cancel_at` calculated at creation time is the reason
+eleven rows now say `autoRenew: true` next to an `endDate` (§8.0.8). New writes
+use `cancel_at_period_end`; the existing `cancel_at` values are a data question,
+not a code question.
+
+---
+
+## 8.7 The bulk price tool starts from the membership
+
+### 8.7.1 What changes
+
+| Today | After |
+|---|---|
+| Entry: `{optionLabel, billingPeriod, newPrice?}` | Entry: `{}` — the whole plan. Option filter optional. |
+| Matcher: `(membershipId, billingPeriod)` | Matcher: `optionId` → inferred `(billingPeriod, price)` → unresolved bucket |
+| 409 `AMBIGUOUS_PERIOD` when two options share a period | Gone. `resolveOption`'s ambiguity refusal existed only because the period was the identity. |
+| One `newPrice` for the whole run | Per-row target: `toPrice?` and/or `toOptionId?` |
+| `moves[]` as a separate array, offline-only | Folded into the same per-row change. Still offline-only, same reason. |
+
+### 8.7.2 The screen
+
+One list per the brief: **every member on MS/HS**, grouped by resolved option,
+with an *Option not identified* group at the bottom.
+
+```
+MS/HS — 11 members
+
+  Monthly Full Membership · $175/mo · no minimum          (6)
+    Levi Schanzenbach   $175  stripe   [$175 ▾] [move ▾] [leave]
+    Max Hall            $175  offline  [$175 ▾] [move ▾] [leave]
+    …
+  3 months Upfront · $450 per 3 months · 3-month term      (1)
+    Kellan Lister       $450  stripe   ⚠ stored label "Upfront"
+  1 year · $1500/yr · 12-month term                        (2)
+  Monthly 2 days (Tue/Thu) · $110/mo · Tue & Thu           (0)
+  Option not identified                                    (2)
+    Colton Waite       $530  offline  ⚠ $530 on a MONTHLY row
+    Wyatt Eastman        $0   offline  ⚠ $0 with no comp marker
+```
+
+Per row, three mutually exclusive choices — exactly the brief's three cases:
+**new rate for their option** · **different option** · **leave alone**.
+
+Everything that already exists is preserved per row: channel badge, `onListPrice`
+vs override, upfront credit / additional-due with `UNKNOWN` when no period end
+is stored, Stripe-status warnings, discount-code warning, and
+`canChangeOption: false` on Stripe rows with the existing reason — *changing a
+Stripe subscription's billing interval in place re-anchors the cycle*. **That
+constraint is not reopened.** Moving a Stripe member to a different option
+remains a billing-centre operation (cancel-at-period-end plus a new subscription
+anchored with `trial_end`), which is now exactly the machinery §8.6.2 builds —
+so the price tool can *link* to it rather than refuse silently.
+
+### 8.7.3 API shape
+
+```
+POST /api/memberships/[id]/price-change/preview
+  {}                                        // whole plan
+  { optionId?: string }                     // one option
+→ { membership, options[], groups[{ optionId, option, rows[] }], unresolved[],
+    summary, moveTargets, notes }
+
+POST /api/memberships/[id]/price-change/apply
+  { changes: [{ memberSubscriptionId, toPrice?, toOptionId?, toMembershipId? }],
+    notifyBeforeDate?, notify, notifySubscriptionIds?, memo?, reconcileLabel,
+    clientKey }
+→ { results: ApplyRowResult[] }             // per-row outcomes, unchanged
+```
+
+`optionLabel`/`billingPeriod` stay accepted on preview for one release so the
+existing modal keeps working; the option-index entry point from the edit screen
+(`initialOptionIndex`) becomes a pre-applied filter on the full list rather than
+the only way in.
+
+**Unchanged and non-negotiable:** `requireOwner` on both routes (repricing the
+book of business is not `billing:full`); preview writes nothing; increases refuse
+without a future effective date (`validateNotice` + `directionForRows`, which
+already compute direction per row and therefore already handle a mixed run);
+`proration_behavior: "none"`; Stripe-first-verify-then-DB with per-row rollback;
+`member_subscription_events` on every change.
+
+---
+
+## 8.8 Stripe — what it can and cannot express
+
+### 8.8.1 Contract term — Stripe cannot hold it, and nothing technical stops a cancellation
+
+**Stripe has no minimum-term primitive.** Subscription Schedules define phases
+and an `end_behavior`; they do **not** prevent cancellation —
+`subscriptions.cancel()` and `cancel_at_period_end` still work on a scheduled
+subscription. There is no field, on any Stripe object, that means "this customer
+may not leave before March."
+
+**So the commitment lives entirely on our side**, in two places:
+
+1. **`MemberSubscription.minimumTermEndsAt`** — computed at purchase from
+   `option.contractMonths` and the billing anchor. Null = no minimum.
+2. **The cancellation door.** This is the part that actually works, and it
+   already exists: `POST /api/member/subscriptions/request-cancel` does not
+   cancel anything. It files a `MEMBERSHIP_CANCEL` `PendingApproval`, and
+   `/api/approvals/membership-cancel` performs the real Stripe cancellation
+   after an owner approves. **AthletixOS has never exposed a Stripe Customer
+   Portal cancel button.** The club's approval queue *is* the enforcement point.
+
+**What Phase 8 adds:** the cancellation request is still always accepted — never
+silently refused — but when `now < minimumTermEndsAt` it is stamped
+`earlyTermination: true` with months remaining and the amount implied by
+`option.contractMonths × price`, and the approvals queue shows the owner what is
+outstanding before they approve. The software surfaces the obligation; a person
+decides.
+
+**Name the field `minimumTermEndsAt`, not `commitmentEndDate`.** The existing
+`Member.commitmentEndDate` means the **opposite**: it is passed to Stripe as
+`cancel_at` and written to `MemberSubscription.endDate` — the date the
+membership *ends*. A minimum term is a floor, not a ceiling. Reusing that name,
+or that column, would put "cannot leave before" and "stops on" in one field, and
+every reader would have to guess. Two names, both commented, pointing at each
+other.
+
+**What genuinely stops someone cancelling in month 2:** nothing in code, and the
+spec should not pretend otherwise. The residual exposure is a card removal or a
+chargeback, which no software prevents. If the club wants real recourse the
+instrument is a signed agreement, and AthletixOS already has the machinery —
+`Document.requiredAt: ["PURCHASE"]` plus the signature table. Recommendation:
+**an option with `contractMonths` set may name a required document**, so buying
+a 12-month term collects a signature at purchase. That is the only enforcement
+that survives contact with a dispute. **Decision D7, §8.12.**
+
+### 8.8.2 Per-member autopay — both directions are lifecycle events
+
+Confirmed, and specified in §8.6.2. Restated as the plain answer to the brief's
+question:
+
+- **Autopay OFF on a Stripe member** = `cancel_at_period_end: true`, then on the
+  deletion webhook flip the row to `billingType: "MANUAL"` with
+  `stripeSubscriptionId: null` and a stamped `paidThroughDate`. Not an immediate
+  cancel — that would void paid time. Not a field write.
+- **Autopay ON for a cash member** = create a subscription, which requires a
+  verified attached payment method, the member's own `price` passed through
+  `recurringUnitWithFee`, and `trial_end` at the paid-through date so the first
+  charge is not today.
+- Neither is free or reversible-for-free: each ON mints a new Stripe
+  subscription id. `stripeSubscriptionId` is `@unique`, so the OFF path must
+  null it first (§8.6.2).
+- Both write `member_subscription_events` `PLAN_CHANGED` with equal from/to
+  amounts, because the money did not change — only the mechanism. Churn
+  reporting must not read an autopay change as a price move.
+
+### 8.8.3 Day entitlements never reach Stripe
+
+**Confirmed: nothing about entitlements needs to reach Stripe, and nothing
+will.** Stripe holds a customer, an amount, an interval, and a status. It has no
+concept of a weekday grant and no place to put one that would be enforced. The
+only Stripe-visible consequence of the Tue/Thu option is its `unit_amount`:
+$110 → $113.19 with the club's 2.9% passthrough, against $175 → $180.08 for the
+full option.
+
+One optional, non-authoritative addition: stamp
+`metadata: { athletixOptionId }` on new subscriptions, purely so a Stripe
+dashboard row can be traced back to an option during an incident. It must be
+documented as **never read back for authorization** — the same discipline as
+the existing `athletixMembershipId` product metadata.
+
+Also worth recording, because it shapes the ON path: **`Membership.stripePriceIds`
+is `{}` on every plan in production.** Subscriptions are created with inline
+`price_data`, not catalog Price ids (`ensureRecurringPrice` exists but has never
+populated a map). Nothing in Phase 8 depends on catalog prices, and the ON path
+should keep using inline `price_data` rather than introduce a second mechanism
+mid-phase.
+
+---
+
+## 8.9 Schema
+
+**Everything is additive. No column is dropped, no enum shrinks, no destructive
+backfill. No migration is written in this spec.**
+
+### 8.9.1 DDL — one migration, two columns, one index
+
+| # | Change | Type | Purpose |
+|---|---|---|---|
+| P8-1 | `MemberSubscription.optionId TEXT NULL` | Additive | §8.1. Null on every existing row; readers fall back to inference and then to "unresolved". No FK — the target is a key inside a JSON array, not a table. |
+| P8-2 | `MemberSubscription.minimumTermEndsAt TIMESTAMPTZ NULL` | Additive | §8.8.1. Null = no minimum, which is every existing row. Deliberately **not** `commitmentEndDate` — opposite meaning, see §8.8.1. |
+| P8-3 | `@@index([membershipId, optionId])` on `member_subscriptions` | Additive | The price tool groups a plan's subscribers by option. |
+
+No new table ⇒ no new RLS policy. Folder timestamp must sort after
+`20260815000000_member_created_via`.
+
+**Ordering is load-bearing, and there is a precedent for getting it wrong.**
+`schema.prisma` must not name `optionId` until the column exists in production —
+Prisma selects every scalar a model declares, so declaring it early takes down
+*every* subscription read, not just the new code. That is the exact failure the
+`Member.createdVia` migration comment warns about. Apply, verify the live column,
+then edit the schema.
+
+### 8.9.2 JSON shape — no DDL, but a real contract
+
+`Membership.options` is a `Json` column that stores a JSON **string** (verified:
+`jsonb_typeof(options::jsonb) = 'string'`, which is why `parseMembershipOptions`
+double-parses). Its entries gain four optional keys:
+
+```jsonc
+{
+  "id":            "opt_k3f9c1qa",   // §8.1  — minted, stable, never reused
+  "label":         "Monthly 2 days (Tue/Thu)",
+  "price":         110,
+  "billingPeriod": "MONTHLY",
+
+  "contractMonths":     null,        // §8.2  — absent ⇒ inherit Membership.contractMonths
+  "autoRenewDefault":   true,        // §8.2  — absent ⇒ inherit plan column
+  "allowManualRenewal": true,        // §8.2  — absent ⇒ inherit plan column
+  "entitlement":  { "kind": "DAYS", "days": [2, 4] }   // §8.3 — absent ⇒ {kind:"ALL"}
+}
+```
+
+Validated on read by `lib/membershipOptions.ts`, extending the existing
+`parseMembershipOptions` discipline: an entry missing `label`, `billingPeriod`
+or a finite `price` is **skipped**, and a malformed `entitlement` degrades to
+`{kind:"ALL"}` rather than to "no access". Degrading toward *more* access is the
+right direction for a field that gates a child's class.
+
+The option editor must **refuse to save two options sharing both
+`billingPeriod` and `price`** on the same plan — that is the only condition
+under which the §8.1 inference fallback becomes ambiguous, and refusing at
+write time is cheaper than resolving it forever after.
+
+### 8.9.3 Reserved, not built
+
+- `pricingOptions` entry: `optionIds?: string[]` (§8.5) — reserve in the type,
+  do not read it.
+- `Entitlement` discriminant: `{kind:"COUNT", perWeek}` (§8.3.1) — reserve,
+  do not build.
+- Option key: `requiredDocumentIds?: string[]` (§8.8.1) — reserve pending D7.
+
+### 8.9.4 No migration needed for
+
+`PendingApproval.kind` is a free string — `MEMBERSHIP_AUTOPAY_CHANGE` needs no
+DDL. `MemberSubscriptionEvent.kind` already includes `PLAN_CHANGED`, which is
+the right kind for every Phase 8 transition per the brief.
+
+---
+
+## 8.10 Migration path — collapsing two live plans into one
+
+**Precondition: §8.1 and §8.2 are shipped and the option-id backfill has run.**
+The collapse puts four MONTHLY options on MS/HS. Doing it before subscriptions
+name their option leaves the price tool permanently unable to tell $175, $160,
+$150 and $110 members apart.
+
+The whole collapse touches **one live subscription** and **zero Stripe objects**.
+
+### Step 0 — Interim: give commitment members class coverage now (data)
+
+**Only if the collapse is not running this week.** D4 says commitment members
+should be covered, and Maximus Alexander is being drop-in priced today. The
+collapse (Steps 3–8) fixes this structurally and makes Step 0 unnecessary — so
+run Step 0 *only* as a stopgap, and expect to undo it.
+
+Add each commitment plan to exactly the classes its parent plan is already
+accepted for:
+
+| Plan to add | Add to these classes | Because |
+|---|---|---|
+| `MS/HS 3 or 12 months Commitment` `cmspjh1bq…` | **Ms/HS Olympic Season**, **MS/HS Preseason** | the two classes MS/HS is accepted for |
+| — | **Sunday Funday** — only if D1a keeps MS/HS on it | match MS/HS exactly; do not grant more than the parent plan |
+| `Jr Frogs Monthly Commitment` `cmsqv1ldd…` | **Jr Frogs**, **Sunday Funday** | the two classes Jr Frogs is accepted for |
+
+Mechanically this is appending `{"type":"membership","membershipId":"<id>"}` to
+each class's `pricingOptions` array — the same edit the class editor's "Accepted
+Memberships / Purchase Options" checkboxes make, so it can be done in the UI
+without a script.
+
+**Jr Frogs Monthly Commitment has zero subscribers**, so adding it changes
+nothing today; it is purely defensive against someone buying it before the
+collapse. **Only Maximus Alexander benefits**, and only from the MS/HS row.
+
+**Step 8 must then also un-add these**, or the deactivated plans stay listed in
+six class configs forever. That undo is the reason to prefer just doing the
+collapse.
+
+### Step 1 — Mint option ids (data)
+
+`scripts/mint-option-ids.ts`, dry-run by default, `--apply` to write. Idempotent:
+options that already carry an `id` are skipped. Runs across every plan including
+soft-deleted ones, so historical rows can still resolve.
+
+### Step 2 — Backfill `MemberSubscription.optionId` (data)
+
+`scripts/backfill-subscription-option-id.ts`. Unique `(billingPeriod, price)`
+match only. **Expected result, measured against production: 18 stamped, 9 left
+null, 0 ambiguous** (§8.1). The nine are printed with member name, plan, stored
+label and the reason — that report is the deliverable, not a side effect.
+
+### Step 3 — Add the two options to MS/HS (data)
+
+Append to `MS/HS.options`, each with a fresh id:
+
+```jsonc
+{ "label": "3 Months",  "price": 160, "billingPeriod": "MONTHLY", "contractMonths": 3  }
+{ "label": "12 months", "price": 150, "billingPeriod": "MONTHLY", "contractMonths": 12 }
+```
+
+MS/HS now has six options and four MONTHLY ones. No pair shares both period and
+price, so §8.1's inference stays unambiguous.
+
+### Step 4 — Set per-option terms on the four existing MS/HS options (data)
+
+| Option | `contractMonths` |
+|---|---|
+| Monthly Full Membership | `null` |
+| Monthly 2 days (Tue/Thu) | `null` |
+| 3 months Upfront | `3` |
+| 1 year | `12` |
+
+`Membership.contractMonths` stays `1` as the fallback for anything unset. Nothing
+reads it today (§8.0.3-D3), so this changes no behaviour until §8.8.1 ships.
+
+### Step 5 — Set entitlements (data)
+
+| Option | `entitlement` |
+|---|---|
+| Monthly Full Membership | `{kind:"ALL"}` — **not** `[1,2,4]`; see §8.3.3 |
+| Monthly 2 days (Tue/Thu) | `{kind:"DAYS", days:[2,4]}` |
+| 3 months Upfront · 1 year · 3 Months · 12 months | `{kind:"ALL"}` (omit the key) |
+
+**D1 answered — these sets are final** (§8.3.5). Under absolute day sets the
+Tue/Thu option no longer covers Sunday Funday; nobody is on that option yet, so
+no live member is affected. Whether the **$175 Full** option covers Sunday is
+settled separately, on the Sunday Funday class's accepted-plans list (D1a), and
+does not change any value in this table.
+
+### Step 6 — Repoint the one live subscriber (data)
+
+Maximus Alexander — "12 months", $150 MONTHLY, Stripe, active, `endDate`
+2027-08-09.
+
+```
+UPDATE member_subscriptions
+   SET "membershipId" = <MS/HS>, "optionId" = <12-months option id>
+ WHERE id = <his subscription id>;
+```
+
+**Nothing Stripe-side is touched.** `price` stays $150, `billingPeriod` stays
+MONTHLY, `stripeSubscriptionId` is untouched, no interval change, no anchor
+change, no proration. The brief's constraint — *changing a Stripe subscription's
+billing interval in place is unsafe, do not reopen it* — is respected because
+this operation goes nowhere near it. What changes is which local plan row the
+subscription points at.
+
+Write one `member_subscription_events` row:
+
+```
+kind:        PLAN_CHANGED
+fromPlan:    "MS/HS 3 or 12 months Commitment"
+toPlan:      "MS/HS"
+fromAmount:  150.00
+toAmount:    150.00        ← equal, deliberately
+actorUserId: <owner>
+source:      OWNER_ACTION
+detail:      { reason: "plan collapse", stripeUntouched: true,
+               fromMembershipId, toMembershipId, toOptionId }
+```
+
+Equal amounts matter: churn and revenue reporting read this table, and a
+`PLAN_CHANGED` with unequal amounts would show as a price movement in a month
+where no money moved.
+
+### Step 7 — Repoint `Member.membershipId` (data)
+
+Same member. His `Member.membershipId` currently points at the commitment plan.
+Leaving it stale would make `resolveOfferPricing` quote him against a
+deactivated plan.
+
+### Step 8 — Deactivate the old plan, do not delete it (data)
+
+```
+UPDATE memberships SET active = false WHERE id = 'cmspjh1bq…';
+```
+
+**Do not set `deletedAt` and do not delete.**
+`MemberSubscription.membershipId` is `onDelete: Cascade` — a hard delete would
+destroy subscription history. And several readers filter `deletedAt: null`
+(including the price-change preview), so a soft delete would make historical
+rows fail to resolve their plan name. `active = false` removes it from every
+purchase surface (which all filter `active: true`) and from the price tool's
+`moveTargets`, while leaving every historical row readable. That is exactly the
+behaviour wanted.
+
+### Step 9 — Verify the coverage change is intended
+
+Repointing Maximus to MS/HS **grants him class coverage he does not have today**
+(§8.0.6). That is a fix, not a side effect, but it changes what he can book and
+what the club can charge him — confirm before Step 6. **Decision D4, §8.12.**
+
+### Step 10 — Jr Frogs, same shape, easier
+
+Append `{"3 months", 90, MONTHLY, contractMonths: 3}` and
+`{"12 months", 80, MONTHLY, contractMonths: 12}` to Jr Frogs; deactivate
+`Jr Frogs Monthly Commitment`. **Zero live subscribers** — Steps 6, 7 and 9 are
+no-ops. Set `Monthly` → `{kind:"ALL"}`; Jr Frogs classes run Mon·Wed and Sun and
+there is no day-restricted Jr Frogs option today.
+
+### Step 11 — Explicitly out of scope
+
+`Girls MS/HS` and `Girls Jr Frogs` still carry the pre-2026 price list
+($190/$530/$2000 and $110/$300/$1000) and have their own subscribers. Do not
+fold, reprice or restructure them in this pass — that is a separate decision
+with its own review screen.
+
+### Step 12 — Note, do not fix: the plan generator
+
+`/api/reactivate/[token]/confirm:270` **creates a new `Membership`** per
+reactivation offer, with a single synthetic option. That is the source of the
+seven soft-deleted `Continued membership` plans and two `Elite National Champ`
+plans in production. It will keep manufacturing one-option plans. Out of scope
+for Phase 8; worth its own item.
+
+---
+
+## 8.11 Code vs data corrections
+
+### Code (ships once, applies to everyone thereafter)
+
+| # | Item | Files |
+|---|---|---|
+| C1 | `lib/membershipOptions.ts` — parse/validate, mint ids, `resolveSubscriptionOption`, `describeOption` | new |
+| C2 | `optionId` written on every purchase path | `member/memberships/subscribe`, `members/subscribe`, `migration/[id]/approve` (also stops writing `optionLabel: planName`), `migration/activate/[token]`, `approvals/membership-purchase`, `reactivate/[token]/confirm`, `members/[id]/billing-admin` |
+| C3 | Per-option terms in the editor + API | `dashboard/memberships/page.tsx`, `api/memberships/{route,[id],[id]/duplicate}` |
+| C4 | `lib/entitlements.ts` — the coverage resolver | new |
+| C5 | Coverage wired into the nine call-sites (§8.0.5) | per §8.4.2 |
+| C6 | Attendance warning chip + `/coverage` endpoint | `dashboard/attendance/page.tsx`, `api/attendance/[sessionId]/coverage` |
+| C7 | Autopay transitions | `members/[id]/billing-admin/actions` (`set_autopay`, `set_auto_renew`), `member/subscriptions/[id]/autopay`, `approvals/`, `stripe/webhook` |
+| C8 | `minimumTermEndsAt` stamped at purchase; early-termination flag on cancel requests | purchase paths, `member/subscriptions/request-cancel`, `approvals/membership-cancel`, approvals UI |
+| C9 | Price tool: membership-first entry, per-row targets, option grouping | `lib/bulkPriceChange.ts`, both price-change routes, `components/BulkPriceChangeModal.tsx` |
+| C10 | Tests | `scripts/entitlements-tests.ts` (new), extend `bulk-price-change-tests`, `billing-admin-tests`, `member-tracks` |
+
+**None of C1–C10 repairs a row already written.**
+
+### Data corrections — Julian runs these, dry-run by default, `--apply` to act
+
+| # | Script / action | Scope |
+|---|---|---|
+| X1 | `scripts/mint-option-ids.ts` | every plan, incl. soft-deleted |
+| X2 | `scripts/backfill-subscription-option-id.ts` | 27 live subs → 18 stamped, 9 reported |
+| X3 | `scripts/collapse-membership-plans.ts --plan MS/HS` | Steps 3–9 |
+| X4 | `scripts/collapse-membership-plans.ts --plan "Jr Frogs"` | Step 10 |
+| X5 | **`scripts/audit-stripe-cancel-at.ts` — run this first, ahead of everything else in the phase** | 12 active Stripe subs carry a local `endDate`; 11 of those also say `autoRenew: true`, and `stripeSnapshot` is empty on all but one, so the DB cannot say which side is true. Read-only, no `--apply`, only `subscriptions.retrieve`. Four of the twelve read as ending within five weeks. §8.0.8 |
+| X6 | Still open from 2026-08-14, and now blocking X2's clean report | Barrett David + Paul Ortega → `set_deliberate_free`; Wyatt Eastman (prepaid annual, no transaction); Colton Waite ($530 on a MONTHLY row); Devin Eggleston (comp with no subscription) |
+| X7 | Optional | Adelynn Bergen / Riley Bergen ($750 annual legacy rate), Aylen Grubusic / Clint Dwyer ($80 vs $75 list) — deliberate overrides or drift? The price tool can settle these once it starts from the membership (§8.7). |
+
+X6 is not cosmetic here. Four of the nine unresolved rows in X2 are those exact
+members, and a coverage warning on an unidentifiable option fails open (§8.4.1) —
+so until they are settled, four members are outside the entitlement system.
+
+---
+
+## 8.12 Decisions needed before building
+
+| # | Question | Recommendation |
+|---|---|---|
+| ~~**D1**~~ | Does `{kind:"DAYS", days:[2,4]}` gate **every** class the plan is accepted for? | ✅ **ANSWERED 2026-08-16 — absolute.** Day sets settled: Full = `ALL`, 2-day = `DAYS[2,4]`. §8.3.5 |
+| ~~**D1a**~~ | Should MS/HS stay in the **Sunday Funday class's** accepted-plans list? | ✅ **ANSWERED 2026-08-16 — yes, Sunday Funday stays included** for MS/HS and the rest. No class-acceptance edit. `ALL` on the Full option therefore means Mon·Tue·Thu·Sun. §8.3.5 |
+| **D2** | Should class acceptance become option-level? | **No.** Day entitlements cover the real shape; reserve `optionIds` in `pricingOptions` for later. §8.5 |
+| ~~**D3**~~ | Does a member's entitlement snapshot at purchase, or track the option? | ✅ **ANSWERED 2026-08-16 — live, not snapshotted.** No `entitlementSnapshot` column; the editor's affected-member count becomes required UI. §8.3.4 |
+| ~~**D4**~~ | Repointing Maximus grants him class coverage he lacks today. Intended? | ✅ **ANSWERED 2026-08-16 — yes, fix it; commitment members should be covered.** See §8.10-0 for the interim fix that does not wait on the collapse. §8.0.6 |
+| **D5** | `allowManualRenewal` has no reader. Give it one, or delete it? | Give it the one honest meaning in §8.2, or remove it from the option shape and the edit UI. Do not carry a dead switch onto six options. |
+| **D6** | Autopay OFF→ON: one row with a churning `stripeSubscriptionId`, or a new row chained by `renewedFromId`? | **One row.** Every other reader keeps working; both Stripe ids live in the event `detail`. §8.6.2 |
+| **D7** | Should an option with `contractMonths` require a signed document at purchase? | **Yes.** It is the only enforcement that survives a dispute; the machinery already exists (`Document.requiredAt: ["PURCHASE"]`). §8.8.1 |
+| **D8** | Member-initiated autopay change: queue for approval, or immediate? | **Queue**, matching `request-cancel`. §8.6.3 |
+| **D9** | `resolveOfferPricing` quotes five of eleven MS/HS members wrong today (§8.0.7). Fix in Phase 8, or as its own item? | Its own item — but it **depends on** `optionId`, so land §8.1 first and schedule it immediately after. |
+| ~~**D11**~~ | **`autoRenew` conflates two things.** Boolean, or a three-value renewal mode? | ✅ **APPROVED 2026-08-16 — three modes**, `OPEN_ENDED` / `TERM_THEN_ENDS` / `TERM_THEN_RENEWS`, derived, no new column; `autoRenew` redefined to "Stripe will bill this again", written from Stripe on Stripe-billed rows. §8.14.2 |
+| **D12** | Should a staff-entered **End date** on a card-billed recurring membership become a Stripe `cancel_at`, or keep being refused? | Refused today (the guard shipped 2026-08-16). Answer with D11 — it is the same question. §8.14 |
+| ~~**D13**~~ | **Titus Hall:** local `endDate` 2027-07-14, Stripe holds no `cancel_at`. Which is true? | ✅ **ANSWERED 2026-08-16 — he does not renew.** The local `endDate` is right and Stripe is wrong; a `cancel_at` has to be set. Data correction, §8.14.3. |
+| **D10** | "Monthly Full Membership" — `ALL`, or explicitly Mon·Tue·Thu? | **`ALL`.** Enumerating today's schedule silently un-covers members when a day is added. §8.3.3 |
+
+---
+
+## 8.13 Build order
+
+Each step is independently shippable and leaves the app correct.
+
+| # | Step | Gate |
+|---|---|---|
+| 8.13.1 | `lib/membershipOptions.ts` + migration P8-1/P8-2/P8-3 applied and verified live **before** `schema.prisma` names the columns | tsc + build clean; every existing membership read unchanged |
+| 8.13.2 | X1 + X2 (mint ids, backfill) | report shows 18/9/0; the nine are the nine in §8.1 |
+| 8.13.3 | Per-option terms (§8.2) — editor, API, `describeOption` | an option with no keys behaves identically to today |
+| 8.13.4 | Price tool from the membership (§8.7) | MS/HS preview returns 11 members grouped by option, no 409 |
+| 8.13.5 | X3 + X4 — the collapse | MS/HS shows six options; Maximus is on MS/HS at $150; Stripe untouched |
+| 8.13.6 | Day entitlements (§8.3) — data shape + editor, **no enforcement yet** | saving days changes nothing observable |
+| 8.13.7 | `lib/entitlements.ts` + coverage on read-only surfaces (§8.4.2 rows 1–2) | the chip appears; no write path behaves differently |
+| 8.13.8 | Coverage on the write paths (§8.4.2 rows 3–8) | staff still record freely; member self-serve gets quoted |
+| 8.13.9 | X5 — Stripe reconcile | the 11 contradictory rows resolved |
+| 8.13.10 | `minimumTermEndsAt` + early-termination flag (§8.8.1) | cancel requests still always accepted |
+| 8.13.11 | Autopay transitions (§8.6) | both directions verified against a real Stripe test subscription |
+| 8.13.12 | Tests (C10) + full regression on the nine coverage call-sites | `tsc --noEmit` + `npm run build` clean |
+
+**Acceptance, in the brief's own terms.** One MS/HS card. Six options. Each
+carries its own price, billing period, contract length, renewal behaviour and
+day grant as structured data. A $110 Tue/Thu member added to a Monday session
+produces a chip reading *"Tue/Thu plan — Monday isn't included — Drop-in $25"*,
+and the coach records them anyway. Opening the price tool on MS/HS lists all
+eleven members, shows which option each is on and what each pays, and takes a
+per-member decision. No existing Stripe subscription's interval, anchor or
+amount was changed to get there.
+
+---
+
+## 8.14 Renewal semantics — the `autoRenew` question (D11)
+
+Raised by the owner on 2026-08-16 after the `cancel_at` audit: *"'renews
+forever' and 'has a term then ends' may need to be two different things rather
+than one boolean."* That is the right instinct, and the audit proves it.
+
+### 8.14.1 What the field means today, and why it lies
+
+`MemberSubscription.autoRenew Boolean @default(true)` is written from
+`Membership.autoRenewDefault` at creation and then almost never again. Its only
+mechanical consequence is one branch in the checkout webhook: when it is
+`false`, the webhook calls `cancel_at_period_end: true` on the new Stripe
+subscription **and writes the true end date back** from Stripe's
+`current_period_end`. When it is `true`, nothing happens — including nothing
+that clears an `endDate` somebody typed.
+
+So the flag does not describe the subscription. It describes a decision made at
+creation. Eleven live rows say `autoRenew: true` while Stripe holds a real
+`cancel_at`, because the end date arrived through a different door
+(`Member.commitmentEndDate` → the approve route's `cancel_at`) that never
+touched the flag.
+
+### 8.14.2 The recommendation: three modes, derived, no new column
+
+Do not add a second boolean. Derive a **renewal mode** in `lib/` from fields
+that already exist, and give `autoRenew` one narrow meaning it can actually
+keep:
+
+```ts
+export type RenewalMode =
+  | "OPEN_ENDED"        // no end date. Bills until somebody cancels.
+  | "TERM_THEN_ENDS"    // endDate set; Stripe holds cancel_at / cancel_at_period_end.
+                        // Needs a re-sign conversation — this is the queue in §8.14.4.
+  | "TERM_THEN_RENEWS"; // minimumTermEndsAt set, endDate null. Committed for a
+                        // term, then keeps billing.
+```
+
+- **`autoRenew` is redefined to mean exactly "Stripe will bill this again"**,
+  and on any Stripe-billed row it is *written from Stripe*, never authored
+  locally. On MANUAL rows it stays locally authored, because there is no Stripe
+  fact to mirror.
+- With that definition the contradiction becomes structurally impossible:
+  `autoRenew` and `endDate` would both come from the same read, so they cannot
+  disagree.
+- `TERM_THEN_RENEWS` is the mode the collapsed commitment options need — "3
+  Months $160" and "12 months $150" are a *minimum term*, not an end date. It
+  is exactly the distinction §8.8.1 draws between `minimumTermEndsAt` (a floor)
+  and `endDate` (a ceiling), and it is why §8.2 moves `autoRenewDefault` onto
+  the option: the same plan now has options that want different modes.
+
+**Mapping the live rows:** the eleven with a genuine commitment end date are
+`TERM_THEN_ENDS`. Girls Only, Tadpoles and Oren Oren are `OPEN_ENDED`. Nothing
+is `TERM_THEN_RENEWS` yet — that mode arrives with the collapse.
+
+**No member data changes to adopt this.** The mode is computed; the eleven rows
+keep their dates. What changes is that `autoRenew` stops being displayed as
+"renews" next to an end date, because the display reads the mode.
+
+### 8.14.3 Titus Hall — the one row the audit could not settle (D13)
+
+| Source | Says |
+|---|---|
+| `MemberSubscription.endDate` | 2027-07-14 |
+| Stripe | no `cancel_at` — will keep billing |
+| `Member.commitmentEndDate` | 2027-07-20 |
+| `Member.membershipStartDate` | 2026-07-20 |
+
+**How it diverged.** His live row was created 2026-07-14 through the staff
+assign-membership modal (`components/members/MemberModals.tsx` → `POST
+/api/members/subscribe`), whose form has a free-text **End date** field. That
+route wrote `endDate` to the local row and sent nothing about it to Stripe —
+Checkout has no `cancel_at` in `subscription_data`, and the webhook's only
+end-date mechanism is the `autoRenew === false` branch, which did not run
+because his `autoRenew` is `true`. The date has been decoration ever since.
+
+**This is the exact inverse of the cancellation bug**: there, Stripe was told
+and the answer was discarded; here, the local row was told and Stripe never
+heard.
+
+**Answered 2026-08-16: Titus does not renew.** The local `endDate` is the true
+record and Stripe is the side that is wrong, so a `cancel_at` has to be set on
+`sub_1TtE7BEIplcCMoSodSBfE6nd`.
+
+The safe instrument is `cancel_at_period_end: true` rather than an absolute
+`cancel_at`: it lets Stripe resolve the exact boundary from its own billing
+period, and the F1 write-back pattern then stamps the resolved date onto
+`endDate`, so the two sides end up agreeing by construction instead of by
+coincidence. That is a Stripe write plus a DB write — Julian's to run, and
+there is no UI for it until §8.6.4 ships `set_auto_renew`.
+
+Note also the 6-day gap between `endDate` (2027-07-14) and `commitmentEndDate`
+(2027-07-20), and that `membershipStartDate` is recorded as 2026-07-20 while the
+subscription starts 2026-07-14. Worth settling in the same pass.
+
+### 8.14.4 What shipped on 2026-08-16, ahead of the rest of the phase
+
+Three fixes. **No member data was touched by any of them.**
+
+| # | Fix | File |
+|---|---|---|
+| F1 | **Cancellation now writes the real end date back.** `PERIOD_END` already had Stripe's `current_period_end` in hand — it was used for the member's email and discarded. It is now written to `endDate`, and only when Stripe actually returned it. | `app/api/approvals/membership-cancel/route.ts` |
+| F2 | **A recurring card membership can no longer be given an End date that Stripe never hears.** 400 with the two real alternatives (Auto Renew off, or assign as manual). Forward-only; `ONE_TIME` unaffected. | `app/api/members/subscribe/route.ts` |
+| F3 | **Ending memberships are surfaced.** The `EXPIRING_MEMBERSHIP` probe went from a 14-day rollup naming at most three people to per-member cards over **120 days**, severity by proximity (≤14d high, ≤45d medium, else low), each independently snoozable, with an overflow card past 20 that states how many it stands for. A new `endingSoon` roster queue backs the drill-through. | `lib/reportsActionItems.ts`, `lib/membersQuery.ts` |
+| F4 | **Six dead Action Item links fixed** — see §8.14.5. | `lib/reportsActionItems.ts` |
+
+F3 is the one that answers *"nothing tells me to re-sign them"*: on the day it
+was written, all eight of Frog Empire's memberships ending between 2026-08-27
+and 2026-11-23 were outside the old window, so the Action Center showed none of
+them.
+
+### 8.14.5 Six dead Action Item links, not one
+
+Writing the test for F3 turned the known `?filter=expiring` bug into a class.
+Every one of these shipped in 2.5.1a and every one was silent — a dead query
+parameter renders a perfectly good page, it just renders the wrong contents, so
+nothing ever failed:
+
+| Action Item | Linked to | Why it did nothing |
+|---|---|---|
+| `EXPIRING_MEMBERSHIP` | `/dashboard/members?filter=expiring` | `filter` is not a parameter the roster parses |
+| `UPCOMING_RENEWAL_LARGE` | `/dashboard/members?filter=upcoming_renewals` | same |
+| `UNRECONCILED_DEPOSIT` | `/dashboard/financials?tab=stripe` | Financials parses **no** query parameters — `tab` is `useState` |
+| `OFFLINE_PAYMENT_PENDING` | `/dashboard/financials?tab=offline&filter=pending` | same |
+| `UNCATEGORIZED_LARGE_BANK` | `/dashboard/financials?tab=bank&filter=needs_review` | same |
+
+`EXPIRING_MEMBERSHIP` now points at the real `?queue=endingSoon`. The other four
+were reduced to bare links: giving `UPCOMING_RENEWAL_LARGE` its own roster queue,
+or teaching Financials to read its tab from the URL, are features, not bug fixes,
+and inventing them inside a fix batch is how the original mistake got made.
+
+**Two guards now pin this**, both in `scripts/renewal-surfacing-tests.ts`:
+
+- `MEMBER_FILTER_PARAM_KEYS` + `MEMBER_NON_FILTER_PARAM_KEYS` are exported from
+  `lib/membersQuery.ts`, and the suite sweeps **every** static
+  `/dashboard/members?…` link in `lib/`, `app/` and `components/` — 648 files —
+  failing on any parameter the roster does not read. A companion assertion
+  proves each declared key genuinely changes the parsed filter, so a stale
+  entry in the list fails too.
+- Narrow assertions that no `href` in the probe file carries `filter=`, and that
+  none deep-links Financials.
+
+The guard also self-checks: it asserts it can still detect the exact string that
+shipped broken (`?filter=expiring`), so it cannot rot into a test that passes
+because it stopped looking.
+
+### 8.14.6 The window is 120 days, not 90
+
+90 was the first number, and the test caught it: Orson Chorba's membership ends
+99 days out, so a 90-day window still missed the furthest of the eight on the
+day it was written. `ENDING_SOON_WINDOW_DAYS = 120` lives in `lib/membersQuery.ts`
+and the Action Item imports it, so the card and the queue cannot drift. Every one
+of the eight real dates is pinned in the suite.
+
+---
+
+**F2 is a refusal, not a policy.** Whether an End date *should* become a Stripe
+`cancel_at` is D12, and it is the same question as D11 — until renewal mode is
+settled, refusing is the only answer that cannot make anything worse.
+
 
 ---
 
