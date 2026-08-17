@@ -31,6 +31,7 @@ import { prisma } from "../lib/prisma";
 import { stripe, billingPeriodToStripeInterval } from "../lib/stripe";
 import { recurringUnitWithFee } from "../lib/fees";
 import { ensureMembershipProduct } from "../lib/stripeCatalog";
+import { addUTCDays, addUTCMonths } from "../lib/billingAdmin";
 
 const APPLY = process.argv.includes("--apply");
 const ALL_OVERRIDE = process.argv.includes("--i-really-mean-all-eligible");
@@ -60,21 +61,34 @@ function inAllowlist(m: { id: string; email: string | null; guardianEmail: strin
 // Next due date on the member's cadence, strictly in the future. Preserves the
 // day-of-month for monthly-family periods by stepping whole periods forward.
 function nextDueDate(anchor: Date | null, period: string, now: Date): Date {
-  const step = (d: Date) => {
+  // UTC with a clamped day of month — see lib/billingAdmin.addUTCMonths. The
+  // anchor is a date-only 00:00Z value and this result becomes the Stripe
+  // `trial_end`, so local-time stepping walked it a day out (and picked up an
+  // hour across DST). QUADRIMESTRAL is absent from this switch on purpose:
+  // it falls to the MONTHLY default here rather than addBillingPeriod's
+  // one-year default, and changing that is a separate decision from the
+  // arithmetic frame. Worth revisiting — see the note in the commit.
+  //
+  // Each step is measured from `base`, never from the previous result — the
+  // header above promises the day-of-month is preserved, and stepping
+  // iteratively would compound the month-end clamp (a Jan 31 anchor would stick
+  // on 28 from the first short month onward).
+  if (anchor && anchor.getTime() > now.getTime()) return anchor;
+  const base = anchor ? new Date(anchor) : new Date(now);
+  const stepsFromBase = (n: number) => {
     switch (period) {
-      case "WEEKLY": d.setDate(d.getDate() + 7); break;
-      case "MONTHLY": d.setMonth(d.getMonth() + 1); break;
-      case "QUARTERLY": d.setMonth(d.getMonth() + 3); break;
-      case "SEMI_ANNUAL": d.setMonth(d.getMonth() + 6); break;
-      case "ANNUAL": d.setFullYear(d.getFullYear() + 1); break;
-      default: d.setMonth(d.getMonth() + 1); break;
+      case "WEEKLY": return addUTCDays(base, 7 * n);
+      case "MONTHLY": return addUTCMonths(base, n);
+      case "QUARTERLY": return addUTCMonths(base, 3 * n);
+      case "SEMI_ANNUAL": return addUTCMonths(base, 6 * n);
+      case "ANNUAL": return addUTCMonths(base, 12 * n);
+      default: return addUTCMonths(base, n);
     }
   };
-  if (anchor && anchor.getTime() > now.getTime()) return anchor;
-  const d = anchor ? new Date(anchor) : new Date(now);
+  let d = base;
   // Guard against an unbounded loop on a bad period; cap iterations.
   let i = 0;
-  while (d.getTime() <= now.getTime() + 60_000 && i < 240) { step(d); i++; }
+  while (d.getTime() <= now.getTime() + 60_000 && i < 240) { i++; d = stepsFromBase(i); }
   return d;
 }
 

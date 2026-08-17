@@ -20,6 +20,7 @@ import {
   isMoveFailure,
   type PricedSubscription,
 } from "../lib/bulkPriceChange";
+import { addBillingPeriod } from "../lib/billingAdmin";
 import { resolveCoverage, describeCoverage, MAX_PERIODS_PER_PAYMENT } from "../lib/paidThrough";
 import {
   LIFECYCLE_EVENT_KINDS,
@@ -55,8 +56,32 @@ check("ANNUAL is upfront", isUpfrontPeriod("ANNUAL") === true);
 check("null is not upfront", isUpfrontPeriod(null) === false);
 
 console.log("\nperiodStartFor:");
-check("QUARTERLY back 3 months", periodStartFor(new Date("2026-10-09T00:00:00Z"), "QUARTERLY").toISOString().slice(0, 10) === "2026-07-09");
-check("ANNUAL back 1 year", periodStartFor(new Date("2027-01-15T00:00:00Z"), "ANNUAL").toISOString().slice(0, 10) === "2026-01-15");
+const S = (from: string, period: string) => periodStartFor(new Date(from), period).toISOString().slice(0, 10);
+check("QUARTERLY back 3 months", S("2026-10-09T00:00:00Z", "QUARTERLY") === "2026-07-09");
+check("ANNUAL back 1 year", S("2027-01-15T00:00:00Z", "ANNUAL") === "2026-01-15");
+
+// periodStartFor carried the same local-time `setMonth` bug as its forward
+// twin, and it produces the days-in-period DENOMINATOR of the unused-time
+// credit — so a day of drift here moves the refund figure an owner is shown
+// mid-bulk-price-change. Pinned in both directions.
+check("QUARTERLY back across the November DST change holds the day",
+  S("2026-12-01T00:00:00Z", "QUARTERLY") === "2026-09-01", S("2026-12-01T00:00:00Z", "QUARTERLY"));
+check("…and keeps 00:00Z exactly — no stray DST hour",
+  periodStartFor(new Date("2026-12-01T00:00:00Z"), "QUARTERLY").toISOString() === "2026-09-01T00:00:00.000Z",
+  periodStartFor(new Date("2026-12-01T00:00:00Z"), "QUARTERLY").toISOString());
+check("MONTHLY back from Mar 31 clamps to Feb 28, not Mar 3",
+  S("2026-03-31T00:00:00Z", "MONTHLY") === "2026-02-28", S("2026-03-31T00:00:00Z", "MONTHLY"));
+check("MONTHLY back from Oct 31 is Sep 30",
+  S("2026-10-31T00:00:00Z", "MONTHLY") === "2026-09-30", S("2026-10-31T00:00:00Z", "MONTHLY"));
+check("ANNUAL back from Feb 29 is Feb 28 the year before",
+  S("2028-02-29T00:00:00Z", "ANNUAL") === "2027-02-28", S("2028-02-29T00:00:00Z", "ANNUAL"));
+check("WEEKLY back 7 days across DST", S("2026-11-05T00:00:00Z", "WEEKLY") === "2026-10-29", S("2026-11-05T00:00:00Z", "WEEKLY"));
+
+// The two are inverses on any date that is not a clamped month end.
+for (const [end, period] of [["2026-12-01", "QUARTERLY"], ["2026-10-15", "MONTHLY"], ["2027-09-01", "ANNUAL"]] as const) {
+  const roundTrip = addBillingPeriod(periodStartFor(new Date(`${end}T00:00:00Z`), period), period);
+  check(`${period} round-trips back to ${end}`, roundTrip.toISOString().slice(0, 10) === end, roundTrip.toISOString());
+}
 
 // ── Credit math ─────────────────────────────────────────────────────────────
 console.log("\ncomputeCredit:");

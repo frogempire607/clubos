@@ -42,12 +42,29 @@ type Option = { label: string; price: number; billingPeriod: string };
 
 /** Compute endDate from startDate + billingPeriod for one-time purchases */
 
-/** Compute next billing anchor for a given day of month */
-function billingAnchorForDay(day: number): Date {
-  const now = new Date();
-  const anchor = new Date(now.getFullYear(), now.getMonth(), day, 0, 0, 0, 0);
-  if (anchor <= now) anchor.setMonth(anchor.getMonth() + 1);
-  return anchor;
+/**
+ * Next occurrence of `day`-of-month, strictly in the future, at 00:00Z.
+ *
+ * Two things were wrong here. It built LOCAL midnight and stored that in
+ * `billingAnchorDate`, a date-only column whose convention is 00:00Z — so the
+ * value sat in a different frame from every other date on the row and read
+ * back as the previous day in a negative-offset zone. And it let the day of
+ * month overflow: asking for day 31 during February produced March 3, silently
+ * moving the anchor into the wrong month entirely.
+ *
+ * Now: UTC throughout, and the day clamps to the length of the target month
+ * (31 in February means the 28th/29th, which is what "bill me on the last day"
+ * has to mean).
+ */
+function billingAnchorForDay(day: number, now: Date = new Date()): Date {
+  const anchorIn = (monthOffset: number) => {
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth() + monthOffset; // Date.UTC normalizes overflow into the next year
+    const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(year, month, Math.min(day, lastDayOfMonth)));
+  };
+  const thisMonth = anchorIn(0);
+  return thisMonth.getTime() > now.getTime() ? thisMonth : anchorIn(1);
 }
 
 export async function POST(req: Request) {

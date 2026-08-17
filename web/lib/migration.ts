@@ -2,6 +2,7 @@
 // Pure functions only (no next/prisma imports) so they're safe anywhere.
 
 import crypto from "crypto";
+import { addUTCDays, addUTCMonths } from "@/lib/billingAdmin";
 
 export const MIGRATION_STATUS = {
   IMPORTED: "IMPORTED",
@@ -139,24 +140,39 @@ export function resolveBillingAnchor(args: {
   const base = anchor ?? args.membershipStartDate;
   if (!base) return null;
 
-  const step = (d: Date) => {
-    const x = new Date(d);
+  // UTC, with the day of month clamped — see lib/billingAdmin.addUTCMonths.
+  // nextBillingDate and membershipStartDate are date-only values stored at
+  // 00:00Z, so local-time setters read them as the PREVIOUS day in any
+  // negative-offset zone and the whole walk landed a day out (plus an hour
+  // whenever it crossed a DST boundary). This anchor becomes the Stripe
+  // `trial_end` for a migrated member — it IS their first charge date.
+  //
+  // The frequency vocabulary here is deliberately NOT addBillingPeriod's: this
+  // reads an imported legacy cadence, which has BIWEEKLY and defaults to
+  // MONTHLY for anything unrecognized. Only the arithmetic frame changed.
+  //
+  // Each step is measured from `base`, never from the previous result. Stepping
+  // iteratively would compound the month-end clamp: a Jan 31 start would clamp
+  // to Feb 28 and then carry 28 forward forever, landing on Aug 28 instead of
+  // Aug 31. Multiplying from the base keeps the day of month, clamping only in
+  // the months that are genuinely short — which is also what Stripe does with
+  // a month-end billing anchor.
+  const stepsFromBase = (n: number) => {
     switch (args.frequency) {
-      case "WEEKLY": x.setDate(x.getDate() + 7); break;
-      case "BIWEEKLY": x.setDate(x.getDate() + 14); break;
-      case "QUARTERLY": x.setMonth(x.getMonth() + 3); break;
-      case "SEMI_ANNUAL": x.setMonth(x.getMonth() + 6); break;
-      case "ANNUAL": x.setFullYear(x.getFullYear() + 1); break;
-      default: x.setMonth(x.getMonth() + 1); break; // MONTHLY default
+      case "WEEKLY": return addUTCDays(base, 7 * n);
+      case "BIWEEKLY": return addUTCDays(base, 14 * n);
+      case "QUARTERLY": return addUTCMonths(base, 3 * n);
+      case "SEMI_ANNUAL": return addUTCMonths(base, 6 * n);
+      case "ANNUAL": return addUTCMonths(base, 12 * n);
+      default: return addUTCMonths(base, n); // MONTHLY default
     }
-    return x;
   };
 
   anchor = new Date(base);
   let guard = 0;
   while (anchor <= now && guard < 520) {
-    anchor = step(anchor);
     guard++;
+    anchor = stepsFromBase(guard);
   }
   return anchor;
 }
