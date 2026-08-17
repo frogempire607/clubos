@@ -2771,3 +2771,94 @@ directions. Spawned as a task with the full reproduction and consumer list.
 **Verification:** `npx tsc --noEmit` clean, `npm run build` clean,
 membership-options 82/82, renewal-surfacing 28/28, member-tracks 183/183,
 bulk-price-change 152/156 (the 4 pre-existing failures above, unchanged).
+
+---
+
+## 2026-08-17 — schema fields live, and the two identity scripts
+
+`20260817000000_membership_option_identity` applied by Julian and verified
+independently before the schema was touched: `optionId` (text, nullable),
+`minimumTermEndsAt` (timestamp, nullable) and
+`member_subscriptions_membershipId_optionId_idx` all confirmed present via a
+read-only query. Only then were the fields added to `schema.prisma` — that
+order is the whole point of the migration header.
+
+`schema.prisma` carries the reasoning at the field: `optionLabel` is a DISPLAY
+snapshot and never an identity; `optionId` is the identity; `minimumTermEndsAt`
+is a FLOOR and is deliberately not `Member.commitmentEndDate`, which is a
+ceiling.
+
+### Two scripts, dry-run by default, run in order
+
+**`scripts/mint-option-ids.ts`** — writes `memberships.options` only, adding an
+`id` to any option lacking one. Idempotent: an existing id is never
+regenerated, which matters because the id is about to become the thing
+subscriptions point at, and reassigning one would silently repoint every member
+on that option. Soft-deleted plans ARE included — canceled subscriptions still
+point at them, and skipping them would leave historical rows permanently
+unresolvable. Reads back after writing and fails loudly if any option is still
+without an id.
+
+**`scripts/backfill-subscription-option-id.ts`** — stamps `optionId` only where
+exactly one option on the plan matches `(billingPeriod, price)`. Never matches
+on `optionLabel`. Zero or multiple matches are reported and left null, which is
+the correct outcome: every reader already handles null (the price tool excludes
+the row from bulk selection, the coverage resolver fails open), and a wrong id
+would be worse than no id in all three places.
+
+### Expected numbers, measured against production read-only
+
+| | |
+|---|---|
+| Plans needing ids | **19** (of which 10 soft-deleted) |
+| Option ids to mint | **30** |
+| Live subscriptions considered | **28** |
+| Would stamp | **19** |
+| Left null | **9** |
+| Ambiguous | **0** |
+
+**Correction to the §8.1 figure of 27/18.** That query excluded subscriptions
+whose *plan* is soft-deleted; the script does not, because a live subscription
+on a retired plan still has to resolve its option or it is unreadable
+everywhere. John Doe's $1 row on the soft-deleted "Test" plan is the
+difference. The docstring now states 28/19 and says why.
+
+The nine that stay null: Barrett David, Paul Ortega, Wyatt Eastman and Colton
+Waite (the billing corrections open since 2026-08-14) plus four legacy rates —
+Adelynn Bergen, Riley Bergen ($750 annual), Aylen Grubusic and Clint Dwyer ($80
+against a $75 list).
+
+### Order matters, and the script says so
+
+Running the backfill BEFORE minting reports all 28 rows as
+`plan has un-minted options — run mint-option-ids.ts first`. That is by design,
+not a failure: there are no ids to stamp yet.
+
+    npx tsx scripts/mint-option-ids.ts                       # dry run
+    npx tsx scripts/mint-option-ids.ts --apply
+    npx tsx scripts/backfill-subscription-option-id.ts       # dry run → 19/9/0
+    npx tsx scripts/backfill-subscription-option-id.ts --apply
+
+### Pre-existing failures: it is 7, not 4, and all one bug
+
+`billing-admin-tests.ts` fails 3 assertions on top of the 4 in
+`bulk-price-change-tests.ts`, and they are the same `addBillingPeriod`
+local-time drift — QUARTERLY, QUADRIMESTRAL and SEMI_ANNUAL each land a day
+off. Confirmed pre-existing by stashing. The separate session fixing that date
+math should expect to turn 7 assertions green across two suites, not 4.
+
+### Process note — the wrong-checkout mistake happened again
+
+The `schema.prisma` edit landed in the main checkout rather than this worktree,
+for the same reason as 2026-08-16: `cd /Users/cubano/Desktop/clubos/web`
+resolves to the MAIN tree, and the shell cwd resets between commands. Caught by
+`git status` on both trees, verified both were at the same base commit, copied
+across, main reverted to clean. **Use `git -C <path>` and absolute paths for
+every read AND write when working in a worktree** — a bare `cd` into a path
+that merely looks right is the trap.
+
+**Verification (in the worktree):** `npx tsc --noEmit` clean, `npm run build`
+clean, membership-options 82 passed / 0 failed, renewal-surfacing 28 passed / 0
+failed, member-tracks 183 passed / 0 failed, billing-admin 108 passed / 3
+failed and bulk-price-change 152 passed / 4 failed (both pre-existing, same
+cause).
