@@ -6,6 +6,7 @@ import BulkPriceChangeModal from "@/components/BulkPriceChangeModal";
 import {
   parseOptions,
   makeOption,
+  resolveTerms,
   type BillingPeriod,
   type MembershipOption,
 } from "@/lib/membershipOptions";
@@ -681,6 +682,81 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
                       <option value="ONE_TIME">One-time payment</option>
                     </select>
                   </div>
+
+                  {/* Per-option terms. `null` on either field means "inherit
+                      the plan", which is NOT the same as 0 or false — a plain
+                      toggle cannot express three states, so inheritance is its
+                      own explicit control rather than a magic blank. */}
+                  {(() => {
+                    const planDefaults = {
+                      contractMonths: contractMonths ? parseInt(contractMonths, 10) : null,
+                      autoRenewDefault,
+                    };
+                    const resolved = resolveTerms(opt, planDefaults);
+                    const inherits = opt.contractMonths == null && opt.autoRenewDefault == null;
+                    return (
+                      <div className="mt-2 rounded-lg border border-app-border bg-app-bg px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="flex items-center gap-2 text-xs text-text-primary">
+                            <input
+                              type="checkbox"
+                              checked={inherits}
+                              onChange={(e) => {
+                                const copy = [...options];
+                                copy[i] = e.target.checked
+                                  ? { ...copy[i], contractMonths: null, autoRenewDefault: null }
+                                  // Seed the override from what it was already
+                                  // inheriting, so unticking never silently
+                                  // changes the terms — it just makes them explicit.
+                                  : { ...copy[i], contractMonths: resolved.contractMonths, autoRenewDefault: resolved.autoRenewDefault };
+                                setOptions(copy);
+                              }}
+                              className="rounded border-app-border"
+                            />
+                            Same terms as the plan
+                          </label>
+                          {inherits && (
+                            <span className="text-xs text-text-muted">
+                              {resolved.contractMonths
+                                ? `${resolved.contractMonths}-month minimum`
+                                : "No minimum"}
+                              {" · "}
+                              {resolved.autoRenewDefault ? "auto-renews" : "does not auto-renew"}
+                            </span>
+                          )}
+                        </div>
+
+                        {!inherits && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-text-primary mb-1">
+                                Min. contract <span className="text-text-muted font-normal">(months)</span>
+                              </label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={opt.contractMonths ?? ""}
+                                onChange={(e) => updateOption(i, "contractMonths", e.target.value ? parseInt(e.target.value, 10) : null)}
+                                placeholder="None"
+                                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                              />
+                              <p className="text-xs text-text-muted mt-0.5">Blank = no minimum for this option</p>
+                            </div>
+                            <div className="flex items-center justify-between sm:justify-start sm:gap-3">
+                              <label className="text-xs font-medium text-text-primary">Auto-renew</label>
+                              <button
+                                type="button"
+                                onClick={() => updateOption(i, "autoRenewDefault", !(opt.autoRenewDefault ?? resolved.autoRenewDefault))}
+                                className={`relative inline-flex h-5 w-9 rounded-full transition ${opt.autoRenewDefault ?? resolved.autoRenewDefault ? "bg-brand" : "bg-app-border"}`}
+                              >
+                                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${opt.autoRenewDefault ?? resolved.autoRenewDefault ? "translate-x-4" : "translate-x-0.5"}`} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Existing subscribers keep their own price — editing this
                       field changes the price list only. The review screen is

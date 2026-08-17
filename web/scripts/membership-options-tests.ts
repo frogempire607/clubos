@@ -20,6 +20,7 @@ import {
   parseOptions,
   resolveSubscriptionOption,
   resolveTerms,
+  type PlanDefaults,
   serializeOptions,
   withMintedIds,
   type Entitlement,
@@ -381,6 +382,50 @@ console.log("\neditor round-trip (preserves every field):");
   const plain = JSON.stringify([{ label: "Monthly", price: 190, billingPeriod: "MONTHLY" }]);
   check("a plan with no Phase 8 fields round-trips to byte-identical JSON",
     serializeOptions(parseOptions(plain)) === plain, serializeOptions(parseOptions(plain)));
+}
+
+// ── The editor's inherit/override control ───────────────────────────────────
+// "Same terms as the plan" is ticked exactly when BOTH fields are null.
+// Unticking seeds the override from whatever the option was already
+// inheriting, so making terms explicit must never change what they resolve to
+// — otherwise the owner clicks a checkbox and silently alters a contract.
+console.log("\neditor inherit/override seeding:");
+{
+  const plans: PlanDefaults[] = [
+    { contractMonths: 12, autoRenewDefault: true },
+    { contractMonths: 3, autoRenewDefault: false },
+    { contractMonths: null, autoRenewDefault: true },
+    {},
+  ];
+  let stable = true;
+  let tickBackClean = true;
+  for (const plan of plans) {
+    const inheriting = makeOption({ label: "X", price: 1, billingPeriod: "MONTHLY" });
+    const before = resolveTerms(inheriting, plan);
+    // untick → seed explicitly from the resolved values
+    const overridden = { ...inheriting, contractMonths: before.contractMonths, autoRenewDefault: before.autoRenewDefault };
+    const after = resolveTerms(overridden, plan);
+    if (after.contractMonths !== before.contractMonths || after.autoRenewDefault !== before.autoRenewDefault) stable = false;
+    // every seeded value now reports as coming from the option, not the plan
+    if (after.source.autoRenewDefault !== "option") tickBackClean = false;
+    // re-ticking clears both back to null, restoring inheritance
+    const recleared = { ...overridden, contractMonths: null, autoRenewDefault: null };
+    const back = resolveTerms(recleared, plan);
+    if (back.contractMonths !== before.contractMonths || back.autoRenewDefault !== before.autoRenewDefault) stable = false;
+  }
+  check("unticking 'same as plan' never changes the effective terms", stable);
+  check("a seeded override reports source 'option', not 'plan'", tickBackClean);
+
+  // The three-state distinction the checkbox exists to preserve.
+  const explicitFalse = makeOption({ label: "X", price: 1, billingPeriod: "MONTHLY", autoRenewDefault: false });
+  const inheritsTrue = makeOption({ label: "X", price: 1, billingPeriod: "MONTHLY" });
+  const plan: PlanDefaults = { autoRenewDefault: true };
+  check("an explicit false is not the same as inheriting a true plan default",
+    resolveTerms(explicitFalse, plan).autoRenewDefault === false &&
+    resolveTerms(inheritsTrue, plan).autoRenewDefault === true);
+  check("'same as plan' is ticked only when BOTH fields are null",
+    (explicitFalse.contractMonths == null && explicitFalse.autoRenewDefault == null) === false &&
+    (inheritsTrue.contractMonths == null && inheritsTrue.autoRenewDefault == null) === true);
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed`);
