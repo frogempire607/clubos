@@ -2582,3 +2582,84 @@ CLAUDE.md already warns about.
 
 **Verification:** `npm run test:renewal-surfacing` 28/28, `npx tsc --noEmit`
 clean, `npm run build` clean, browser check 5/5 against a real database.
+
+---
+
+## 2026-08-17 — decision brief, the Titus instrument, and two logged follow-ups
+
+No feature code. Three deliverables plus one environment fix.
+
+### The six open decisions are written up — plan.md §8.15
+
+D2, D5, D6, D7, D8 and D12 each get a recommendation, the reasoning, and **what
+it costs to change your mind later**, because they are not equally reversible:
+
+| # | Recommendation | Cost to reverse |
+|---|---|---|
+| D2 — option-level class acceptance | **No.** Reserve `optionIds`, never read it | Moderate, safe. Additive JSON key; nine call-sites + editor. Building it first is the expensive direction |
+| D5 — `allowManualRenewal` | **Drop** from option shape + editor; keep the column | Trivial. Nothing dropped or backfilled |
+| D6 — autopay row strategy | **One row, transition completed synchronously** | Moderate-to-high — the only one whose reversal is a migration |
+| D7 — document on `contractMonths` options | **Yes, option-level**, built with the term work | Low. Additive key; collected signatures stay valid |
+| D8 — member-initiated autopay | **Queue**, matching `request-cancel` | Trivial. One branch, with an asymmetric middle available |
+| D12 — staff End date → `cancel_at` | **Yes, but only via D11's mode control** | **One-way door.** Memberships would genuinely start ending |
+
+**D6's recommendation changed while writing it, and the reason is a real
+finding.** The obvious one-row plan was "set `cancel_at_period_end`, flip to
+MANUAL when `customer.subscription.deleted` arrives." That does not work:
+that handler does an unconditional `updateMany` setting `status: "canceled"` on
+any row matching the id, so an autopay handoff would land as a cancellation and
+`recomputeMemberStatus` would flip the member inactive. The fix is to not wait
+for the webhook — `cancel_at_period_end` means Stripe will not bill again and
+the period is already paid, so everything is known at transition time. Read back
+`current_period_end`, then in one write set `billingType: "MANUAL"`,
+`paidThroughDate`, `stripeSubscriptionId = null`, keep `status: "active"`. The
+deletion webhook then matches nothing and is a harmless no-op. Checked rather
+than assumed: `invoice.paid` has a metadata fallback for a missed row lookup,
+and `charge.refunded` / `charge.dispute.created` resolve by charge, so nulling
+the id orphans nothing.
+
+### `scripts/stop-renewal.ts` — the D13 instrument
+
+Dry-run by default, one subscription named explicitly (`--subscription <id>`),
+no bulk mode. Reads Stripe first; **refuses** if a cancellation already exists
+rather than overwriting one somebody set deliberately, if the status is not
+active/trialing, or if Stripe returns no `current_period_end` — writing a date
+we cannot stand behind is the bug this whole batch is about. Sets
+`cancel_at_period_end: true`, verifies the response, then stamps the date Stripe
+resolved onto `endDate` and sets `autoRenew: false`. Writes through the shared
+`writeBillingAudit` so it lands in the member's billing history beside
+owner-initiated actions, not in a private script log.
+
+It prints Titus's three date mismatches every run and corrects **none** of them
+without an explicit flag: `--align-commitment` (commitmentEndDate 2027-07-20 vs
+the resolved end) and `--align-start` (membershipStartDate 2026-07-20 vs the
+subscription's 2026-07-14). Those two are legitimately different concepts —
+agreed start vs billing start — so the script reports and asks rather than
+guessing.
+
+### Logged, not fixed: four dead Financials links
+
+The four Action Items reduced to bare links on 2026-08-16 still have no real
+destination. Root cause: `app/dashboard/financials/page.tsx` holds its tab in
+`useState` and parses **no** query parameters, so `?tab=stripe`,
+`?tab=offline&filter=pending` and `?tab=bank&filter=needs_review` selected
+nothing; `UPCOMING_RENEWAL_LARGE` additionally has no roster queue to point at.
+
+Two approaches are written up in plan.md §8.14.5 and in a spawned task: teach
+Financials to read its tab from the URL and restore the deep links (plus a
+`largeRenewals` queue beside `endingSoon` — note the threshold constant would
+have to move **into** `membersQuery.ts`, since `reportsActionItems.ts` already
+imports from it and the reverse would be circular), or leave them bare and make
+the cards carry enough detail that the destination need not be filtered. The
+existing guards in `scripts/renewal-surfacing-tests.ts` must be updated, not
+deleted, if the first path is taken.
+
+### Environment: the worktree `.env` is fixed
+
+`NEXTAUTH_URL` was `http://athletix-os.com` — the production domain — in a
+worktree used for local development. It cost time twice on 2026-08-16: once
+sending the browser check to the wrong host, once making the session cookie
+undeliverable. Now `http://127.0.0.1:3000`, with a timestamped backup beside it.
+Both are gitignored. This is the stale-worktree-`.env` hazard CLAUDE.md already
+warns about; it is worth checking `grep NEXTAUTH_URL .env` at the start of any
+session that will run the app locally.
