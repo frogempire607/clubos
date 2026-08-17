@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { parseOptions, serializeOptions, type MembershipOption } from "@/lib/membershipOptions";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -18,19 +19,31 @@ export async function GET() {
   return NextResponse.json(memberships);
 }
 
-const optionSchema = z.object({
-  label: z.string().min(1),
-  price: z.number().min(0),
-  billingPeriod: z.enum([
-    "WEEKLY",
-    "MONTHLY",
-    "QUADRIMESTRAL",
-    "QUARTERLY",
-    "SEMI_ANNUAL",
-    "ANNUAL",
-    "ONE_TIME",
-  ]),
-});
+// Accept the option objects loosely here and let lib/membershipOptions.parseOptions
+// be the ONE validator, exactly as it is the one parser everywhere else.
+//
+// This used to be a closed z.object of three keys. Zod strips unknown keys, so
+// it silently deleted `id`, `contractMonths`, `autoRenewDefault`, `entitlement`
+// and `requiredDocumentIds` from every option on every write — the option
+// identity that `member_subscriptions.optionId` resolves against. A second
+// schema for a blob that already has a parser is exactly the drift the option
+// model was consolidated to stop.
+//
+// Loose does not mean unvalidated: `readOptions` below rejects the request if
+// the parser cannot make sense of any entry, so a malformed period still 400s
+// rather than being quietly dropped.
+const optionSchema = z.record(z.unknown());
+
+/**
+ * Validate + normalize a submitted options array through the canonical parser.
+ * Returns null when any entry is unusable, so a bad billingPeriod is a 400
+ * instead of a silently vanished purchase option.
+ */
+function readOptions(raw: unknown[]): MembershipOption[] | null {
+  const parsed = parseOptions(raw);
+  return parsed.length === raw.length ? parsed : null;
+}
+
 
 const createSchema = z.object({
   name:                    z.string().min(1),
@@ -58,12 +71,17 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = createSchema.parse(body);
 
+    const options = readOptions(data.options);
+    if (!options) {
+      return NextResponse.json({ error: "One or more purchase options are malformed" }, { status: 400 });
+    }
+
     const membership = await prisma.membership.create({
       data: {
         clubId:                  session.user.clubId,
         name:                    data.name,
         description:             data.description || null,
-        options:                 JSON.stringify(data.options),
+        options:                 serializeOptions(options),
         active:                  data.active,
         purchaseAccess:          data.purchaseAccess,
         autoRenewDefault:        data.autoRenewDefault,
