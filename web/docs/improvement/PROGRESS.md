@@ -3039,3 +3039,73 @@ failed, billing-admin 132 passed / 0 failed.
 and the nine coverage call-sites (§8.4) are the next batch — until then a day
 restriction is recorded and displayed but changes no booking or attendance
 behaviour.
+
+---
+
+## 2026-08-18 (later) — the coverage resolver, wired to nothing
+
+### First: the class-coverage item is NOT closed
+
+Verified after Julian ticked the plans in. **Two of three landed:**
+
+| Class | Days | Commitment plan | Status |
+|---|---|---|---|
+| MS/HS Preseason | Mon·Tue·Thu | MS/HS 3 or 12 months | ✅ 13:50 |
+| Jr Frogs | Mon·Wed | Jr Frogs Monthly | ✅ 13:50 |
+| **Ms/HS Olympic Season** | Mon·Tue·Thu | MS/HS 3 or 12 months | ❌ |
+| **Sunday Funday** | Sun | both | ❌ |
+
+Parity with the parent plan is the test: MS/HS is accepted by Olympic Season,
+Preseason and Sunday Funday, so its commitment plan needs all three. Jr Frogs is
+accepted by the Jr Frogs class and Sunday Funday, so its commitment plan needs
+both. **Three additions still outstanding**, and until then Maximus is drop-in
+priced for Olympic Season and Sunday Funday, chase for Sunday Funday.
+
+### `lib/entitlements.ts` — the resolver (§8.13.7, step 1 of 2)
+
+Pure, 55 assertions, and **wired to nothing**. It changes no behaviour yet; the
+surfaces are the next step.
+
+`resolveSessionCoverage` answers the whole question the nine call-sites each ask
+incompletely today. Design points that carry the weight:
+
+- **Fails OPEN, asymmetrically.** Every uncertain branch returns
+  `covered: true`. A wrong "covered" costs one drop-in fee and shows up in the
+  money later; a wrong "not covered" argues with a paying family at the front
+  desk over a row the software could not read. So a shortfall is only reported
+  when it can be named: a known option, a known day, a real mismatch.
+- **`shouldWarn` is not `!covered`.** `NO_ACTIVE_MEMBERSHIP` and
+  `PLAN_NOT_ACCEPTED` are already handled by the existing member/non-member/
+  drop-in tiers — a staff member adding a non-member to a class is not doing
+  anything that needs flagging, and duplicating it as a warning teaches people
+  to dismiss warnings. The warning exists for the one case nothing else
+  surfaces: a member who HAS a valid, accepted membership that does not reach
+  this day.
+- **Several memberships resolve correctly.** Holding any plan that covers the
+  day is enough; a shortfall on one plan is never reported when another covers
+  the session. When none covers, the most actionable shortfall wins
+  (`DAY_NOT_INCLUDED` names an exact gap and an amount, so it outranks
+  `TERM_ENDED`, which outranks "we don't know").
+- **An inferred option still gates the day.** A guess about identity does not
+  become a grant of access — but the message says the option was matched by
+  price, so nobody reads a guess as a fact.
+- **No drop-in configured** produces "no drop-in price is set on this class",
+  never `$undefined`. Pinned by a test.
+
+**Renamed before it spread:** the function was briefly `resolveCoverage`, which
+`lib/paidThrough.ts` already exports meaning something completely different (how
+far a payment's money reaches). Two same-named functions answering different
+questions is a bug waiting for whoever imports the wrong one. It is
+`resolveSessionCoverage`, with the reason recorded at the definition.
+
+### The day picker now admits it is not enforcing
+
+Per Julian's condition: a day-restricted option shows *"Not in effect yet — this
+is recorded but does not change booking or check-in until day limits go live."*
+**Remove that line in the same commit that wires enforcement.** A control that
+silently changes nothing is the pattern that cost a week.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
+55 passed / 0 failed, membership-options 121 passed / 0 failed,
+renewal-surfacing 28 passed / 0 failed, member-tracks 183 passed / 0 failed,
+bulk-price-change 165 passed / 0 failed, billing-admin 132 passed / 0 failed.
