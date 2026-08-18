@@ -22,6 +22,7 @@ import {
   resolveTerms,
   type PlanDefaults,
   serializeOptions,
+  validateOptionsForSave,
   withMintedIds,
   type Entitlement,
   type MembershipOption,
@@ -166,6 +167,65 @@ console.log("\nfindDuplicateOptions:");
   ]);
   check("same period AND same price is refused", dupe.length === 1);
   check("  and names both offenders", JSON.stringify(dupe[0].labels) === '["Monthly","Monthly Full"]');
+}
+
+// ── The save gate ───────────────────────────────────────────────────────────
+console.log("\nvalidateOptionsForSave:");
+{
+  const raw = (o: Record<string, unknown>) => o as unknown;
+
+  const good = validateOptionsForSave(JSON.parse(MSHS));
+  check("today's MS/HS passes", good.ok === true);
+
+  // The six-option card the collapse produces — the whole point of the phase.
+  const six = [
+    { label: "Monthly Full Membership", price: 175, billingPeriod: "MONTHLY" },
+    { label: "Monthly 2 days (Tue/Thu)", price: 110, billingPeriod: "MONTHLY" },
+    { label: "3 Months", price: 160, billingPeriod: "MONTHLY", contractMonths: 3 },
+    { label: "12 months", price: 150, billingPeriod: "MONTHLY", contractMonths: 12 },
+    { label: "3 months Upfront", price: 450, billingPeriod: "QUARTERLY", contractMonths: 3 },
+    { label: "1 year", price: 1500, billingPeriod: "ANNUAL", contractMonths: 12 },
+  ].map(raw);
+  const collapsed = validateOptionsForSave(six);
+  check("the collapsed six-option card passes — four MONTHLY, all distinct prices", collapsed.ok === true);
+
+  const malformed = validateOptionsForSave([raw({ label: "X", price: 1, billingPeriod: "FORTNIGHTLY" })]);
+  check("a period the app cannot schedule is REJECTED, not dropped", malformed.ok === false);
+  check("  with code MALFORMED", !malformed.ok && malformed.code === "MALFORMED");
+
+  const missing = validateOptionsForSave([raw({ label: "X", price: 1 })]);
+  check("a missing billingPeriod is rejected", missing.ok === false);
+
+  const dupe = validateOptionsForSave([
+    raw({ label: "Monthly", price: 175, billingPeriod: "MONTHLY" }),
+    raw({ label: "Monthly Full", price: 175, billingPeriod: "MONTHLY" }),
+  ]);
+  check("same period AND price is refused at save", dupe.ok === false);
+  check("  with code DUPLICATE_OPTION", !dupe.ok && dupe.code === "DUPLICATE_OPTION");
+  check("  and the message names BOTH options",
+    !dupe.ok && dupe.error.includes("Monthly") && dupe.error.includes("Monthly Full"));
+  check("  and states the price and schedule",
+    !dupe.ok && dupe.error.includes("$175") && dupe.error.includes("per month"), !dupe.ok ? dupe.error : "");
+
+  // The distinction the whole phase rests on: two MONTHLY options are fine.
+  const twoMonthly = validateOptionsForSave([
+    raw({ label: "Full", price: 175, billingPeriod: "MONTHLY" }),
+    raw({ label: "Two days", price: 110, billingPeriod: "MONTHLY" }),
+  ]);
+  check("two options on the SAME period at DIFFERENT prices are allowed", twoMonthly.ok === true);
+
+  // Same price on different schedules is also fine — $450 quarterly and $450
+  // annual are genuinely different products.
+  const samePriceDifferentPeriod = validateOptionsForSave([
+    raw({ label: "Q", price: 450, billingPeriod: "QUARTERLY" }),
+    raw({ label: "A", price: 450, billingPeriod: "ANNUAL" }),
+  ]);
+  check("same price on DIFFERENT periods is allowed", samePriceDifferentPeriod.ok === true);
+
+  check(
+    "a passing result hands back parsed options, not the raw input",
+    good.ok === true && good.options.length === 4 && good.options[0].entitlement.kind === "ALL",
+  );
 }
 
 // ── Resolving which option a subscription is on ─────────────────────────────

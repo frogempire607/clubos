@@ -284,6 +284,53 @@ export function findDuplicateOptions(
     }));
 }
 
+/**
+ * The one gate a save must pass. Both membership routes call this; neither
+ * keeps its own copy, and the message lives next to the rule that produces it.
+ *
+ * Two failures, deliberately distinguished:
+ *
+ *   MALFORMED         — the parser could not read an entry. Reported rather
+ *                       than dropped, because a silently vanished purchase
+ *                       option is a plan that no longer sells what the owner
+ *                       thinks it sells.
+ *   DUPLICATE_OPTION  — two options share a billing period AND a price. See
+ *                       findDuplicateOptions for why this is refused at write
+ *                       time rather than resolved forever after.
+ */
+export type OptionsValidation =
+  | { ok: true; options: MembershipOption[] }
+  | { ok: false; code: "MALFORMED"; error: string }
+  | { ok: false; code: "DUPLICATE_OPTION"; error: string };
+
+export function validateOptionsForSave(raw: unknown[]): OptionsValidation {
+  const options = parseOptions(raw);
+  if (options.length !== raw.length) {
+    return {
+      ok: false,
+      code: "MALFORMED",
+      error:
+        "One or more purchase options are malformed — check that each has a label, " +
+        "a price, and a billing period the app can schedule.",
+    };
+  }
+
+  const dupes = findDuplicateOptions(options);
+  if (dupes.length > 0) {
+    const d = dupes[0];
+    return {
+      ok: false,
+      code: "DUPLICATE_OPTION",
+      error:
+        `"${d.labels[0]}" and "${d.labels[1]}" are both $${d.price} ${prettyPeriodPhrase(d.billingPeriod)}. ` +
+        "Two options that cost the same on the same schedule can't be told apart on a " +
+        "member's subscription, so give one of them a different price or billing period.",
+    };
+  }
+
+  return { ok: true, options };
+}
+
 export type OptionResolution =
   | { resolution: "exact"; option: MembershipOption }
   | { resolution: "inferred"; option: MembershipOption }
@@ -381,6 +428,11 @@ const PERIOD_PHRASE: Record<BillingPeriod, string> = {
   ANNUAL: "per year",
   ONE_TIME: "one-time",
 };
+
+/** "per month", "every 3 months" — the phrase used in owner-facing messages. */
+export function prettyPeriodPhrase(period: BillingPeriod): string {
+  return PERIOD_PHRASE[period];
+}
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 

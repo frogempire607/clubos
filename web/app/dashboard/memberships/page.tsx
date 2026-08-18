@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Ticket } from "lucide-react";
 import BulkPriceChangeModal from "@/components/BulkPriceChangeModal";
 import {
+  findDuplicateOptions,
   parseOptions,
   makeOption,
   resolveTerms,
@@ -529,6 +530,21 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
     // not show.
     const cleanOptions = options.filter((o) => o.label.trim()).map((o) => ({ ...o, price: Number(o.price) || 0 }));
     if (cleanOptions.length === 0) { setError("Add at least one purchase option"); setSaving(false); return; }
+
+    // The server refuses this too (validateOptionsForSave) — that is the gate.
+    // Checking here as well means the owner reads the conflict in the form they
+    // are already looking at, rather than after a round trip.
+    const dupes = findDuplicateOptions(cleanOptions);
+    if (dupes.length > 0) {
+      const d = dupes[0];
+      setError(
+        `"${d.labels[0]}" and "${d.labels[1]}" are both $${d.price} on the same schedule. ` +
+        "Give one a different price or billing period — otherwise a member's subscription " +
+        "can't record which of the two they bought.",
+      );
+      setSaving(false);
+      return;
+    }
 
     const url = isEdit ? `/api/memberships/${membership!.id}` : "/api/memberships";
     const method = isEdit ? "PATCH" : "POST";
