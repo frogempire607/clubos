@@ -2939,11 +2939,25 @@ now green** — the UTC billing-period fix landed in the same pull.
 
 ## 2026-08-18 — the duplicate guard, and the day picker
 
-Julian added both commitment plans to their classes, so Maximus and chase have
-class coverage ahead of the collapse (§8.10 Step 0 is done by hand). **Note for
-the collapse:** Step 8 deactivates those two plans, so they then have to be
-removed from those class `pricingOptions` lists again, or the lists keep
-pointing at retired plans.
+**CORRECTED 2026-08-18.** This entry originally recorded that both commitment
+plans had been added to their classes and that §8.10 Step 0 was therefore done.
+**It is not done.** A read of `recurring_classes` shows zero entries for either
+`MS/HS 3 or 12 months Commitment` or `Jr Frogs Monthly Commitment`, and no class
+row has been updated since 2026-08-13 — so no class was saved that day at all.
+
+The class save path is NOT at fault: `PATCH /api/classes/[id]` accepts
+`{type:"membership", membershipId}` in its `pricingOptions` schema, so this is
+not the memberships-editor strip bug repeating.
+
+**Still true, and still costing money:** Maximus Alexander ($150/mo) and chase
+Robertson ($90/mo) are drop-in priced for every class, because their plans are
+in no class's accepted list. Either add the two plans to those classes (Step 0),
+or run the collapse, which fixes it structurally.
+
+**And when the collapse runs:** Step 8 deactivates those two plans, so if they
+HAVE been added to classes by then they must be removed from those
+`pricingOptions` lists in the same pass, or the lists keep pointing at retired
+plans.
 
 ### `findDuplicateOptions` is wired — §8.13 gap closed
 
