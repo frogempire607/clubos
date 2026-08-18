@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import { Ticket } from "lucide-react";
 import BulkPriceChangeModal from "@/components/BulkPriceChangeModal";
 import {
+  describeDays,
+  entitlementFromSelection,
   findDuplicateOptions,
   parseOptions,
   makeOption,
   resolveTerms,
+  selectionFromEntitlement,
   type BillingPeriod,
   type MembershipOption,
 } from "@/lib/membershipOptions";
@@ -481,6 +484,26 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
   const [allowBillingDayOverride, setAllowBillingDayOverride] = useState(membership?.allowBillingDayOverride ?? false);
   const [defaultBillingDay, setDefaultBillingDay] = useState(membership?.defaultBillingDay ? String(membership.defaultBillingDay) : "");
   const [contractMonths, setContractMonths] = useState(membership?.contractMonths ? String(membership.contractMonths) : "");
+
+  // Which weekdays this plan can meaningfully grant, and how many members each
+  // option currently has. Editor-only, read-only, and absent for a plan that is
+  // not accepted by any class — in which case no day picker is shown at all,
+  // because there is nothing for a day restriction to restrict.
+  const [dayContext, setDayContext] = useState<{
+    offeredDays: number[];
+    dayClasses: Record<number, string[]>;
+    optionCounts: Record<string, number>;
+    unidentifiedCount: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!membership?.id) return;
+    let alive = true;
+    fetch(`/api/memberships/${membership.id}/entitlement-context`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setDayContext(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [membership?.id]);
   // Whether the club's central Free Trial offer currently covers this plan
   // (legacy per-membership flag only for clubs that never configured it).
   const trialCurrentlyApplies = trialConfig
@@ -770,6 +793,63 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
                             </div>
                           </div>
                         )}
+
+                        {/* Day entitlement. Only shown when some class actually
+                            accepts this plan — a day restriction on a plan no
+                            class takes would restrict nothing and read as a
+                            broken control. */}
+                        {dayContext && dayContext.offeredDays.length > 0 && (() => {
+                          const offered = dayContext.offeredDays;
+                          const picked = selectionFromEntitlement(opt.entitlement, offered);
+                          // Capture the narrowed value — a boolean derived from
+                          // the discriminant does not narrow the union at the
+                          // use site.
+                          const restrictedDays =
+                            opt.entitlement.kind === "DAYS" ? opt.entitlement.days : null;
+                          const affected = opt.id ? (dayContext.optionCounts[opt.id] ?? 0) : 0;
+                          const toggle = (day: number) => {
+                            const next = picked.includes(day)
+                              ? picked.filter((d) => d !== day)
+                              : [...picked, day];
+                            updateOption(i, "entitlement", entitlementFromSelection(next, offered));
+                          };
+                          return (
+                            <div className="mt-2 pt-2 border-t border-app-border">
+                              <p className="text-xs font-medium text-text-primary mb-1">Days this option includes</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {offered.map((day) => {
+                                  const on = picked.includes(day);
+                                  return (
+                                    <button
+                                      key={day}
+                                      type="button"
+                                      onClick={() => toggle(day)}
+                                      title={(dayContext.dayClasses[day] ?? []).join(", ")}
+                                      className={`px-2.5 py-1 rounded-lg text-xs border transition ${
+                                        on
+                                          ? "bg-brand text-white border-brand"
+                                          : "bg-surface text-text-muted border-app-border hover:border-brand"
+                                      }`}
+                                    >
+                                      {describeDays([day])}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className="text-xs text-text-muted mt-1">
+                                {restrictedDays
+                                  ? `Only ${describeDays(restrictedDays)} — other days are a drop-in.`
+                                  : "Every day this plan is accepted for, including days added later."}
+                              </p>
+                              {restrictedDays && affected > 0 && (
+                                <p className="text-xs text-orange-accent mt-0.5">
+                                  {affected} member{affected === 1 ? "" : "s"} on this option — changing these
+                                  days changes what they are entitled to.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })()}

@@ -2934,3 +2934,91 @@ membership-options 96 passed / 0 failed, renewal-surfacing 28 passed / 0 failed,
 member-tracks 183 passed / 0 failed, billing-admin 132 passed / 0 failed,
 bulk-price-change 165 passed / 0 failed. **All 7 previously-red assertions are
 now green** — the UTC billing-period fix landed in the same pull.
+
+---
+
+## 2026-08-18 — the duplicate guard, and the day picker
+
+Julian added both commitment plans to their classes, so Maximus and chase have
+class coverage ahead of the collapse (§8.10 Step 0 is done by hand). **Note for
+the collapse:** Step 8 deactivates those two plans, so they then have to be
+removed from those class `pricingOptions` lists again, or the lists keep
+pointing at retired plans.
+
+### `findDuplicateOptions` is wired — §8.13 gap closed
+
+It existed and was tested but nothing called it, so the editor could still save
+two options at the same billing period AND the same price. That is the one shape
+`resolveSubscriptionOption`'s inference cannot resolve — permanently, for any
+subscription not yet stamped. Per-option terms made richer option sets easy to
+build, so it had become more likely, not less.
+
+The rule now lives in `lib/membershipOptions.validateOptionsForSave`, which both
+routes call. It replaces the `readOptions` helper each route had its own copy of
+— one gate, one message, next to the rule that produces it — and distinguishes
+`MALFORMED` from `DUPLICATE_OPTION` so a client can tell a typo from a conflict.
+The editor runs the same predicate before submitting so the owner reads the
+conflict in the form they are looking at; the server is still the gate.
+
+Deliberately allowed, and pinned: two options on the **same period at different
+prices** (MS/HS's $175 and $110 — the entire reason for the phase), and the
+**same price on different periods** ($450 quarterly and $450 annual are
+different products).
+
+### Day entitlements — the editor (§8.13.6)
+
+The model already had the shape and the evaluation. What was missing was a way
+to set it.
+
+**`entitlementFromSelection` / `selectionFromEntitlement`** are the pure rule,
+in `lib/membershipOptions.ts`:
+
+- Ticking **every** offered day stores `{kind:"ALL"}`, never the enumerated
+  list. This is the load-bearing part. An option that enumerates today's
+  schedule silently un-covers its members the day a Wednesday session is added —
+  the members did not change, the club did, and nobody would connect the two. A
+  test pins exactly that: `ALL` covers a newly-added Wednesday, an enumerated
+  full list does not.
+- An **empty** selection is also `ALL`. "Grants nothing" is not a product, and
+  an untouched picker is far more likely to be a coach who has not finished than
+  a deliberate lockout — the same fail-open direction as `parseEntitlement`.
+
+**`GET /api/memberships/[id]/entitlement-context`** (read-only, `classes:view`)
+gives the picker the only days worth offering: the union of `daysOfWeek` across
+the classes that accept THIS plan, with the class names behind each day as a
+tooltip. A coach picking from an abstract Sun–Sat grid would have to hold the
+schedule in their head to avoid granting a day that does not exist. For MS/HS
+that is Mon·Tue·Thu (Olympic Season, Preseason) plus Sun (Sunday Funday).
+
+It also returns per-option live subscriber counts, keyed on `optionId` — the
+only honest key, since `optionLabel` drifted long ago. Rows with a null
+`optionId` are counted separately rather than being quietly left out of a
+warning about who is affected.
+
+That count exists because of **D3**: entitlement is read live from the option,
+not snapshotted, so editing days changes what existing members get with no
+per-member review. The mitigation was always that the editor has to say so with
+a real number — *"12 members on this option — changing these days changes what
+they are entitled to."*
+
+The picker only renders when some class actually accepts the plan. A day
+restriction on a plan no class takes would restrict nothing and read as a broken
+control.
+
+### Note to self: `as const` on an entitlement fixture breaks the build
+
+Twice now, `{ kind: "DAYS", days: [...] } as const` produces a `readonly` tuple
+that is not assignable to `Entitlement`. `tsx` runs it happily because esbuild
+strips types without checking them, so the suite goes green and `npm run build`
+goes red. Type the fixture `: Entitlement` instead. **A green suite is not a
+green typecheck** — run both.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean,
+membership-options 121 passed / 0 failed, renewal-surfacing 28 passed / 0
+failed, member-tracks 183 passed / 0 failed, bulk-price-change 165 passed / 0
+failed, billing-admin 132 passed / 0 failed.
+
+**Not yet done for entitlements:** nothing enforces them. `lib/entitlements.ts`
+and the nine coverage call-sites (§8.4) are the next batch — until then a day
+restriction is recorded and displayed but changes no booking or attendance
+behaviour.

@@ -490,6 +490,40 @@ export function describeOption(option: MembershipOption, plan: PlanDefaults = {}
 // ── Entitlement evaluation ──────────────────────────────────────────────────
 
 /**
+ * Turn a day-picker selection into a stored entitlement.
+ *
+ * The rule that matters: selecting EVERY day the club currently offers stores
+ * `ALL`, not the enumerated list. An option that enumerates today's schedule
+ * silently un-covers its members the day a Wednesday session is added — the
+ * members did not change, the club did, and nobody would connect the two. `ALL`
+ * means "everything this plan is accepted for" and stays true as the schedule
+ * moves.
+ *
+ * `offered` is the union of `daysOfWeek` across the classes that accept this
+ * plan. An empty selection is also `ALL`: "grants nothing" is not a product,
+ * and a picker with nothing ticked is far more likely to be a coach who has not
+ * finished than a deliberate lockout.
+ */
+export function entitlementFromSelection(selected: number[], offered: number[]): Entitlement {
+  const picked = Array.from(new Set(selected.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)));
+  if (picked.length === 0) return ENTITLEMENT_ALL;
+  const offeredSet = new Set(offered);
+  const coversEverythingOffered =
+    offeredSet.size > 0 && [...offeredSet].every((d) => picked.includes(d));
+  if (coversEverythingOffered) return ENTITLEMENT_ALL;
+  return { kind: "DAYS", days: picked.sort((a, b) => a - b) };
+}
+
+/**
+ * Which days a picker should show as ticked for an existing entitlement.
+ * `ALL` ticks everything on offer, which is what it means.
+ */
+export function selectionFromEntitlement(entitlement: Entitlement, offered: number[]): number[] {
+  if (entitlement.kind === "DAYS") return entitlement.days;
+  return [...offered].sort((a, b) => a - b);
+}
+
+/**
  * Does this option grant the given weekday?
  *
  * `weekday` MUST come from `ClassSession.date.getUTCDay()`, with no timezone

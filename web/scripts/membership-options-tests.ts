@@ -13,6 +13,7 @@ import {
   describeDays,
   describeOption,
   entitlementCoversWeekday,
+  entitlementFromSelection,
   findDuplicateOptions,
   makeOption,
   mintOptionId,
@@ -21,6 +22,7 @@ import {
   resolveSubscriptionOption,
   resolveTerms,
   type PlanDefaults,
+  selectionFromEntitlement,
   serializeOptions,
   validateOptionsForSave,
   withMintedIds,
@@ -384,6 +386,71 @@ console.log("\nentitlementCoversWeekday:");
   const twoDayCovers = classDays.filter((d) => entitlementCoversWeekday(tueThu, d));
   check("full member covers all three class days", JSON.stringify(fullCovers) === "[1,2,4]");
   check("two-day member covers exactly two of them", JSON.stringify(twoDayCovers) === "[2,4]");
+}
+
+// ── The day picker's rule ───────────────────────────────────────────────────
+console.log("\nentitlementFromSelection:");
+{
+  // MS/HS is accepted by Olympic Season + Preseason (Mon·Tue·Thu) and Sunday
+  // Funday (Sun), so the picker offers four days.
+  const offered = [0, 1, 2, 4];
+
+  check(
+    "picking every offered day stores ALL, not the enumerated list",
+    entitlementFromSelection([0, 1, 2, 4], offered).kind === "ALL",
+  );
+  check(
+    "picking a subset stores DAYS",
+    JSON.stringify(entitlementFromSelection([2, 4], offered)) === '{"kind":"DAYS","days":[2,4]}',
+  );
+  check(
+    "order does not matter",
+    JSON.stringify(entitlementFromSelection([4, 2], offered)) === '{"kind":"DAYS","days":[2,4]}',
+  );
+  check("duplicates are collapsed", JSON.stringify(entitlementFromSelection([2, 2, 4], offered)) === '{"kind":"DAYS","days":[2,4]}');
+  check(
+    "an empty selection is ALL — 'grants nothing' is not a product",
+    entitlementFromSelection([], offered).kind === "ALL",
+  );
+  check("out-of-range days are dropped", JSON.stringify(entitlementFromSelection([2, 9, -3, 4], offered)) === '{"kind":"DAYS","days":[2,4]}');
+
+  // THE reason ALL is a distinct kind rather than sugar for a full day list.
+  const full = entitlementFromSelection([0, 1, 2, 4], offered);
+  const enumerated: Entitlement = { kind: "DAYS", days: [0, 1, 2, 4] };
+  const afterClubAddsWednesday = 3;
+  check(
+    "ALL still covers a day added to the schedule later",
+    entitlementCoversWeekday(full, afterClubAddsWednesday),
+  );
+  check(
+    "an enumerated full list would NOT — this is the trap it avoids",
+    !entitlementCoversWeekday(enumerated, afterClubAddsWednesday),
+  );
+
+  // A plan no class accepts offers no days; a selection cannot mean "all of
+  // nothing".
+  check("with nothing offered, a real selection is still honoured",
+    JSON.stringify(entitlementFromSelection([2], [])) === '{"kind":"DAYS","days":[2]}');
+}
+
+console.log("\nselectionFromEntitlement:");
+{
+  const offered = [0, 1, 2, 4];
+  check("ALL ticks every offered day", JSON.stringify(selectionFromEntitlement({ kind: "ALL" }, offered)) === "[0,1,2,4]");
+  check(
+    "DAYS ticks exactly its days",
+    JSON.stringify(selectionFromEntitlement({ kind: "DAYS", days: [2, 4] }, offered)) === "[2,4]",
+  );
+  check(
+    "round-trips: tick-all → ALL → ticks all again",
+    entitlementFromSelection(selectionFromEntitlement({ kind: "ALL" }, offered), offered).kind === "ALL",
+  );
+  check(
+    "round-trips: a subset survives unchanged",
+    JSON.stringify(
+      entitlementFromSelection(selectionFromEntitlement({ kind: "DAYS", days: [2, 4] }, offered), offered),
+    ) === '{"kind":"DAYS","days":[2,4]}',
+  );
 }
 
 // ── Guard: the billing-period vocabulary is shared ──────────────────────────
