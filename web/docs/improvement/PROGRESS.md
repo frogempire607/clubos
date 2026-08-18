@@ -2945,9 +2945,12 @@ plans had been added to their classes and that §8.10 Step 0 was therefore done.
 `MS/HS 3 or 12 months Commitment` or `Jr Frogs Monthly Commitment`, and no class
 row has been updated since 2026-08-13 — so no class was saved that day at all.
 
-The class save path is NOT at fault: `PATCH /api/classes/[id]` accepts
-`{type:"membership", membershipId}` in its `pricingOptions` schema, so this is
-not the memberships-editor strip bug repeating.
+**Cause: the change was deferred and never attempted** (confirmed by Julian,
+2026-08-18). There is no bug here and nothing to chase. Recorded because the
+read looked exactly like a silent save failure, and the next person to notice
+the gap should not re-investigate it: `PATCH /api/classes/[id]` accepts
+`{type:"membership", membershipId}` in its `pricingOptions` schema, so the
+memberships-editor strip bug does not repeat on the class editor.
 
 **Still true, and still costing money:** Maximus Alexander ($150/mo) and chase
 Robertson ($90/mo) are drop-in priced for every class, because their plans are
