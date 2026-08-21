@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { formatZodError } from "@/lib/zodErrors";
 import { prisma } from "@/lib/prisma";
 
 // Public — no session required. The token is the only credential.
@@ -86,7 +87,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   try {
     data = postSchema.parse(await req.json());
   } catch (err) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
+    if (err instanceof z.ZodError) return NextResponse.json({ error: formatZodError(err) }, { status: 400 });
     throw err;
   }
 
