@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -81,7 +82,7 @@ export async function POST(req: Request) {
   try {
     data = createSchema.parse(await req.json());
   } catch (err) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
+    if (err instanceof z.ZodError) return NextResponse.json({ error: formatZodError(err) }, { status: 400 });
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY, resolveIsMinor } from "@/lib/parentalConsent";
 import { z } from "zod";
+import { formatZodError } from "@/lib/zodErrors";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -32,7 +33,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   try {
     body = schema.parse(await req.json().catch(() => ({})));
   } catch (err) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
+    if (err instanceof z.ZodError) return NextResponse.json({ error: formatZodError(err) }, { status: 400 });
     throw err;
   }
 

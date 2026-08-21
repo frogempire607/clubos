@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { formatZodError } from "@/lib/zodErrors";
 import type { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
@@ -1162,7 +1163,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     if (discount) await recordDiscountUse(discount.id);
     return NextResponse.json({ url: checkoutSession.url });
   } catch (err) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
+    if (err instanceof z.ZodError) return NextResponse.json({ error: formatZodError(err) }, { status: 400 });
     console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }
