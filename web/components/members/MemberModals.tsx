@@ -319,6 +319,7 @@ export function BulkEmailModal({
   // roster selection that opened the modal. EVERY consumer — the header, the
   // preview, the draft save and the send — must read this, never the prop.
   const activeMemberIds = draftRecipients ?? rosterSelectionIds;
+
   const [previewData, setPreviewData] = useState<{ counts: PreviewCounts; preview: PreviewRow[]; skipped: PreviewSkipRow[]; truncated: { preview: boolean; skipped: boolean } } | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -342,6 +343,12 @@ export function BulkEmailModal({
     mailingState: string | null; mailingZip: string | null;
     emailFromName: string | null; emailReplyTo: string | null;
   } | null>(null);
+  // The per-device localStorage draft key. Scoped to the SERVER draft when
+  // there is one: the key used to be `bulk:<club>` for every composer, so a
+  // half-typed fresh message and a reopened draft shared one slot and the
+  // stale one won (EmailComposer reads `stored ?? initial`). A reopened draft
+  // now restores only its OWN unsaved local edits.
+  const composerDraftKey = `bulk:${clubCtx?.name ?? "default"}${initialDraftId ? `:draft:${initialDraftId}` : ""}`;
   const [showFinalReview, setShowFinalReview] = useState(false);
   const [typedConfirm, setTypedConfirm] = useState("");
 
@@ -474,7 +481,7 @@ export function BulkEmailModal({
       setDraftSavedAt(d.savedAt ?? new Date().toISOString());
       // The server copy is now authoritative, so the per-device localStorage
       // copy would only be a way to resurrect stale text later.
-      clearComposerDraft(`bulk:${clubCtx?.name ?? "default"}`);
+      clearComposerDraft(composerDraftKey);
     } finally {
       setDraftBusy(false);
     }
@@ -519,7 +526,7 @@ export function BulkEmailModal({
         // 3M — success clears the persisted draft so the next open of
         // the composer starts clean. Failure keeps the draft so the
         // sender can fix the issue without re-typing.
-        clearComposerDraft(`bulk:${clubCtx?.name ?? "default"}`);
+        clearComposerDraft(composerDraftKey);
       }
     } finally {
       setSending(false);
@@ -661,12 +668,20 @@ export function BulkEmailModal({
               <EmailComposer
                 initialSubject={subject}
                 initialPreviewText={previewText}
+                // A reopened draft's body lives here and NOWHERE else. Without
+                // this the composer mounted on defaultBlocks(), then its
+                // onChange immediately wrote that empty body back over the 8
+                // blocks the draft had just loaded — so subject, preview text
+                // and recipients all came back and the message body silently
+                // did not. Empty → undefined so a FRESH compose still gets the
+                // starter blocks rather than a blank canvas.
+                initialBlocks={blocks.length ? blocks : undefined}
                 // 3M — persist the draft so a phone rotation or refresh
                 // doesn't nuke a message the sender was mid-composing.
                 // Key is per-club so a coach at one club doesn't see an
                 // owner's draft on another. Cleared on successful send
                 // below.
-                draftKey={`bulk:${clubCtx?.name ?? "default"}`}
+                draftKey={composerDraftKey}
                 onChange={({ subject: s, previewText: p, blocks: b }) => {
                   setSubject(s);
                   setPreviewText(p);
