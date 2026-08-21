@@ -520,7 +520,24 @@ export function BulkEmailModal({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setSendErr(typeof data?.error === "string" ? data.error : "Send failed.");
+        // A gateway timeout is an UNKNOWN outcome, not a failure. The request
+        // ran for 60s and was killed; the server may have written rows, or
+        // even dispatched. Reporting "Send failed." invites a resend, and
+        // reopening the composer mints a new clientKey — which means a new
+        // sendBatchId, which means the dedupe index cannot protect the second
+        // attempt. Say we don't know, and point at the record that does.
+        //
+        // 504/502 come from the platform, not the route, so there is no JSON
+        // body to read a message out of — which is exactly why the old code
+        // fell through to its generic string.
+        if (res.status === 504 || res.status === 502 || res.status === 408) {
+          setSendErr(
+            "This send timed out, so we don't know how much of it completed — some emails may already be on their way. " +
+            "Do NOT resend from a reopened composer. Check the send's results page first: it lists every recipient row that was created.",
+          );
+        } else {
+          setSendErr(typeof data?.error === "string" ? data.error : "Send failed.");
+        }
       } else {
         setSendResult({ results: data.results, sendBatchId: data.sendBatchId, queueOnly: data.queueOnly });
         // 3M — success clears the persisted draft so the next open of
