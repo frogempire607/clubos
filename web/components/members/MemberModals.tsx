@@ -284,7 +284,12 @@ type PreviewRow = { memberId: string; memberName: string; recipientEmail: string
 //      sendBatchId from clubId + clientKey so retries land on the same
 //      batch and the partial unique index rejects doubles.
 export function BulkEmailModal({
-  memberIds,
+  // Deliberately NOT destructured as `memberIds`. This is only the roster
+  // selection that opened the modal, and it is empty whenever the composer was
+  // opened by reopening a draft. The list to actually use is `activeMemberIds`
+  // below; giving the prop a name that cannot be mistaken for it is what stops
+  // the next reader from posting the wrong one, as the send path did.
+  memberIds: rosterSelectionIds,
   draftId: initialDraftId,
   onClose,
   onSent,
@@ -311,8 +316,9 @@ export function BulkEmailModal({
   const [droppedFromDraft, setDroppedFromDraft] = useState(0);
 
   // The recipients in play: a reopened draft's own list wins over the
-  // roster selection that opened the modal.
-  const activeMemberIds = draftRecipients ?? memberIds;
+  // roster selection that opened the modal. EVERY consumer — the header, the
+  // preview, the draft save and the send — must read this, never the prop.
+  const activeMemberIds = draftRecipients ?? rosterSelectionIds;
   const [previewData, setPreviewData] = useState<{ counts: PreviewCounts; preview: PreviewRow[]; skipped: PreviewSkipRow[]; truncated: { preview: boolean; skipped: boolean } } | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -478,6 +484,10 @@ export function BulkEmailModal({
     setSendErr(null);
     if (!subject.trim()) { setSendErr("Add a subject before sending."); return; }
     if (!blocks.length) { setSendErr("Add at least one content block."); return; }
+    // Guard the list we are actually about to post. Reopening a draft leaves
+    // the `memberIds` prop empty, so this used to reach the server as [] and
+    // come back as a raw validator string.
+    if (!activeMemberIds.length) { setSendErr("No recipients — this draft has no members attached."); return; }
     setSending(true);
     try {
       const res = await fetch("/api/members/bulk", {
@@ -485,7 +495,13 @@ export function BulkEmailModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "email",
-          memberIds,
+          // activeMemberIds, NOT the memberIds prop. The roster passes
+          // `memberIds={bulkEmailing ?? []}`, so a composer opened by
+          // REOPENING A DRAFT gets an empty prop and carries its recipients in
+          // draftRecipients instead. The header, the preview and the draft save
+          // all read activeMemberIds; this one line read the prop, so a draft
+          // send posted zero recipients while the screen said 293.
+          memberIds: activeMemberIds,
           email: {
             mode,
             subject,
@@ -845,7 +861,15 @@ function FinalReviewModal(props: {
           <ReviewRow label="From" value={props.fromName || "(club default)"} />
           <ReviewRow label="Reply-to" value={props.replyTo || "(club default)"} />
           <ReviewRow label="Mode" value={props.mode} />
-          <ReviewRow label="Recipients" value={`${props.willSendRows} of ${props.selectedMembers} selected · ${props.skippedCount} skipped`} />
+          {/* willSendRows counts EmailSend rows; selectedMembers counts
+              members. In HOUSEHOLD / ALL_GUARDIANS a member with two guardians
+              produces two rows, so rows can exceed members — "294 of 293
+              selected" read like a broken subset when it was two different
+              units. Say what each number is. */}
+          <ReviewRow
+            label="Recipients"
+            value={`${props.willSendRows} email${props.willSendRows === 1 ? "" : "s"} to ${props.selectedMembers} selected member${props.selectedMembers === 1 ? "" : "s"}${props.skippedCount ? ` · ${props.skippedCount} skipped` : ""}`}
+          />
           <ReviewRow label="Tracking" value="Delivery via Resend; open/click tracked when the recipient's client allows it." />
           {warns > 0 && (
             <div className="text-xs text-charcoal bg-orange-accent/10 border border-orange-accent/30 rounded-md px-3 py-2">
