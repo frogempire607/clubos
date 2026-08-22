@@ -269,6 +269,54 @@ type OwedMap = Record<string, OwedRow[]>;
 const OWES_ALLOW_NOTE = "Attendance allowed — payment still due; the chip stays until it's recorded.";
 const OWES_DENY_NOTE = "Don't check them in — ask for the payment first. Nothing was changed.";
 
+/**
+ * A membership that does not reach THIS day.
+ *
+ * Advisory only — staff can always record the attendance. It exists for the one
+ * case the member/non-member/drop-in tiers do not surface: somebody who HAS a
+ * valid, accepted membership that simply does not include this weekday. The
+ * server decides whether to warn (lib/entitlements.shouldWarn); the client only
+ * renders what it is told, so the rule cannot drift between the two.
+ */
+type CoverageVerdict = {
+  covered: boolean;
+  reason: string;
+  message: string;
+  warn: boolean;
+  optionLabel: string | null;
+  entitledDays: number[] | null;
+  dropIn: { amount: number; source: string } | null;
+};
+type CoverageMap = Record<string, CoverageVerdict>;
+
+const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function CoverageChip({ v, onClick }: { v: CoverageVerdict; onClick: () => void }) {
+  const days = v.entitledDays?.length ? v.entitledDays.map((d) => DAY_ABBR[d]).join("/") : null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={v.message}
+      className="ml-1.5 align-middle text-[10px] rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-medium hover:bg-amber-200"
+    >
+      {days ? `${days} plan` : "Not included"}
+      {v.dropIn ? ` · drop-in $${v.dropIn.amount}` : ""}
+    </button>
+  );
+}
+
+function CoveragePanel({ v }: { v: CoverageVerdict }) {
+  return (
+    <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+      <p className="text-xs text-amber-900">{v.message}</p>
+      <p className="text-[11px] text-amber-800 mt-0.5">
+        Attendance can still be recorded — this is a heads-up, not a block.
+      </p>
+    </div>
+  );
+}
+
 function OwesChip({ rows, onClick }: { rows: OwedRow[]; onClick: () => void }) {
   const total = rows.reduce((s, r) => s + r.amount, 0);
   const methods = Array.from(new Set(rows.map((r) => r.method.toLowerCase()))).join("/");
@@ -762,6 +810,10 @@ function QuickAddForm({
   // (cash/check/saved card/external reader/comp/free/invoice) OR open a
   // Stripe checkout page. Replaces the old separate registeringId/payingId.
   const [dropInId, setDropInId] = useState<string | null>(null);
+  // Coverage for the people in the SEARCH results — the moment staff are about
+  // to add somebody is when the shortfall matters, not after the record exists.
+  const [searchCoverage, setSearchCoverage] = useState<CoverageMap>({});
+  const [coverageOpenId, setCoverageOpenId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState<PayMethod>("CASH");
   const [payStatus, setPayStatus] = useState<"DROP_IN" | "TRIAL" | "PRESENT">("DROP_IN");
@@ -878,6 +930,20 @@ function QuickAddForm({
       .then((d) => setAllMembers(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
+
+  // Read-only. Failures are swallowed: a missing verdict shows no chip, which
+  // is the same as today's behaviour — an advisory panel must never be able to
+  // break the roster it is advising on.
+  useEffect(() => {
+    const ids = results.map((m) => m.id);
+    if (!sessionId || ids.length === 0) { setSearchCoverage({}); return; }
+    let alive = true;
+    fetch(`/api/attendance/${sessionId}/coverage?memberIds=${ids.join(",")}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d?.coverage) setSearchCoverage(d.coverage); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [sessionId, results]);
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return; }
@@ -1081,10 +1147,19 @@ function QuickAddForm({
                   <div className="text-sm font-medium text-text-primary">
                     {m.firstName} {m.lastName}
                     {m.isMinor && <span className="ml-1.5 text-xs text-brand">(minor)</span>}
+                    {searchCoverage[m.id]?.warn && (
+                      <CoverageChip
+                        v={searchCoverage[m.id]}
+                        onClick={() => setCoverageOpenId(coverageOpenId === m.id ? null : m.id)}
+                      />
+                    )}
                     {(owedMap[m.id]?.length ?? 0) > 0 && (
                       <OwesChip rows={owedMap[m.id]} onClick={() => toggleOwes(m.id)} />
                     )}
                   </div>
+                  {coverageOpenId === m.id && searchCoverage[m.id] && (
+                    <CoveragePanel v={searchCoverage[m.id]} />
+                  )}
                   {m.isMinor && m.guardianName && (
                     <div className="text-xs text-text-muted">Guardian: {m.guardianName}</div>
                   )}
@@ -1335,6 +1410,7 @@ function AttendancePanel({
     attendance: AttendanceRecord[];
     pricingOptions: PricingOption[];
     acceptedMemberships: AcceptedMembership[];
+    coverage?: CoverageMap;
     freeTrial: FreeTrialSummary | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1367,6 +1443,8 @@ function AttendancePanel({
   // "Owes $X" chip panel — per roster member. Nothing here writes data except
   // the embedded record flow (OwesPanel / OfflinePaymentsCard).
   const [owesOpenId, setOwesOpenId] = useState<string | null>(null);
+  // Which member's coverage explanation is expanded. Advisory only.
+  const [coverageOpenId, setCoverageOpenId] = useState<string | null>(null);
   const [owesRecordId, setOwesRecordId] = useState<string | null>(null);
   const [owesNotes, setOwesNotes] = useState<Record<string, string>>({});
 
@@ -1571,6 +1649,16 @@ function AttendancePanel({
                               {rec.member.isMinor && (
                                 <span className="ml-1.5 text-xs text-brand">(minor)</span>
                               )}
+                              {data?.coverage?.[rec.member.id]?.warn && (
+                                <CoverageChip
+                                  v={data.coverage[rec.member.id]}
+                                  onClick={() =>
+                                    setCoverageOpenId(
+                                      coverageOpenId === rec.member.id ? null : rec.member.id,
+                                    )
+                                  }
+                                />
+                              )}
                               {(owedMap[rec.member.id]?.length ?? 0) > 0 && (
                                 <OwesChip
                                   rows={owedMap[rec.member.id]}
@@ -1639,6 +1727,9 @@ function AttendancePanel({
                             {owesNotes[rec.member.id]}
                           </p>
                         ) : null}
+                        {coverageOpenId === rec.member.id && data?.coverage?.[rec.member.id] && (
+                          <CoveragePanel v={data.coverage[rec.member.id]} />
+                        )}
                         {owesOpenId === rec.member.id && (owedMap[rec.member.id]?.length ?? 0) > 0 && (
                           <OwesPanel
                             memberId={rec.member.id}

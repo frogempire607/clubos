@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { freeTrialSummary } from "@/lib/freeTrial";
+import { coverageForMembers, loadSessionCoverageContext } from "@/lib/coverageQuery";
 
 // GET /api/attendance/[sessionId]
 // Returns attendance records for a class session with member details
@@ -67,9 +68,25 @@ export async function GET(_req: Request, context: { params: Promise<{ sessionId:
     select: { freeTrialConfig: true },
   });
 
+  // Coverage per attendee. Read-only and advisory — nothing here blocks or
+  // changes a record. The panel renders a chip for the one case the existing
+  // pricing tiers do not surface: a member who HAS a valid accepted membership
+  // that does not reach this day.
+  const ctx = await loadSessionCoverageContext(params.sessionId, session.user.clubId);
+  const coverage = ctx
+    ? Object.fromEntries(
+        await coverageForMembers(
+          attendance.map((a) => a.memberId),
+          ctx,
+          session.user.clubId,
+        ),
+      )
+    : {};
+
   return NextResponse.json({
     session: classSession,
     attendance,
+    coverage,
     pricingOptions,
     acceptedMemberships,
     freeTrial: freeTrialSummary(club?.freeTrialConfig),

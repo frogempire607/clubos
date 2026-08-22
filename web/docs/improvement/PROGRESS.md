@@ -3153,3 +3153,87 @@ silently changes nothing is the pattern that cost a week.
 55 passed / 0 failed, membership-options 121 passed / 0 failed,
 renewal-surfacing 28 passed / 0 failed, member-tracks 183 passed / 0 failed,
 bulk-price-change 165 passed / 0 failed, billing-admin 132 passed / 0 failed.
+
+---
+
+## 2026-08-22 — the attendance chip (§8.13.7 step 2, part 1)
+
+The resolver is wired to the attendance panel. **Read-only: no write path
+changed, nothing blocks, nothing is priced differently.**
+
+### CLAUDE.md dev-server rule amended
+
+The rule said `.env` / `.env.local` are symlinks into the main checkout in every
+worktree. **They are not** — `elastic-wilson-411ecb` has a real `.env` file and
+no `.env.local` at all, and it carries the production pooler host anyway. Same
+danger, different mechanism, so "is it a symlink?" is not a valid check and a
+"no" proves nothing. Rewritten to say `npm run dev` in a worktree points at
+production by one of two routes, only `dev-local.sh` is safe, and verification
+is by connection.
+
+Also recorded there: the 2026-08-17 local servers used a hand-rolled
+`DATABASE_URL` override rather than `dev-local.sh`. The database was correctly
+the throwaway, but real SMTP credentials stayed loaded and one server bound
+`0.0.0.0`. Nothing was sent because the screens driven happened not to send —
+luck, not a property.
+
+### `lib/coverageQuery.ts` — the Prisma half
+
+`lib/entitlements.ts` stays pure; this loads rows and returns a verdict per
+member. One loader for the panel, the schedule and (later) the write paths,
+because each writing its own version of "active sub on an accepted plan" is how
+the nine call-sites drifted in the first place.
+
+- Two queries regardless of roster size, and each plan's options are parsed
+  **once**, not once per subscription — a roster of 30 on one plan would
+  otherwise re-parse the same JSON 30 times.
+- `warn` is computed server-side at the wire boundary, so the rule for whether a
+  shortfall is worth showing lives only in `shouldWarn` and cannot drift between
+  server and browser.
+- `dropInFrom` prefers the `dropin` tier, falls back to `nonmember`, and returns
+  null when the class configures neither — so the message says "no drop-in price
+  is set" rather than inventing a number somebody might collect.
+
+### The chip
+
+Amber, beside the existing orange Owes chip, reusing that idiom rather than
+inventing a second one. It renders in **both** places staff need it:
+
+- on each roster row, and
+- **in the Quick-Add search results** — the moment staff are about to add
+  somebody, which was the explicit requirement. It is not enough to appear after
+  the record exists.
+
+Clicking expands a panel that states the shortfall and says plainly *"Attendance
+can still be recorded — this is a heads-up, not a block."*
+
+### Browser-verified on the local rig
+
+Started with `scripts/dev-local.sh`; connection checked before and after, both
+empty of production. Fixture: Ms/HS with a $175 full option and a $110 Tue/Thu
+option, one class running Mon·Tue·Thu, two members differing only on Monday.
+
+| | Cameron (Tue/Thu $110) | Sasha (full $175) |
+|---|---|---|
+| **Monday** | `warn=true` · *"Monthly 2 days (Tue/Thu) covers Tue & Thu — Monday isn't included. Drop-in $25."* | no chip |
+| **Tuesday** | `covered=true`, no chip | no chip |
+
+Screenshot confirms the chip beside the Owes chip with every action still
+available (Present / Absent / Late / Trial / Drop-In / Remove). Zero page errors.
+
+Teardown verified by connection: no next servers, no prod connections, throwaway
+Postgres stopped and deleted.
+
+### NOT done: the schedule label
+
+`/api/member/schedule` still computes coverage plan-level only, so the member
+portal will say "Included in your membership" on a day the option does not
+grant. It needs per-athlete option data threaded through a hot path that serves
+every athlete's feed, and it was left rather than rushed. **Next batch.**
+
+Also still open: three class entries (Olympic Season, and Sunday Funday for both
+commitment plans) — Julian is finishing those.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
+55 passed / 0 failed, membership-options 121 passed / 0 failed, member-tracks
+183 passed / 0 failed, renewal-surfacing 28 passed / 0 failed.
