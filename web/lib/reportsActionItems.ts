@@ -27,6 +27,7 @@ export const ACTION_ITEM_KINDS = [
   "UNCATEGORIZED_LARGE_BANK",
   "HISTORICAL_IMPORT_REVIEW",
   "PAYMENT_METHOD_EXPIRING",
+  "CLASS_MISSING_DROPIN_PRICE",
 ] as const;
 export type ActionKind = (typeof ACTION_ITEM_KINDS)[number];
 
@@ -57,6 +58,28 @@ const DEFAULT_UNCATEGORIZED_LARGE_BANK = 500;
 // row (member, subscription, transaction, etc.) or null for kind-wide snooze.
 function itemId(kind: ActionKind, targetId?: string | null): string {
   return targetId ? `${kind}:${targetId}` : `${kind}:_`;
+}
+
+/**
+ * Can this class charge a member whose plan does not cover the weekday?
+ *
+ * True (i.e. misconfigured) when the class ACCEPTS a membership but offers no
+ * positive drop-in or non-member price. Exported so the rule can be tested
+ * without a database — it fires on nothing today, so the logic is the only
+ * thing there is to verify.
+ *
+ * A price of 0 is not a fallback: free is what the member already gets, so a
+ * zero-priced drop-in leaves the club exactly as unable to charge.
+ */
+export function cannotChargeOutsidePlanDays(pricingOptions: unknown): boolean {
+  const opts = (pricingOptions as Array<{ type?: string; price?: number }> | null) ?? [];
+  if (!Array.isArray(opts)) return false;
+  const acceptsMembership = opts.some((o) => o?.type === "membership");
+  if (!acceptsMembership) return false;
+  const hasFallback = opts.some(
+    (o) => (o?.type === "dropin" || o?.type === "nonmember") && typeof o.price === "number" && o.price > 0,
+  );
+  return !hasFallback;
 }
 
 export async function buildActionItems(
@@ -377,6 +400,46 @@ export async function buildActionItems(
 
   // 8. PAYMENT_METHOD_EXPIRING — needs live Stripe. Deferred to a follow-up
   //    when we already have a saved-cards service; skip in MVP.
+
+  // 9. CLASS_MISSING_DROPIN_PRICE — a class that accepts memberships but sets
+  //    NO drop-in and NO non-member price.
+  //
+  //    This is the configuration gap the whole day-entitlement path fails open
+  //    around. A member whose option does not grant a given weekday is supposed
+  //    to fall to the drop-in tier; with neither price configured there is
+  //    nothing to charge, so `/api/member/classes/book` books them free and
+  //    flags the row rather than turning a paying family away at the door
+  //    (§8.4.2). That is the right behaviour for the family and the wrong
+  //    outcome for the club, and it is invisible unless somebody looks.
+  //
+  //    It is a ONE-TIME fix per class, not a per-booking alert — which is why
+  //    it lives here rather than firing on every affected booking.
+  //
+  //    Today it fires on nothing: every active class is drop-in only. It exists
+  //    so the mistake is visible the first time somebody makes it.
+  const classesForPricing = await prisma.recurringClass.findMany({
+    where: { clubId, deletedAt: null, active: true },
+    select: { id: true, name: true, pricingOptions: true },
+    take: 200,
+  });
+  const misconfigured = classesForPricing.filter((c) => cannotChargeOutsidePlanDays(c.pricingOptions));
+  if (misconfigured.length > 0 && !isSnoozed("CLASS_MISSING_DROPIN_PRICE")) {
+    items.push({
+      id: itemId("CLASS_MISSING_DROPIN_PRICE"),
+      kind: "CLASS_MISSING_DROPIN_PRICE",
+      severity: "medium",
+      title: `${misconfigured.length} class${misconfigured.length === 1 ? "" : "es"} can't charge a member outside their plan days`,
+      detail:
+        (misconfigured.length <= 3
+          ? misconfigured.map((c) => c.name).join(", ")
+          : `${misconfigured[0].name} and ${misconfigured.length - 1} others`) +
+        " accept a membership but set no drop-in or non-member price, so a member whose plan doesn't cover that weekday is booked free.",
+      count: misconfigured.length,
+      amount: null,
+      href: "/dashboard/classes",
+      action: { label: "Set a price", kind: "OPEN", permission: "classes:edit" },
+    });
+  }
 
   items.sort((a, b) => {
     const sevOrder = { high: 0, medium: 1, low: 2 };
