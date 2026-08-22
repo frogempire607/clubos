@@ -10,6 +10,9 @@ import { trialCoversClass } from "@/lib/freeTrial";
 import { wallClockNowUTC } from "@/lib/datetime";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { FAMILY_SCOPE } from "@/lib/activeProfile";
+import { parseOptions } from "@/lib/membershipOptions";
+import { resolveSessionCoverage, type CoverageSubscription } from "@/lib/entitlements";
+import { dropInFrom, sessionWeekday } from "@/lib/coverageQuery";
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
@@ -145,7 +148,22 @@ export async function GET(req: Request) {
     scopeIds.length
       ? prisma.memberSubscription.findMany({
           where: { memberId: { in: scopeIds }, status: "active" },
-          select: { memberId: true, membershipId: true, membership: { select: { name: true } } },
+          // optionId + price + billingPeriod + the plan's options are what the
+          // day check needs. Loaded here rather than in a second query: a
+          // family feed must not become one round-trip per child, and this is
+          // already the one query that knows who holds what.
+          select: {
+            id: true,
+            memberId: true,
+            membershipId: true,
+            status: true,
+            optionId: true,
+            optionLabel: true,
+            billingPeriod: true,
+            price: true,
+            endDate: true,
+            membership: { select: { id: true, name: true, options: true } },
+          },
         })
       : Promise.resolve([]),
     scopeIds.length
@@ -234,11 +252,25 @@ export async function GET(req: Request) {
     lastName: string;
     membershipIds: string[];
     membershipNames: string[];
+    /** Everything resolveSessionCoverage needs for this athlete. */
+    coverageSubs: CoverageSubscription[];
     /** Staff-granted trial window: behaves like a membership scoped to the
      *  plans the club's Free Trial offer is attached to. */
     trialActive: boolean;
     eventStatus: Map<string, string>;
     classStatus: Map<string, string>;
+  };
+
+  // Parse each plan's options ONCE for the whole feed, not once per athlete
+  // per session — a family of three looking at a month of classes would
+  // otherwise re-parse the same JSON hundreds of times.
+  const planCache = new Map<string, { id: string; name: string; options: ReturnType<typeof parseOptions> }>();
+  const planFor = (m: { id: string; name: string; options: unknown }) => {
+    const hit = planCache.get(m.id);
+    if (hit) return hit;
+    const parsed = { id: m.id, name: m.name, options: parseOptions(m.options) };
+    planCache.set(m.id, parsed);
+    return parsed;
   };
 
   const stateById = new Map<string, AthleteState>();
@@ -251,6 +283,17 @@ export async function GET(req: Request) {
       lastName: a.lastName,
       membershipIds,
       membershipNames: subs.map((s) => s.membership.name),
+      coverageSubs: subs.map((s) => ({
+        id: s.id,
+        membershipId: s.membershipId,
+        status: s.status,
+        optionId: s.optionId,
+        optionLabel: s.optionLabel,
+        billingPeriod: s.billingPeriod,
+        price: s.price,
+        endDate: s.endDate,
+        plan: planFor(s.membership),
+      })),
       trialActive:
         membershipIds.length === 0 && !!a.trialEndsAt && new Date(a.trialEndsAt) > new Date(),
       eventStatus: new Map(
@@ -391,7 +434,23 @@ export async function GET(req: Request) {
       // Tier, price and bookability are all per-athlete: two siblings on
       // different plans get different answers for the same class.
       const evalFor = (st: AthleteState) => {
-        const covered = acceptedMembershipIds.some((id) => st.membershipIds.includes(id));
+        // Plan-level acceptance is necessary but no longer sufficient: an
+        // option can grant only some weekdays. Before this, the portal told a
+        // $110 Tue/Thu member "Included in your membership" on a Monday and
+        // then booked them free — the label and the booking were both wrong,
+        // and the club lost the drop-in without anyone seeing it happen.
+        //
+        // The weekday comes from ClassSession.date via getUTCDay(), with no
+        // timezone conversion — the same convention buildSessions used to
+        // create the row. See lib/coverageQuery.sessionWeekday.
+        const verdict = resolveSessionCoverage({
+          subscriptions: st.coverageSubs,
+          acceptedMembershipIds,
+          sessionWeekday: sessionWeekday(sessionItem.date),
+          sessionAt: sessionItem.startsAt,
+          dropIn: dropInFrom(sessionItem.recurringClass.pricingOptions),
+        });
+        const covered = verdict.covered && verdict.reason === "COVERED";
         const trialCovers =
           st.trialActive && trialCoversClass(trialClub?.freeTrialConfig, acceptedMembershipIds);
         const hasAnyActiveSub = st.membershipIds.length > 0;
@@ -412,6 +471,20 @@ export async function GET(req: Request) {
           bookingTier = "DROP_IN"; bookingPriceNum = dropInPrice.price; bookingLabel = "Drop-in price";
         } else if (memberPrice) {
           bookingTier = "MEMBER"; bookingPriceNum = memberPrice.price; bookingLabel = "Member price";
+        }
+        // Say WHY, when the reason is a day their option does not include.
+        // "Member price" alone reads as a pricing quirk; a parent seeing it on
+        // Monday and not Tuesday has no way to work out that their plan is the
+        // two-day one. Only DAY_NOT_INCLUDED gets this treatment — the other
+        // shortfalls are already what the tier names say (no membership, plan
+        // not accepted), and annotating those would be noise.
+        if (!covered && !trialCovers && verdict.reason === "DAY_NOT_INCLUDED" && bookingLabel) {
+          const days = verdict.entitledDays?.length
+            ? verdict.entitledDays.map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(" & ")
+            : null;
+          bookingLabel = days
+            ? `${bookingLabel} — your plan covers ${days}`
+            : `${bookingLabel} — not included in your plan on this day`;
         }
         const attendance = st.classStatus.get(sessionItem.id) ?? null;
         const freeCovered = covered || trialCovers;
