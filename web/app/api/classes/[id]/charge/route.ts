@@ -9,6 +9,8 @@ import { sendBookingConfirmationEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
+import { coverageForMembers, loadSessionCoverageContext } from "@/lib/coverageQuery";
+import { describeDays } from "@/lib/membershipOptions";
 
 const schema = z.object({
   memberId: z.string(),
@@ -63,15 +65,27 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       .filter((o): o is Extract<PricingOption, { type: "membership" }> => o?.type === "membership")
       .map((o) => o.membershipId);
 
+    // Coverage now includes the DAY: an option can grant only some weekdays,
+    // so plan membership alone is no longer enough to register somebody free.
+    const covCtx = await loadSessionCoverageContext(classSessionId, session.user.clubId);
+    const verdict = covCtx
+      ? (await coverageForMembers([memberId], covCtx, session.user.clubId)).get(memberId) ?? null
+      : null;
+    const dayMismatch = verdict?.reason === "DAY_NOT_INCLUDED";
+    const entitledDays = verdict?.entitledDays?.length ? describeDays(verdict.entitledDays) : null;
+
     // Membership-covered: register at no cost when the member has an active sub on an accepted plan
     if (acceptedMembershipIds.length > 0) {
-      const activeSub = await prisma.memberSubscription.findFirst({
-        where: {
-          memberId,
-          membershipId: { in: acceptedMembershipIds },
-          status: "active",
-        },
-      });
+      const activeSub =
+        verdict && verdict.reason !== "COVERED"
+          ? null
+          : await prisma.memberSubscription.findFirst({
+              where: {
+                memberId,
+                membershipId: { in: acceptedMembershipIds },
+                status: "active",
+              },
+            });
       if (activeSub) {
         const existing = await prisma.attendanceRecord.findFirst({
           where: { classSessionId, memberId },
@@ -119,9 +133,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         return NextResponse.json({ coveredByMembership: true, attendanceRecordId: record.id });
       }
       if (pricingType === "MEMBERSHIP") {
+        // Distinguish "wrong membership" from "right membership, wrong day".
+        // The second is not an upgrade conversation and must not read like one.
         return NextResponse.json(
-          { error: "Member does not have an active accepted membership" },
-          { status: 400 }
+          dayMismatch
+            ? {
+                error: entitledDays
+                  ? `${member.firstName}'s plan covers ${entitledDays} — this class is on a day it doesn't include. Charge a drop-in instead.`
+                  : `${member.firstName}'s plan doesn't include this day. Charge a drop-in instead.`,
+                code: "DAY_NOT_INCLUDED",
+                entitledDays: verdict?.entitledDays ?? null,
+                dropIn: verdict?.dropIn ?? null,
+              }
+            : { error: "Member does not have an active accepted membership" },
+          { status: 400 },
         );
       }
     } else if (pricingType === "MEMBERSHIP") {

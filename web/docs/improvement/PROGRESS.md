@@ -3295,3 +3295,95 @@ or check-in path.
 **Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
 55 passed / 0 failed, membership-options 121 passed / 0 failed, member-tracks
 183 passed / 0 failed. Teardown verified by connection.
+
+---
+
+## 2026-08-22 — the write paths stop booking a non-granted day free (§8.4.2)
+
+**This is the change that moves a member from free to priced.** Both routes,
+browser-tested on its own, committed alone.
+
+`POST /api/member/classes/book` and `POST /api/classes/[id]/charge` both granted
+the free membership path on plan membership alone. A $110 Tue/Thu member booked
+Monday free and the club lost the drop-in. Both now gate on
+`resolveSessionCoverage`, using the same loader as the panel and the schedule.
+
+### A day mismatch NEVER produces the upgrade 403
+
+The old fallback for a restricted class with a non-matching sub was
+`MEMBERSHIP_NOT_INCLUDED` — *"Your current membership doesn't include this
+class. Contact your club to upgrade."* Sending that to a family who is on the
+right membership on the wrong day is a phone call the club has to take for no
+reason.
+
+So `DAY_NOT_INCLUDED` resolves **drop-in → non-member**, and deliberately not the
+member tier (they are not entitled today). Staff picking `pricingType:
+MEMBERSHIP` on a non-granted day get a day-specific 400 naming the days their
+plan does cover, with `code: DAY_NOT_INCLUDED` and the drop-in amount attached,
+never the upgrade text.
+
+### No fallback price → book, note, flag
+
+A day-mismatched member at a class with no drop-in and no non-member price is a
+**class configuration gap**, not a member problem: there is no way to charge
+somebody outside their plan days. They are booked rather than turned away, and
+the record carries the reason. No new alert — the attendance panel computes
+coverage live, so the row keeps showing its chip until the class is fixed.
+
+### The price list, audited before this went live
+
+**Every active class is drop-in only** — not one configures a member or
+non-member price:
+
+| Class | Days | member | non-member | drop-in | accepted plans |
+|---|---|---|---|---|---|
+| Girls Class | Fri | — | — | $40 | 3 |
+| Jr Frogs | Mon·Wed | — | — | $25 | 3 |
+| Ms/HS Olympic Season | Mon·Tue·Thu | — | — | $25 | 3 |
+| MS/HS Preseason | Mon·Tue·Thu | — | — | $25 | 3 |
+| Sunday Funday | Sun | — | — | $25 | 7 |
+| Tadpoles | Wed·Sun | — | — | $25 | 1 |
+
+So Olympic Season is the pattern, not the exception: a $110 Tue/Thu member pays
+**$25** on a Monday at any MS/HS class while their $175 sibling attends free.
+Correct by the rules, and uniform. The no-fallback branch cannot fire today —
+it exists for the class somebody creates next month without a drop-in price.
+
+Also confirmed: all three outstanding class entries landed. Olympic Season, Jr
+Frogs and Sunday Funday each carry the right commitment plan; Sunday Funday is
+up to seven accepted plans. **Maximus and chase have coverage.**
+
+### Nobody is charged silently
+
+Traced before building. The member sees the price **twice**: the schedule detail
+sheet renders the label and price together before the Book tap (*"Member price —
+your plan covers Tue & Thu — $20"*, and the sub-line only says "Your membership
+covers this class" when the tier really is MEMBERSHIP), and the route then
+creates a **Stripe Checkout session** and returns a URL rather than charging —
+so the final confirmation is on Stripe's own page and can be abandoned. A
+controlled minor's booking hits the parental gate before Stripe and returns 202.
+
+### Browser-verified, on its own
+
+`dev-local.sh`, connection checked before and after, both empty of production.
+
+| Case | Result |
+|---|---|
+| Member, Tuesday (entitled) | 200, free, covered by membership |
+| Member, Monday, class has drop-in | routed to the priced path — **no attendance row created**, stopped only because the local club has no Stripe |
+| Member, Monday, class has NO drop-in | 200, booked, `bookedOutsidePlanDays: true`, note recorded on the row |
+| Staff, Monday, `pricingType: MEMBERSHIP` | 400 `DAY_NOT_INCLUDED`, *"Marcus's plan covers Tue & Thu — this class is on a day it doesn't include. Charge a drop-in instead."* — no "upgrade" anywhere |
+
+The second row is the one that matters and it was proved by absence: a query of
+that member's attendance found **two** rows — Tuesday, and the no-drop-in Monday
+— and none for the Monday drop-in class. It did not book free.
+
+### Follow-up, deliberately not in this batch
+
+An Action Center probe for **classes that accept memberships but configure no
+drop-in or non-member price**. That is a one-time config fix per class, not a
+per-booking alert, and it belongs on its own.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
+55 passed / 0 failed, membership-options 121 passed / 0 failed, member-tracks
+183 passed / 0 failed. Teardown verified by connection.
