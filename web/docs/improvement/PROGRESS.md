@@ -1,5 +1,49 @@
 # AthletixOS Improvement — Progress & Phased Plan
 
+> ## ⚠️ Bulk send at 294: instrumented and much faster, ROOT CAUSE STILL UNKNOWN
+>
+> 2026-08-22. **This is instrumentation plus a large render optimization. It is
+> NOT a confirmed fix.** Deploy knowing that.
+>
+> **What is known.** Two production 504s on `POST /api/members/bulk` at 294
+> recipients, the second leaving only 1 `EmailSend` row. Routing was never the
+> problem: `INLINE_DISPATCH_MAX` is 100, 294 correctly took the queue path. The
+> queue path rendered and personalized EVERY recipient before inserting ANY, so
+> a timeout left nothing to recover.
+>
+> **What is measured** (local rig, 281 rows, `scripts/dev-local.sh`, clicked
+> through in a browser):
+>
+> | phase | before | after |
+> |---|---|---|
+> | `resolveRecipients` | 26–37 ms | 28 ms |
+> | build/render loop | 4,680–6,255 ms (17–22 ms/row) | 0 ms/row + one 2,091 ms render |
+> | `enqueueEmailSendRows` | 155–164 ms | 425 ms (chunked) |
+> | **request total** | ~5–6.5 s | **2,553 ms** |
+>
+> **What is NOT known.** Local totals said the request should take ~6 s before
+> the change; production took over 60 s. **That ~10× gap is unexplained.** Local
+> Postgres is ~0.1 ms/round-trip against the pooler's 50–150 ms, so DB-bound
+> phases are understated here — but the phase that dominated locally was
+> CPU-bound (zero queries), which costs the same on Netlify. Nothing measured so
+> far accounts for 60 s. The instrumentation exists precisely because the next
+> production send has to answer this; read the `[bulk-email]` phase lines in the
+> Netlify function log before optimizing anything further.
+>
+> **Why it may still work.** The dominant measured cost is gone (render is
+> hoisted once when the body has no `{{tokens}}` — verified byte-identical to a
+> per-recipient render, including the `&`→`&amp;` escaping of the unsubscribe
+> query string, and confirmed live: 281 rows, 281 distinct unsubscribe
+> addresses, 281 distinct HMAC tokens, 0 sentinel leaks). And a timeout is now
+> survivable: rows land in chunks of 25, a 40 s budget returns `partial: true`
+> with `remaining` instead of dying, and re-submitting the same `clientKey`
+> resumes the same batch with the dedupe index skipping what already landed.
+>
+> **If it 504s again**, the rows written so far are durable and the cron will
+> send them — that is the difference from before, independent of whether the
+> root cause is fixed.
+
+
 > ## ✅ Phase 5 migration APPLIED — `20260812000000_event_tournament_workflow`
 >
 > Applied and verified by Julian, 2026-08-12. **Do not create or modify a Phase

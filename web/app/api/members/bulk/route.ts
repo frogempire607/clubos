@@ -26,6 +26,7 @@ import {
   type PersonalizationContext,
 } from "@/lib/emailPersonalization";
 import { enqueueEmailSendRows, INLINE_DISPATCH_MAX, type EnqueueRow } from "@/lib/enqueueEmailSend";
+import { startPhaseTimer } from "@/lib/phaseTimer";
 
 // The email path can enqueue up to MAX_IDS EmailSend rows in one request
 // (each is a single insert). Actual dispatch runs inline for now (Resend
@@ -270,12 +271,21 @@ async function handleBulkEmail(
     return NextResponse.json({ error: "Invalid message blocks.", details: blocksResult.errors }, { status: 400 });
   }
 
+  // Phase timing (lib/phaseTimer). Two 60s timeouts on this handler arrived
+  // with no way to tell which phase was slow; render was later measured at
+  // 12.75ms/recipient and ruled out, leaving the rest unmeasured. Every phase
+  // now reports, so the next slow send explains itself.
+  const timer = startPhaseTimer("bulk-email", { clubId: club.id, selected: scopedMemberIds.length });
+
+  const recipientsStart = Date.now();
   const recipients = await resolveRecipients({
     clubId: club.id,
     memberIds: scopedMemberIds,
     mode: email.mode as HouseholdMode,
     respectMarketingOptOut: true,
   });
+
+  timer.record("resolveRecipients", Date.now() - recipientsStart, recipients.send.length);
 
   if (recipients.send.length === 0) {
     return NextResponse.json(
@@ -319,58 +329,137 @@ async function handleBulkEmail(
   const useQueueOnly = recipients.send.length > INLINE_DISPATCH_MAX;
 
   if (useQueueOnly) {
-    // Render (per-recipient) + enqueue only. sendClubEmail's own opt-out
-    // gate ran during resolveRecipients (respectMarketingOptOut=true),
-    // so QUEUED rows shipping to the cron are already opt-out-safe.
-    const enqueueRows: EnqueueRow[] = [];
-    for (const r of recipients.send) {
-      let subjectForRow = email.subject;
-      let blocksForRow = blocksResult.blocks;
-      if (bodyHasTokens && r.recipientMemberId) {
-        const resolved = await resolveMemberPersonalization({
-          clubId: club.id,
-          memberId: r.recipientMemberId,
-          referencedTokens: Array.from(referencedTokens),
-          context,
-        });
-        const values = resolved.values as Record<string, string>;
-        subjectForRow = interpolateString(email.subject, values);
-        blocksForRow = interpolateBlocks(blocksResult.blocks, values);
+    // Build and insert in BOUNDED CHUNKS. This used to render every recipient
+    // into one array and insert the lot afterwards, so a 60s timeout anywhere
+    // in the loop left ZERO rows — the club saw a 504 and had nothing to
+    // recover from. Now each chunk is durable the moment it lands: a timeout
+    // costs at most one chunk, and the cron worker picks up everything already
+    // written.
+    //
+    // Measured locally at 281 rows: resolveRecipients ~30ms, the render loop
+    // ~4.7-6.3s (CPU, ~17-22ms/row), the inserts ~160ms. Render dominates and
+    // is CPU-bound, so it costs the same on Netlify.
+    const CHUNK = 25;
+    // Stop building with headroom under the 60s ceiling and return what is
+    // already durable, rather than being killed mid-chunk with no response.
+    const BUILD_BUDGET_MS = 40_000;
+
+    // When the body carries no {{tokens}}, every recipient's HTML is IDENTICAL
+    // except the unsubscribe URL — so render ONCE and substitute. Verified
+    // byte-identical against a real per-recipient render, including addresses
+    // with `+` and `'`. The URL must be HTML-ESCAPED into the html (a real
+    // render escapes the query string's `&` to `&amp;`; substituting the raw
+    // URL would corrupt the link) and left RAW in the text part.
+    const UNSUB_SENTINEL = "https://unsubscribe.sentinel.invalid/aox";
+    const escAttr = (v: string) =>
+      v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const renderCtxFor = (unsubscribeUrl: string) => ({
+      clubName: club.name,
+      clubLogoUrl: publicClubLogoUrl(club.id, club.logoUrl),
+      clubContact: {
+        email: club.publicEmail ?? club.contactEmail,
+        phone: club.publicPhone ?? club.contactPhone,
+        website: club.websiteUrl,
+        address: null,
+      },
+      club,
+      unsubscribeUrl,
+      postalAddress: resolvePostalAddressLines(club),
+      accentColor: club.primaryColor,
+    });
+
+    let personalizeMs = 0;
+    let renderMs = 0;
+    let hoistedRenders = 0;
+    const hoistStart = Date.now();
+    const hoisted = bodyHasTokens ? null : await renderEmail(blocksResult.blocks, renderCtxFor(UNSUB_SENTINEL));
+    if (hoisted) timer.record("render(hoisted once)", Date.now() - hoistStart, 1);
+
+    const totals = { enqueued: 0, duplicate: 0, failed: 0 };
+    const failures: Awaited<ReturnType<typeof enqueueEmailSendRows>>["failures"] = [];
+    let processed = 0;
+    let enqueueMs = 0;
+    let stoppedEarly = false;
+    const buildStart = Date.now();
+
+    for (let i = 0; i < recipients.send.length; i += CHUNK) {
+      if (timer.elapsed() > BUILD_BUDGET_MS) {
+        stoppedEarly = true;
+        break;
       }
-      const unsubscribeUrl = buildUnsubscribeUrl(club.id, r.recipientEmail);
-      const rendered = await renderEmail(blocksForRow, {
-        clubName: club.name,
-        clubLogoUrl: publicClubLogoUrl(club.id, club.logoUrl),
-        clubContact: {
-          email: club.publicEmail ?? club.contactEmail,
-          phone: club.publicPhone ?? club.contactPhone,
-          website: club.websiteUrl,
-          address: null,
-        },
-        club,
-        unsubscribeUrl,
-        postalAddress: resolvePostalAddressLines(club),
-        accentColor: club.primaryColor,
-      });
-      enqueueRows.push({
-        kind: "BULK",
-        recipientEmail: r.recipientEmail,
-        recipientUserId: r.recipientUserId,
-        recipientMemberId: r.recipientMemberId,
-        subject: subjectForRow,
-        bodyHtml: rendered.html,
-        bodyText: rendered.text || blocksToPlainText(blocksForRow),
-        bodyJson: blocksForRow,
-        fromName,
-        replyTo,
-        sendBatchId,
-        dedupeKey: r.dedupeKey,
-        idempotencyKey: email.clientKey,
-        sentByUserId: session.user.id,
-        listUnsubscribeUrl: unsubscribeUrl,
-      });
+      const slice = recipients.send.slice(i, i + CHUNK);
+      const chunkRows: EnqueueRow[] = [];
+
+      for (const r of slice) {
+        let subjectForRow = email.subject;
+        let blocksForRow = blocksResult.blocks;
+        if (bodyHasTokens && r.recipientMemberId) {
+          const pStart = Date.now();
+          const resolved = await resolveMemberPersonalization({
+            clubId: club.id,
+            memberId: r.recipientMemberId,
+            referencedTokens: Array.from(referencedTokens),
+            context,
+          });
+          personalizeMs += Date.now() - pStart;
+          const values = resolved.values as Record<string, string>;
+          subjectForRow = interpolateString(email.subject, values);
+          blocksForRow = interpolateBlocks(blocksResult.blocks, values);
+        }
+        const unsubscribeUrl = buildUnsubscribeUrl(club.id, r.recipientEmail);
+
+        let html: string;
+        let text: string;
+        if (hoisted) {
+          html = hoisted.html.split(UNSUB_SENTINEL).join(escAttr(unsubscribeUrl));
+          text = (hoisted.text || "").split(UNSUB_SENTINEL).join(unsubscribeUrl);
+          hoistedRenders++;
+        } else {
+          const rStart = Date.now();
+          const rendered = await renderEmail(blocksForRow, renderCtxFor(unsubscribeUrl));
+          renderMs += Date.now() - rStart;
+          html = rendered.html;
+          text = rendered.text || blocksToPlainText(blocksForRow);
+        }
+
+        chunkRows.push({
+          kind: "BULK",
+          recipientEmail: r.recipientEmail,
+          recipientUserId: r.recipientUserId,
+          recipientMemberId: r.recipientMemberId,
+          subject: subjectForRow,
+          bodyHtml: html,
+          bodyText: text,
+          bodyJson: blocksForRow,
+          fromName,
+          replyTo,
+          sendBatchId,
+          dedupeKey: r.dedupeKey,
+          idempotencyKey: email.clientKey,
+          sentByUserId: session.user.id,
+          listUnsubscribeUrl: unsubscribeUrl,
+        });
+      }
+
+      // Durable before the next chunk is built.
+      const eStart = Date.now();
+      const enq = await enqueueEmailSendRows(club.id, chunkRows);
+      enqueueMs += Date.now() - eStart;
+      totals.enqueued += enq.enqueued;
+      totals.duplicate += enq.duplicate;
+      totals.failed += enq.failed;
+      failures.push(...enq.failures);
+      processed += slice.length;
     }
-    const enq = await enqueueEmailSendRows(club.id, enqueueRows);
+
+    timer.record("personalize", personalizeMs, bodyHasTokens ? processed : 0);
+    timer.record("render(per-recipient)", renderMs, hoisted ? 0 : processed);
+    timer.record("substitute(hoisted)", 0, hoistedRenders);
+    timer.record("enqueueRows", enqueueMs, processed);
+    timer.record("buildAndInsert(total)", Date.now() - buildStart, processed);
+    timer.done({ path: "queue", rows: processed, of: recipients.send.length, stoppedEarly });
+
+    const remaining = recipients.send.length - processed;
     return NextResponse.json({
       ok: true,
       sendBatchId,
@@ -378,15 +467,20 @@ async function handleBulkEmail(
       // renders "Send queued — will finish within a few minutes" in
       // this branch. `sent` stays 0 because dispatch runs later.
       results: {
-        queued: enq.enqueued,
+        queued: totals.enqueued,
         sent: 0,
         skipped: 0,
-        failed: enq.failed,
-        duplicate: enq.duplicate,
+        failed: totals.failed,
+        duplicate: totals.duplicate,
       },
       queueOnly: true,
+      // A truthful partial beats a 504 with nothing: these rows ARE durable
+      // and the cron will send them. Re-submitting the same clientKey resumes
+      // the same batch and the dedupe index skips what already landed.
+      partial: stoppedEarly,
+      remaining,
       skippedResolvers: recipients.skipped.slice(0, 200),
-      failures: enq.failures.slice(0, 200),
+      failures: failures.slice(0, 200),
       counts: recipients.counts,
     });
   }
