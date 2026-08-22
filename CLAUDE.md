@@ -52,12 +52,30 @@ Two gotchas that already bit us:
 
 ### Local dev servers — kill strays by CONNECTION, never by port
 
-`web/.env` and `web/.env.local` are **symlinks into the main checkout**, in every
-worktree. So `npm run dev` anywhere — worktree or not — starts a server pointed
-at **production**, on `0.0.0.0`. The only safe local server is
-`scripts/dev-local.sh`, which overrides `DATABASE_URL` to the throwaway Postgres
-on `127.0.0.1:55432`, binds `127.0.0.1`, and blanks `SMTP_HOST` +
-`RESEND_API_KEY` so sends log instead of deliver.
+**`npm run dev` in a worktree starts a server pointed at production, on
+`0.0.0.0`.** It reaches production two different ways, which is why you cannot
+check for one of them:
+
+- in **some** worktrees `web/.env` / `web/.env.local` are **symlinks into the
+  main checkout**;
+- in **others** the worktree has its own regular `.env` that carries the
+  production `DATABASE_URL` anyway (verified 2026-08-22 in
+  `web/.claude/worktrees/elastic-wilson-411ecb`, which has a real file, no
+  `.env.local` at all, and the production pooler host).
+
+So **"is it a symlink?" is NOT a valid check** — a "no" proves nothing, and
+reading the file to reassure yourself is the wrong move regardless. The only
+safe local server is `scripts/dev-local.sh`, which overrides `DATABASE_URL` to
+the throwaway Postgres on `127.0.0.1:55432`, binds `127.0.0.1`, and blanks
+`SMTP_HOST` + `RESEND_API_KEY` so sends log instead of deliver. **Verification is
+by connection, always** — see the commands below.
+
+Blanking the credentials is not belt-and-braces. On 2026-08-17 three local
+servers were run with a hand-rolled `DATABASE_URL` override instead of this
+script: the database was correctly the local throwaway, but real SMTP
+credentials stayed loaded the whole time and one of them bound `0.0.0.0`.
+Nothing was sent because the screens being driven happened not to send. That is
+luck, not a property of the setup. Use the script.
 
 On 2026-08-21 a prod-pointed `npm run dev` was killed, the port was verified
 free, and a prod-pointed server was later found listening again — while a bulk

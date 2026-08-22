@@ -4,9 +4,13 @@ import { useEffect, useState } from "react";
 import { Ticket } from "lucide-react";
 import BulkPriceChangeModal from "@/components/BulkPriceChangeModal";
 import {
+  describeDays,
+  entitlementFromSelection,
+  findDuplicateOptions,
   parseOptions,
   makeOption,
   resolveTerms,
+  selectionFromEntitlement,
   type BillingPeriod,
   type MembershipOption,
 } from "@/lib/membershipOptions";
@@ -480,6 +484,26 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
   const [allowBillingDayOverride, setAllowBillingDayOverride] = useState(membership?.allowBillingDayOverride ?? false);
   const [defaultBillingDay, setDefaultBillingDay] = useState(membership?.defaultBillingDay ? String(membership.defaultBillingDay) : "");
   const [contractMonths, setContractMonths] = useState(membership?.contractMonths ? String(membership.contractMonths) : "");
+
+  // Which weekdays this plan can meaningfully grant, and how many members each
+  // option currently has. Editor-only, read-only, and absent for a plan that is
+  // not accepted by any class — in which case no day picker is shown at all,
+  // because there is nothing for a day restriction to restrict.
+  const [dayContext, setDayContext] = useState<{
+    offeredDays: number[];
+    dayClasses: Record<number, string[]>;
+    optionCounts: Record<string, number>;
+    unidentifiedCount: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!membership?.id) return;
+    let alive = true;
+    fetch(`/api/memberships/${membership.id}/entitlement-context`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setDayContext(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [membership?.id]);
   // Whether the club's central Free Trial offer currently covers this plan
   // (legacy per-membership flag only for clubs that never configured it).
   const trialCurrentlyApplies = trialConfig
@@ -529,6 +553,21 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
     // not show.
     const cleanOptions = options.filter((o) => o.label.trim()).map((o) => ({ ...o, price: Number(o.price) || 0 }));
     if (cleanOptions.length === 0) { setError("Add at least one purchase option"); setSaving(false); return; }
+
+    // The server refuses this too (validateOptionsForSave) — that is the gate.
+    // Checking here as well means the owner reads the conflict in the form they
+    // are already looking at, rather than after a round trip.
+    const dupes = findDuplicateOptions(cleanOptions);
+    if (dupes.length > 0) {
+      const d = dupes[0];
+      setError(
+        `"${d.labels[0]}" and "${d.labels[1]}" are both $${d.price} on the same schedule. ` +
+        "Give one a different price or billing period — otherwise a member's subscription " +
+        "can't record which of the two they bought.",
+      );
+      setSaving(false);
+      return;
+    }
 
     const url = isEdit ? `/api/memberships/${membership!.id}` : "/api/memberships";
     const method = isEdit ? "PATCH" : "POST";
@@ -754,6 +793,75 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
                             </div>
                           </div>
                         )}
+
+                        {/* Day entitlement. Only shown when some class actually
+                            accepts this plan — a day restriction on a plan no
+                            class takes would restrict nothing and read as a
+                            broken control. */}
+                        {dayContext && dayContext.offeredDays.length > 0 && (() => {
+                          const offered = dayContext.offeredDays;
+                          const picked = selectionFromEntitlement(opt.entitlement, offered);
+                          // Capture the narrowed value — a boolean derived from
+                          // the discriminant does not narrow the union at the
+                          // use site.
+                          const restrictedDays =
+                            opt.entitlement.kind === "DAYS" ? opt.entitlement.days : null;
+                          const affected = opt.id ? (dayContext.optionCounts[opt.id] ?? 0) : 0;
+                          const toggle = (day: number) => {
+                            const next = picked.includes(day)
+                              ? picked.filter((d) => d !== day)
+                              : [...picked, day];
+                            updateOption(i, "entitlement", entitlementFromSelection(next, offered));
+                          };
+                          return (
+                            <div className="mt-2 pt-2 border-t border-app-border">
+                              <p className="text-xs font-medium text-text-primary mb-1">Days this option includes</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {offered.map((day) => {
+                                  const on = picked.includes(day);
+                                  return (
+                                    <button
+                                      key={day}
+                                      type="button"
+                                      onClick={() => toggle(day)}
+                                      title={(dayContext.dayClasses[day] ?? []).join(", ")}
+                                      className={`px-2.5 py-1 rounded-lg text-xs border transition ${
+                                        on
+                                          ? "bg-brand text-white border-brand"
+                                          : "bg-surface text-text-muted border-app-border hover:border-brand"
+                                      }`}
+                                    >
+                                      {describeDays([day])}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className="text-xs text-text-muted mt-1">
+                                {restrictedDays
+                                  ? `Only ${describeDays(restrictedDays)} — other days are a drop-in.`
+                                  : "Every day this plan is accepted for, including days added later."}
+                              </p>
+                              {/* Until lib/entitlements.ts is wired into booking
+                                  and attendance, this setting is recorded and
+                                  shown but enforces nothing. Saying so is the
+                                  point: a control that silently changes nothing
+                                  is worse than no control. Remove this line in
+                                  the same commit that wires enforcement. */}
+                              {restrictedDays && (
+                                <p className="text-xs text-orange-accent mt-0.5">
+                                  Not in effect yet — this is recorded but does not
+                                  change booking or check-in until day limits go live.
+                                </p>
+                              )}
+                              {restrictedDays && affected > 0 && (
+                                <p className="text-xs text-orange-accent mt-0.5">
+                                  {affected} member{affected === 1 ? "" : "s"} on this option — changing these
+                                  days changes what they are entitled to.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })()}

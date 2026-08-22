@@ -2906,3 +2906,334 @@ clean, membership-options 82 passed / 0 failed, renewal-surfacing 28 passed / 0
 failed, member-tracks 183 passed / 0 failed, billing-admin 108 passed / 3
 failed and bulk-price-change 152 passed / 4 failed (both pre-existing, same
 cause).
+
+---
+
+## 2026-08-17 (later) — merged the other session's work; two corrections
+
+Pulled `main` into the phase branch. Two commits from the parallel session land
+in Phase 8 territory and are reviewed and kept as-is.
+
+### `84719e5` caught a bug that was mine
+
+The memberships editor was dropping `id`, `contractMonths`, `autoRenewDefault`,
+`entitlement` and `requiredDocumentIds` from every option on every save. One
+routine edit would have orphaned the option ids that had just been minted and
+the subscriptions that had just been stamped against them.
+
+**The gap was mine.** I added five fields to the option shape in
+`lib/membershipOptions.ts` and never touched the two route `optionSchema`s that
+gate writes — closed three-key `z.object`s, and Zod strips unknown keys, so the
+new fields were deleted at the door. The editor's own hand-rolled three-field
+`Option` type and `cleanOptions` spread were the other two causes. Each was
+independently sufficient.
+
+The fix is right and matches what the option model was consolidated for: both
+routes now accept options loosely (`z.record(z.unknown())`) and run them
+through `parseOptions` → `serializeOptions`, so there is one parser and one
+serializer. Loose is not weaker — `readOptions` compares the parsed count
+against the submitted count and 400s on any entry the parser cannot read, which
+is stricter than the old closed schema for malformed values and lossless for
+unknown ones.
+
+### `31d24a1` — per-option terms are done
+
+Off the Phase 8 list (§8.13.3). The three-state inheritance is handled
+properly: "same terms as the plan" is its own explicit checkbox rather than a
+magic blank, and unticking seeds the override from the currently-resolved value
+so making terms explicit never silently changes them.
+
+### Correction: the backfill stamped 20, not the 19 I predicted
+
+Actual production state: **20 stamped, 9 null, 0 ambiguous** across 29 live
+subscriptions. I measured 28/19/9 earlier the same day. The difference is a
+subscription created at 14:14 that day — **chase Robertson**, `Jr Frogs Monthly
+Commitment`, "3 months", $90 — which stamped cleanly. The nine left null are
+exactly the nine predicted.
+
+### Correction: §8.10 Step 10 is no longer a no-op
+
+`Jr Frogs Monthly Commitment` had zero subscribers when §8.10 was written. It
+has one now — the same chase Robertson row. So the Jr Frogs collapse needs the
+full repoint (Steps 6, 7 and 9), not just the option append. And the same
+coverage argument applies: that plan is in no class's `pricingOptions`, so chase
+is currently drop-in priced for the Jr Frogs class and Sunday Funday, and the
+collapse fixes it.
+
+**The general lesson, now written into §8.10:** "zero subscribers, safe to skip"
+is only true on the day it was measured. Re-run the count immediately before the
+collapse, not from the spec.
+
+### Still open and mine: `findDuplicateOptions` is not wired
+
+`lib/membershipOptions.findDuplicateOptions` exists and is tested but nothing
+calls it. The editor can therefore still save two options at the same billing
+period AND the same price — the one condition that makes
+`resolveSubscriptionOption`'s inference ambiguous, permanently, for any row not
+yet stamped. Per-option terms make richer option sets easy to build, so this got
+more likely, not less. It is the next thing.
+
+**Verification after merge:** `npx tsc --noEmit` clean, `npm run build` clean,
+membership-options 96 passed / 0 failed, renewal-surfacing 28 passed / 0 failed,
+member-tracks 183 passed / 0 failed, billing-admin 132 passed / 0 failed,
+bulk-price-change 165 passed / 0 failed. **All 7 previously-red assertions are
+now green** — the UTC billing-period fix landed in the same pull.
+
+---
+
+## 2026-08-18 — the duplicate guard, and the day picker
+
+**CORRECTED 2026-08-18.** This entry originally recorded that both commitment
+plans had been added to their classes and that §8.10 Step 0 was therefore done.
+**It is not done.** A read of `recurring_classes` shows zero entries for either
+`MS/HS 3 or 12 months Commitment` or `Jr Frogs Monthly Commitment`, and no class
+row has been updated since 2026-08-13 — so no class was saved that day at all.
+
+**Cause: the change was deferred and never attempted** (confirmed by Julian,
+2026-08-18). There is no bug here and nothing to chase. Recorded because the
+read looked exactly like a silent save failure, and the next person to notice
+the gap should not re-investigate it: `PATCH /api/classes/[id]` accepts
+`{type:"membership", membershipId}` in its `pricingOptions` schema, so the
+memberships-editor strip bug does not repeat on the class editor.
+
+**Still true, and still costing money:** Maximus Alexander ($150/mo) and chase
+Robertson ($90/mo) are drop-in priced for every class, because their plans are
+in no class's accepted list. Either add the two plans to those classes (Step 0),
+or run the collapse, which fixes it structurally.
+
+**And when the collapse runs:** Step 8 deactivates those two plans, so if they
+HAVE been added to classes by then they must be removed from those
+`pricingOptions` lists in the same pass, or the lists keep pointing at retired
+plans.
+
+### `findDuplicateOptions` is wired — §8.13 gap closed
+
+It existed and was tested but nothing called it, so the editor could still save
+two options at the same billing period AND the same price. That is the one shape
+`resolveSubscriptionOption`'s inference cannot resolve — permanently, for any
+subscription not yet stamped. Per-option terms made richer option sets easy to
+build, so it had become more likely, not less.
+
+The rule now lives in `lib/membershipOptions.validateOptionsForSave`, which both
+routes call. It replaces the `readOptions` helper each route had its own copy of
+— one gate, one message, next to the rule that produces it — and distinguishes
+`MALFORMED` from `DUPLICATE_OPTION` so a client can tell a typo from a conflict.
+The editor runs the same predicate before submitting so the owner reads the
+conflict in the form they are looking at; the server is still the gate.
+
+Deliberately allowed, and pinned: two options on the **same period at different
+prices** (MS/HS's $175 and $110 — the entire reason for the phase), and the
+**same price on different periods** ($450 quarterly and $450 annual are
+different products).
+
+### Day entitlements — the editor (§8.13.6)
+
+The model already had the shape and the evaluation. What was missing was a way
+to set it.
+
+**`entitlementFromSelection` / `selectionFromEntitlement`** are the pure rule,
+in `lib/membershipOptions.ts`:
+
+- Ticking **every** offered day stores `{kind:"ALL"}`, never the enumerated
+  list. This is the load-bearing part. An option that enumerates today's
+  schedule silently un-covers its members the day a Wednesday session is added —
+  the members did not change, the club did, and nobody would connect the two. A
+  test pins exactly that: `ALL` covers a newly-added Wednesday, an enumerated
+  full list does not.
+- An **empty** selection is also `ALL`. "Grants nothing" is not a product, and
+  an untouched picker is far more likely to be a coach who has not finished than
+  a deliberate lockout — the same fail-open direction as `parseEntitlement`.
+
+**`GET /api/memberships/[id]/entitlement-context`** (read-only, `classes:view`)
+gives the picker the only days worth offering: the union of `daysOfWeek` across
+the classes that accept THIS plan, with the class names behind each day as a
+tooltip. A coach picking from an abstract Sun–Sat grid would have to hold the
+schedule in their head to avoid granting a day that does not exist. For MS/HS
+that is Mon·Tue·Thu (Olympic Season, Preseason) plus Sun (Sunday Funday).
+
+It also returns per-option live subscriber counts, keyed on `optionId` — the
+only honest key, since `optionLabel` drifted long ago. Rows with a null
+`optionId` are counted separately rather than being quietly left out of a
+warning about who is affected.
+
+That count exists because of **D3**: entitlement is read live from the option,
+not snapshotted, so editing days changes what existing members get with no
+per-member review. The mitigation was always that the editor has to say so with
+a real number — *"12 members on this option — changing these days changes what
+they are entitled to."*
+
+The picker only renders when some class actually accepts the plan. A day
+restriction on a plan no class takes would restrict nothing and read as a broken
+control.
+
+### Note to self: `as const` on an entitlement fixture breaks the build
+
+Twice now, `{ kind: "DAYS", days: [...] } as const` produces a `readonly` tuple
+that is not assignable to `Entitlement`. `tsx` runs it happily because esbuild
+strips types without checking them, so the suite goes green and `npm run build`
+goes red. Type the fixture `: Entitlement` instead. **A green suite is not a
+green typecheck** — run both.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean,
+membership-options 121 passed / 0 failed, renewal-surfacing 28 passed / 0
+failed, member-tracks 183 passed / 0 failed, bulk-price-change 165 passed / 0
+failed, billing-admin 132 passed / 0 failed.
+
+**Not yet done for entitlements:** nothing enforces them. `lib/entitlements.ts`
+and the nine coverage call-sites (§8.4) are the next batch — until then a day
+restriction is recorded and displayed but changes no booking or attendance
+behaviour.
+
+---
+
+## 2026-08-18 (later) — the coverage resolver, wired to nothing
+
+### First: the class-coverage item is NOT closed
+
+Verified after Julian ticked the plans in. **Two of three landed:**
+
+| Class | Days | Commitment plan | Status |
+|---|---|---|---|
+| MS/HS Preseason | Mon·Tue·Thu | MS/HS 3 or 12 months | ✅ 13:50 |
+| Jr Frogs | Mon·Wed | Jr Frogs Monthly | ✅ 13:50 |
+| **Ms/HS Olympic Season** | Mon·Tue·Thu | MS/HS 3 or 12 months | ❌ |
+| **Sunday Funday** | Sun | both | ❌ |
+
+Parity with the parent plan is the test: MS/HS is accepted by Olympic Season,
+Preseason and Sunday Funday, so its commitment plan needs all three. Jr Frogs is
+accepted by the Jr Frogs class and Sunday Funday, so its commitment plan needs
+both. **Three additions still outstanding**, and until then Maximus is drop-in
+priced for Olympic Season and Sunday Funday, chase for Sunday Funday.
+
+### `lib/entitlements.ts` — the resolver (§8.13.7, step 1 of 2)
+
+Pure, 55 assertions, and **wired to nothing**. It changes no behaviour yet; the
+surfaces are the next step.
+
+`resolveSessionCoverage` answers the whole question the nine call-sites each ask
+incompletely today. Design points that carry the weight:
+
+- **Fails OPEN, asymmetrically.** Every uncertain branch returns
+  `covered: true`. A wrong "covered" costs one drop-in fee and shows up in the
+  money later; a wrong "not covered" argues with a paying family at the front
+  desk over a row the software could not read. So a shortfall is only reported
+  when it can be named: a known option, a known day, a real mismatch.
+- **`shouldWarn` is not `!covered`.** `NO_ACTIVE_MEMBERSHIP` and
+  `PLAN_NOT_ACCEPTED` are already handled by the existing member/non-member/
+  drop-in tiers — a staff member adding a non-member to a class is not doing
+  anything that needs flagging, and duplicating it as a warning teaches people
+  to dismiss warnings. The warning exists for the one case nothing else
+  surfaces: a member who HAS a valid, accepted membership that does not reach
+  this day.
+- **Several memberships resolve correctly.** Holding any plan that covers the
+  day is enough; a shortfall on one plan is never reported when another covers
+  the session. When none covers, the most actionable shortfall wins
+  (`DAY_NOT_INCLUDED` names an exact gap and an amount, so it outranks
+  `TERM_ENDED`, which outranks "we don't know").
+- **An inferred option still gates the day.** A guess about identity does not
+  become a grant of access — but the message says the option was matched by
+  price, so nobody reads a guess as a fact.
+- **No drop-in configured** produces "no drop-in price is set on this class",
+  never `$undefined`. Pinned by a test.
+
+**Renamed before it spread:** the function was briefly `resolveCoverage`, which
+`lib/paidThrough.ts` already exports meaning something completely different (how
+far a payment's money reaches). Two same-named functions answering different
+questions is a bug waiting for whoever imports the wrong one. It is
+`resolveSessionCoverage`, with the reason recorded at the definition.
+
+### The day picker now admits it is not enforcing
+
+Per Julian's condition: a day-restricted option shows *"Not in effect yet — this
+is recorded but does not change booking or check-in until day limits go live."*
+**Remove that line in the same commit that wires enforcement.** A control that
+silently changes nothing is the pattern that cost a week.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
+55 passed / 0 failed, membership-options 121 passed / 0 failed,
+renewal-surfacing 28 passed / 0 failed, member-tracks 183 passed / 0 failed,
+bulk-price-change 165 passed / 0 failed, billing-admin 132 passed / 0 failed.
+
+---
+
+## 2026-08-22 — the attendance chip (§8.13.7 step 2, part 1)
+
+The resolver is wired to the attendance panel. **Read-only: no write path
+changed, nothing blocks, nothing is priced differently.**
+
+### CLAUDE.md dev-server rule amended
+
+The rule said `.env` / `.env.local` are symlinks into the main checkout in every
+worktree. **They are not** — `elastic-wilson-411ecb` has a real `.env` file and
+no `.env.local` at all, and it carries the production pooler host anyway. Same
+danger, different mechanism, so "is it a symlink?" is not a valid check and a
+"no" proves nothing. Rewritten to say `npm run dev` in a worktree points at
+production by one of two routes, only `dev-local.sh` is safe, and verification
+is by connection.
+
+Also recorded there: the 2026-08-17 local servers used a hand-rolled
+`DATABASE_URL` override rather than `dev-local.sh`. The database was correctly
+the throwaway, but real SMTP credentials stayed loaded and one server bound
+`0.0.0.0`. Nothing was sent because the screens driven happened not to send —
+luck, not a property.
+
+### `lib/coverageQuery.ts` — the Prisma half
+
+`lib/entitlements.ts` stays pure; this loads rows and returns a verdict per
+member. One loader for the panel, the schedule and (later) the write paths,
+because each writing its own version of "active sub on an accepted plan" is how
+the nine call-sites drifted in the first place.
+
+- Two queries regardless of roster size, and each plan's options are parsed
+  **once**, not once per subscription — a roster of 30 on one plan would
+  otherwise re-parse the same JSON 30 times.
+- `warn` is computed server-side at the wire boundary, so the rule for whether a
+  shortfall is worth showing lives only in `shouldWarn` and cannot drift between
+  server and browser.
+- `dropInFrom` prefers the `dropin` tier, falls back to `nonmember`, and returns
+  null when the class configures neither — so the message says "no drop-in price
+  is set" rather than inventing a number somebody might collect.
+
+### The chip
+
+Amber, beside the existing orange Owes chip, reusing that idiom rather than
+inventing a second one. It renders in **both** places staff need it:
+
+- on each roster row, and
+- **in the Quick-Add search results** — the moment staff are about to add
+  somebody, which was the explicit requirement. It is not enough to appear after
+  the record exists.
+
+Clicking expands a panel that states the shortfall and says plainly *"Attendance
+can still be recorded — this is a heads-up, not a block."*
+
+### Browser-verified on the local rig
+
+Started with `scripts/dev-local.sh`; connection checked before and after, both
+empty of production. Fixture: Ms/HS with a $175 full option and a $110 Tue/Thu
+option, one class running Mon·Tue·Thu, two members differing only on Monday.
+
+| | Cameron (Tue/Thu $110) | Sasha (full $175) |
+|---|---|---|
+| **Monday** | `warn=true` · *"Monthly 2 days (Tue/Thu) covers Tue & Thu — Monday isn't included. Drop-in $25."* | no chip |
+| **Tuesday** | `covered=true`, no chip | no chip |
+
+Screenshot confirms the chip beside the Owes chip with every action still
+available (Present / Absent / Late / Trial / Drop-In / Remove). Zero page errors.
+
+Teardown verified by connection: no next servers, no prod connections, throwaway
+Postgres stopped and deleted.
+
+### NOT done: the schedule label
+
+`/api/member/schedule` still computes coverage plan-level only, so the member
+portal will say "Included in your membership" on a day the option does not
+grant. It needs per-athlete option data threaded through a hot path that serves
+every athlete's feed, and it was left rather than rushed. **Next batch.**
+
+Also still open: three class entries (Olympic Season, and Sunday Funday for both
+commitment plans) — Julian is finishing those.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
+55 passed / 0 failed, membership-options 121 passed / 0 failed, member-tracks
+183 passed / 0 failed, renewal-surfacing 28 passed / 0 failed.

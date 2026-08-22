@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { parseOptions, serializeOptions, type MembershipOption } from "@/lib/membershipOptions";
+import {
+  serializeOptions,
+  validateOptionsForSave,
+  type MembershipOption,
+} from "@/lib/membershipOptions";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -34,15 +38,11 @@ export async function GET() {
 // rather than being quietly dropped.
 const optionSchema = z.record(z.unknown());
 
-/**
- * Validate + normalize a submitted options array through the canonical parser.
- * Returns null when any entry is unusable, so a bad billingPeriod is a 400
- * instead of a silently vanished purchase option.
- */
-function readOptions(raw: unknown[]): MembershipOption[] | null {
-  const parsed = parseOptions(raw);
-  return parsed.length === raw.length ? parsed : null;
-}
+// Validation lives in lib/membershipOptions.validateOptionsForSave — one gate,
+// shared by both routes, with the message next to the rule. It rejects entries
+// the parser cannot read AND two options that share a billing period and a
+// price, which is the one shape that makes a subscription's option
+// unidentifiable.
 
 
 const createSchema = z.object({
@@ -71,10 +71,11 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = createSchema.parse(body);
 
-    const options = readOptions(data.options);
-    if (!options) {
-      return NextResponse.json({ error: "One or more purchase options are malformed" }, { status: 400 });
+    const checked = validateOptionsForSave(data.options);
+    if (!checked.ok) {
+      return NextResponse.json({ error: checked.error, code: checked.code }, { status: 400 });
     }
+    const options = checked.options;
 
     const membership = await prisma.membership.create({
       data: {

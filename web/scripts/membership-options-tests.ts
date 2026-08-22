@@ -13,6 +13,7 @@ import {
   describeDays,
   describeOption,
   entitlementCoversWeekday,
+  entitlementFromSelection,
   findDuplicateOptions,
   makeOption,
   mintOptionId,
@@ -21,7 +22,9 @@ import {
   resolveSubscriptionOption,
   resolveTerms,
   type PlanDefaults,
+  selectionFromEntitlement,
   serializeOptions,
+  validateOptionsForSave,
   withMintedIds,
   type Entitlement,
   type MembershipOption,
@@ -166,6 +169,65 @@ console.log("\nfindDuplicateOptions:");
   ]);
   check("same period AND same price is refused", dupe.length === 1);
   check("  and names both offenders", JSON.stringify(dupe[0].labels) === '["Monthly","Monthly Full"]');
+}
+
+// ── The save gate ───────────────────────────────────────────────────────────
+console.log("\nvalidateOptionsForSave:");
+{
+  const raw = (o: Record<string, unknown>) => o as unknown;
+
+  const good = validateOptionsForSave(JSON.parse(MSHS));
+  check("today's MS/HS passes", good.ok === true);
+
+  // The six-option card the collapse produces — the whole point of the phase.
+  const six = [
+    { label: "Monthly Full Membership", price: 175, billingPeriod: "MONTHLY" },
+    { label: "Monthly 2 days (Tue/Thu)", price: 110, billingPeriod: "MONTHLY" },
+    { label: "3 Months", price: 160, billingPeriod: "MONTHLY", contractMonths: 3 },
+    { label: "12 months", price: 150, billingPeriod: "MONTHLY", contractMonths: 12 },
+    { label: "3 months Upfront", price: 450, billingPeriod: "QUARTERLY", contractMonths: 3 },
+    { label: "1 year", price: 1500, billingPeriod: "ANNUAL", contractMonths: 12 },
+  ].map(raw);
+  const collapsed = validateOptionsForSave(six);
+  check("the collapsed six-option card passes — four MONTHLY, all distinct prices", collapsed.ok === true);
+
+  const malformed = validateOptionsForSave([raw({ label: "X", price: 1, billingPeriod: "FORTNIGHTLY" })]);
+  check("a period the app cannot schedule is REJECTED, not dropped", malformed.ok === false);
+  check("  with code MALFORMED", !malformed.ok && malformed.code === "MALFORMED");
+
+  const missing = validateOptionsForSave([raw({ label: "X", price: 1 })]);
+  check("a missing billingPeriod is rejected", missing.ok === false);
+
+  const dupe = validateOptionsForSave([
+    raw({ label: "Monthly", price: 175, billingPeriod: "MONTHLY" }),
+    raw({ label: "Monthly Full", price: 175, billingPeriod: "MONTHLY" }),
+  ]);
+  check("same period AND price is refused at save", dupe.ok === false);
+  check("  with code DUPLICATE_OPTION", !dupe.ok && dupe.code === "DUPLICATE_OPTION");
+  check("  and the message names BOTH options",
+    !dupe.ok && dupe.error.includes("Monthly") && dupe.error.includes("Monthly Full"));
+  check("  and states the price and schedule",
+    !dupe.ok && dupe.error.includes("$175") && dupe.error.includes("per month"), !dupe.ok ? dupe.error : "");
+
+  // The distinction the whole phase rests on: two MONTHLY options are fine.
+  const twoMonthly = validateOptionsForSave([
+    raw({ label: "Full", price: 175, billingPeriod: "MONTHLY" }),
+    raw({ label: "Two days", price: 110, billingPeriod: "MONTHLY" }),
+  ]);
+  check("two options on the SAME period at DIFFERENT prices are allowed", twoMonthly.ok === true);
+
+  // Same price on different schedules is also fine — $450 quarterly and $450
+  // annual are genuinely different products.
+  const samePriceDifferentPeriod = validateOptionsForSave([
+    raw({ label: "Q", price: 450, billingPeriod: "QUARTERLY" }),
+    raw({ label: "A", price: 450, billingPeriod: "ANNUAL" }),
+  ]);
+  check("same price on DIFFERENT periods is allowed", samePriceDifferentPeriod.ok === true);
+
+  check(
+    "a passing result hands back parsed options, not the raw input",
+    good.ok === true && good.options.length === 4 && good.options[0].entitlement.kind === "ALL",
+  );
 }
 
 // ── Resolving which option a subscription is on ─────────────────────────────
@@ -324,6 +386,71 @@ console.log("\nentitlementCoversWeekday:");
   const twoDayCovers = classDays.filter((d) => entitlementCoversWeekday(tueThu, d));
   check("full member covers all three class days", JSON.stringify(fullCovers) === "[1,2,4]");
   check("two-day member covers exactly two of them", JSON.stringify(twoDayCovers) === "[2,4]");
+}
+
+// ── The day picker's rule ───────────────────────────────────────────────────
+console.log("\nentitlementFromSelection:");
+{
+  // MS/HS is accepted by Olympic Season + Preseason (Mon·Tue·Thu) and Sunday
+  // Funday (Sun), so the picker offers four days.
+  const offered = [0, 1, 2, 4];
+
+  check(
+    "picking every offered day stores ALL, not the enumerated list",
+    entitlementFromSelection([0, 1, 2, 4], offered).kind === "ALL",
+  );
+  check(
+    "picking a subset stores DAYS",
+    JSON.stringify(entitlementFromSelection([2, 4], offered)) === '{"kind":"DAYS","days":[2,4]}',
+  );
+  check(
+    "order does not matter",
+    JSON.stringify(entitlementFromSelection([4, 2], offered)) === '{"kind":"DAYS","days":[2,4]}',
+  );
+  check("duplicates are collapsed", JSON.stringify(entitlementFromSelection([2, 2, 4], offered)) === '{"kind":"DAYS","days":[2,4]}');
+  check(
+    "an empty selection is ALL — 'grants nothing' is not a product",
+    entitlementFromSelection([], offered).kind === "ALL",
+  );
+  check("out-of-range days are dropped", JSON.stringify(entitlementFromSelection([2, 9, -3, 4], offered)) === '{"kind":"DAYS","days":[2,4]}');
+
+  // THE reason ALL is a distinct kind rather than sugar for a full day list.
+  const full = entitlementFromSelection([0, 1, 2, 4], offered);
+  const enumerated: Entitlement = { kind: "DAYS", days: [0, 1, 2, 4] };
+  const afterClubAddsWednesday = 3;
+  check(
+    "ALL still covers a day added to the schedule later",
+    entitlementCoversWeekday(full, afterClubAddsWednesday),
+  );
+  check(
+    "an enumerated full list would NOT — this is the trap it avoids",
+    !entitlementCoversWeekday(enumerated, afterClubAddsWednesday),
+  );
+
+  // A plan no class accepts offers no days; a selection cannot mean "all of
+  // nothing".
+  check("with nothing offered, a real selection is still honoured",
+    JSON.stringify(entitlementFromSelection([2], [])) === '{"kind":"DAYS","days":[2]}');
+}
+
+console.log("\nselectionFromEntitlement:");
+{
+  const offered = [0, 1, 2, 4];
+  check("ALL ticks every offered day", JSON.stringify(selectionFromEntitlement({ kind: "ALL" }, offered)) === "[0,1,2,4]");
+  check(
+    "DAYS ticks exactly its days",
+    JSON.stringify(selectionFromEntitlement({ kind: "DAYS", days: [2, 4] }, offered)) === "[2,4]",
+  );
+  check(
+    "round-trips: tick-all → ALL → ticks all again",
+    entitlementFromSelection(selectionFromEntitlement({ kind: "ALL" }, offered), offered).kind === "ALL",
+  );
+  check(
+    "round-trips: a subset survives unchanged",
+    JSON.stringify(
+      entitlementFromSelection(selectionFromEntitlement({ kind: "DAYS", days: [2, 4] }, offered), offered),
+    ) === '{"kind":"DAYS","days":[2,4]}',
+  );
 }
 
 // ── Guard: the billing-period vocabulary is shared ──────────────────────────

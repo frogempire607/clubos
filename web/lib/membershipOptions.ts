@@ -284,6 +284,53 @@ export function findDuplicateOptions(
     }));
 }
 
+/**
+ * The one gate a save must pass. Both membership routes call this; neither
+ * keeps its own copy, and the message lives next to the rule that produces it.
+ *
+ * Two failures, deliberately distinguished:
+ *
+ *   MALFORMED         — the parser could not read an entry. Reported rather
+ *                       than dropped, because a silently vanished purchase
+ *                       option is a plan that no longer sells what the owner
+ *                       thinks it sells.
+ *   DUPLICATE_OPTION  — two options share a billing period AND a price. See
+ *                       findDuplicateOptions for why this is refused at write
+ *                       time rather than resolved forever after.
+ */
+export type OptionsValidation =
+  | { ok: true; options: MembershipOption[] }
+  | { ok: false; code: "MALFORMED"; error: string }
+  | { ok: false; code: "DUPLICATE_OPTION"; error: string };
+
+export function validateOptionsForSave(raw: unknown[]): OptionsValidation {
+  const options = parseOptions(raw);
+  if (options.length !== raw.length) {
+    return {
+      ok: false,
+      code: "MALFORMED",
+      error:
+        "One or more purchase options are malformed — check that each has a label, " +
+        "a price, and a billing period the app can schedule.",
+    };
+  }
+
+  const dupes = findDuplicateOptions(options);
+  if (dupes.length > 0) {
+    const d = dupes[0];
+    return {
+      ok: false,
+      code: "DUPLICATE_OPTION",
+      error:
+        `"${d.labels[0]}" and "${d.labels[1]}" are both $${d.price} ${prettyPeriodPhrase(d.billingPeriod)}. ` +
+        "Two options that cost the same on the same schedule can't be told apart on a " +
+        "member's subscription, so give one of them a different price or billing period.",
+    };
+  }
+
+  return { ok: true, options };
+}
+
 export type OptionResolution =
   | { resolution: "exact"; option: MembershipOption }
   | { resolution: "inferred"; option: MembershipOption }
@@ -382,6 +429,11 @@ const PERIOD_PHRASE: Record<BillingPeriod, string> = {
   ONE_TIME: "one-time",
 };
 
+/** "per month", "every 3 months" — the phrase used in owner-facing messages. */
+export function prettyPeriodPhrase(period: BillingPeriod): string {
+  return PERIOD_PHRASE[period];
+}
+
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** "Tue & Thu", "Mon, Tue & Thu" — an Oxford-free list humans read at a glance. */
@@ -436,6 +488,40 @@ export function describeOption(option: MembershipOption, plan: PlanDefaults = {}
 }
 
 // ── Entitlement evaluation ──────────────────────────────────────────────────
+
+/**
+ * Turn a day-picker selection into a stored entitlement.
+ *
+ * The rule that matters: selecting EVERY day the club currently offers stores
+ * `ALL`, not the enumerated list. An option that enumerates today's schedule
+ * silently un-covers its members the day a Wednesday session is added — the
+ * members did not change, the club did, and nobody would connect the two. `ALL`
+ * means "everything this plan is accepted for" and stays true as the schedule
+ * moves.
+ *
+ * `offered` is the union of `daysOfWeek` across the classes that accept this
+ * plan. An empty selection is also `ALL`: "grants nothing" is not a product,
+ * and a picker with nothing ticked is far more likely to be a coach who has not
+ * finished than a deliberate lockout.
+ */
+export function entitlementFromSelection(selected: number[], offered: number[]): Entitlement {
+  const picked = Array.from(new Set(selected.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)));
+  if (picked.length === 0) return ENTITLEMENT_ALL;
+  const offeredSet = new Set(offered);
+  const coversEverythingOffered =
+    offeredSet.size > 0 && [...offeredSet].every((d) => picked.includes(d));
+  if (coversEverythingOffered) return ENTITLEMENT_ALL;
+  return { kind: "DAYS", days: picked.sort((a, b) => a - b) };
+}
+
+/**
+ * Which days a picker should show as ticked for an existing entitlement.
+ * `ALL` ticks everything on offer, which is what it means.
+ */
+export function selectionFromEntitlement(entitlement: Entitlement, offered: number[]): number[] {
+  if (entitlement.kind === "DAYS") return entitlement.days;
+  return [...offered].sort((a, b) => a - b);
+}
 
 /**
  * Does this option grant the given weekday?
