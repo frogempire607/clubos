@@ -3387,3 +3387,93 @@ per-booking alert, and it belongs on its own.
 **Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
 55 passed / 0 failed, membership-options 121 passed / 0 failed, member-tracks
 183 passed / 0 failed. Teardown verified by connection.
+
+---
+
+## 2026-08-22 — enforcement notice removed, misconfig probe added, and where Phase 8 stands
+
+### The "not in effect yet" notice is gone
+
+It said day restrictions were recorded but changed nothing. Enforcement is now
+live in both write paths, so the line was about to become false — which is worse
+than never having said it. **It should have come out in the enforcement commit;
+the code comment said so and I missed it.** Out now.
+
+### `CLASS_MISSING_DROPIN_PRICE` — the config gap made visible
+
+A class that accepts a membership but sets no positive drop-in or non-member
+price cannot charge a member whose plan does not cover that weekday. §8.4.2
+fails open there — the member is booked free and the row is flagged — which is
+right for the family and wrong for the club, and invisible unless somebody
+looks.
+
+One-time fix per class, not a per-booking alert, so it is an Action Item.
+
+`cannotChargeOutsidePlanDays` is exported and tested separately from the query,
+because **the probe fires on nothing today** — every active class is drop-in
+only — so the logic is the only thing there is to verify. Nine assertions,
+including the two that are easy to get wrong: a **$0** drop-in is NOT a fallback
+(free is what the member already gets), and a **member** price is NOT a fallback
+(they are not entitled that day). All six live classes were run through it and
+come back clean.
+
+---
+
+## Phase 8 — where it stands, and what is between here and the collapse
+
+### Shipped and on `main`
+
+| | |
+|---|---|
+| §8.1 | Option identity — `optionId`, minted and backfilled (20 stamped, 9 null, 0 ambiguous) |
+| §8.2 | Per-option terms — `contractMonths` / `autoRenewDefault` on the option, plan as fallback |
+| D5 | `allowManualRenewal` dropped from the option shape and the editor; column kept |
+| §8.9 | `optionId` + `minimumTermEndsAt` columns, applied and in `schema.prisma` |
+| — | The duplicate-option guard (`validateOptionsForSave`), one gate for both routes |
+| §8.3 | Day entitlements — data shape, the picker, and `ALL` semantics |
+| §8.4 | The coverage resolver, the attendance chip, the schedule label, **and both write paths** |
+| — | `CLASS_MISSING_DROPIN_PRICE` probe |
+
+**The two-card workaround is now representable as one card**: six options, four
+of them MONTHLY, three distinct contract lengths, one of them day-restricted.
+Nothing structural is missing for it.
+
+### Between here and the collapse
+
+**Nothing in code.** §8.10 is a data operation and its prerequisites are met:
+option ids exist, subscriptions are stamped, the editor round-trips the shape,
+and the duplicate guard stops the one thing that would break inference.
+
+What it still needs is the **owner's confirmation on three things**:
+
+1. **Entitlement sets for the six collapsed options** — the recommendation is
+   Full = `ALL`, 2-day = `DAYS[2,4]`, everything else `ALL` (§8.10 Step 5). With
+   D1a answered (Sunday Funday stays included for MS/HS), `ALL` means
+   Mon·Tue·Thu·Sun and the $110 option means Tue·Thu only.
+2. **Two live repoints, not one** — Maximus Alexander AND chase Robertson.
+   §8.10 Step 10 was written when Jr Frogs Monthly Commitment had zero
+   subscribers; it has one now. **Re-run the count immediately before the
+   collapse, not from the spec.**
+3. **Removing the two commitment plans from the class lists in the same pass**
+   as Step 8 deactivates them, or those lists keep pointing at retired plans.
+
+### Still open in Phase 8, none of it blocking the collapse
+
+| # | Item | Note |
+|---|---|---|
+| §8.6 | Autopay transitions (D6, D8) | One row, synchronous, queued for members. Not started. |
+| §8.7 | Bulk price tool from the membership | Still option-first; MS/HS still 409s on `AMBIGUOUS_PERIOD` until this lands. **Do this before the collapse if the owner wants to reprice during it.** |
+| §8.8.1 | `minimumTermEndsAt` stamped at purchase + early-termination flag on cancel | Column exists, nothing writes it. |
+| D7 | Required document on `contractMonths` options | Reserved in the shape, not enforced. |
+| D12 | Staff End date → Stripe `cancel_at`, via the renewal-mode control | Last, per the decision. Refusal (F2) still stands meanwhile. |
+| D9 | `resolveOfferPricing` quotes five of eleven MS/HS members wrong | Depends on `optionId`, which now exists. Its own item. |
+| — | Four dead Financials Action Item links | Logged, own task. |
+
+**The one worth flagging:** §8.7. The bulk price tool still refuses MS/HS with
+`AMBIGUOUS_PERIOD`, and the collapse makes that worse (four MONTHLY options).
+It is not a prerequisite for the collapse itself, but repricing anybody
+afterwards needs it.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean,
+renewal-surfacing 37 passed / 0 failed, entitlements 55 passed / 0 failed,
+membership-options 121 passed / 0 failed, member-tracks 183 passed / 0 failed.

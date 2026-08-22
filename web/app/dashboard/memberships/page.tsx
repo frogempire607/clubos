@@ -841,18 +841,6 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
                                   ? `Only ${describeDays(restrictedDays)} — other days are a drop-in.`
                                   : "Every day this plan is accepted for, including days added later."}
                               </p>
-                              {/* Until lib/entitlements.ts is wired into booking
-                                  and attendance, this setting is recorded and
-                                  shown but enforces nothing. Saying so is the
-                                  point: a control that silently changes nothing
-                                  is worse than no control. Remove this line in
-                                  the same commit that wires enforcement. */}
-                              {restrictedDays && (
-                                <p className="text-xs text-orange-accent mt-0.5">
-                                  Not in effect yet — this is recorded but does not
-                                  change booking or check-in until day limits go live.
-                                </p>
-                              )}
                               {restrictedDays && affected > 0 && (
                                 <p className="text-xs text-orange-accent mt-0.5">
                                   {affected} member{affected === 1 ? "" : "s"} on this option — changing these

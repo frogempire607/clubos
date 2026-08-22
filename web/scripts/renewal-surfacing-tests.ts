@@ -36,7 +36,7 @@ import {
   queueClauses,
   type MemberListFilters,
 } from "../lib/membersQuery";
-import { renewalSeverity } from "../lib/reportsActionItems";
+import { cannotChargeOutsidePlanDays, renewalSeverity } from "../lib/reportsActionItems";
 
 let pass = 0;
 const failures: string[] = [];
@@ -260,6 +260,49 @@ console.log("\ncard ↔ queue agreement:");
     "items are keyed per member so they can be snoozed individually",
     src.includes('itemId("EXPIRING_MEMBERSHIP", sub.member.id)'),
   );
+}
+
+
+// ── CLASS_MISSING_DROPIN_PRICE ──────────────────────────────────────────────
+//
+// Fires on nothing today — every active class is drop-in only — so the logic is
+// the only thing there is to verify. It exists to make the mistake visible the
+// first time somebody makes it.
+console.log("\ncannotChargeOutsidePlanDays:");
+{
+  const mem = { type: "membership", membershipId: "m1" };
+  const cannot = cannotChargeOutsidePlanDays;
+
+  check(
+    "accepts a membership, no drop-in and no non-member → flagged",
+    cannot([mem]) === true,
+  );
+  check(
+    "every real Frog Empire class today (membership + $25 drop-in) → NOT flagged",
+    cannot([{ type: "dropin", price: 25 }, mem]) === false,
+  );
+  check(
+    "a non-member price is an acceptable fallback too",
+    cannot([{ type: "nonmember", price: 30 }, mem]) === false,
+  );
+  check(
+    "a class that accepts NO membership is not this problem",
+    cannot([{ type: "dropin", price: 25 }]) === false,
+  );
+  check(
+    "  …even with no prices at all — nothing to fall FROM",
+    cannot([]) === false,
+  );
+  check(
+    "a $0 drop-in is NOT a fallback — free is what they already get",
+    cannot([{ type: "dropin", price: 0 }, mem]) === true,
+  );
+  check(
+    "a member price is not a fallback — they are not entitled that day",
+    cannot([{ type: "member", price: 20 }, mem]) === true,
+  );
+  check("null pricingOptions never throws", cannot(null) === false);
+  check("a non-array never throws", cannot({ type: "dropin" }) === false);
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed`);
