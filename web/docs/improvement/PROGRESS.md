@@ -3237,3 +3237,61 @@ commitment plans) — Julian is finishing those.
 **Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
 55 passed / 0 failed, membership-options 121 passed / 0 failed, member-tracks
 183 passed / 0 failed, renewal-surfacing 28 passed / 0 failed.
+
+---
+
+## 2026-08-22 (later) — the member schedule stops lying about a day
+
+`/api/member/schedule` computed coverage plan-level only, so the portal told a
+$110 Tue/Thu member *"Included in your membership"* on a Monday and then let
+them book free. The label and the booking were both wrong, and the club lost the
+drop-in without anyone seeing it happen.
+
+It now runs the same `resolveSessionCoverage` the attendance panel uses.
+
+**No extra round trip.** `optionId`, `price`, `billingPeriod`, `endDate` and the
+plan's `options` were added to the `activeSubs` query that already runs — a
+family feed must not become one query per child. Plan options are parsed once
+for the whole feed via a cache, not once per athlete per session; a family of
+three browsing a month of classes would otherwise re-parse the same JSON
+hundreds of times.
+
+**Only the classes branch changed.** There are two `evalFor` blocks in that file
+— events and classes — and events do not have day entitlements. The events one
+is untouched.
+
+**The label says why.** `"Member price"` alone reads as a pricing quirk; a
+parent seeing it on Monday and not Tuesday has no way to work out that theirs is
+the two-day plan. So `DAY_NOT_INCLUDED` — and only that reason — appends
+*"— your plan covers Tue & Thu"*. The other shortfalls are already what the tier
+names say, and annotating those would be noise.
+
+### Browser-verified as the member, on the rig
+
+`dev-local.sh`, connection checked before and after, both empty of production.
+Logged in as the Tue/Thu member and read both the rendered page and the API:
+
+| Session | tier | label | price |
+|---|---|---|---|
+| **Mon 24 Aug** | `MEMBER` | "Member price — your plan covers Tue & Thu" | $20.00 |
+| **Tue 25 Aug** | `MEMBERSHIP` | "Included in your membership" | free |
+
+The agenda card renders the **price** rather than the label when a price exists,
+so the explanation reaches the API and the detail view but not that compact row.
+That is a pre-existing rendering choice, not a regression — the requirement
+("stop saying Included in your membership on a day the option doesn't grant") is
+met, and the Monday row now correctly shows $20.00.
+
+### Not built, and deliberately not merged with this
+
+**The staff-charge divert (§8.4.2).** `POST /api/classes/[id]/charge` still
+returns `coveredByMembership: true` on a day the option does not grant, so a
+staff member registering a Tue/Thu athlete on a Monday still books them free.
+Same for `POST /api/member/classes/book`. That is the change that moves a member
+from free to priced, and per Julian it does not land until it has been clicked
+through in a browser. Nothing in this batch touches a charge, booking, register
+or check-in path.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean, entitlements
+55 passed / 0 failed, membership-options 121 passed / 0 failed, member-tracks
+183 passed / 0 failed. Teardown verified by connection.
