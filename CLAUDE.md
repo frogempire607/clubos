@@ -50,6 +50,47 @@ Two gotchas that already bit us:
 - Julian runs all database commands from his own terminal. The Claude Code
   sandbox cannot reach the database.
 
+### Local dev servers — kill strays by CONNECTION, never by port
+
+`web/.env` and `web/.env.local` are **symlinks into the main checkout**, in every
+worktree. So `npm run dev` anywhere — worktree or not — starts a server pointed
+at **production**, on `0.0.0.0`. The only safe local server is
+`scripts/dev-local.sh`, which overrides `DATABASE_URL` to the throwaway Postgres
+on `127.0.0.1:55432`, binds `127.0.0.1`, and blanks `SMTP_HOST` +
+`RESEND_API_KEY` so sends log instead of deliver.
+
+On 2026-08-21 a prod-pointed `npm run dev` was killed, the port was verified
+free, and a prod-pointed server was later found listening again — while a bulk
+email composer aimed at 293 real families was open in the browser. Nothing
+restarts it automatically (checked: no launchd agent, no cron, no
+pm2/forever/nodemon, no `launch.json` with restart semantics). The likely source
+was a **second Claude session running concurrently** — several usually are.
+
+So before starting any dev server, and before trusting that one is gone:
+
+- **Check by connection, not by port.** `lsof -ti tcp:3000` returning nothing
+  proves only that nothing holds *that* port *this instant*. Two servers can
+  share port 3000 (one bound `127.0.0.1`, one bound `*`), and the one you did
+  not start may be the one answering. The question that matters is *what is
+  this process connected to*:
+
+  ```sh
+  # every server, and the database each one is actually talking to
+  for p in $(pgrep -f "next-server|next dev"); do
+    ps -o command= -p $p | cut -c1-90
+    lsof -p $p -i -n -P | grep ESTABLISHED | grep -E ":5432|:6543|:55432"
+  done
+
+  # the one-line check that must come back empty
+  lsof -nP -i | grep -iE "supabase|:6543|:5432" | grep -v 55432
+  ```
+
+- **Kill by command line, then verify by connection.** `pkill -f "next dev"`,
+  then re-run the check above. "Port free" is not the finish line.
+- **Never point a browser at a prod-connected dev server** to test a screen that
+  can send email, charge a card, or write member rows. "I will not click Send"
+  is not a safety property.
+
 ### Branch policy — one branch per PHASE, never one per session
 
 **Work on `main`, or on a single long-lived branch for the phase you are in.
