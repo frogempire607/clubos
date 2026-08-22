@@ -284,7 +284,12 @@ type PreviewRow = { memberId: string; memberName: string; recipientEmail: string
 //      sendBatchId from clubId + clientKey so retries land on the same
 //      batch and the partial unique index rejects doubles.
 export function BulkEmailModal({
-  memberIds,
+  // Deliberately NOT destructured as `memberIds`. This is only the roster
+  // selection that opened the modal, and it is empty whenever the composer was
+  // opened by reopening a draft. The list to actually use is `activeMemberIds`
+  // below; giving the prop a name that cannot be mistaken for it is what stops
+  // the next reader from posting the wrong one, as the send path did.
+  memberIds: rosterSelectionIds,
   draftId: initialDraftId,
   onClose,
   onSent,
@@ -311,8 +316,10 @@ export function BulkEmailModal({
   const [droppedFromDraft, setDroppedFromDraft] = useState(0);
 
   // The recipients in play: a reopened draft's own list wins over the
-  // roster selection that opened the modal.
-  const activeMemberIds = draftRecipients ?? memberIds;
+  // roster selection that opened the modal. EVERY consumer — the header, the
+  // preview, the draft save and the send — must read this, never the prop.
+  const activeMemberIds = draftRecipients ?? rosterSelectionIds;
+
   const [previewData, setPreviewData] = useState<{ counts: PreviewCounts; preview: PreviewRow[]; skipped: PreviewSkipRow[]; truncated: { preview: boolean; skipped: boolean } } | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -336,6 +343,12 @@ export function BulkEmailModal({
     mailingState: string | null; mailingZip: string | null;
     emailFromName: string | null; emailReplyTo: string | null;
   } | null>(null);
+  // The per-device localStorage draft key. Scoped to the SERVER draft when
+  // there is one: the key used to be `bulk:<club>` for every composer, so a
+  // half-typed fresh message and a reopened draft shared one slot and the
+  // stale one won (EmailComposer reads `stored ?? initial`). A reopened draft
+  // now restores only its OWN unsaved local edits.
+  const composerDraftKey = `bulk:${clubCtx?.name ?? "default"}${initialDraftId ? `:draft:${initialDraftId}` : ""}`;
   const [showFinalReview, setShowFinalReview] = useState(false);
   const [typedConfirm, setTypedConfirm] = useState("");
 
@@ -468,7 +481,7 @@ export function BulkEmailModal({
       setDraftSavedAt(d.savedAt ?? new Date().toISOString());
       // The server copy is now authoritative, so the per-device localStorage
       // copy would only be a way to resurrect stale text later.
-      clearComposerDraft(`bulk:${clubCtx?.name ?? "default"}`);
+      clearComposerDraft(composerDraftKey);
     } finally {
       setDraftBusy(false);
     }
@@ -478,6 +491,10 @@ export function BulkEmailModal({
     setSendErr(null);
     if (!subject.trim()) { setSendErr("Add a subject before sending."); return; }
     if (!blocks.length) { setSendErr("Add at least one content block."); return; }
+    // Guard the list we are actually about to post. Reopening a draft leaves
+    // the `memberIds` prop empty, so this used to reach the server as [] and
+    // come back as a raw validator string.
+    if (!activeMemberIds.length) { setSendErr("No recipients — this draft has no members attached."); return; }
     setSending(true);
     try {
       const res = await fetch("/api/members/bulk", {
@@ -485,7 +502,13 @@ export function BulkEmailModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "email",
-          memberIds,
+          // activeMemberIds, NOT the memberIds prop. The roster passes
+          // `memberIds={bulkEmailing ?? []}`, so a composer opened by
+          // REOPENING A DRAFT gets an empty prop and carries its recipients in
+          // draftRecipients instead. The header, the preview and the draft save
+          // all read activeMemberIds; this one line read the prop, so a draft
+          // send posted zero recipients while the screen said 293.
+          memberIds: activeMemberIds,
           email: {
             mode,
             subject,
@@ -497,13 +520,30 @@ export function BulkEmailModal({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setSendErr(typeof data?.error === "string" ? data.error : "Send failed.");
+        // A gateway timeout is an UNKNOWN outcome, not a failure. The request
+        // ran for 60s and was killed; the server may have written rows, or
+        // even dispatched. Reporting "Send failed." invites a resend, and
+        // reopening the composer mints a new clientKey — which means a new
+        // sendBatchId, which means the dedupe index cannot protect the second
+        // attempt. Say we don't know, and point at the record that does.
+        //
+        // 504/502 come from the platform, not the route, so there is no JSON
+        // body to read a message out of — which is exactly why the old code
+        // fell through to its generic string.
+        if (res.status === 504 || res.status === 502 || res.status === 408) {
+          setSendErr(
+            "This send timed out, so we don't know how much of it completed — some emails may already be on their way. " +
+            "Do NOT resend from a reopened composer. Check the send's results page first: it lists every recipient row that was created.",
+          );
+        } else {
+          setSendErr(typeof data?.error === "string" ? data.error : "Send failed.");
+        }
       } else {
         setSendResult({ results: data.results, sendBatchId: data.sendBatchId, queueOnly: data.queueOnly });
         // 3M — success clears the persisted draft so the next open of
         // the composer starts clean. Failure keeps the draft so the
         // sender can fix the issue without re-typing.
-        clearComposerDraft(`bulk:${clubCtx?.name ?? "default"}`);
+        clearComposerDraft(composerDraftKey);
       }
     } finally {
       setSending(false);
@@ -645,12 +685,20 @@ export function BulkEmailModal({
               <EmailComposer
                 initialSubject={subject}
                 initialPreviewText={previewText}
+                // A reopened draft's body lives here and NOWHERE else. Without
+                // this the composer mounted on defaultBlocks(), then its
+                // onChange immediately wrote that empty body back over the 8
+                // blocks the draft had just loaded — so subject, preview text
+                // and recipients all came back and the message body silently
+                // did not. Empty → undefined so a FRESH compose still gets the
+                // starter blocks rather than a blank canvas.
+                initialBlocks={blocks.length ? blocks : undefined}
                 // 3M — persist the draft so a phone rotation or refresh
                 // doesn't nuke a message the sender was mid-composing.
                 // Key is per-club so a coach at one club doesn't see an
                 // owner's draft on another. Cleared on successful send
                 // below.
-                draftKey={`bulk:${clubCtx?.name ?? "default"}`}
+                draftKey={composerDraftKey}
                 onChange={({ subject: s, previewText: p, blocks: b }) => {
                   setSubject(s);
                   setPreviewText(p);
@@ -845,7 +893,15 @@ function FinalReviewModal(props: {
           <ReviewRow label="From" value={props.fromName || "(club default)"} />
           <ReviewRow label="Reply-to" value={props.replyTo || "(club default)"} />
           <ReviewRow label="Mode" value={props.mode} />
-          <ReviewRow label="Recipients" value={`${props.willSendRows} of ${props.selectedMembers} selected · ${props.skippedCount} skipped`} />
+          {/* willSendRows counts EmailSend rows; selectedMembers counts
+              members. In HOUSEHOLD / ALL_GUARDIANS a member with two guardians
+              produces two rows, so rows can exceed members — "294 of 293
+              selected" read like a broken subset when it was two different
+              units. Say what each number is. */}
+          <ReviewRow
+            label="Recipients"
+            value={`${props.willSendRows} email${props.willSendRows === 1 ? "" : "s"} to ${props.selectedMembers} selected member${props.selectedMembers === 1 ? "" : "s"}${props.skippedCount ? ` · ${props.skippedCount} skipped` : ""}`}
+          />
           <ReviewRow label="Tracking" value="Delivery via Resend; open/click tracked when the recipient's client allows it." />
           {warns > 0 && (
             <div className="text-xs text-charcoal bg-orange-accent/10 border border-orange-accent/30 rounded-md px-3 py-2">
