@@ -69,6 +69,8 @@ export const dynamic = "force-dynamic";
 const bodySchema = z.object({
   optionLabel: z.string().min(1),
   billingPeriod: z.string().min(1).optional(),
+  /** Identity of the option being repriced. Preferred over label + period. */
+  optionId: z.string().min(1).optional(),
   newPrice: z.number().min(0).max(1_000_000),
   memberSubscriptionIds: z.array(z.string().min(1)).min(1).max(500),
   /**
@@ -173,7 +175,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const runKey = body.clientKey ?? crypto.randomUUID();
 
   const options = parseMembershipOptions(membership.options);
-  const resolved = resolveOption(options, body.optionLabel, body.billingPeriod);
+  const resolved = resolveOption(options, body.optionLabel, body.billingPeriod, body.optionId);
   if (!resolved.ok) {
     if (resolved.code === "AMBIGUOUS_PERIOD") {
       return NextResponse.json(
@@ -202,7 +204,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     where: {
       id: { in: requestedIds },
       membershipId: membership.id,
-      billingPeriod: option.billingPeriod,
+      // NO billingPeriod filter. The preview attributes rows to an option by
+      // optionId (falling back to a unique period+price match), so a period
+      // filter here would refuse rows the owner was just shown and ticked —
+      // Colton Waite's quarterly sum sits on a row labelled MONTHLY. The
+      // attribution check below is the real guard, and it is stricter.
       status: { in: [...REPRICEABLE_STATUSES] },
       member: { clubId, deletedAt: null },
     },
@@ -220,6 +226,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const plan = planPriceChange({
     membership: { id: membership.id, name: membership.name },
     option,
+    // Attribution needs the whole option list, not just the target.
+    allOptions: options,
     newPrice: body.newPrice,
     subs,
     now,
@@ -249,10 +257,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         outcome: "SKIPPED_NOT_FOUND", channel: null, fromPrice: null, toPrice: null,
         credit: null, emailed: false, emailStatus: null,
         message:
-          "No longer matches this plan and billing period, or is no longer active. It was not changed.",
+          "No longer on this plan, or no longer active. It was not changed.",
       });
     }
   }
+
+  // Attribution is done in planPriceChange, which filters the plan's rows to
+  // the option under review — so a row on a DIFFERENT option, or on none, never
+  // reaches `byId` and is reported by the loop above. That check replaced the
+  // billing-period filter this query used to carry, and is stricter: it catches
+  // a row whose option changed between preview and apply, which a period match
+  // would wave through whenever two options share a period. Exactly MS/HS.
 
   // ── Moves, before any repricing ──────────────────────────────────────────
   const moveResults: MoveResult[] = [];

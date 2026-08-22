@@ -193,13 +193,20 @@ check("a note calls out the uncomputable rows", upfrontPlan.notes.some((n) => n.
 check("notes always state nothing was written", upfrontPlan.notes.some((n) => n.includes("Nothing has been written")));
 
 // Sorting: recurring before upfront, stripe before offline.
+//
+// Zed carries a QUARTERLY period on a MONTHLY option — Colton Waite's real
+// shape, a quarterly lump sitting on a row labelled monthly. He is attributed
+// by his stored optionId, which is the only thing that can place him: period
+// attribution would refuse, and correctly so.
+const SORT_OPT = makeOption({ id: "opt_m", label: "Monthly", price: 100, billingPeriod: "MONTHLY" });
 const sorted = planPriceChange({
   membership: { id: "p", name: "P" },
-  option: makeOption({ label: "Monthly", price: 100, billingPeriod: "MONTHLY" }),
+  option: SORT_OPT,
+  allOptions: [SORT_OPT],
   newPrice: 90,
   now: NOW,
   subs: [
-    mk({ first: "Zed", optionLabel: "Monthly", price: 100, billingPeriod: "QUARTERLY" }),
+    mk({ first: "Zed", optionId: "opt_m", optionLabel: "Monthly", price: 100, billingPeriod: "QUARTERLY" }),
     mk({ first: "Yan", optionLabel: "Monthly", price: 100, billingPeriod: "MONTHLY" }),
     mk({ first: "Xav", optionLabel: "Monthly", price: 100, billingPeriod: "MONTHLY", stripeSubscriptionId: "sub_X" }),
   ],

@@ -41,6 +41,9 @@ const bodySchema = z.object({
   // Disambiguates when a plan has two options sharing a label (the label is
   // free text and not unique). Optional — falls back to first label match.
   billingPeriod: z.string().min(1).optional(),
+  // The option being reviewed, by identity. Preferred over label+period: MS/HS
+  // has two MONTHLY options, so the period cannot say which one is meant.
+  optionId: z.string().min(1).optional(),
   // OMIT to review everyone against the plan's CURRENT saved price. Pass a
   // value to preview a price that has not been saved yet. This is what makes
   // the review reachable after a save, not only as a side effect of an
@@ -74,7 +77,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!membership) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const options = parseMembershipOptions(membership.options);
-  const resolved = resolveOption(options, body.optionLabel, body.billingPeriod);
+  const resolved = resolveOption(options, body.optionLabel, body.billingPeriod, body.optionId);
   if (!resolved.ok) {
     if (resolved.code === "AMBIGUOUS_PERIOD") {
       return NextResponse.json(
@@ -102,16 +105,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // lib/bulkPriceChange.ts — optionLabel carries the plan name on every row
   // written by the migration/approve path, so selecting on it would silently
   // skip real subscribers.
+  // ── Who is on this option ──────────────────────────────────────────────
+  //
+  // Was: (membershipId, billingPeriod). That stopped identifying an option the
+  // day MS/HS gained a second MONTHLY one, and the collapse makes it four.
+  //
+  // Now: every repriceable row on the PLAN is loaded, and
+  // resolveSubscriptionOption decides per row — `optionId` when it is stamped,
+  // a unique (billingPeriod, price) match when it is not, and neither when it
+  // cannot be told. Filtering in SQL by period would silently drop a row whose
+  // period drifted from its option (Colton Waite's quarterly sum sits on a
+  // MONTHLY row), and a price tool that silently misses members is worse than
+  // no price tool.
   const subs = await prisma.memberSubscription.findMany({
     where: {
       membershipId: membership.id,
-      billingPeriod: option.billingPeriod,
       status: { in: [...REPRICEABLE_STATUSES] },
       member: { clubId: session.user.clubId, deletedAt: null },
     },
     select: {
       id: true,
       memberId: true,
+      optionId: true,
       optionLabel: true,
       price: true,
       billingPeriod: true,
@@ -135,6 +150,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const plan = planPriceChange({
     membership: { id: membership.id, name: membership.name },
     option,
+    allOptions: options,
     newPrice: body.newPrice ?? null,
     subs,
     now: new Date(),
