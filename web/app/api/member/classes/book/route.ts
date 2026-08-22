@@ -11,6 +11,8 @@ import { sendBookingConfirmationEmail } from "@/lib/email";
 import { trialCoversClass } from "@/lib/freeTrial";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { coverageForMembers, loadSessionCoverageContext } from "@/lib/coverageQuery";
+import { describeDays } from "@/lib/membershipOptions";
 import { classHasStarted } from "@/lib/datetime";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
@@ -116,11 +118,24 @@ export async function POST(req: Request) {
       .filter((o): o is Extract<PricingOption, { type: "membership" }> => o?.type === "membership" && !!o.membershipId)
       .map((o) => o.membershipId);
 
+    // Membership coverage now includes the DAY. An option can grant only some
+    // weekdays (a $110 "Tue/Thu" plan against a class that runs Mon/Tue/Thu),
+    // and before this the free path fired on plan membership alone — so a
+    // Tue/Thu member booked Monday free and the club lost the drop-in.
+    const covCtx = await loadSessionCoverageContext(classSessionId, session.user.clubId);
+    const verdict = covCtx
+      ? (await coverageForMembers([member.id], covCtx, session.user.clubId)).get(member.id) ?? null
+      : null;
+    const dayMismatch = verdict?.reason === "DAY_NOT_INCLUDED";
+
     // Membership-covered path
     if (acceptedMembershipIds.length > 0) {
-      const activeSub = await prisma.memberSubscription.findFirst({
-        where: { memberId: member.id, membershipId: { in: acceptedMembershipIds }, status: "active" },
-      });
+      const activeSub =
+        verdict && verdict.reason !== "COVERED"
+          ? null
+          : await prisma.memberSubscription.findFirst({
+              where: { memberId: member.id, membershipId: { in: acceptedMembershipIds }, status: "active" },
+            });
       if (activeSub) {
         const record = await prisma.attendanceRecord.create({
           data: {
@@ -230,7 +245,14 @@ export async function POST(req: Request) {
     const nonMemberPrice = options.find((o): o is PricedOption => o?.type === "nonmember");
     const dropInPrice    = options.find((o): o is PricedOption => o?.type === "dropin");
     let priced: { price: number; label: string; pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" } | null = null;
-    if (eligibleForMemberPrice && memberPrice) {
+    // A day mismatch resolves to drop-in, then non-member — never the member
+    // tier (they are not entitled TODAY) and never the upgrade 403 below. They
+    // are on the right membership on the wrong day; telling them to contact the
+    // club about upgrading is a phone call the club has to take for no reason.
+    if (dayMismatch) {
+      if (dropInPrice)        priced = { price: dropInPrice.price,    label: "Drop-in",    pricingType: "DROP_IN" };
+      else if (nonMemberPrice) priced = { price: nonMemberPrice.price, label: "Non-member", pricingType: "NON_MEMBER" };
+    } else if (eligibleForMemberPrice && memberPrice) {
       priced = { price: memberPrice.price, label: "Member", pricingType: "MEMBER" };
     } else if (nonMemberPrice) {
       priced = { price: nonMemberPrice.price, label: "Non-member", pricingType: "NON_MEMBER" };
@@ -240,6 +262,32 @@ export async function POST(req: Request) {
       // Unrestricted class with only a member price (legacy default for
       // single-tier clubs) — still allow at member rate.
       priced = { price: memberPrice.price, label: "Member", pricingType: "MEMBER" };
+    }
+
+    // A day-mismatched member with nothing to fall to is a CLASS CONFIGURATION
+    // gap — the class accepts memberships but sets no drop-in or non-member
+    // price, so there is no way to charge somebody outside their plan days.
+    // Book them rather than turn a paying family away at the door, and record
+    // why. No new alert is needed: the attendance panel computes coverage live,
+    // so this row keeps showing its chip until the class is fixed.
+    if (dayMismatch && (!priced || !priced.price)) {
+      const days = verdict?.entitledDays?.length ? describeDays(verdict.entitledDays) : "their plan days";
+      const record = await prisma.attendanceRecord.create({
+        data: {
+          clubId: session.user.clubId,
+          classSessionId,
+          memberId: member.id,
+          status: "PRESENT",
+          addedById: session.user.id,
+          notes: `Booked outside plan days (covers ${days}) — this class has no drop-in or non-member price to charge.`,
+        },
+      });
+      return NextResponse.json({
+        coveredByMembership: false,
+        bookedOutsidePlanDays: true,
+        attendanceRecordId: record.id,
+        message: `Booked. Your plan covers ${days}, and this class has no drop-in price set — your club may follow up.`,
+      });
     }
 
     if (!priced || !priced.price) {
