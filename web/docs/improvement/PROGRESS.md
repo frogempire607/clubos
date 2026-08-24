@@ -3598,3 +3598,61 @@ two, which is precisely the discrimination that failed for Blake.
 failed, entitlements 55 passed / 0 failed, renewal-surfacing 37 passed / 0
 failed, member-tracks 183 passed / 0 failed, bulk-price-change 165 passed / 0
 failed, billing-admin 132 passed / 0 failed.
+
+---
+
+## 2026-08-24 — D9: a live subscription outranks the import-time snapshot
+
+**This was blocking the collapse and I had filed it as not.** Julian's argument
+is the one I missed: repointing members between plans while renewal quotes come
+from member-level frozen fields means Barrett and Paul come out of a collapse
+still set to renew at **$0** — the collapse failing at the thing it exists to
+fix.
+
+`resolveOfferPricing` took only the member's frozen migration fields and the
+plan. For five of eleven MS/HS members those disagree with what they actually
+pay:
+
+| Member | Pays | Frozen snapshot said | Now quoted |
+|---|---|---|---|
+| Levi Schanzenbach | $175 | $190 | **$175** |
+| Max Hall | $175 | $190 | **$175** |
+| Orson Chorba | $175 | $190 | **$175** |
+| Kellan Lister | $450 | $530, label "Upfront" (renamed) | **$450, "3 months Upfront"** |
+| Barrett David / Paul Ortega | — | `migrationPriceOverride = 0` → **$0** | their real subscription price |
+| Oren Oren | $175 | "not configured" | **configured, $175** |
+
+It now takes an optional third argument: the member's live subscription. When
+one exists (`active` or `past_due`) it wins outright — **including over the
+owner's price override**. The override says "charge this member THIS instead of
+the plan price"; once a subscription exists at a price, that IS what they are
+charged, and quoting anything else quotes a number nobody pays.
+
+The argument is optional so nothing breaks, but **a caller that omits it is
+quoting from the snapshot, which is the bug** — said at the parameter. Both real
+callers now pass it: the billing centre and `lib/reactivation.buildOffer`.
+
+Guard rails, all pinned: a **canceled** subscription does not override the
+snapshot; **past_due** does, because they are still on it; a subscription with
+no readable price falls back rather than quoting null; and a genuine **$0** live
+subscription is honoured as $0 rather than being treated as missing.
+
+12 assertions, named for the real members. `billing-admin` is 144 passed / 0
+failed — and note it was reporting **132** with these already written, because
+the suite printed its summary before the appended block ran. Same trap as
+`renewal-surfacing`. **A suite that prints its total mid-file silently drops
+everything appended after it.**
+
+### Step 3 script
+
+`scripts/collapse-membership-plans.ts` — dry-run by default and **one step per
+run**, no "do it all" mode. It re-reads and prints live counts per option rather
+than taking anything from the spec, refuses if the merge would create two
+options at the same period AND price, is idempotent (an option already present
+is skipped), and reads back after writing to confirm every option carries an id.
+
+Steps 4–9 land as they are approved.
+
+**Verification:** tsc clean, build clean, billing-admin 144 passed / 0 failed,
+membership-options 121 passed / 0 failed, entitlements 55 passed / 0 failed,
+member-tracks 183 passed / 0 failed.
