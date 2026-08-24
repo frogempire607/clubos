@@ -16,6 +16,8 @@ import {
   entitlementFromSelection,
   findDuplicateOptions,
   makeOption,
+  minimumTermEnd,
+  minimumTermEndForOptionId,
   mintOptionId,
   parseEntitlement,
   parseOptions,
@@ -553,6 +555,84 @@ console.log("\neditor inherit/override seeding:");
   check("'same as plan' is ticked only when BOTH fields are null",
     (explicitFalse.contractMonths == null && explicitFalse.autoRenewDefault == null) === false &&
     (inheritsTrue.contractMonths == null && inheritsTrue.autoRenewDefault == null) === true);
+}
+
+// ── §8.8.1 · the minimum term written at purchase ───────────────────────────
+//
+// The floor a purchase commits to. Distinct from Member.commitmentEndDate,
+// which is a CEILING (the date the membership ends). Every case below is about
+// keeping those two apart, and about never inventing a floor.
+{
+  // The real addUTCMonths from lib/billingAdmin, restated here so the suite
+  // stays pure. Clamps the day of month, which is the whole reason it exists.
+  const addMonths = (d: Date, n: number) => {
+    const day = d.getUTCDate();
+    const out = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1,
+      d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds()));
+    const last = new Date(Date.UTC(out.getUTCFullYear(), out.getUTCMonth() + 1, 0)).getUTCDate();
+    out.setUTCDate(Math.min(day, last));
+    return out;
+  };
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  const start = new Date("2026-08-24T00:00:00.000Z");
+
+  const threeMonth = makeOption({ label: "3 Months", price: 160, billingPeriod: "MONTHLY", contractMonths: 3 });
+  const twelveMonth = makeOption({ label: "12 months", price: 150, billingPeriod: "MONTHLY", contractMonths: 12 });
+  const openEnded = makeOption({ label: "Monthly Full", price: 175, billingPeriod: "MONTHLY" });
+
+  check("a 3-month option floors three months out",
+    iso(minimumTermEnd(start, threeMonth, {}, addMonths)) === "2026-11-24");
+  check("a 12-month option floors a year out",
+    iso(minimumTermEnd(start, twelveMonth, {}, addMonths)) === "2027-08-24");
+
+  // Most options set no term. Null is the answer, not a zero-length floor —
+  // a stamped date would make every open-ended member look committed.
+  check("an option with no term gets NO floor, not today's date",
+    minimumTermEnd(start, openEnded, {}, addMonths) === null);
+  check("the plan's contractMonths applies when the option sets none",
+    iso(minimumTermEnd(start, openEnded, { contractMonths: 3 }, addMonths)) === "2026-11-24");
+  check("the option's term beats the plan's",
+    iso(minimumTermEnd(start, twelveMonth, { contractMonths: 3 }, addMonths)) === "2027-08-24");
+
+  // Zero and negative are data errors, and a floor in the past is worse than
+  // none: it would read as a commitment already served.
+  check("a zero-month term is no term",
+    minimumTermEnd(start, makeOption({ label: "Z", price: 1, billingPeriod: "MONTHLY", contractMonths: 0 }), {}, addMonths) === null);
+  check("a negative term never produces a floor in the past",
+    minimumTermEnd(start, makeOption({ label: "N", price: 1, billingPeriod: "MONTHLY", contractMonths: -3 }), {}, addMonths) === null);
+
+  // Day-of-month clamping — a 31st start must not roll into the next month.
+  check("a 31 Jan start with a 1-month term lands on 28 Feb, not 3 March",
+    iso(minimumTermEnd(new Date("2027-01-31T00:00:00.000Z"),
+      makeOption({ label: "M", price: 1, billingPeriod: "MONTHLY", contractMonths: 1 }), {}, addMonths)) === "2027-02-28");
+
+  // The floor is measured from the START, not from the purchase moment: a
+  // membership bought in August for a September start owes its months from
+  // September. Every call site passes the resolved start date for this reason.
+  check("the floor is measured from the start date, not from today",
+    iso(minimumTermEnd(new Date("2026-09-01T00:00:00.000Z"), threeMonth, {}, addMonths)) === "2026-12-01");
+
+  // ── the by-id form the six purchase paths use ─────────────────────────────
+  const options = withMintedIds(
+    [threeMonth, twelveMonth, openEnded],
+    (() => { let n = 0; return () => ((n = (n + 0.317) % 1), n); })(),
+  );
+  const threeId = options[0].id;
+
+  check("resolving by id gives the same answer as resolving by option",
+    iso(minimumTermEndForOptionId(start, options, threeId, {}, addMonths)) === "2026-11-24");
+  check("a null optionId yields no floor",
+    minimumTermEndForOptionId(start, options, null, {}, addMonths) === null);
+
+  // The plan can be edited between checkout starting and the row being written.
+  // A floor invented from an option that no longer exists would bind a member
+  // to a term nobody sold them.
+  check("an optionId that no longer matches yields no floor, never a guess",
+    minimumTermEndForOptionId(start, options, "opt_doesnotexist", {}, addMonths) === null);
+  check("a stale optionId does NOT fall through to the plan's contractMonths",
+    minimumTermEndForOptionId(start, options, "opt_doesnotexist", { contractMonths: 12 }, addMonths) === null);
+  check("an empty plan yields no floor",
+    minimumTermEndForOptionId(start, [], threeId, { contractMonths: 3 }, addMonths) === null);
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed`);

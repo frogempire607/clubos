@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import {
   asBillingPeriod,
   makeOption,
+  minimumTermEndForOptionId,
   optionIdForPurchase,
   parseOptions,
   serializeOptions,
@@ -21,7 +22,7 @@ import { MIGRATION_STATUS, resolveBillingAnchor } from "@/lib/migration";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { addBillingPeriod } from "@/lib/billingAdmin";
+import { addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
@@ -179,14 +180,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // (legacy snapshot members keep today's renewing behavior).
   let planAutoRenew = true;
   let planOptions: ReturnType<typeof parseOptions> = [];
+  let planContractMonths: number | null = null;
   if (membershipId) {
     const plan = await prisma.membership.findFirst({
       where: { id: membershipId, clubId: club.id, deletedAt: null },
-      select: { id: true, name: true, options: true, autoRenewDefault: true },
+      select: { id: true, name: true, options: true, autoRenewDefault: true, contractMonths: true },
     });
     if (plan) {
       planName = plan.name;
       planAutoRenew = plan.autoRenewDefault;
+      planContractMonths = plan.contractMonths;
       planOptions = parseOptions(plan.options);
       try {
         const opts = JSON.parse((plan.options as unknown as string) || "[]");
@@ -275,6 +278,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const soldOptionId = optionIdForPurchase(planOptions, {
     label: planName, billingPeriod: period, price,
   });
+  // §8.8.1 — the minimum term, measured from when the membership starts. Both
+  // branches below (MANUAL and Stripe) start from membershipStartDate, so the
+  // floor does too; approving in August a membership that started in June owes
+  // its months from June.
+  const approveTermEnd = minimumTermEndForOptionId(
+    member.membershipStartDate ?? new Date(), planOptions, soldOptionId,
+    { contractMonths: planContractMonths }, addUTCMonths,
+  );
 
   // Manual / no-online-payment path: complete without Stripe.
   // Was OFFLINE billing genuinely intended? Only these cases legitimately end up
@@ -399,6 +410,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         memberId: member.id,
         membershipId: membershipId!,
         optionId: soldOptionId,
+        minimumTermEndsAt: approveTermEnd,
         optionLabel: planName,
         price,
         billingPeriod: period,
@@ -639,6 +651,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         memberId: member.id,
         membershipId: membershipId!,
         optionId: soldOptionId,
+        minimumTermEndsAt: approveTermEnd,
         optionLabel: planName,
         price,
         billingPeriod: period,

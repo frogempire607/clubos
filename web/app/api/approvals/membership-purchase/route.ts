@@ -1,11 +1,11 @@
-import { addBillingPeriod } from "@/lib/billingAdmin";
+import { addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
+import { optionIdForPurchase, parseOptions, minimumTermEndForOptionId } from "@/lib/membershipOptions";
 import { requirePermission } from "@/lib/apiGuard";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
@@ -132,14 +132,21 @@ export async function POST(req: Request) {
 
   const startDate = new Date();
   const isOneTime = option.billingPeriod === "ONE_TIME";
-  const soldOptionId = optionIdForPurchase(parseOptions(membership.options), {
+  const planOptions = parseOptions(membership.options);
+  const soldOptionId = optionIdForPurchase(planOptions, {
     label: option.label, billingPeriod: option.billingPeriod, price: option.price,
   });
+  // §8.8.1 — the floor, from the option's own contractMonths (or the plan's).
+  // Null when neither sets one, which is most options.
+  const termEnd = minimumTermEndForOptionId(
+    startDate, planOptions, soldOptionId, { contractMonths: membership.contractMonths }, addUTCMonths,
+  );
   await prisma.memberSubscription.create({
     data: {
       memberId: approval.memberId,
       membershipId: membership.id,
       optionId: soldOptionId,
+      minimumTermEndsAt: termEnd,
       optionLabel: option.label,
       price: finalPrice,
       billingPeriod: option.billingPeriod,
