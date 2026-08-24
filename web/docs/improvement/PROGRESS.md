@@ -3477,3 +3477,73 @@ afterwards needs it.
 **Verification:** `npx tsc --noEmit` clean, `npm run build` clean,
 renewal-surfacing 37 passed / 0 failed, entitlements 55 passed / 0 failed,
 membership-options 121 passed / 0 failed, member-tracks 183 passed / 0 failed.
+
+---
+
+## 2026-08-22 — §8.7: the price tool matches on optionId
+
+MS/HS has had two MONTHLY options since the Tue/Thu plan was added, so
+`resolveOption` returned `AMBIGUOUS_PERIOD` and the club's main plan could not
+be repriced at all. The collapse makes it **four** MONTHLY options. Done before
+the collapse, deliberately.
+
+- `resolveOption` takes an `optionId` and resolves outright when given one. The
+  period path still refuses on ambiguity — it is now a legacy branch that no
+  id-passing caller reaches.
+- Both routes accept `optionId` and pass the plan's full option list.
+- **The SQL period filter is gone from both queries.** It silently dropped rows
+  whose period had drifted from their option — Colton Waite's quarterly lump on
+  a row labelled MONTHLY — and a price tool that misses members quietly is worse
+  than no price tool. Attribution now happens per row in `planPriceChange`.
+- Rows that cannot be placed on any option are returned as `unresolved` and
+  called out in the notes. Never dropped.
+- Each row reports `optionResolution`, and an inferred match carries a warning,
+  so a guess is never shown as a fact.
+
+### The regression the suite caught, and the rule it forced
+
+The first cut attributed rows with `resolveSubscriptionOption` — the coverage
+resolver. That matches on **(billingPeriod, price)**, so **Levi Schanzenbach,
+who pays $175 against a $190 sticker, resolved to nothing and vanished from the
+review.** A price review exists precisely to find people whose price has
+drifted; matching on price drops them.
+
+So there are now **two attribution rules, deliberately different**:
+
+| | matches on | why |
+|---|---|---|
+| **Coverage** (`resolveSubscriptionOption`) | optionId, then (period, **price**) | a wrong option grants or denies a class, so it must be certain |
+| **Repricing** (`planPriceChange.attribute`) | optionId, then **period alone** | the drifted price is the thing being looked for |
+
+Both are documented at the definition. Neither should be "unified" later — they
+answer different questions and the difference is the point.
+
+### Verified on the post-collapse shape
+
+Six options, four MONTHLY:
+
+```
+by label+period : AMBIGUOUS_PERIOD      (correct — it genuinely cannot tell)
+by optionId     : RESOLVED -> Monthly Full Membership
+repriced rows   : Hunter $175, Levi $190   (override INCLUDED)
+unresolved      : Oren                     (un-stamped, four options share MONTHLY)
+```
+
+Nina, stamped to the Tue/Thu option, is correctly absent.
+
+**Verification:** `npx tsc --noEmit` clean, `npm run build` clean,
+bulk-price-change 165 passed / 0 failed, billing-admin 132 passed / 0 failed,
+entitlements 55 passed / 0 failed, membership-options 121 passed / 0 failed,
+renewal-surfacing 37 passed / 0 failed, member-tracks 183 passed / 0 failed.
+
+### Owner confirmations recorded for the collapse
+
+1. Entitlements: Full = `ALL`, 2-day = `DAYS[2,4]`, rest `ALL`. `ALL` means
+   Mon·Tue·Thu·Sun.
+2. **Two** repoints — Maximus and chase. Re-run the count immediately before,
+   never from the spec.
+3. Remove both commitment plans from the class lists in the same pass that
+   deactivates them.
+
+**Not run.** The collapse is to be walked through as a step-by-step dry run for
+approval before anything writes.

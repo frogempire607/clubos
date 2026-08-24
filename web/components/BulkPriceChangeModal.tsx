@@ -58,7 +58,7 @@ type Row = {
 
 type MoveTarget = { membershipId: string; name: string; options: PlanOption[] };
 
-type PlanOption = { label: string; price: number; billingPeriod: string };
+type PlanOption = { id?: string | null; label: string; price: number; billingPeriod: string };
 
 type Plan = {
   preview: true;
@@ -322,6 +322,11 @@ export default function BulkPriceChangeModal({
   const active = options[optionIndex];
   const optionLabel = active?.label ?? "";
   const billingPeriod = active?.billingPeriod ?? "";
+  // Identity, when the option has one. Without it MS/HS is unrepriceable from
+  // this screen: it has four MONTHLY options after the collapse, so the server
+  // returns AMBIGUOUS_PERIOD and refuses — correctly, because label+period
+  // genuinely cannot say which option is meant.
+  const optionId = active?.id ?? null;
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -350,7 +355,7 @@ export default function BulkPriceChangeModal({
         const res = await fetch(`/api/memberships/${membershipId}/price-change/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ optionLabel, billingPeriod, newPrice }),
+          body: JSON.stringify({ optionLabel, billingPeriod, optionId, newPrice }),
         });
         const json = await res.json();
         if (!alive) return;
@@ -372,7 +377,7 @@ export default function BulkPriceChangeModal({
     return () => {
       alive = false;
     };
-  }, [membershipId, optionLabel, billingPeriod, newPrice]);
+  }, [membershipId, optionLabel, billingPeriod, optionId, newPrice]);
 
   // Switching option is a different question about different people — drop the
   // previous answer rather than carrying selections or a result across.
@@ -502,6 +507,7 @@ export default function BulkPriceChangeModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           optionLabel,
+          optionId,
           billingPeriod,
           // In "current" mode the target IS the plan's saved price, which the
           // preview already resolved — the prop is null there.

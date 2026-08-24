@@ -86,13 +86,29 @@ export function resolveOption(
   options: MembershipOption[],
   label: string,
   billingPeriod?: string | null,
+  optionId?: string | null,
 ): OptionResolution {
+  // An id resolves outright. This is the whole point of §8.1: the option
+  // being repriced is now nameable, so the period no longer has to identify
+  // it — and MS/HS, which has had two MONTHLY options since the Tue/Thu plan
+  // was added, stops being unrepriceable.
+  if (optionId) {
+    const byId = options.find((o) => o.id === optionId);
+    if (byId) return { ok: true, option: byId };
+    return { ok: false, code: "NOT_FOUND", candidates: options };
+  }
+
   const byLabel = options.filter(
     (o) => o.label === label && (billingPeriod ? o.billingPeriod === billingPeriod : true),
   );
   if (byLabel.length === 0) return { ok: false, code: "NOT_FOUND", candidates: options };
 
   const option = byLabel[0];
+
+  // No id supplied, and the plan has another option on the same period: the
+  // caller has not said which one they mean and the period cannot say either.
+  // Still refuse — but this is now a legacy path. Any caller that passes an
+  // optionId never reaches it.
   const sharingPeriod = options.filter((o) => o.billingPeriod === option.billingPeriod);
   if (sharingPeriod.length > 1) {
     return { ok: false, code: "AMBIGUOUS_PERIOD", candidates: sharingPeriod };
@@ -157,6 +173,8 @@ export type CreditResult = {
 export type PricedSubscription = {
   id: string;
   memberId: string;
+  /** §8.1 identity. Null on rows written before 2026-08-17. */
+  optionId?: string | null;
   optionLabel: string;
   price: unknown; // Prisma Decimal | string | number
   billingPeriod: string | null;
@@ -264,6 +282,8 @@ export type PriceChangeRow = {
   /** The label stored on the subscription — often the PLAN name, not the option label. */
   optionLabel: string;
   labelMatchesOption: boolean;
+  /** "exact" = matched on optionId. "inferred" = matched on (period, price). */
+  optionResolution: "exact" | "inferred";
   billingPeriod: string | null;
   billingType: string;
   status: string;
@@ -304,6 +324,17 @@ export type PriceChangeRow = {
   changeBlockedReason: string | null;
 };
 
+/** A plan member who could not be placed on any option. Reported, not repriced. */
+export type UnresolvedRow = {
+  memberSubscriptionId: string;
+  memberId: string;
+  memberName: string;
+  optionLabel: string;
+  billingPeriod: string | null;
+  price: number;
+  reason: string;
+};
+
 export type PriceChangeSummary = {
   total: number;
   stripeCount: number;
@@ -325,6 +356,8 @@ export type PriceChangePlan = {
   mode: PriceChangeMode;
   direction: "increase" | "decrease" | "none";
   rows: PriceChangeRow[];
+  /** On this plan, on no identifiable option. Never silently omitted. */
+  unresolved: UnresolvedRow[];
   summary: PriceChangeSummary;
   notes: string[];
 };
@@ -335,12 +368,85 @@ export const REPRICEABLE_STATUSES = ["active", "pending", "past_due"] as const;
 export function planPriceChange(input: {
   membership: { id: string; name: string };
   option: MembershipOption;
+  /**
+   * Every option on the plan. Needed to decide which option each subscription
+   * is on — a row is attributed by `optionId`, or by a unique
+   * (billingPeriod, price) match when it has none.
+   */
+  allOptions?: MembershipOption[];
   /** Omit (or pass null) to review against the plan's CURRENT saved price. */
   newPrice?: number | null;
+  /**
+   * Repriceable subscriptions on the PLAN — not pre-filtered to the option.
+   * Filtering in SQL by billing period silently dropped rows whose period had
+   * drifted from their option, and a price tool that misses members quietly is
+   * worse than no price tool.
+   */
   subs: Array<PricedSubscription & { member: { id: string; firstName: string | null; lastName: string | null } }>;
   now: Date;
 }): PriceChangePlan {
-  const { membership, option, subs, now } = input;
+  const { membership, option, now } = input;
+  const allOptions = input.allOptions ?? [option];
+
+  // Split the plan's rows into "on this option" and "cannot be attributed".
+  // The second group is REPORTED, never silently dropped: those members are on
+  // this plan and an owner looking at a price review needs to see that some of
+  // them could not be placed.
+  /**
+   * Which option is this subscription on, FOR REPRICING?
+   *
+   * Deliberately NOT resolveSubscriptionOption. That matches on
+   * (billingPeriod, price) and is right for coverage — a wrong option there
+   * grants or denies a class. It is wrong here, because the whole point of a
+   * price review is to find people whose price has DRIFTED from the option's:
+   * Levi Schanzenbach pays $175 against a $190 sticker, and price-matching
+   * would drop him from the very screen that exists to show him.
+   *
+   * So: the id when it is stamped; otherwise the billing period alone, which
+   * identifies the option whenever the plan has only one option on it. When
+   * two options share a period and the row has no id, nothing can honestly say
+   * which — that row is reported, never guessed at.
+   */
+  const attribute = (
+    sub: PricedSubscription,
+  ): { option: MembershipOption; how: "exact" | "inferred" } | { option: null; how: "ambiguous" | "none" } => {
+    if (sub.optionId) {
+      const byId = allOptions.find((o) => o.id === sub.optionId);
+      if (byId) return { option: byId, how: "exact" };
+      return { option: null, how: "none" };
+    }
+    const samePeriod = allOptions.filter((o) => o.billingPeriod === sub.billingPeriod);
+    if (samePeriod.length === 1) return { option: samePeriod[0], how: "inferred" };
+    return { option: null, how: samePeriod.length > 1 ? "ambiguous" : "none" };
+  };
+
+  const unresolvedRows: UnresolvedRow[] = [];
+  const subs: typeof input.subs = [];
+  const resolutionBySub = new Map<string, "exact" | "inferred">();
+  for (const sub of input.subs) {
+    const res = attribute(sub);
+    if (!res.option) {
+      unresolvedRows.push({
+        memberSubscriptionId: sub.id,
+        memberId: sub.memberId,
+        memberName: [sub.member.firstName, sub.member.lastName].filter(Boolean).join(" ").trim() || "(no name)",
+        optionLabel: sub.optionLabel,
+        billingPeriod: sub.billingPeriod,
+        price: money(num(sub.price)),
+        reason:
+          res.how === "ambiguous"
+            ? `This plan has more than one option billed ${sub.billingPeriod ?? "on that schedule"}, and this subscription has no stored option — so which one it is on cannot be told.`
+            : "No option on this plan matches this subscription's billing period.",
+      });
+      continue;
+    }
+    // Only rows on the option under review are repriced here.
+    const same = res.option.id && option.id ? res.option.id === option.id : res.option.label === option.label;
+    if (same) {
+      subs.push(sub);
+      resolutionBySub.set(sub.id, res.how === "exact" ? "exact" : "inferred");
+    }
+  }
   const oldPrice = money(option.price);
   const mode: PriceChangeMode = input.newPrice == null ? "current" : "proposed";
   const target = mode === "current" ? oldPrice : money(input.newPrice as number);
@@ -363,6 +469,9 @@ export function planPriceChange(input: {
     }
     if (s.optionLabel !== option.label) {
       warnings.push(`Stored option label is "${s.optionLabel}", not "${option.label}".`);
+    }
+    if ((resolutionBySub.get(s.id) ?? "inferred") === "inferred") {
+      warnings.push("Matched to this option by billing period — no stored option id on this subscription.");
     }
     if (isStripe && !s.stripePriceId) {
       warnings.push("No Stripe price id recorded — the Stripe item will need to be resolved live at apply time.");
@@ -388,6 +497,7 @@ export function planPriceChange(input: {
       memberName: name || "(no name)",
       optionLabel: s.optionLabel,
       labelMatchesOption: s.optionLabel === option.label,
+    optionResolution: resolutionBySub.get(s.id) ?? "inferred",
       billingPeriod: s.billingPeriod,
       billingType: s.billingType,
       status: s.status,
@@ -472,6 +582,12 @@ export function planPriceChange(input: {
   if (rows.some((r) => !r.labelMatchesOption)) {
     notes.push(`Some rows store a different option label — shown per row so you can see the drift.`);
   }
+  if (unresolvedRows.length > 0) {
+    notes.push(
+      `${unresolvedRows.length} member${unresolvedRows.length === 1 ? "" : "s"} on this plan could not be placed on any option and ` +
+        `${unresolvedRows.length === 1 ? "is" : "are"} listed separately — they are not repriced here.`,
+    );
+  }
   notes.push("This is a preview. Nothing has been written, charged, refunded, or emailed.");
 
   return {
@@ -480,6 +596,7 @@ export function planPriceChange(input: {
     mode,
     direction,
     rows,
+    unresolved: unresolvedRows,
     summary,
     notes,
   };
