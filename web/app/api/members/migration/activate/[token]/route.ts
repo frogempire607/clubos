@@ -4,6 +4,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
 import { isValidSignatureDataUrl } from "@/lib/signature";
 import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
@@ -931,10 +932,19 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       select: { id: true },
     });
     if (!existingSub) {
+      // finalPlanName is the PLAN name, not an option label — resolve the
+      // option on period + price, which is what the member actually accepted.
+      const finalPlan = await prisma.membership.findUnique({
+        where: { id: finalMembershipId },
+        select: { options: true },
+      });
       await prisma.memberSubscription.create({
         data: {
           memberId: member.id,
           membershipId: finalMembershipId,
+          optionId: optionIdForPurchase(parseOptions(finalPlan?.options), {
+            label: finalPlanName, billingPeriod: finalPlanPeriod, price: finalPlanPrice,
+          }),
           optionLabel: finalPlanName,
           price: finalPlanPrice,
           billingPeriod: finalPlanPeriod,

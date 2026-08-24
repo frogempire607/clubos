@@ -1,4 +1,5 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
 import { NextResponse } from "next/server";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
@@ -98,6 +99,11 @@ export async function POST(req: Request) {
       discount = check.discount;
     }
     const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
+    // Record WHICH option was sold. Without this every new subscription is
+    // unattributable — see lib/membershipOptions.optionIdForPurchase.
+    const soldOptionId = optionIdForPurchase(parseOptions(membership.options), {
+      label: option.label, billingPeriod: option.billingPeriod, price: option.price,
+    });
 
     const billingType: "RECURRING" | "ONE_TIME" =
       option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING";
@@ -208,6 +214,7 @@ export async function POST(req: Request) {
           // Re-price to what they are choosing NOW — they may have picked a
           // different option on the retry.
           data: {
+            optionId: soldOptionId,
             optionLabel,
             price: finalPrice,
             billingPeriod: option.billingPeriod,
@@ -221,6 +228,7 @@ export async function POST(req: Request) {
           data: {
             memberId: member.id,
             membershipId,
+            optionId: soldOptionId,
             optionLabel,
             price: finalPrice,
             billingPeriod: option.billingPeriod,

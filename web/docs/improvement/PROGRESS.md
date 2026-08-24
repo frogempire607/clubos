@@ -3547,3 +3547,54 @@ renewal-surfacing 37 passed / 0 failed, member-tracks 183 passed / 0 failed.
 
 **Not run.** The collapse is to be walked through as a step-by-step dry run for
 approval before anything writes.
+
+---
+
+## 2026-08-24 — §8.1 C2: purchase paths record which option was sold
+
+Blake Decker forced this. Sold "3 Months" at $160 on a plan with **two** MONTHLY
+options, created after the backfill ran, and landed with a null `optionId` — so
+he could not be attributed by billing period either, and the price tool would
+list him as unresolved. Every membership sold since the backfill has had the
+same gap; the collapse exists to remove exactly that ambiguity, so it would have
+been building a backlog behind itself.
+
+`optionIdForPurchase(options, {label, billingPeriod, price})` resolves in order:
+exact label + period → unique (period, price) → **null**. Null is a legitimate
+outcome and every reader handles it. A WRONG id is not, so it never guesses.
+
+**Nine create sites, eight stamp:**
+
+| Path | |
+|---|---|
+| `member/memberships/subscribe` (create + reuse-pending) | ✅ |
+| `members/subscribe` (MANUAL + Stripe) | ✅ |
+| `approvals/membership-purchase` | ✅ |
+| `reactivate/[token]/confirm` (card + offline) | ✅ |
+| `members/migration/[id]/approve` (manual + Stripe) | ✅ |
+| `members/migration/activate/[token]` | ✅ |
+| `stripe/reconcile/[id]` | **deliberately not** |
+
+The reconciler mirrors a subscription that exists in Stripe and was never sold
+through a plan option — there is no option to point at, and inventing one puts a
+false identity on a row every later reader trusts. Documented at the call site.
+
+**Two things found while wiring it:**
+
+- The migration-approve path **mints a plan** when a member has only a legacy
+  snapshot, and its synthetic `{label: "Imported"}` option carried **no id** —
+  so any subscription on it was unattributable from birth. It now mints one
+  through `withMintedIds`.
+- The approve path writes `optionLabel: planName` (the original drift), so
+  label matching cannot work there. It resolves on period + price — what the
+  member was actually quoted.
+
+**Browser-verified on the rig** (`dev-local.sh`, connection checked before and
+after): a real `POST /api/members/subscribe` selling "3 Months" against a plan
+with two MONTHLY options wrote `optionId: "opt_3mo"` — the correct one of the
+two, which is precisely the discrimination that failed for Blake.
+
+**Verification:** tsc clean, build clean, membership-options 121 passed / 0
+failed, entitlements 55 passed / 0 failed, renewal-surfacing 37 passed / 0
+failed, member-tracks 183 passed / 0 failed, bulk-price-change 165 passed / 0
+failed, billing-admin 132 passed / 0 failed.

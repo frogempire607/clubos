@@ -1,4 +1,5 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -118,6 +119,9 @@ export async function POST(req: Request) {
       body.billingType ??
       (option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING");
 
+    const soldOptionId = optionIdForPurchase(parseOptions(membership.options), {
+      label: option.label, billingPeriod: option.billingPeriod, price: option.price,
+    });
     const resolvedAutoRenew = body.autoRenew ?? membership.autoRenewDefault;
     const resolvedStartDate = body.startDate ? new Date(body.startDate) : new Date();
 
@@ -137,6 +141,7 @@ export async function POST(req: Request) {
         data: {
           memberId,
           membershipId,
+          optionId: soldOptionId,
           optionLabel,
           price: finalPrice,
           billingPeriod: option.billingPeriod,
@@ -266,6 +271,7 @@ export async function POST(req: Request) {
       data: {
         memberId,
         membershipId,
+        optionId: soldOptionId,
         optionLabel,
         price: finalPrice,
         billingPeriod: option.billingPeriod,

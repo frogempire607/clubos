@@ -5,6 +5,14 @@ import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  asBillingPeriod,
+  makeOption,
+  optionIdForPurchase,
+  parseOptions,
+  serializeOptions,
+  withMintedIds,
+} from "@/lib/membershipOptions";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
@@ -170,6 +178,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // Owner's plan-level Auto Renew setting; true when no plan is assigned
   // (legacy snapshot members keep today's renewing behavior).
   let planAutoRenew = true;
+  let planOptions: ReturnType<typeof parseOptions> = [];
   if (membershipId) {
     const plan = await prisma.membership.findFirst({
       where: { id: membershipId, clubId: club.id, deletedAt: null },
@@ -178,6 +187,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     if (plan) {
       planName = plan.name;
       planAutoRenew = plan.autoRenewDefault;
+      planOptions = parseOptions(plan.options);
       try {
         const opts = JSON.parse((plan.options as unknown as string) || "[]");
         if (Array.isArray(opts) && opts[0]) {
@@ -246,11 +256,25 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: {
         clubId: club.id,
         name: planName,
-        options: JSON.stringify([{ label: "Imported", price, billingPeriod: period }]),
+        // With an id: a plan minted here is a real plan, and a subscription on
+        // an option with no id cannot be attributed by anything later.
+        options: serializeOptions(
+          withMintedIds([
+            makeOption({ label: "Imported", price, billingPeriod: asBillingPeriod(period) }),
+          ]),
+        ),
       },
     });
     membershipId = created.id;
+    planOptions = parseOptions(created.options);
   }
+
+  // Which option this approval is actually selling. The label this path writes
+  // is the PLAN name — the drift that made every migrated row unattributable —
+  // so resolve on period + price, which is what the member was quoted.
+  const soldOptionId = optionIdForPurchase(planOptions, {
+    label: planName, billingPeriod: period, price,
+  });
 
   // Manual / no-online-payment path: complete without Stripe.
   // Was OFFLINE billing genuinely intended? Only these cases legitimately end up
@@ -374,6 +398,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: {
         memberId: member.id,
         membershipId: membershipId!,
+        optionId: soldOptionId,
         optionLabel: planName,
         price,
         billingPeriod: period,
@@ -613,6 +638,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: {
         memberId: member.id,
         membershipId: membershipId!,
+        optionId: soldOptionId,
         optionLabel: planName,
         price,
         billingPeriod: period,
