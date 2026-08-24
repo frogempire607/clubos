@@ -65,17 +65,47 @@ check for one of them:
 
 So **"is it a symlink?" is NOT a valid check** — a "no" proves nothing, and
 reading the file to reassure yourself is the wrong move regardless. The only
-safe local server is `scripts/dev-local.sh`, which overrides `DATABASE_URL` to
-the throwaway Postgres on `127.0.0.1:55432`, binds `127.0.0.1`, and blanks
-`SMTP_HOST` + `RESEND_API_KEY` so sends log instead of deliver. **Verification is
-by connection, always** — see the commands below.
+safe local server is `scripts/dev-local.sh`. **Verification is by connection,
+always** — see the commands below.
 
-Blanking the credentials is not belt-and-braces. On 2026-08-17 three local
-servers were run with a hand-rolled `DATABASE_URL` override instead of this
-script: the database was correctly the local throwaway, but real SMTP
-credentials stayed loaded the whole time and one of them bound `0.0.0.0`.
-Nothing was sent because the screens being driven happened not to send. That is
-luck, not a property of the setup. Use the script.
+#### The database is only one of the credentials
+
+Pointing `DATABASE_URL` at the throwaway Postgres is the *first* thing
+`dev-local.sh` does, not the only thing. The worktree `.env` also carries live
+credentials for every outbound system, and each one is reachable from a local
+click. The script blanks all of them, and **every entry below is load-bearing —
+never remove one, and never hand-roll a partial override in its place**:
+
+| Blanked | What a local click would otherwise do | How it fails once blanked |
+|---|---|---|
+| `DATABASE_URL` / `DIRECT_URL` → `127.0.0.1:55432` | Read and write **real member rows** | Talks to the throwaway Postgres |
+| `SMTP_HOST` | Deliver real mail to real families | `lib/email.ts` logs to console |
+| `RESEND_API_KEY` | Same, via Resend | Falls back to the SMTP path, i.e. console |
+| `STRIPE_SECRET_KEY` | **Charge a real card, cancel a real subscription, create a real Stripe object on the club's connected account** | Every Stripe call throws, loudly and locally |
+| `STRIPE_WEBHOOK_SECRET` / `STRIPE_CONNECT_WEBHOOK_SECRET` | Verify and act on real webhook payloads replayed locally | Signature verification fails |
+
+It also binds `127.0.0.1` (not `0.0.0.0`) and sets `NEXTAUTH_URL` to match.
+
+**Blanking is not belt-and-braces — it is the only thing standing between a
+local click and a real side effect, and twice now "nothing happened" has been
+luck rather than a property of the setup:**
+
+- **2026-08-17** — three local servers ran with a hand-rolled `DATABASE_URL`
+  override instead of this script. The database was correctly the local
+  throwaway, but **real SMTP credentials stayed loaded the whole time** and one
+  server bound `0.0.0.0`. Nothing was sent because the screens being driven
+  happened not to send.
+- **2026-08-24** — `dev-local.sh` itself was found to blank SMTP and Resend but
+  **not `STRIPE_SECRET_KEY`**, while §8.6 autopay work was being browser-tested.
+  Autopay ON creates a Stripe subscription and OFF cancels one. Nothing reached
+  Stripe only because the seeded local club has no `stripeAccountId`, so every
+  guard fired before the API call. That is the club fixture saving it, not the
+  test setup. Fixed the same day.
+
+The pattern in both: the *database* was handled, a *different* credential was
+not, and the escape was a property of the data rather than of the configuration.
+When adding any new outbound integration, add its key to `dev-local.sh` and to
+this table in the same commit.
 
 On 2026-08-21 a prod-pointed `npm run dev` was killed, the port was verified
 free, and a prod-pointed server was later found listening again — while a bulk
