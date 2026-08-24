@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
 import { Prisma } from "@prisma/client";
 import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
@@ -274,6 +275,16 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       membershipId = created.id;
     }
 
+    // The reactivation offer froze a label, price and period — resolve which
+    // option that is on the plan being reactivated onto.
+    const reactivationPlan = await prisma.membership.findUnique({
+      where: { id: membershipId },
+      select: { options: true },
+    });
+    const soldOptionId = optionIdForPurchase(parseOptions(reactivationPlan?.options), {
+      label: offer.optionLabel, billingPeriod: offer.billingPeriod, price: offerEffectivePrice(offer),
+    });
+
     let memberSubId: string;
     let stripeSubCreated = false;
 
@@ -351,6 +362,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         data: {
           memberId: member.id,
           membershipId,
+          optionId: soldOptionId,
           optionLabel: offer.optionLabel || offer.planName,
           price: offerEffectivePrice(offer),
           billingPeriod: offer.billingPeriod,
@@ -383,6 +395,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         data: {
           memberId: member.id,
           membershipId,
+          optionId: soldOptionId,
           optionLabel: offer.optionLabel || offer.planName,
           price: effective,
           billingPeriod: offer.billingPeriod,

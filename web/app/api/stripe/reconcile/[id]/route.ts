@@ -140,6 +140,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     data: {
       memberId,
       membershipId: resolvedMembershipId,
+      // optionId is deliberately NOT set. This row mirrors a subscription that
+      // exists in Stripe and was never sold through a plan option here — there
+      // is no option to point at, and inventing one would put a false identity
+      // on a row every later reader trusts. Null is the honest value, and every
+      // consumer handles it (unresolved in the price tool, fail-open in
+      // coverage).
       optionLabel: "Linked from Stripe",
       price: row.amountCents != null ? row.amountCents / 100 : 0,
       billingPeriod: billingPeriodFor(row.interval, intervalCount),

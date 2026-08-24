@@ -5,6 +5,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
 import { requirePermission } from "@/lib/apiGuard";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
@@ -131,10 +132,14 @@ export async function POST(req: Request) {
 
   const startDate = new Date();
   const isOneTime = option.billingPeriod === "ONE_TIME";
+  const soldOptionId = optionIdForPurchase(parseOptions(membership.options), {
+    label: option.label, billingPeriod: option.billingPeriod, price: option.price,
+  });
   await prisma.memberSubscription.create({
     data: {
       memberId: approval.memberId,
       membershipId: membership.id,
+      optionId: soldOptionId,
       optionLabel: option.label,
       price: finalPrice,
       billingPeriod: option.billingPeriod,

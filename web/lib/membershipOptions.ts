@@ -189,6 +189,11 @@ export function parseOptions(raw: unknown): MembershipOption[] {
  * fields beyond the three you type — forgetting one is how an option ends up
  * with `entitlement: undefined` and a coverage check that throws.
  */
+/** Narrow an arbitrary string to a BillingPeriod, or fall back to MONTHLY. */
+export function asBillingPeriod(v: unknown): BillingPeriod {
+  return isPeriod(v) ? v : "MONTHLY";
+}
+
 export function makeOption(
   partial: Partial<MembershipOption> & Pick<MembershipOption, "label" | "price" | "billingPeriod">,
 ): MembershipOption {
@@ -380,6 +385,44 @@ export function resolveSubscriptionOption(
     option: null,
     reason: matches.length > 1 ? "AMBIGUOUS" : "NO_MATCH",
   };
+}
+
+/**
+ * The `optionId` to stamp on a subscription being CREATED.
+ *
+ * Every purchase path knows the option it just sold — by label, by price, or
+ * both — but until now none of them recorded WHICH option, so every new
+ * subscription arrived unattributable. Blake Decker was sold "3 Months" at $160
+ * on a plan with two MONTHLY options and landed with a null `optionId`, which
+ * made him unresolvable by period and invisible to the price tool.
+ *
+ * Resolution, in order:
+ *   1. exact label + billing period      — what the caller actually sold
+ *   2. unique (billingPeriod, price)     — when the label drifted
+ *   3. null                              — never a guess
+ *
+ * Null is a legitimate outcome. An un-stamped row is handled everywhere
+ * (unresolved in the price tool, fail-open in coverage); a WRONG id is not.
+ */
+export function optionIdForPurchase(
+  options: MembershipOption[],
+  sold: { label?: string | null; billingPeriod?: string | null; price?: number | null },
+): string | null {
+  const byLabel = options.filter(
+    (o) =>
+      !!sold.label &&
+      o.label === sold.label &&
+      (sold.billingPeriod ? o.billingPeriod === sold.billingPeriod : true),
+  );
+  if (byLabel.length === 1) return byLabel[0].id;
+
+  if (sold.billingPeriod != null && sold.price != null && Number.isFinite(sold.price)) {
+    const byPrice = options.filter(
+      (o) => o.billingPeriod === sold.billingPeriod && o.price === sold.price,
+    );
+    if (byPrice.length === 1) return byPrice[0].id;
+  }
+  return null;
 }
 
 // ── Terms ───────────────────────────────────────────────────────────────────
