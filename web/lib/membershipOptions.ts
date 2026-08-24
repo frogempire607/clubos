@@ -530,6 +530,54 @@ export function describeOption(option: MembershipOption, plan: PlanDefaults = {}
   return out.join(" · ");
 }
 
+/**
+ * When a member on this option may leave — the FLOOR, computed at purchase.
+ *
+ * Returns null when the option (and the plan) set no minimum, which is most of
+ * them. Null means "no commitment", never "commitment of zero".
+ *
+ * Deliberately not `Member.commitmentEndDate`, which means the opposite: that
+ * value is passed to Stripe as `cancel_at` and is the date a membership ENDS.
+ * A floor and a ceiling must not share a field.
+ *
+ * `addMonths` is injected so this module stays pure — callers pass
+ * lib/billingAdmin.addUTCMonths, which does the arithmetic in UTC and clamps
+ * the day of month (adding one month to Jan 31 gives Feb 28, not Mar 3).
+ */
+export function minimumTermEnd(
+  start: Date,
+  option: MembershipOption,
+  plan: PlanDefaults,
+  addMonths: (d: Date, n: number) => Date,
+): Date | null {
+  const months = resolveTerms(option, plan).contractMonths;
+  if (months == null || months <= 0) return null;
+  return addMonths(start, months);
+}
+
+/**
+ * The same floor, for the six purchase paths that only ever resolve an option
+ * *id* (they stamp `optionId` and never build the option object).
+ *
+ * Returns null when the id is absent or no longer matches an option — the plan
+ * may have been edited between checkout starting and the row being written, and
+ * a floor invented from a missing option would bind a member to a term nobody
+ * sold them. No floor is the safe answer; §8.8.1 enforces it only where it is
+ * known.
+ */
+export function minimumTermEndForOptionId(
+  start: Date,
+  options: MembershipOption[],
+  optionId: string | null | undefined,
+  plan: PlanDefaults,
+  addMonths: (d: Date, n: number) => Date,
+): Date | null {
+  if (!optionId) return null;
+  const option = options.find((o) => o.id === optionId);
+  if (!option) return null;
+  return minimumTermEnd(start, option, plan, addMonths);
+}
+
 // ── Entitlement evaluation ──────────────────────────────────────────────────
 
 /**

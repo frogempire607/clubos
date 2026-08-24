@@ -410,5 +410,69 @@ check("no usable base at all → null",
 check("the result is always strictly in the future",
   (resolveBillingAnchor({ nextBillingDate: null, membershipStartDate: new Date("2020-02-29T00:00:00Z"), frequency: "MONTHLY", now: NOW_A })?.getTime() ?? 0) > NOW_A.getTime());
 
+
+// ── D9: a live subscription outranks the import-time snapshot ───────────────
+//
+// Five of eleven MS/HS members are quoted wrong from the frozen fields alone.
+// Two of them — Barrett and Paul, carrying a $0 comp override — would RENEW
+// FREE, which is how a comp survives a collapse meant to fix the plan.
+console.log("\nD9 — live subscription beats the frozen snapshot:");
+{
+  const MSHS = { name: "MS/HS", options: JSON.stringify([
+    { id: "opt_full", label: "Monthly Full Membership", price: 175, billingPeriod: "MONTHLY" },
+  ]) };
+  const live = (price: number, label = "Monthly", status = "active") => ({
+    optionId: "opt_full", optionLabel: label, price, billingPeriod: "MONTHLY", status,
+  });
+
+  // Levi: pays $175, frozen option says $190.
+  const levi = resolveOfferPricing(
+    { migrationSelectedOption: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" } },
+    MSHS, live(175),
+  );
+  check("Levi is quoted what he pays ($175), not the frozen $190", levi.price === 175, levi.price);
+
+  // Barrett: $0 comp override. THE case.
+  const barrett = resolveOfferPricing(
+    { migrationSelectedOption: { label: "1 Year", price: 2000, billingPeriod: "ANNUAL" },
+      migrationPriceOverride: 0, legacyMembershipPrice: 0 },
+    MSHS, live(175),
+  );
+  check("a $0 comp override does NOT renew a live member free", barrett.price === 175, barrett.price);
+
+  // Kellan: frozen label "Upfront" for an option since renamed.
+  const kellan = resolveOfferPricing(
+    { migrationSelectedOption: { label: "Upfront", price: 530, billingPeriod: "QUARTERLY" } },
+    MSHS, { optionId: "opt_up", optionLabel: "3 months Upfront", price: 450, billingPeriod: "QUARTERLY", status: "active" },
+  );
+  check("Kellan is quoted $450, not the frozen $530", kellan.price === 450, kellan.price);
+  check("  and the label follows the subscription", kellan.optionLabel === "3 months Upfront");
+  check("  and the period follows it too", kellan.period === "QUARTERLY");
+
+  // Oren: live subscription, no plan assigned, no frozen fields.
+  const oren = resolveOfferPricing({}, null, live(175));
+  check("Oren reads as CONFIGURED — a live subscription is a membership", oren.configured === true);
+  check("  at his real price", oren.price === 175);
+
+  // Guard rails.
+  const canceled = resolveOfferPricing(
+    { migrationSelectedOption: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" } },
+    MSHS, live(175, "Monthly", "canceled"),
+  );
+  check("a CANCELED subscription does not override the snapshot", canceled.price === 190, canceled.price);
+  const pastDue = resolveOfferPricing({}, MSHS, live(175, "Monthly", "past_due"));
+  check("a past_due subscription still counts — they are on it", pastDue.price === 175);
+  const noSub = resolveOfferPricing(
+    { migrationSelectedOption: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" } }, MSHS, null);
+  check("with no subscription the snapshot is still used", noSub.price === 190);
+  const nullPrice = resolveOfferPricing(
+    { migrationSelectedOption: { label: "Monthly", price: 190, billingPeriod: "MONTHLY" } },
+    MSHS, { ...live(0), price: null },
+  );
+  check("a subscription with no readable price falls back", nullPrice.price === 190);
+  const genuinelyFree = resolveOfferPricing({}, MSHS, live(0));
+  check("a genuine $0 live subscription is honoured as $0", genuinelyFree.price === 0);
+}
+
 console.log(`\n=== FINAL: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

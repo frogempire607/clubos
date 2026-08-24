@@ -33,6 +33,17 @@ export const PRIVATE_PACKAGE_PURCHASE_KIND = "PRIVATE_PACKAGE_PURCHASE" as const
 //   amount:  null (it's a standing % agreement, not a charge)
 export const INVOICE_SPLIT_KIND = "INVOICE_SPLIT" as const;
 
+// A member/guardian asked to turn card autopay on or off (§8.6, decision D8).
+// It queues rather than executing for the same reason a cancellation does: both
+// directions are subscription lifecycle events on the club's money, and "turn
+// autopay on" must never be a way for a member to start a charge the club did
+// not agree to. Owner approval runs the real transition
+// (see /api/approvals/membership-autopay).
+//   payload: { subscriptionId, direction: "on"|"off", optionLabel, requestingUserId, reason? }
+//   amount:  the subscription's recurring price — the dialog recomputes the
+//            real charge (fee passthrough included) at render time.
+export const MEMBERSHIP_AUTOPAY_KIND = "MEMBERSHIP_AUTOPAY_CHANGE" as const;
+
 // Every kind that should appear in the owner dashboard approvals queue.
 export const OWNER_APPROVAL_KINDS: string[] = [
   GUARDIAN_LINK_KIND,
@@ -40,4 +51,5 @@ export const OWNER_APPROVAL_KINDS: string[] = [
   MEMBERSHIP_PURCHASE_KIND,
   PRIVATE_PACKAGE_PURCHASE_KIND,
   INVOICE_SPLIT_KIND,
+  MEMBERSHIP_AUTOPAY_KIND,
 ];

@@ -142,6 +142,15 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
         select: { id: true, name: true, options: true },
       })
     : null;
+  // D9 — the member's live subscription, which outranks every frozen field.
+  // Without this the quote comes from an import-time snapshot: Levi, Max and
+  // Orson at $190 against $175 subscriptions, and Barrett and Paul — carrying a
+  // $0 comp override — renewing FREE.
+  const liveForPricing = await prisma.memberSubscription.findFirst({
+    where: { memberId: member.id, status: { in: ["active", "past_due"] } },
+    orderBy: { createdAt: "desc" },
+    select: { optionId: true, optionLabel: true, price: true, billingPeriod: true, status: true },
+  });
   const pricing = resolveOfferPricing(
     {
       legacyMembershipName: member.legacyMembershipName,
@@ -151,6 +160,15 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       migrationPriceOverride: member.migrationPriceOverride as unknown as string | null,
     },
     plan ? { name: plan.name, options: plan.options } : null,
+    liveForPricing
+      ? {
+          optionId: liveForPricing.optionId,
+          optionLabel: liveForPricing.optionLabel,
+          price: liveForPricing.price as unknown as string,
+          billingPeriod: liveForPricing.billingPeriod,
+          status: liveForPricing.status,
+        }
+      : null,
   );
 
   // ── Subscriptions (cached Stripe snapshots — no live calls here) ───────

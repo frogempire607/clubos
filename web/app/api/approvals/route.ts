@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, hasBillingSubScope } from "@/lib/permissions";
+import { previewAutopayChange } from "@/lib/autopay";
 import { MEMBERSHIP_TRANSFER_KIND } from "@/lib/membershipTransferKind";
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 import {
@@ -10,6 +11,7 @@ import {
   MEMBERSHIP_PURCHASE_KIND,
   PRIVATE_PACKAGE_PURCHASE_KIND,
   INVOICE_SPLIT_KIND,
+  MEMBERSHIP_AUTOPAY_KIND,
 } from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
@@ -29,6 +31,7 @@ type Payload = {
   optionLabel?: string | null;
   reason?: string | null;
   subscriptionId?: string;
+  direction?: "on" | "off";
   membershipId?: string;
   packageId?: string;
   paymentMethod?: string | null;
@@ -75,6 +78,12 @@ export async function GET() {
   // finances:view — see /api/member-subscriptions/[id]/transfer.
   if (isOwner || hasBillingSubScope(perms, "transfer_subscription")) {
     kinds.push(MEMBERSHIP_TRANSFER_KIND);
+  }
+  // An autopay change rides `billing`, not `finances`: acting on it requires
+  // billing:full, and a queue you can see but never act on is worse than one
+  // you never see.
+  if (isOwner || hasPermission(perms, "billing", "view")) {
+    kinds.push(MEMBERSHIP_AUTOPAY_KIND);
   }
   if (kinds.length === 0) return NextResponse.json({ approvals: [] });
 
@@ -148,6 +157,25 @@ export async function GET() {
       : []
     ).map((p) => [p.id, p.title]),
   );
+
+  // Autopay previews, recomputed NOW. These hit Stripe once per pending
+  // request (to check the card is still chargeable), which is why they run only
+  // for the autopay rows actually in the queue — normally none, occasionally
+  // one or two. A stale "first charge $180.08 on 16 Sep" is the failure mode
+  // worth this cost: the owner approves against the number they were shown.
+  const autopayRows = rows.filter((r) => r.kind === MEMBERSHIP_AUTOPAY_KIND);
+  const autopayPreviews = new Map<string, Awaited<ReturnType<typeof previewAutopayChange>>>();
+  for (const r of autopayRows) {
+    const p = r.payload as Payload | null;
+    const dir = p?.direction === "on" ? "on" : "off";
+    if (!p?.subscriptionId) continue;
+    try {
+      autopayPreviews.set(r.id, await previewAutopayChange(p.subscriptionId, clubId, dir));
+    } catch {
+      // A Stripe hiccup must not empty the whole queue — the row still renders,
+      // just without its sentence, and the action route re-checks anyway.
+    }
+  }
 
   const pendingApprovals = rows.map((r) => {
     const p = (r.payload as Payload | null) ?? {};
@@ -233,6 +261,24 @@ export async function GET() {
         acknowledgedBillingNote: p.acknowledgedBillingNote ?? null,
         usageSnapshot: p.usageSnapshot ?? null,
         reason: p.reason ?? null,
+      };
+    }
+    if (r.kind === MEMBERSHIP_AUTOPAY_KIND) {
+      return {
+        id: r.id,
+        kind: r.kind,
+        memberId: r.memberId,
+        memberName,
+        requestedAt: r.requestedAt,
+        requester,
+        optionLabel: p.optionLabel ?? null,
+        direction: p.direction === "on" ? "on" : "off",
+        reason: p.reason ?? null,
+        amount: r.amount != null ? Number(r.amount) : null,
+        // The charge date and amount are NOT read from the payload — they are
+        // recomputed live below, because a request filed days ago can be stale
+        // by the time it is worked (price change, period rolled, card removed).
+        preview: autopayPreviews.get(r.id) ?? null,
       };
     }
     // MEMBERSHIP_CANCEL

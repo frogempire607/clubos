@@ -494,7 +494,38 @@ function parseOptions(raw: unknown): { label?: unknown; price?: unknown; billing
   }
 }
 
-export function resolveOfferPricing(member: PricingMemberInput, plan: PlanInput): ResolvedPricing {
+/**
+ * The member's CURRENT subscription, when they have one. Optional so every
+ * existing caller keeps compiling, but passing it is what makes a quote right.
+ */
+export type PricingSubscriptionInput = {
+  optionId?: string | null;
+  optionLabel?: string | null;
+  price?: number | string | null;
+  billingPeriod?: string | null;
+  status?: string | null;
+} | null;
+
+export function resolveOfferPricing(
+  member: PricingMemberInput,
+  plan: PlanInput,
+  /**
+   * D9. Every field below `plan` is a snapshot frozen at IMPORT time, and for
+   * five of eleven MS/HS members it disagrees with what they actually pay:
+   * Levi, Max and Orson would be quoted $190 against a $175 subscription;
+   * Kellan $530 against $450, under an option label MS/HS no longer has. Worse,
+   * Barrett and Paul carry `migrationPriceOverride = 0` — a comp — so a quote
+   * built from the frozen fields renews them at **$0**.
+   *
+   * A live subscription is not a snapshot; it is what the member is being
+   * charged. When one exists it wins outright, and the frozen fields go back to
+   * being what they always were: a record of what was imported.
+   *
+   * Passing this is optional so nothing breaks, but a caller that omits it is
+   * quoting from the snapshot — which is the bug.
+   */
+  subscription?: PricingSubscriptionInput,
+): ResolvedPricing {
   // Mirrors the approve route's NOTHING_CONFIGURED semantics: no plan, no
   // selected option, no override, no imported legacy plan ⇒ NOT configured.
   // The historic "Continued membership" fallback name is deliberately gone —
@@ -532,6 +563,29 @@ export function resolveOfferPricing(member: PricingMemberInput, plan: PlanInput)
 
   if (member.migrationPriceOverride != null) {
     price = Number(member.migrationPriceOverride);
+  }
+
+  // ── D9: a live subscription outranks every frozen field, including the
+  //    owner's price override. The override exists to say "charge this member
+  //    THIS instead of the plan price"; once a subscription exists at a price,
+  //    that IS what they are charged, and quoting anything else is quoting a
+  //    number nobody is paying.
+  const liveStatus = (subscription?.status ?? "").toLowerCase();
+  const isLive = liveStatus === "active" || liveStatus === "past_due";
+  if (subscription && isLive) {
+    const subPrice = subscription.price == null ? null : Number(subscription.price);
+    if (subPrice != null && Number.isFinite(subPrice)) {
+      return {
+        planName,
+        optionLabel: subscription.optionLabel ?? optionLabel,
+        price: subPrice,
+        period: subscription.billingPeriod || period,
+        // A live subscription IS a configured membership, whatever the frozen
+        // fields say — Oren Oren has one and no plan assigned, and reads
+        // "not configured" today.
+        configured: true,
+      };
+    }
   }
 
   return { planName, optionLabel, price, period, configured };

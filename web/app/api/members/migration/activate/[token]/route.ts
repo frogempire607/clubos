@@ -949,6 +949,12 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           price: finalPlanPrice,
           billingPeriod: finalPlanPeriod,
           billingType: "MANUAL",
+          // §8.8.1 deliberately does NOT stamp minimumTermEndsAt here. This is
+          // the final-period-paid case: the term is already served and paid,
+          // the row is non-renewing, and it ends on the commitment date below.
+          // A floor computed from contractMonths could land AFTER that endDate
+          // — binding someone to a membership past the day it stops — which is
+          // the one shape a minimum term must never take.
           autoRenew: false,
           status: "active",
           startDate: member.membershipStartDate ?? new Date(),

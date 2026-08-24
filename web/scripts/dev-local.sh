@@ -19,5 +19,12 @@ export RESEND_WEBHOOK_SECRET="whsec_bG9jYWx0ZXN0c2VjcmV0Zm9ycHJvYmluZzEyMw=="
 # impossible to deliver. Never remove this from the local dev script.
 export SMTP_HOST=""
 export RESEND_API_KEY=""
+# Same reasoning as SMTP, for the same reason: the worktree's .env carries a
+# REAL Stripe key, and a local click that reaches a charge path would talk to
+# the live account. Blanking it makes every Stripe call fail loudly here instead
+# of succeeding somewhere real. Never remove this from the local dev script.
+export STRIPE_SECRET_KEY=""
+export STRIPE_WEBHOOK_SECRET=""
+export STRIPE_CONNECT_WEBHOOK_SECRET=""
 export NEXT_PUBLIC_APP_URL="http://127.0.0.1:3000"
 exec ./node_modules/.bin/next dev -H 127.0.0.1 -p 3000

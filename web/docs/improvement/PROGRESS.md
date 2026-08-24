@@ -3598,3 +3598,195 @@ two, which is precisely the discrimination that failed for Blake.
 failed, entitlements 55 passed / 0 failed, renewal-surfacing 37 passed / 0
 failed, member-tracks 183 passed / 0 failed, bulk-price-change 165 passed / 0
 failed, billing-admin 132 passed / 0 failed.
+
+---
+
+## 2026-08-24 — D9: a live subscription outranks the import-time snapshot
+
+**This was blocking the collapse and I had filed it as not.** Julian's argument
+is the one I missed: repointing members between plans while renewal quotes come
+from member-level frozen fields means Barrett and Paul come out of a collapse
+still set to renew at **$0** — the collapse failing at the thing it exists to
+fix.
+
+`resolveOfferPricing` took only the member's frozen migration fields and the
+plan. For five of eleven MS/HS members those disagree with what they actually
+pay:
+
+| Member | Pays | Frozen snapshot said | Now quoted |
+|---|---|---|---|
+| Levi Schanzenbach | $175 | $190 | **$175** |
+| Max Hall | $175 | $190 | **$175** |
+| Orson Chorba | $175 | $190 | **$175** |
+| Kellan Lister | $450 | $530, label "Upfront" (renamed) | **$450, "3 months Upfront"** |
+| Barrett David / Paul Ortega | — | `migrationPriceOverride = 0` → **$0** | their real subscription price |
+| Oren Oren | $175 | "not configured" | **configured, $175** |
+
+It now takes an optional third argument: the member's live subscription. When
+one exists (`active` or `past_due`) it wins outright — **including over the
+owner's price override**. The override says "charge this member THIS instead of
+the plan price"; once a subscription exists at a price, that IS what they are
+charged, and quoting anything else quotes a number nobody pays.
+
+The argument is optional so nothing breaks, but **a caller that omits it is
+quoting from the snapshot, which is the bug** — said at the parameter. Both real
+callers now pass it: the billing centre and `lib/reactivation.buildOffer`.
+
+Guard rails, all pinned: a **canceled** subscription does not override the
+snapshot; **past_due** does, because they are still on it; a subscription with
+no readable price falls back rather than quoting null; and a genuine **$0** live
+subscription is honoured as $0 rather than being treated as missing.
+
+12 assertions, named for the real members. `billing-admin` is 144 passed / 0
+failed — and note it was reporting **132** with these already written, because
+the suite printed its summary before the appended block ran. Same trap as
+`renewal-surfacing`. **A suite that prints its total mid-file silently drops
+everything appended after it.**
+
+### Step 3 script
+
+`scripts/collapse-membership-plans.ts` — dry-run by default and **one step per
+run**, no "do it all" mode. It re-reads and prints live counts per option rather
+than taking anything from the spec, refuses if the merge would create two
+options at the same period AND price, is idempotent (an option already present
+is skipped), and reads back after writing to confirm every option carries an id.
+
+Steps 4–9 land as they are approved.
+
+**Verification:** tsc clean, build clean, billing-admin 144 passed / 0 failed,
+membership-options 121 passed / 0 failed, entitlements 55 passed / 0 failed,
+member-tracks 183 passed / 0 failed.
+
+## 2026-08-24 — §8.6 autopay transitions, §8.6.4 auto-renew, §8.8.1 minimum terms
+
+Both were built without a decision because neither needed one: §8.6 follows D6
+(one row, synchronous) and D8 (member-initiated queues), and §8.8.1 was already
+specified. Step 3 of the collapse stays held.
+
+### Autopay still gets no column, deliberately
+
+It is derivable — `billingType === "MANUAL" || stripeSubscriptionId === null` —
+and a stored flag that can disagree with Stripe is worse than a derived one.
+What was missing was a **transition**, which `lib/autopay.ts` now is.
+
+### Why the transition completes synchronously
+
+The obvious design was "set `cancel_at_period_end`, then flip the row to MANUAL
+when `customer.subscription.deleted` arrives". **That does not work**, and it is
+worth writing down why so nobody re-proposes it: that webhook does an
+unconditional `updateMany` setting `status: "canceled"` on any row matching the
+subscription id. The handoff would land as a **cancellation** — the member reads
+as churned and `recomputeMemberStatus` flips them inactive.
+
+So we do not wait for it. `cancel_at_period_end: true` means Stripe will not
+bill again and the current period is already paid, so everything is known at
+transition time: read back `current_period_end`, then **one** write — MANUAL,
+`paidThroughDate` stamped, `stripeSubscriptionId` nulled. The later deletion
+webhook then matches no row and is a harmless no-op.
+
+**Checked rather than assumed**, because nulling a Stripe id is the kind of
+thing that orphans money quietly: `invoice.paid` has a metadata fallback that
+resolves the member when the row lookup misses, and `charge.refunded` /
+`charge.dispute.created` resolve by **charge**, not subscription. Nothing
+arriving after the transition loses its member.
+
+### The bug I nearly wrote into the off path
+
+The first cut set `autoRenew: false` when turning autopay off. That is wrong:
+autopay off means **the club collects cash from here on**, not that the
+membership is ending, and `autoRenew: false` is read everywhere as "this one
+stops". It would have manufactured the exact lie §8.0.8 is about — rows claiming
+to renew next to an end date, or here, rows claiming to end that don't. The off
+path does not touch `autoRenew` at all, and says so at the write.
+
+### The ON path
+
+Member's **own** price through `recurringUnitWithFee`, never the plan's option
+price — reading the option there is how you silently reprice someone on an
+override. `trial_end` anchored to `paidThroughDate` so the first charge lands
+when the paid period ends; never on the day the toggle is flipped.
+Params-hashed idempotency key (the Mack Munroe lesson: a static per-subscription
+key is permanently burned by one failure). Requires
+`resolveChargeablePaymentMethodId` and **changes nothing** without one.
+
+Subscription `price_data` needs a real Product — unlike Checkout there is no
+inline `product_data`, which the compiler caught. Reuses the plan's catalog
+Product with a plan-scoped fallback, same as approve.
+
+### Who can do it
+
+| Actor | Route | Behaviour |
+|---|---|---|
+| Owner / staff | `POST …/billing-admin/actions` → `set_autopay` | `billing:full`, `confirm: true`, audited. Executes. |
+| Member / guardian | `POST /api/member/subscriptions/[id]/autopay` | Queues `MEMBERSHIP_AUTOPAY_CHANGE`. 202. |
+
+Both land in the same two functions, so there is exactly **one** implementation
+of what turning a card on or off means.
+
+The confirm sentence is **recomputed live**, not replayed from the payload — a
+request filed days ago can be stale by the time it is worked (price changed,
+period rolled, card removed), and the owner approves against the number they
+were shown. It states what the **card** is charged ($180.08), not the sticker
+($175); showing one and charging the other is how a dispute starts.
+
+A member request that the club could not act on is refused **at request time**
+with the reason, rather than sitting in the queue to be declined tomorrow.
+
+The queue rides `billing:view`, not `finances:view` — acting requires
+`billing:full`, and a queue you can see but never act on is worse than one you
+never see.
+
+### §8.6.4 — auto-renew is the other question
+
+`set_auto_renew` is whether the membership **continues**, which is not who
+charges the card. On a Stripe row it maps to `cancel_at_period_end` and takes
+**Stripe's own period end** as `endDate` — never a `cancel_at` recomputed
+locally, which is precisely why eleven rows now claim to renew next to an end
+date. Turning it back on clears the end date.
+
+### §8.8.1 finished
+
+`minimumTermEndsAt` is now written on every purchase path that sells an option:
+both subscribe routes, `approvals/membership-purchase`,
+`reactivate/[token]/confirm` (both branches), and `migration/[id]/approve` (both
+branches), via `minimumTermEndForOptionId`.
+
+That helper returns **null** when the id no longer matches an option — the plan
+can be edited between checkout starting and the row being written, and a floor
+invented from a plan default would bind a member to a term nobody sold them.
+It does not fall through.
+
+**One path deliberately does not stamp it**: `migration/activate/[token]`'s
+final-period-paid branch. The term is already served and paid, the row is
+non-renewing, and it ends on the commitment date — a floor computed from
+`contractMonths` could land *after* that `endDate`, binding someone past the day
+their membership stops. That is the one shape a minimum term must never take.
+The reason is in the code, not just here.
+
+### dev-local.sh hardened
+
+It already blanked `SMTP_HOST` because the worktree `.env` carries real SMTP
+credentials. It did **not** blank `STRIPE_SECRET_KEY`, which is the same risk
+with a worse blast radius. Now blanked, with the same "never remove this" note.
+
+### Verification
+
+tsc clean, build clean.
+
+- `membership-options` **135 passed / 0 failed** (+14: the minimum-term floor,
+  including day-of-month clamping and every no-floor case)
+- `entitlements` 55 / 0 · `renewal-surfacing` 37 / 0 · `billing-admin` 144 / 0
+- `scripts/browser-autopay.ts` **31 passed / 0 failed** on the local rig, driven
+  as a real owner session *and* a real member session.
+
+**What the browser test cannot prove, stated plainly:** every branch that would
+talk to Stripe is unreachable locally by construction — `dev-local.sh` blanks
+the key and the fixtures fire each guard first. So the routing, the gates, the
+refusals, the queue, and the two non-Stripe writes are proven.
+`subscriptions.update(cancel_at_period_end)` and the create-on-ON path are
+**not** tested against a live account and need a Stripe test account.
+
+The browser script's default host is `localhost`, not `127.0.0.1`: the app
+redirects to `localhost` after sign-in and the session cookie is host-scoped, so
+signing in on one and landing on the other drops the session silently. Cost a
+round-trip again; now written into the file.

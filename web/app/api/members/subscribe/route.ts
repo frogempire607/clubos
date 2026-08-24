@@ -1,5 +1,6 @@
-import { addBillingPeriod } from "@/lib/billingAdmin";
+import { addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
 import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
+import { minimumTermEnd } from "@/lib/membershipOptions";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -119,11 +120,18 @@ export async function POST(req: Request) {
       body.billingType ??
       (option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING");
 
-    const soldOptionId = optionIdForPurchase(parseOptions(membership.options), {
+    const planOptionsForTerm = parseOptions(membership.options);
+    const soldOptionId = optionIdForPurchase(planOptionsForTerm, {
       label: option.label, billingPeriod: option.billingPeriod, price: option.price,
     });
+    const soldOption = planOptionsForTerm.find((o) => o.id === soldOptionId) ?? null;
     const resolvedAutoRenew = body.autoRenew ?? membership.autoRenewDefault;
     const resolvedStartDate = body.startDate ? new Date(body.startDate) : new Date();
+    // §8.8.1 — the floor, from the option's own contractMonths (or the plan's).
+    // Null when neither sets one, which is most options.
+    const termEnd = soldOption
+      ? minimumTermEnd(resolvedStartDate, soldOption, { contractMonths: membership.contractMonths }, addUTCMonths)
+      : null;
 
     // Compute endDate for one-time purchases if not explicitly provided
     let resolvedEndDate: Date | null = body.endDate ? new Date(body.endDate) : null;
@@ -142,6 +150,7 @@ export async function POST(req: Request) {
           memberId,
           membershipId,
           optionId: soldOptionId,
+          minimumTermEndsAt: termEnd,
           optionLabel,
           price: finalPrice,
           billingPeriod: option.billingPeriod,
@@ -272,6 +281,7 @@ export async function POST(req: Request) {
         memberId,
         membershipId,
         optionId: soldOptionId,
+        minimumTermEndsAt: termEnd,
         optionLabel,
         price: finalPrice,
         billingPeriod: option.billingPeriod,

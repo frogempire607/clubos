@@ -1,5 +1,7 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
 import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
+import { minimumTermEnd } from "@/lib/membershipOptions";
+import { addUTCMonths } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { z } from "zod";
@@ -101,9 +103,15 @@ export async function POST(req: Request) {
     const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
     // Record WHICH option was sold. Without this every new subscription is
     // unattributable — see lib/membershipOptions.optionIdForPurchase.
-    const soldOptionId = optionIdForPurchase(parseOptions(membership.options), {
+    const planOptionsForTerm = parseOptions(membership.options);
+    const soldOptionId = optionIdForPurchase(planOptionsForTerm, {
       label: option.label, billingPeriod: option.billingPeriod, price: option.price,
     });
+    // §8.8.1 — the floor. Null when the option (and plan) set no minimum.
+    const soldOption = planOptionsForTerm.find((o) => o.id === soldOptionId) ?? null;
+    const termEnd = soldOption
+      ? minimumTermEnd(new Date(), soldOption, { contractMonths: membership.contractMonths }, addUTCMonths)
+      : null;
 
     const billingType: "RECURRING" | "ONE_TIME" =
       option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING";
@@ -215,6 +223,7 @@ export async function POST(req: Request) {
           // different option on the retry.
           data: {
             optionId: soldOptionId,
+            minimumTermEndsAt: termEnd,
             optionLabel,
             price: finalPrice,
             billingPeriod: option.billingPeriod,
@@ -229,6 +238,7 @@ export async function POST(req: Request) {
             memberId: member.id,
             membershipId,
             optionId: soldOptionId,
+            minimumTermEndsAt: termEnd,
             optionLabel,
             price: finalPrice,
             billingPeriod: option.billingPeriod,

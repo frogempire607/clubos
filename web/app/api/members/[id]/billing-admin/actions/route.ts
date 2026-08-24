@@ -8,21 +8,59 @@ import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { MIGRATION_STATUS } from "@/lib/migration";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { turnAutopayOff, turnAutopayOn, setAutoRenew, previewAutopayChange } from "@/lib/autopay";
+import { SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
 
 // Discrete, confirmation-gated billing actions (billing:full). Each action is
 // explicit, audited, and preserves history — nothing here deletes rows or
 // touches a live Stripe subscription.
 
 const schema = z.object({
-  action: z.enum(["cancel_pending_activation", "reassign_subscription", "set_deliberate_free"]),
+  action: z.enum([
+    "cancel_pending_activation",
+    "reassign_subscription",
+    "set_deliberate_free",
+    "set_autopay",
+    "set_auto_renew",
+  ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
   subscriptionId: z.string().optional(),
   targetMemberId: z.string().optional(),
   // set_deliberate_free:
   deliberateFree: z.boolean().optional(),
+  // set_autopay / set_auto_renew:
+  autopay: z.boolean().optional(),
+  autoRenew: z.boolean().optional(),
   reason: z.string().max(200).optional().nullable(),
 });
+
+// GET ?subscriptionId=…&direction=on|off — the exact sentence the confirm
+// dialog must show, computed from live values. Read-only; `billing:view`.
+// A dialog that states the wrong charge is worse than one that states none, so
+// this is recomputed at render time and never snapshotted.
+export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await requirePermissionLive(session, "billing", "view");
+  if (denied) return denied;
+
+  const url = new URL(req.url);
+  const subscriptionId = url.searchParams.get("subscriptionId");
+  const direction = url.searchParams.get("direction");
+  if (!subscriptionId || (direction !== "on" && direction !== "off")) {
+    return NextResponse.json({ error: "subscriptionId and direction are required." }, { status: 400 });
+  }
+  const owns = await prisma.memberSubscription.count({
+    where: { id: subscriptionId, memberId: id, member: { clubId: session.user.clubId, deletedAt: null } },
+  });
+  if (!owns) return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
+
+  const preview = await previewAutopayChange(subscriptionId, session.user.clubId, direction);
+  if (!preview) return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
+  return NextResponse.json(preview);
+}
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -94,6 +132,66 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
     });
     return NextResponse.json({ ok: true });
+  }
+
+  // set_autopay — §8.6.3. The owner path executes immediately; the member path
+  // queues (/api/member/subscriptions/[id]/autopay → the approvals queue).
+  // Both land in the same two functions, so there is exactly one implementation
+  // of what turning a card on or off means.
+  if (data.action === "set_autopay") {
+    if (!data.subscriptionId || data.autopay === undefined) {
+      return NextResponse.json({ error: "subscriptionId and autopay are required." }, { status: 400 });
+    }
+    const owns = await prisma.memberSubscription.count({
+      where: { id: data.subscriptionId, memberId: member.id },
+    });
+    if (!owns) return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
+    const actor = { userId: session.user.id, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION };
+    const result = data.autopay
+      ? await turnAutopayOn(data.subscriptionId, session.user.clubId, actor)
+      : await turnAutopayOff(data.subscriptionId, session.user.clubId, actor);
+    if (!result.ok) {
+      // 409 for "you cannot do that to this row", 502 for "Stripe would not".
+      const status = result.code === "STRIPE_FAILED" ? 502 : 409;
+      return NextResponse.json({ error: result.error, code: result.code }, { status });
+    }
+    await prisma.member.update({
+      where: { id: member.id },
+      data: { billingUpdatedAt: new Date(), billingUpdatedById: session.user.id },
+    });
+    return NextResponse.json({
+      ok: true,
+      direction: result.direction,
+      effectiveAt: result.effectiveAt,
+      message: result.message,
+    });
+  }
+
+  // set_auto_renew — §8.6.4. Whether the membership CONTINUES, which is a
+  // different question from who charges the card. Mapped to
+  // cancel_at_period_end, never a recomputed absolute cancel_at.
+  if (data.action === "set_auto_renew") {
+    if (!data.subscriptionId || data.autoRenew === undefined) {
+      return NextResponse.json({ error: "subscriptionId and autoRenew are required." }, { status: 400 });
+    }
+    const ownsRow = await prisma.memberSubscription.count({
+      where: { id: data.subscriptionId, memberId: member.id },
+    });
+    if (!ownsRow) return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
+    const result = await setAutoRenew(data.subscriptionId, session.user.clubId, data.autoRenew, {
+      userId: session.user.id,
+      source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+    });
+    if (!result.ok) {
+      if (result.code === "UNCHANGED") return NextResponse.json({ ok: true, unchanged: true });
+      const status = result.code === "STRIPE_FAILED" ? 502 : 409;
+      return NextResponse.json({ error: result.error, code: result.code }, { status });
+    }
+    await prisma.member.update({
+      where: { id: member.id },
+      data: { billingUpdatedAt: new Date(), billingUpdatedById: session.user.id },
+    });
+    return NextResponse.json({ ok: true, effectiveAt: result.effectiveAt, message: result.message });
   }
 
   // set_deliberate_free — the club states that a $0 membership is a comp it

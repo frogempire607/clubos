@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
+import { optionIdForPurchase, parseOptions, minimumTermEndForOptionId } from "@/lib/membershipOptions";
 import { Prisma } from "@prisma/client";
 import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
@@ -14,7 +14,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { parseOffer, compareOfferToCurrent, offerEffectivePrice } from "@/lib/reactivation";
-import { chargeTiming, addBillingPeriod } from "@/lib/billingAdmin";
+import { chargeTiming, addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
 import { offlineActivationPolicy, isOfflineMethod, discountAppliedLabel } from "@/lib/staffPayments";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { recordDiscountUse } from "@/lib/discounts";
@@ -279,11 +279,20 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     // option that is on the plan being reactivated onto.
     const reactivationPlan = await prisma.membership.findUnique({
       where: { id: membershipId },
-      select: { options: true },
+      select: { options: true, contractMonths: true },
     });
-    const soldOptionId = optionIdForPurchase(parseOptions(reactivationPlan?.options), {
+    const reactivationOptions = parseOptions(reactivationPlan?.options);
+    const soldOptionId = optionIdForPurchase(reactivationOptions, {
       label: offer.optionLabel, billingPeriod: offer.billingPeriod, price: offerEffectivePrice(offer),
     });
+    // §8.8.1 — the minimum term, measured from when access starts, not from
+    // today: a reactivation confirmed in August for a September start owes its
+    // months from September.
+    const reactivationStart = offer.startDate ? new Date(offer.startDate) : new Date();
+    const reactivationTermEnd = minimumTermEndForOptionId(
+      reactivationStart, reactivationOptions, soldOptionId,
+      { contractMonths: reactivationPlan?.contractMonths ?? null }, addUTCMonths,
+    );
 
     let memberSubId: string;
     let stripeSubCreated = false;
@@ -363,6 +372,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           memberId: member.id,
           membershipId,
           optionId: soldOptionId,
+          minimumTermEndsAt: reactivationTermEnd,
           optionLabel: offer.optionLabel || offer.planName,
           price: offerEffectivePrice(offer),
           billingPeriod: offer.billingPeriod,
@@ -396,6 +406,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           memberId: member.id,
           membershipId,
           optionId: soldOptionId,
+          minimumTermEndsAt: reactivationTermEnd,
           optionLabel: offer.optionLabel || offer.planName,
           price: effective,
           billingPeriod: offer.billingPeriod,
