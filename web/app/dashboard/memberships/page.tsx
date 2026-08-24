@@ -267,8 +267,12 @@ export default function MembershipsPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {memberships.map((m) => {
-            let options: Option[] = [];
-            try { options = JSON.parse(m.options || "[]"); } catch {}
+            // parseOptions, not JSON.parse: this is the list that feeds the
+            // "Review member prices" modal, and a raw parse produces objects
+            // missing `entitlement` and the normalised term fields — a second
+            // parser for a blob that already has one, which is what
+            // lib/membershipOptions exists to stop.
+            const options: Option[] = parseOptions(m.options);
             return (
               <div key={m.id} className="bg-white rounded-xl border border-app-border p-5">
                 <div className="flex items-start justify-between mb-2">
