@@ -11,6 +11,7 @@
  * ── Steps ───────────────────────────────────────────────────────────────────
  *   3  Append the commitment options to the parent plan (MS/HS, Jr Frogs)
  *   4  Set per-option contractMonths, and clear the plan-level fallback
+ *   5  Set per-option entitlements (which DAYS an option buys)
  *   5  Set per-option entitlements
  *   6  Repoint live subscriptions onto the parent plan + its new option ids
  *   7  Repoint Member.membershipId for those members
@@ -24,12 +25,16 @@
  * prints it; nothing is taken from the spec.
  */
 import { prisma } from "../lib/prisma";
+import { acceptedMembershipIdsFrom } from "../lib/coverageQuery";
 import {
+  ENTITLEMENT_ALL,
+  describeDays,
   makeOption,
   parseOptions,
   serializeOptions,
   withMintedIds,
   findDuplicateOptions,
+  type Entitlement,
   type MembershipOption,
 } from "../lib/membershipOptions";
 
@@ -63,7 +68,7 @@ const CLUB_NAME = "Frog Empire Wrestling Academy";
 async function planByName(name: string) {
   const rows = await prisma.membership.findMany({
     where: { name, deletedAt: null, club: { name: CLUB_NAME } },
-    select: { id: true, name: true, options: true, active: true, contractMonths: true, autoRenewDefault: true },
+    select: { id: true, name: true, options: true, active: true, contractMonths: true, autoRenewDefault: true, clubId: true },
   });
   if (rows.length !== 1) {
     throw new Error(`Expected exactly one active plan named "${name}", found ${rows.length}. Refusing.`);
@@ -433,6 +438,206 @@ async function step4() {
   }
 }
 
+// ── Step 5 ──────────────────────────────────────────────────────────────────
+//
+// Which DAYS each option buys. Absent `days` means ALL — and ALL is stored as
+// the ABSENCE of the key, not as an enumerated week (§8.3.3): an option that
+// lists today's schedule silently un-covers its members the day a Wednesday is
+// added. ALL means "everything this plan is accepted for" and stays true as the
+// schedule moves.
+//
+// ── This step has teeth the others did not ──────────────────────────────────
+//
+// Steps 3 and 4 changed what the club can SELL. This one changes what people
+// who have already BOUGHT are entitled to, and enforcement is already live:
+// lib/entitlements is wired into attendance, the member schedule, and both
+// class write paths. The moment a DAYS entitlement writes, a member on that
+// option who turns up on an excluded day is quoted the drop-in price instead of
+// being covered.
+//
+// So the dry run computes and prints the blast radius from live data — who is
+// on a restricted option right now, which classes the plan is accepted for, and
+// exactly which days those people stop being covered on. Not from this table;
+// from the database, at that moment.
+const STEP5: Record<string, Array<{ label: string; price: number; days?: number[] }>> = {
+  // Owner-confirmed, D1 (§8.3.5). ALL for everything except the two-day option.
+  "MS/HS": [
+    { label: "Monthly Full Membership",  price: 175 },
+    { label: "Monthly 2 days (Tue/Thu)", price: 110, days: [2, 4] },
+    { label: "3 Months",                 price: 160 },
+    { label: "3 months Upfront",         price: 450 },
+    { label: "12 months",                price: 150 },
+    // "1 year" pre-Step-4, "1 year Upfront" after. Matched either way.
+    { label: "1 year Upfront",           price: 1500 },
+  ],
+  // Jr Frogs classes run Mon·Wed and Sun, and there is no day-restricted
+  // Jr Frogs option today — so every option is ALL and this plan is a no-op.
+  "Jr Frogs": [
+    { label: "Monthly",  price: 110 },
+    { label: "3 months", price: 90 },
+    { label: "Upfront",  price: 250 },
+    { label: "1 Year",   price: 900 },
+  ],
+};
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+async function step5() {
+  console.log("STEP 5 — which days each option buys\n");
+  console.log("Reads:   memberships.options, each plan's live subscribers, and every");
+  console.log("         class whose pricingOptions accept the plan (for the day map).");
+  console.log("Writes:  memberships.options only. No subscription, member or Stripe object.\n");
+  console.log("⚠  ENFORCEMENT IS ALREADY LIVE. This is the step that changes what people");
+  console.log("   who have already paid can attend. See the blast radius below.\n");
+
+  let blocked = false;
+
+  for (const c of COLLAPSES) {
+    const parent = await planByName(c.parent);
+    const table = STEP5[c.parent];
+    if (!table) {
+      console.error(`   No approved entitlement table for "${c.parent}". Refusing.`);
+      process.exitCode = 1; blocked = true; continue;
+    }
+    const options = parseOptions(parent.options);
+    console.log(`── ${parent.name} (${parent.id})`);
+
+    // The day map, read live: which classes accept this plan, and when they run.
+    const classes = (await prisma.recurringClass.findMany({
+      where: { clubId: parent.clubId, deletedAt: null, active: true },
+      select: { id: true, name: true, daysOfWeek: true, pricingOptions: true },
+    })).filter((k) => acceptedMembershipIdsFrom(k.pricingOptions).includes(parent.id));
+
+    const planDays = new Set<number>();
+    console.log(`   accepted for ${classes.length} class(es):`);
+    for (const k of classes) {
+      const days = (k.daysOfWeek as number[] | null) ?? [];
+      for (const d of days) planDays.add(d);
+      console.log(`     ${k.name} — ${days.map((d) => DAY_NAMES[d]).join(", ") || "no days set"}`);
+    }
+    console.log("");
+
+    const used = new Set<number>();
+    const keep: typeof options = [];
+    let unmatched = 0;
+
+    for (const o of options) {
+      let idx = table.findIndex((t, i) => !used.has(i) && t.label === o.label);
+      let how = "label";
+      if (idx < 0) { idx = table.findIndex((t, i) => !used.has(i) && t.price === o.price); how = "price"; }
+
+      const live = await prisma.memberSubscription.count({
+        where: {
+          membershipId: parent.id, optionId: o.id,
+          status: { in: ["active", "pending", "past_due"] }, member: { deletedAt: null },
+        },
+      });
+
+      console.log(`   ${o.label}  ($${o.price} ${o.billingPeriod}, ${live} live)`);
+      if (idx < 0) {
+        unmatched++; keep.push(o);
+        console.log(`     ✗ UNMATCHED — not in the approved entitlement list. Left untouched.`);
+        continue;
+      }
+      const t = table[idx]; used.add(idx);
+      if (how === "price") console.log(`     ! matched by PRICE — stored "${o.label}", list "${t.label}"`);
+
+      const before: Entitlement = o.entitlement;
+      const after: Entitlement = t.days?.length ? { kind: "DAYS", days: t.days } : ENTITLEMENT_ALL;
+      const changed = JSON.stringify(before) !== JSON.stringify(after);
+
+      const desc = (e: Entitlement) =>
+        e.kind === "ALL" ? "ALL days" : e.kind === "DAYS" ? describeDays(e.days) : `${e.perWeek}/week`;
+      console.log(`     ${desc(before)} → ${desc(after)}${changed ? "   [SET]" : "   [unchanged]"}`);
+
+      // The blast radius, per option, from live data.
+      if (after.kind === "DAYS") {
+        const lost = [...planDays].filter((d) => !after.days.includes(d)).sort();
+        console.log(`     stored as {kind:"DAYS", days:[${after.days.join(",")}]}`);
+        if (lost.length) {
+          console.log(`     ⚠  LOSES COVERAGE ON: ${lost.map((d) => DAY_NAMES[d]).join(", ")}`);
+          for (const k of classes) {
+            const kd = ((k.daysOfWeek as number[] | null) ?? []);
+            const kLost = kd.filter((d) => lost.includes(d));
+            if (kLost.length) {
+              const all = kLost.length === kd.length;
+              console.log(`        ${k.name}: ${all ? "ENTIRELY" : kLost.map((d) => DAY_NAMES[d]).join(", ")}`);
+            }
+          }
+        }
+        if (live > 0) {
+          const holders = await prisma.memberSubscription.findMany({
+            where: {
+              membershipId: parent.id, optionId: o.id,
+              status: { in: ["active", "pending", "past_due"] }, member: { deletedAt: null },
+            },
+            select: { member: { select: { id: true, firstName: true, lastName: true } } },
+          });
+          console.log(`     ⚠  ${live} live member(s) affected THE MOMENT THIS WRITES:`);
+          for (const h of holders) {
+            console.log(`        ${h.member.firstName} ${h.member.lastName} (${h.member.id})`);
+          }
+          console.log(`        On an excluded day they are quoted the class's drop-in price`);
+          console.log(`        instead of being covered. Enforcement is already deployed.`);
+        } else {
+          console.log(`     0 live members on this option — nobody is affected today.`);
+        }
+      } else if (before.kind !== "ALL") {
+        console.log(`     (removing a restriction — this GRANTS days back)`);
+      }
+
+      o.entitlement = after;
+      keep.push(o);
+    }
+
+    console.log("");
+    if (unmatched > 0) {
+      console.error(`   ✗ REFUSING TO APPLY: ${unmatched} option(s) unresolved on ${parent.name}.`);
+      console.error(`     An option with no stated entitlement would keep whatever it has,`);
+      console.error(`     which may not be what you think it is. Name it, then re-run.`);
+      process.exitCode = 1; blocked = true; console.log(""); continue;
+    }
+
+    if (APPLY) {
+      await prisma.membership.update({
+        where: { id: parent.id },
+        data: { options: serializeOptions(keep) },
+      });
+      const reread = await planByName(c.parent);
+      const got = parseOptions(reread.options);
+      const problems: string[] = [];
+      if (got.length !== keep.length) problems.push(`option count ${keep.length} → ${got.length}`);
+      for (let i = 0; i < Math.min(got.length, keep.length); i++) {
+        const a = keep[i], b = got[i];
+        if (!b.id || a.id !== b.id) problems.push(`${a.label}: id changed or lost`);
+        if (a.label !== b.label) problems.push(`label ${a.label} → ${b.label}`);
+        if (a.price !== b.price) problems.push(`${a.label}: price changed`);
+        if (a.billingPeriod !== b.billingPeriod) problems.push(`${a.label}: period changed`);
+        if (a.contractMonths !== b.contractMonths) problems.push(`${a.label}: contractMonths changed`);
+        if (a.autoRenewDefault !== b.autoRenewDefault) problems.push(`${a.label}: autoRenewDefault changed`);
+        if (JSON.stringify(a.entitlement) !== JSON.stringify(b.entitlement))
+          problems.push(`${a.label}: entitlement did not take`);
+      }
+      if (problems.length) {
+        console.error("   WROTE, BUT THE READ-BACK DISAGREES — INVESTIGATE:");
+        for (const p of problems) console.error(`     ${p}`);
+        process.exitCode = 1;
+      } else {
+        console.log(`   WROTE. ${got.length} options; terms and ids untouched, only entitlements moved.`);
+      }
+    }
+    console.log("");
+  }
+
+  if (!APPLY) {
+    console.log(blocked
+      ? "── DRY RUN ── nothing written, and --apply would refuse. See the ✗ lines."
+      : "── DRY RUN ── nothing written. Re-run with --apply.");
+  } else if (!blocked) {
+    console.log("Step 5 done. Coverage changed for anyone listed under ⚠ above, immediately.");
+  }
+}
+
 async function main() {
   if (!Number.isInteger(STEP)) {
     console.error("Refusing: --step <n> is required. One step per run, approved before it runs.");
@@ -441,8 +646,9 @@ async function main() {
   switch (STEP) {
     case 3: await step3(); break;
     case 4: await step4(); break;
+    case 5: await step5(); break;
     default:
-      console.error(`Step ${STEP} is not implemented yet. Steps 5-9 land as they are approved.`);
+      console.error(`Step ${STEP} is not implemented yet. Steps 6-9 land as they are approved.`);
       process.exit(1);
   }
 }
