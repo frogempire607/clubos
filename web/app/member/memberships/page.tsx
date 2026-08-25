@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { parseOptions } from "@/lib/membershipOptions";
 import Link from "next/link";
 import { Ticket, Sparkles } from "lucide-react";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
@@ -60,6 +61,33 @@ export default function MemberMembershipsPage() {
 
   // Subscriptions for the currently selected profile (self or chosen child).
   const activeSubs: ActiveSub[] = selectedMemberId ? activeByMember[selectedMemberId] ?? [] : [];
+
+  // Ask the club for a different membership while one is already active.
+  //
+  // Never charges and never edits the current subscription — it files a request
+  // the club answers. The portal used to stop dead here, which is how a family
+  // who thought their membership had ended found the options closed and no way
+  // to say so.
+  async function requestChange(membershipId: string, optionId: string | null, optionLabel: string) {
+    const key = `req:${membershipId}:${optionLabel}`;
+    setSubmitting(key);
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch("/api/member/memberships/change-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: selectedMemberId, membershipId, optionId, optionLabel }),
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) setError(d?.error || "Could not send that request.");
+      else setNotice(d?.message || "Sent to your club.");
+    } catch {
+      setError("Could not send that request. Please try again.");
+    } finally {
+      setSubmitting(null);
+    }
+  }
 
   async function subscribe(membershipId: string, optionLabel: string, paymentMethod: "CARD" | "CASH" | "CHECK") {
     const key = `${membershipId}:${optionLabel}`;
@@ -135,8 +163,13 @@ export default function MemberMembershipsPage() {
       ) : (
         <div className="space-y-3">
           {memberships.map((m) => {
-            let opts: Option[] = [];
-            try { opts = JSON.parse(m.options); } catch {}
+            // parseOptions, not a raw JSON.parse. `options` is a JSON string
+            // inside a json column, and a second hand-rolled parser here is
+            // exactly what dropped id/contractMonths/entitlement from the
+            // owner-side editor. It also means `o.id` exists, so a change
+            // request can name the option by identity rather than by a label
+            // that is free to be renamed.
+            const opts = parseOptions(m.options);
             const activeForThis = activeSubs.find((s) => s.membershipId === m.id);
 
             return (
@@ -170,16 +203,51 @@ export default function MemberMembershipsPage() {
                 )}
 
                 {activeForThis ? (
-                  // The selected profile is already on this membership — show it
-                  // as their current plan instead of Subscribe buttons. (The sub's
-                  // optionLabel can be the plan name from migration, not an option
-                  // label, so we match on membership, not exact option.)
-                  <div className="mt-3 rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 text-sm text-green-800">
-                    ✓ This is the current plan on this profile
-                    {activeForThis.optionLabel ? <> — <span className="font-medium">{activeForThis.optionLabel}</span></> : null}.
-                    <span className="block text-xs text-green-700 mt-0.5">
-                      Update the card or cancel from Profile → Payment &amp; billing.
-                    </span>
+                  // Already on this membership. Say so — then still offer every
+                  // option as something they can ASK for.
+                  //
+                  // This used to be the end of the road: a green box and a
+                  // suggestion to cancel. A family whose membership they
+                  // believed had lapsed could neither buy nor tell anyone, and
+                  // the club never heard from them. Being committed is the most
+                  // likely reason to need a conversation, so going quiet then is
+                  // exactly backwards.
+                  <div className="mt-3 space-y-2">
+                    <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 text-sm text-green-800">
+                      ✓ This is the current plan on this profile
+                      {activeForThis.optionLabel ? <> — <span className="font-medium">{activeForThis.optionLabel}</span></> : null}.
+                      <span className="block text-xs text-green-700 mt-0.5">
+                        Update the card from Profile → Payment &amp; billing, or ask about a change below.
+                      </span>
+                    </div>
+                    <p className="text-xs text-stone-500 pt-1">
+                      Want a different option? Ask your club — nothing changes until they confirm it with you.
+                    </p>
+                    {opts.map((o) => {
+                      const rk = `req:${m.id}:${o.label}`;
+                      const isCurrent = activeForThis.optionLabel === o.label;
+                      return (
+                        <div key={o.label} className="border border-stone-200 rounded-lg px-3 py-2 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-stone-900">{o.label}</p>
+                            <p className="text-xs text-stone-500">
+                              ${o.price.toFixed(2)}{periodLabel[o.billingPeriod] ?? ""}
+                            </p>
+                          </div>
+                          {isCurrent ? (
+                            <span className="text-xs text-stone-400 flex-shrink-0">Current option</span>
+                          ) : (
+                            <button
+                              onClick={() => requestChange(m.id, o.id ?? null, o.label)}
+                              disabled={!hasMemberProfile || submitting === rk}
+                              className="px-3 py-1.5 border border-stone-300 text-stone-700 rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50 flex-shrink-0"
+                            >
+                              {submitting === rk ? "Sending…" : "Request this"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="space-y-2 mt-3">

@@ -1087,9 +1087,14 @@ model MemberSubscription {
   // value is passed to Stripe as `cancel_at` and copied to `endDate` above,
   // i.e. the date the membership ENDS. A ceiling and a floor must not share a
   // name. Stripe has no minimum-term primitive — Subscription Schedules define
-  // phases but do not prevent cancellation — so this can only live here, and
-  // it is enforced at the one door members can reach: the cancellation request
-  // queue, which flags an early termination rather than blocking it.
+  // phases but do not prevent cancellation — so this can only live here.
+  //
+  // AS OF 2026-08-25 THIS COLUMN HAS NO READER. It is written at purchase
+  // (§8.8.1) and read by nothing: the cancellation request queue does not
+  // check it, and no billing decision consults it. An earlier version of this
+  // comment claimed it was enforced at the cancellation queue; that described
+  // an intention, not the code. Do not rely on it to bind anyone until a
+  // reader exists.
   minimumTermEndsAt DateTime?
 
   // Renewal chain — plain string ref to avoid self-relation complexity

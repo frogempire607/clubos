@@ -44,6 +44,25 @@ export const INVOICE_SPLIT_KIND = "INVOICE_SPLIT" as const;
 //            real charge (fee passthrough included) at render time.
 export const MEMBERSHIP_AUTOPAY_KIND = "MEMBERSHIP_AUTOPAY_CHANGE" as const;
 
+// A member/guardian wants a DIFFERENT membership or option while one is
+// already active — including inside a commitment.
+//
+// This exists because the portal dead-ended: once a profile had an active
+// subscription, the memberships page replaced every option with "this is your
+// current plan" and the only route onward was "cancel from Profile". A family
+// whose membership they believed had ended could neither buy nor ask. Shannan
+// Hall hit exactly that on 2026-08-25.
+//
+// Approving does NOT execute the change. Moving a live membership has money
+// consequences the club has to choose — a mid-term switch, a proration, a
+// Stripe interval that must not be edited in place — so this routes the ASK to
+// the people who can answer it, and the owner performs the change in the
+// billing centre. Marking it approved records that it was handled.
+//   payload: { fromSubscriptionId, toMembershipId, toOptionId, toOptionLabel,
+//              toPrice, toBillingPeriod, note?, requestingUserId }
+//   amount:  the requested option's price
+export const MEMBERSHIP_CHANGE_KIND = "MEMBERSHIP_CHANGE_REQUEST" as const;
+
 // Every kind that should appear in the owner dashboard approvals queue.
 export const OWNER_APPROVAL_KINDS: string[] = [
   GUARDIAN_LINK_KIND,
@@ -52,4 +71,5 @@ export const OWNER_APPROVAL_KINDS: string[] = [
   PRIVATE_PACKAGE_PURCHASE_KIND,
   INVOICE_SPLIT_KIND,
   MEMBERSHIP_AUTOPAY_KIND,
+  MEMBERSHIP_CHANGE_KIND,
 ];
