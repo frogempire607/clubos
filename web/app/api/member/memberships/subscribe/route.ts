@@ -1,5 +1,5 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
-import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
+import { optionIdForPurchase, parseOptions, resolveTerms } from "@/lib/membershipOptions";
 import { minimumTermEnd } from "@/lib/membershipOptions";
 import { addUTCMonths } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
@@ -112,6 +112,16 @@ export async function POST(req: Request) {
     const termEnd = soldOption
       ? minimumTermEnd(new Date(), soldOption, { contractMonths: membership.contractMonths }, addUTCMonths)
       : null;
+    // §8.6.5 — auto-renew comes from the OPTION, falling back to the plan.
+    // A provable no-op for existing data: every production option has
+    // autoRenewDefault null, so this returns exactly the plan value it did
+    // before. It differs only once an option states its own.
+    const resolvedAutoRenew = soldOption
+      ? resolveTerms(soldOption, {
+          contractMonths: membership.contractMonths,
+          autoRenewDefault: membership.autoRenewDefault,
+        }).autoRenewDefault
+      : membership.autoRenewDefault;
 
     const billingType: "RECURRING" | "ONE_TIME" =
       option.billingPeriod === "ONE_TIME" ? "ONE_TIME" : "RECURRING";
@@ -229,7 +239,7 @@ export async function POST(req: Request) {
             billingPeriod: option.billingPeriod,
             billingType,
             endDate,
-            autoRenew: membership.autoRenewDefault,
+            autoRenew: resolvedAutoRenew,
             discountCode: discount?.code || null,
           },
         })
@@ -245,7 +255,7 @@ export async function POST(req: Request) {
             billingType,
             startDate,
             endDate,
-            autoRenew: membership.autoRenewDefault,
+            autoRenew: resolvedAutoRenew,
             status: "pending",
             discountCode: discount?.code || null,
           },

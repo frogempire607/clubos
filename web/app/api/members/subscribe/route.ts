@@ -1,6 +1,6 @@
 import { addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
 import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
-import { minimumTermEnd } from "@/lib/membershipOptions";
+import { minimumTermEnd, resolveTerms } from "@/lib/membershipOptions";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -125,7 +125,21 @@ export async function POST(req: Request) {
       label: option.label, billingPeriod: option.billingPeriod, price: option.price,
     });
     const soldOption = planOptionsForTerm.find((o) => o.id === soldOptionId) ?? null;
-    const resolvedAutoRenew = body.autoRenew ?? membership.autoRenewDefault;
+    // §8.6.5 — auto-renew comes from the OPTION, falling back to the plan.
+    //
+    // A provable no-op for existing data: every option in production has
+    // autoRenewDefault null, so resolveTerms returns exactly the plan value it
+    // returned before. It only starts to differ once an option states its own —
+    // which is the point, since a month-to-month option and a 12-month one on
+    // the same plan do not renew the same way.
+    const resolvedAutoRenew =
+      body.autoRenew ??
+      (soldOption
+        ? resolveTerms(soldOption, {
+            contractMonths: membership.contractMonths,
+            autoRenewDefault: membership.autoRenewDefault,
+          }).autoRenewDefault
+        : membership.autoRenewDefault);
     const resolvedStartDate = body.startDate ? new Date(body.startDate) : new Date();
     // §8.8.1 — the floor, from the option's own contractMonths (or the plan's).
     // Null when neither sets one, which is most options.
