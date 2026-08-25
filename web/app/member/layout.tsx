@@ -5,6 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import ProfileSwitcher from "@/components/member/ProfileSwitcher";
+import type { BrandedAppConfig, BrandedNavKey } from "@/lib/brandedApp";
 
 const NAV = [
   { href: "/member",           label: "Home",      icon: HomeIcon,      exact: true  },
@@ -20,6 +21,7 @@ type ClubInfo = {
   logoUrl: string | null;
   appFontFamily?: string | null;
   appTextAlign?: string | null;
+  brandedAppConfig?: BrandedAppConfig | null;
 };
 
 type BeforeInstallPromptEvent = Event & {
@@ -61,6 +63,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
           logoUrl: d.logoUrl,
           appFontFamily: d.appFontFamily ?? null,
           appTextAlign: d.appTextAlign ?? null,
+          brandedAppConfig: d.brandedAppConfig ?? null,
         });
         if (d.primaryColor) {
           const meta = document.querySelector('meta[name="theme-color"]');
@@ -82,6 +85,12 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   }
 
   const accent = club?.primaryColor || "#1C1917";
+  const branded = club?.brandedAppConfig ?? null;
+  const headerBg = branded?.style.headerBackgroundColor || accent;
+  const headerText = branded?.style.headerTextColor || "#FFFFFF";
+  const navBg = branded?.navigation.backgroundColor || "#FFFFFF";
+  const activeNav = branded?.navigation.activeIconColor || accent;
+  const inactiveNav = branded?.navigation.inactiveIconColor || "#a8a29e";
   const clubName = club?.name || "";
   // Branded-app personalization: font + alignment flow from owner settings.
   const brandedStyle: React.CSSProperties = {
@@ -90,6 +99,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       ? { textAlign: club.appTextAlign as "left" | "center" | "right" }
       : {}),
   };
+  const portalNav = buildPortalNav(branded);
 
   return (
     <div className="min-h-screen bg-stone-50" style={brandedStyle}>
@@ -106,7 +116,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
               )}
             </Link>
             <nav className="flex gap-0.5">
-              {NAV.map((item) => {
+              {portalNav.map((item) => {
                 const active = isActive(item);
                 const Icon = item.icon;
                 return (
@@ -114,9 +124,9 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                     key={item.href}
                     href={item.href}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                      active ? "text-white" : "text-stone-500 hover:text-stone-900 hover:bg-stone-100"
+                      active ? "" : "text-stone-500 hover:text-stone-900 hover:bg-stone-100"
                     }`}
-                    style={active ? { background: accent } : {}}
+                    style={active ? { background: headerBg, color: headerText, borderRadius: branded?.style.borderRadius } : {}}
                   >
                     <Icon size={14} />
                     {item.label}
@@ -138,19 +148,20 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       </header>
 
       {/* ── Mobile top bar ── */}
-      <header className="sticky top-0 z-40 md:hidden" style={{ background: accent }}>
+      <header className="sticky top-0 z-40 md:hidden" style={{ background: headerBg, color: headerText }}>
         <div className="px-4 h-13 flex items-center justify-between" style={{ height: "52px" }}>
           <Link href="/member" className="flex items-center gap-2">
             <ClubLogo logoUrl={club?.logoUrl} name={clubName} accent={accent} size={30} light />
             {clubName && (
-              <span className="text-sm font-semibold text-white max-w-[160px] truncate">
+              <span className="text-sm font-semibold max-w-[160px] truncate" style={{ color: headerText }}>
                 {clubName}
               </span>
             )}
           </Link>
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="text-xs text-white/70 hover:text-white px-2 py-1"
+            className="text-xs px-2 py-1 opacity-75 hover:opacity-100"
+            style={{ color: headerText }}
           >
             {session?.user?.name?.split(" ")[0] || "Sign out"}
           </button>
@@ -159,7 +170,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
 
       {/* ── PWA install banner ── */}
       {installPrompt && !installed && (
-        <div className="text-white px-4 py-2.5 flex items-center justify-between md:hidden" style={{ background: accent }}>
+        <div className="px-4 py-2.5 flex items-center justify-between md:hidden" style={{ background: headerBg, color: headerText }}>
           <div>
             <p className="text-sm font-semibold">{clubName ? `Add ${clubName} to Home Screen` : "Add to Home Screen"}</p>
             <p className="text-xs opacity-70">Get the full app experience</p>
@@ -171,7 +182,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
             <button
               onClick={handleInstall}
               className="text-xs px-3 py-1.5 rounded-lg font-semibold bg-white"
-              style={{ color: accent }}
+              style={{ color: headerBg, borderRadius: branded?.style.borderRadius }}
             >
               Install
             </button>
@@ -186,9 +197,9 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       </main>
 
       {/* ── Mobile bottom tab bar ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-stone-200 md:hidden safe-area-bottom">
-        <div className="grid grid-cols-5" style={{ height: "60px" }}>
-          {NAV.map((item) => {
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-stone-200 md:hidden safe-area-bottom" style={{ background: navBg }}>
+        <div className="grid" style={{ height: "60px", gridTemplateColumns: `repeat(${portalNav.length}, minmax(0, 1fr))` }}>
+          {portalNav.map((item) => {
             const active = isActive(item);
             const Icon = item.icon;
             return (
@@ -196,11 +207,11 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                 key={item.href}
                 href={item.href}
                 className="flex flex-col items-center justify-center gap-0.5 transition-colors"
-                style={{ color: active ? accent : "#a8a29e" }}
+                style={{ color: active ? activeNav : inactiveNav }}
               >
                 <span
                   className="flex items-center justify-center rounded-xl transition-all"
-                  style={active ? { background: `${accent}18`, padding: "5px 10px" } : { padding: "5px 10px" }}
+                  style={active ? { background: `${activeNav}18`, padding: "5px 10px", borderRadius: branded?.style.borderRadius } : { padding: "5px 10px" }}
                 >
                   <Icon size={20} />
                 </span>
@@ -297,6 +308,37 @@ function ProfileIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
       <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function buildPortalNav(config: BrandedAppConfig | null | undefined) {
+  if (!config) return NAV;
+  const byKey: Record<BrandedNavKey, { href: string; icon: ({ size }: { size: number }) => JSX.Element; exact: boolean }> = {
+    book: { href: "/member/shop", icon: HomeIcon, exact: false },
+    schedule: { href: "/member/bookings", icon: BookingIcon, exact: false },
+    store: { href: "/member/products", icon: StoreIcon, exact: false },
+    videos: { href: "/member/shop", icon: VideoIcon, exact: false },
+    more: { href: "/member/profile", icon: ProfileIcon, exact: false },
+  };
+  const items = config.navigation.items
+    .filter((item) => item.enabled && item.key !== "videos")
+    .map((item) => ({ ...byKey[item.key], label: item.label || item.key }));
+  return items.length ? items : NAV;
+}
+
+function StoreIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a4 4 0 01-1 2.646V16a1 1 0 01-1 1H5a1 1 0 01-1-1V8.646A4 4 0 013 6V4zm3 6v5h8v-5a4.02 4.02 0 01-2-.535 4.02 4.02 0 01-4 0A4.02 4.02 0 016 10z" />
+    </svg>
+  );
+}
+
+function VideoIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-1.382l2.553 1.276A1 1 0 0018 13V7a1 1 0 00-1.447-.894L14 7.382V6a2 2 0 00-2-2H4z" />
     </svg>
   );
 }

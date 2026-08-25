@@ -1,6 +1,6 @@
 # AthletixOS Project Context
 
-Last updated: 2026-06-01 (Owner Dashboard phases 4-6)
+Last updated: 2026-06-01 (Branded app editor upgrade)
 
 This file is the working context for the AthletixOS web app. Treat it as current-state documentation, not a product promise. Do not claim an area is complete unless it is visible in the app and verified.
 
@@ -468,6 +468,10 @@ All sends are `try/catch` + `console.error` — a failed email never breaks the 
 - `StaffProfile` has `bio`, `publicEmail`, `publicPhone`, `photoUrl`, `showOnPortal`. Edited on `/dashboard/staff` Edit modal in a "Member portal profile" section.
 - `/member/staff` page shows photo, title, bio, mailto/tel links for staff with `showOnPortal=true`.
 - Member portal home (Adult, Minor, Parent views) renders a `ClubBanner` with logo + name + tagline + About Us + contact info + hours.
+- `/dashboard/settings/branded-app` is now a WellnessLiving-inspired branded app editor adapted to AthletixOS: left section menu, owner controls, and a live phone preview. Sections include App thumbnail, Splash screen, Sign-in screen, Header & button style, Navigation style, Book Now screen, Confirmation screens, and Reviews screen.
+- Branded app settings are stored in existing `Club.brandedAppConfig` JSON; no schema migration is required for this editor expansion. Upload controls use `/api/upload` and private `/api/files/[id]` URLs, not `public/uploads`.
+- `lib/brandedApp.ts` owns defaults/merge helpers for the expanded config. `/api/club/branded-app` returns and saves the merged config. `/api/member/club` returns the merged branded config for portal consumers.
+- Member portal layout safely consumes branded config for header colors, bottom navigation colors/labels/items, and border radius where applicable. Videos remains disabled/future because no Videos route exists yet.
 
 ### Misc
 - Members CSV import mapping mirrors the Add Member form (name, email, phone, DOB, gender, full address, status, tags, notes, isMinor, guardian fields, active custom fields). Membership assignment via CSV was removed.

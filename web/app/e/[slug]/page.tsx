@@ -18,6 +18,8 @@ type PublicEvent = {
   startsAt: string;
   endsAt: string;
   imageUrl: string | null;
+  imagePositionX: number;
+  imagePositionY: number;
   location: { name: string; address: string | null; latitude: number | null; longitude: number | null } | null;
   club: { name: string; logoUrl: string | null; primaryColor: string | null };
   isTournament: boolean;
@@ -131,7 +133,12 @@ export default function PublicEventPage() {
       <main className="max-w-2xl mx-auto px-4 py-6">
         {event.imageUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={event.imageUrl} alt={event.name} className="w-full aspect-[16/9] object-cover rounded-xl border border-stone-200 mb-4" />
+          <img
+            src={event.imageUrl}
+            alt={event.name}
+            className="w-full aspect-[16/9] object-cover rounded-xl border border-stone-200 mb-4"
+            style={{ objectPosition: `${event.imagePositionX ?? 50}% ${event.imagePositionY ?? 50}%` }}
+          />
         )}
 
         <div className="bg-white rounded-xl border border-stone-200 p-6 mb-4">

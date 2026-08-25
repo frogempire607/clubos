@@ -1,0 +1,31 @@
+{
+	"appId": "com.athletixos.app",
+	"appName": "AthletixOS",
+	"webDir": "public/native-shell",
+	"backgroundColor": "#1F1F23",
+	"appendUserAgent": "AthletixOSNativeShell",
+	"loggingBehavior": "debug",
+	"server": {
+		"url": "http://127.0.0.1:3000/member",
+		"cleartext": true,
+		"allowNavigation": [
+			"127.0.0.1:3000",
+			"localhost:3000",
+			"localhost",
+			"127.0.0.1",
+			"0.0.0.0",
+			"0.0.0.0:3000",
+			"*"
+		],
+		"errorPath": "native-shell-error.html"
+	},
+	"ios": {
+		"path": "ios",
+		"limitsNavigationsToAppBoundDomains": false
+	},
+	"android": {
+		"path": "android",
+		"allowMixedContent": true
+	},
+	"packageClassList": []
+}
