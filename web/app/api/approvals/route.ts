@@ -12,6 +12,7 @@ import {
   PRIVATE_PACKAGE_PURCHASE_KIND,
   INVOICE_SPLIT_KIND,
   MEMBERSHIP_AUTOPAY_KIND,
+  MEMBERSHIP_CHANGE_KIND,
 } from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
 
@@ -32,6 +33,13 @@ type Payload = {
   reason?: string | null;
   subscriptionId?: string;
   direction?: "on" | "off";
+  fromOptionLabel?: string | null;
+  fromPrice?: number | null;
+  toPlanName?: string | null;
+  toOptionLabel?: string | null;
+  toPrice?: number | null;
+  toBillingPeriod?: string | null;
+  note?: string | null;
   membershipId?: string;
   packageId?: string;
   paymentMethod?: string | null;
@@ -83,7 +91,7 @@ export async function GET() {
   // billing:full, and a queue you can see but never act on is worse than one
   // you never see.
   if (isOwner || hasPermission(perms, "billing", "view")) {
-    kinds.push(MEMBERSHIP_AUTOPAY_KIND);
+    kinds.push(MEMBERSHIP_AUTOPAY_KIND, MEMBERSHIP_CHANGE_KIND);
   }
   if (kinds.length === 0) return NextResponse.json({ approvals: [] });
 
@@ -261,6 +269,27 @@ export async function GET() {
         acknowledgedBillingNote: p.acknowledgedBillingNote ?? null,
         usageSnapshot: p.usageSnapshot ?? null,
         reason: p.reason ?? null,
+      };
+    }
+    if (r.kind === MEMBERSHIP_CHANGE_KIND) {
+      return {
+        id: r.id,
+        kind: r.kind,
+        memberId: r.memberId,
+        memberName,
+        requestedAt: r.requestedAt,
+        requester,
+        fromOptionLabel: p.fromOptionLabel ?? null,
+        fromPrice: p.fromPrice ?? null,
+        toPlanName: p.toPlanName ?? null,
+        toOptionLabel: p.toOptionLabel ?? null,
+        toPrice: p.toPrice ?? null,
+        toBillingPeriod: p.toBillingPeriod ?? null,
+        note: p.note ?? null,
+        amount: r.amount != null ? Number(r.amount) : null,
+        // Approving records that it was handled; the change itself is made in
+        // the billing centre. The link is here so that is one click away.
+        billingUrl: `/dashboard/members/${r.memberId}/billing`,
       };
     }
     if (r.kind === MEMBERSHIP_AUTOPAY_KIND) {
