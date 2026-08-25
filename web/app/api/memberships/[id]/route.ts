@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  parseOptions,
   serializeOptions,
   validateOptionsForSave,
   type MembershipOption,
@@ -9,6 +10,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { writeBillingAudit } from "@/lib/billingAudit";
+import { diffMembership, describeChanges } from "@/lib/membershipAudit";
 
 // Accept the option objects loosely here and let lib/membershipOptions.parseOptions
 // be the ONE validator, exactly as it is the one parser everywhere else.
@@ -89,6 +92,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       options = checked.options;
     }
 
+    // Snapshot BEFORE the write — this is the only chance to know what it was.
+    const beforeOptions = parseOptions(membership.options);
+
     const updated = await prisma.membership.update({
       where: { id: params.id },
       data: {
@@ -110,6 +116,57 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         trialAppliesToReturning: data.trialAppliesToReturning,
       },
     });
+
+    // ── Audit ────────────────────────────────────────────────────────────
+    //
+    // A plan edit changes what every member on it is entitled to, and until now
+    // it left no record at all — `memberships.updatedAt` moving was the entire
+    // trail. When "Monthly 2 days (Tue/Thu)" gained a DAYS[2,4] entitlement on
+    // 2026-08-25 and a paying member stopped being covered on Mondays, nobody
+    // could say who had done it or when.
+    //
+    // memberId is null: this is a club-level change, not a member-level one.
+    // Never let an audit failure fail the save — writeBillingAudit swallows its
+    // own errors for exactly this reason.
+    const changes = diffMembership(
+      {
+        scalars: {
+          name: membership.name, active: membership.active,
+          contractMonths: membership.contractMonths,
+          autoRenewDefault: membership.autoRenewDefault,
+          trialEnabled: membership.trialEnabled, trialDays: membership.trialDays,
+          purchaseAccess: membership.purchaseAccess,
+        },
+        options: beforeOptions,
+      },
+      {
+        scalars: {
+          name: data.name, active: data.active,
+          contractMonths: data.contractMonths,
+          autoRenewDefault: data.autoRenewDefault,
+          trialEnabled: data.trialEnabled,
+          trialDays: data.trialEnabled === false ? null : data.trialDays,
+          purchaseAccess: data.purchaseAccess,
+        },
+        options: options ?? beforeOptions,
+      },
+    );
+    if (changes.length > 0) {
+      const reaches = changes.filter((c) => c.affectsExistingMembers);
+      await writeBillingAudit({
+        clubId: session.user.clubId,
+        memberId: null,
+        actorUserId: session.user.id,
+        action: "MEMBERSHIP_PLAN_UPDATED",
+        before: { membershipId: params.id, name: membership.name, options: beforeOptions },
+        after: { membershipId: params.id, name: updated.name, changes },
+        note:
+          `"${membership.name}" edited. ${describeChanges(changes)}` +
+          (reaches.length
+            ? `  — ${reaches.length} change(s) affect members who have already paid.`
+            : ""),
+      });
+    }
 
     return NextResponse.json(updated);
   } catch (err) {
