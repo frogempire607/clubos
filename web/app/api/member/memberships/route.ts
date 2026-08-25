@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { trialForMembership } from "@/lib/freeTrial";
 
@@ -65,6 +66,14 @@ export async function GET() {
   // Active subscriptions per accessible profile, so the page can show "Current
   // plan" for whichever profile is selected.
   const accessibleIds = accessible.map((m) => m.id);
+  // Expire anything that has genuinely ended BEFORE deciding what counts as an
+  // active membership. Without this the page reads a row whose end date passed
+  // months ago as live, and then closes every option on the strength of it —
+  // which is the dead end a family hits when their membership has ended and the
+  // portal insists it has not.
+  if (accessibleIds.length) {
+    await expireEndedManualSubscriptions(session.user.clubId, accessibleIds);
+  }
   const activeSubs = accessibleIds.length
     ? await prisma.memberSubscription.findMany({
         where: { memberId: { in: accessibleIds }, status: { in: ["active", "past_due"] } },

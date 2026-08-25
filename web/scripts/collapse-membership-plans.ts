@@ -203,6 +203,11 @@ const STEP4: Record<string, {
   // commitments and not "no term", and the Upfront ones, whose term equals
   // their period ($450 buys a quarter and commits to a quarter).
   //
+  // Auto-renew defaults to OFF on EVERY option, committed ones included
+  // (owner, 2026-08-25): a family should opt in to another year rather than
+  // discover they are bound for one. Under §8.6.6 that is not a cancellation —
+  // the term is still billed out in full; it simply does not start a second.
+  //
   // Because every option is explicit, nothing inherits, and the plan-level
   // contractMonths can be cleared without any option silently losing its term.
   // Those two facts depend on each other — see the refusal below.
@@ -210,20 +215,20 @@ const STEP4: Record<string, {
     options: [
       { label: "Monthly Full Membership",  price: 175,  contractMonths: 1,  autoRenewDefault: false },
       { label: "Monthly 2 days (Tue/Thu)", price: 110,  contractMonths: 1,  autoRenewDefault: false },
-      { label: "3 Months",                 price: 160,  contractMonths: 3  },
-      { label: "3 months Upfront",         price: 450,  contractMonths: 3  },
-      { label: "12 months",                price: 150,  contractMonths: 12 },
+      { label: "3 Months",                 price: 160,  contractMonths: 3,  autoRenewDefault: false },
+      { label: "3 months Upfront",         price: 450,  contractMonths: 3,  autoRenewDefault: false },
+      { label: "12 months",                price: 150,  contractMonths: 12, autoRenewDefault: false },
       // Stored as "1 year"; renamed for consistency with "3 months Upfront".
       // Safe because identity is optionId, never the label — see below.
-      { label: "1 year", price: 1500, contractMonths: 12, renameTo: "1 year Upfront" },
+      { label: "1 year", price: 1500, contractMonths: 12, autoRenewDefault: false, renameTo: "1 year Upfront" },
     ],
   },
   "Jr Frogs": {
     options: [
       { label: "Monthly",  price: 110, contractMonths: 1, autoRenewDefault: false },
-      { label: "3 months", price: 90,  contractMonths: 3  },
-      { label: "Upfront",  price: 250, contractMonths: 3  },
-      { label: "1 Year",   price: 900, contractMonths: 12 },
+      { label: "3 months", price: 90,  contractMonths: 3,  autoRenewDefault: false },
+      { label: "Upfront",  price: 250, contractMonths: 3,  autoRenewDefault: false },
+      { label: "1 Year",   price: 900, contractMonths: 12, autoRenewDefault: false },
       // Step 3 appended this from the dying commitment plan. The owner does not
       // sell it, and no subscription has ever referenced it — re-verified at
       // apply time, not taken from here.

@@ -2,6 +2,7 @@ import { addBillingPeriod } from "@/lib/billingAdmin";
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
+import { applyNonRenewal, planNonRenewal } from "@/lib/autopay";
 import { prisma } from "@/lib/prisma";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import {
@@ -199,7 +200,7 @@ export async function POST(req: Request) {
         if (memberSubscriptionId) {
           const memberSub = await prisma.memberSubscription.findFirst({
             where: { id: memberSubscriptionId, member: { clubId } },
-            include: { member: { select: { clubId: true } } },
+            include: { member: { select: { clubId: true, commitmentEndDate: true } } },
           });
 
           if (memberSub) {
@@ -243,17 +244,30 @@ export async function POST(req: Request) {
               // setting it twice is a no-op.
               if (memberSub.autoRenew === false && event.account) {
                 try {
-                  const updated = await stripe.subscriptions.update(
+                  // §8.6.6 — stop at the TERM, not at the next period.
+                  //
+                  // This used to send a flat `cancel_at_period_end`, which on a
+                  // membership billed monthly against a multi-month commitment
+                  // ended it after one month: a 3-month commitment billed once.
+                  // planNonRenewal picks the term end when one is still to run
+                  // and the period end only when there is no commitment left.
+                  const endsAt = await applyNonRenewal(
                     session.subscription as string,
-                    { cancel_at_period_end: true },
-                    { stripeAccount: event.account },
+                    event.account,
+                    planNonRenewal(
+                      {
+                        minimumTermEndsAt: memberSub.minimumTermEndsAt,
+                        commitmentEndDate: memberSub.member?.commitmentEndDate ?? null,
+                        currentPeriodEnd: memberSub.currentPeriodEnd,
+                        paidThroughDate: memberSub.paidThroughDate,
+                      },
+                      new Date(),
+                    ),
                   );
-                  const periodEnd = (updated as unknown as { current_period_end?: number })
-                    .current_period_end;
-                  if (periodEnd) {
+                  if (endsAt) {
                     await prisma.memberSubscription.update({
                       where: { id: memberSubscriptionId },
-                      data: { endDate: new Date(periodEnd * 1000) },
+                      data: { endDate: endsAt },
                     });
                   }
                 } catch (e) {
