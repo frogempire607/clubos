@@ -1113,6 +1113,20 @@ export async function POST(req: Request) {
           });
         }
 
+        // Money proof just landed — recompute the member's status HERE.
+        // countsAsMembership() only accepts a priced RECURRING subscription
+        // once a SUCCEEDED Transaction exists for it, and this handler is the
+        // SOLE writer of that Transaction (see the comment in
+        // checkout.session.completed). Every other activation path — checkout,
+        // migration approve, reactivation confirm — recomputes BEFORE this
+        // event lands, so their recompute is a no-op and the member keeps the
+        // status they had while the subscription row was still pending. Four
+        // production members sat PROSPECT/INACTIVE on paid, active Stripe
+        // subscriptions between 2026-07-17 and 2026-08-24 for exactly that
+        // reason; the ones who came out ACTIVE simply had invoice.paid
+        // delivered before checkout.session.completed.
+        await recomputeMemberStatus(memberId, clubId);
+
         // Receipt — every real subscription charge emails a receipt.
         {
           const resolvedMemberId = memberId;
