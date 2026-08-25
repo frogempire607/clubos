@@ -11,6 +11,7 @@ import {
   minimumTermEndForOptionId,
   optionIdForPurchase,
   parseOptions,
+  resolveTerms,
   serializeOptions,
   withMintedIds,
 } from "@/lib/membershipOptions";
@@ -282,6 +283,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // branches below (MANUAL and Stripe) start from membershipStartDate, so the
   // floor does too; approving in August a membership that started in June owes
   // its months from June.
+  // §8.6.5 — if the sold option states its own auto-renew, it wins over the
+  // plan default resolved above. No-op until an option sets one.
+  const soldOptionForTerms = soldOptionId
+    ? planOptions.find((o) => o.id === soldOptionId) ?? null
+    : null;
+  if (soldOptionForTerms) {
+    planAutoRenew = resolveTerms(soldOptionForTerms, {
+      contractMonths: planContractMonths,
+      autoRenewDefault: planAutoRenew,
+    }).autoRenewDefault;
+  }
   const approveTermEnd = minimumTermEndForOptionId(
     member.membershipStartDate ?? new Date(), planOptions, soldOptionId,
     { contractMonths: planContractMonths }, addUTCMonths,
