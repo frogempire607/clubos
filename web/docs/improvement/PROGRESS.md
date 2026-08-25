@@ -3791,6 +3791,13 @@ redirects to `localhost` after sign-in and the session cookie is host-scoped, so
 signing in on one and landing on the other drops the session silently. Cost a
 round-trip again; now written into the file.
 
+## 2026-08-25 (CORRECTED same day) — the missing-transaction question
+
+> **The section below was WRONG and is kept only so the mistake is legible.**
+> The books are NOT short. Kellan's $545.37 was recorded on 2026-07-15 as
+> transaction `cmrljn7zh0005wgn6m06yhxhg`, SUCCEEDED and VERIFIED against
+> invoice `in_1Tsu95EIplcCMoSoKEmLlg5g`. See the correction below it.
+
 ## 2026-08-25 — the missing-transaction question, answered against the webhook log
 
 Kellan Lister has a Stripe charge and no Transaction. The worry was that if the
@@ -3852,6 +3859,59 @@ local row says `price: 450`. The $545.37 collected on 2026-07-14 matches Stripe,
 not us. Which figure was actually sold is an owner question, and it outranks the
 end-date correction: `cancel_at` on the wrong amount just freezes the wrong
 price. The end-date sequence is held until that is settled.
+
+## 2026-08-25 — CORRECTION: the books are complete, and the method was the bug
+
+The claim above — one mismatch club-wide, Kellan, $545.37 — was an artifact of
+how I measured, not a fact about the money.
+
+I joined Stripe invoices to Transactions **through `memberId`**: for each
+subscription, count invoices, count that member's transactions, compare. That
+join silently assumes the money and the subscription live on the same member.
+Michael Lister bought the subscription and paid the $545.37 on 2026-07-14; the
+subscription was transferred to **Kellan** on 2026-08-04. So the invoice
+resolved to Kellan and the Transaction sat under Michael, and the query called
+it missing.
+
+Re-run correctly — matching `invoice.id` to `Transaction.stripeInvoiceId`
+directly, with no member in the join at all — **zero paid invoices lack a
+Transaction.** The books are complete.
+
+**The lesson worth keeping: never reconcile money through a mutable
+attribution.** `MemberSubscription.memberId` is deliberately movable; the
+invoice id is not. Reconcile on the immutable key. This is the same shape as the
+`commitmentEndDate` failures — a query trusting a member-level fact to describe
+a subscription-level one — and it caught me the same way it caught the data.
+
+### Is the payer/beneficiary split intended? Yes, in three places
+
+The money staying with Michael is **by design**, not drift:
+
+| Where | What it says |
+|---|---|
+| `MemberSubscription.payerUserId` | Stamped to Michael's user by the transfer. The schema comment says exactly why: *"A transfer stamps this so 'the payer stays Michael' survives moving memberId to a different athlete."* |
+| `MembershipTransfer.payerUserIdAtTransfer` | Froze the payer at transfer time. |
+| `executeTransfer` | Writes the subscription's `memberId`, the audit row, and timeline notes. It never touches `transactions` — it only COUNTS them for the usage warning shown before confirming (`usageSnapshot.transactionCount: 1` on this transfer). |
+
+And it is right on the merits. On 2026-07-14 Michael paid for a subscription
+that was his; Kellan was not on it until three weeks later. Rewriting that
+Transaction to Kellan would falsify July revenue and delete Michael's record of
+a payment he actually made.
+
+`Transaction.athleteMemberId` is null here, and that is also correct — the field
+means "paid by X **for** Y at the time of payment", not "later reassigned".
+Backfilling it would assert something untrue about 2026-07-14.
+
+### What IS missing is a read, not a write
+
+`tx_on_beneficiary` for Kellan is **0**. His page shows a membership with no
+money behind it; Michael's shows a payment for a membership he no longer holds.
+The link is fully recorded — `payerUserId` on the subscription and the
+`membership_transfers` row — and **nothing surfaces it on either page.**
+
+So the fix, when it is wanted, is to render the transfer on both timelines
+("membership transferred to Kellan 2026-08-04 · paid by Michael Lister"), not to
+move any row. Do not "fix" this by reassigning the Transaction.
 
 ## Queued — commitmentEndDate becomes per-subscription
 
