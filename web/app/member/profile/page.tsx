@@ -150,6 +150,14 @@ type PersonBilling = {
   period: string | null;
   nextBilling: string | null;
   billingMode: "OFFLINE" | "CARD" | null;
+  transfers?: {
+    id: string;
+    direction: "IN" | "OUT";
+    otherName: string;
+    payerName: string | null;
+    at: string;
+    note: string;
+  }[];
   paidThrough: string | null;
   endsOn: string | null;
   lastPayment: { amount: number; paidAt: string } | null;
@@ -1005,11 +1013,19 @@ export default function MemberAccountPage() {
                       const cardLine = p.card
                         ? `${prettyBrand(p.card.brand)} ···· ${p.card.last4}${p.card.cardholder ? ` · ${p.card.cardholder}` : ""}`
                         : "Cash / check at club";
+                      // A transfer must open this gate on its own. The athlete
+                      // who transferred a membership AWAY has no plan, no price
+                      // and no next billing — every other term here is false —
+                      // so without this their card renders as an empty row
+                      // beside a payment they can see in their history and
+                      // cannot explain. That is the exact confusion this is for.
+                      const hasTransfers = (p.transfers?.length ?? 0) > 0;
                       const showDetails =
                         (showPlan && (!!p.plan || !!p.statusLabel)) ||
                         (showPrice && p.price != null) ||
-                        (showNextBilling && !!p.nextBilling) ||
-                        (showInvoices && !!p.lastPayment);
+                        (showNextBilling && (!!p.nextBilling || p.billingMode === "OFFLINE")) ||
+                        (showInvoices && !!p.lastPayment) ||
+                        hasTransfers;
                       return (
                         <div key={p.memberId} className="py-3 border-t border-stone-100 first:border-t-0 first:pt-2">
                           <div className="flex items-center gap-2.5">
@@ -1115,6 +1131,20 @@ export default function MemberAccountPage() {
                                   })}
                                 />
                               )}
+                              {/* Both sides of a membership transfer. The money
+                                  deliberately stays with whoever paid it, so
+                                  this is the only thing that connects a payment
+                                  on one person's record to a membership on
+                                  another's. */}
+                              {p.transfers?.map((t) => (
+                                <ProfileRow
+                                  key={t.id}
+                                  label={t.direction === "IN" ? "Transferred in" : "Transferred out"}
+                                  value={`${new Date(t.at).toLocaleDateString("en-US", {
+                                    month: "long", day: "numeric", year: "numeric",
+                                  })} — ${t.note}`}
+                                />
+                              ))}
                               {showInvoices && p.lastPayment && (
                                 <ProfileRow
                                   label="Last payment"

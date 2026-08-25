@@ -119,6 +119,67 @@ export async function GET() {
     ...(user?.guardianOf ?? []).map((g) => ({ m: g.member, isSelf: false })),
   ];
 
+  // ── Membership transfers touching anyone on this page ───────────────────
+  //
+  // A transfer moves the SUBSCRIPTION and deliberately leaves the money where
+  // it was paid (lib/membershipTransfer.executeTransfer writes the beneficiary,
+  // an audit row and both timelines — it never touches `transactions`). That is
+  // correct: on the day Michael Lister paid, the subscription was his.
+  //
+  // But it leaves both pages telling half a story. The athlete who RECEIVED the
+  // membership shows a plan with no payments behind it; the one who PAID shows
+  // a payment for a membership they no longer hold. Neither mentions the other,
+  // and a parent reading either one concludes something has gone wrong.
+  //
+  // So: render the transfer on both sides. This is a READ. Nothing here moves a
+  // Transaction, and nothing should — reassigning it would falsify the month it
+  // was paid in.
+  const personIds = persons.map((p) => p.m.id);
+  const transfers = personIds.length
+    ? await prisma.membershipTransfer.findMany({
+        where: {
+          clubId,
+          OR: [{ fromMemberId: { in: personIds } }, { toMemberId: { in: personIds } }],
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true, fromMemberId: true, toMemberId: true, createdAt: true,
+          payerUserIdAtTransfer: true, subscriptionId: true,
+        },
+      })
+    : [];
+
+  // Names for the other side of each transfer — which is usually somebody this
+  // guardian does NOT manage, so it cannot come from `persons`.
+  const otherIds = Array.from(new Set(
+    transfers.flatMap((t) => [t.fromMemberId, t.toMemberId]).filter((id) => !personIds.includes(id)),
+  ));
+  const otherNames = new Map(
+    (otherIds.length
+      ? await prisma.member.findMany({
+          where: { id: { in: otherIds }, clubId },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+    ).map((o) => [o.id, `${o.firstName} ${o.lastName}`.trim()]),
+  );
+  const payerIds = Array.from(new Set(transfers.map((t) => t.payerUserIdAtTransfer).filter(Boolean) as string[]));
+  const payerNames = new Map(
+    (payerIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: payerIds } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+    ).map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]),
+  );
+  const nameOf = (id: string) =>
+    otherNames.get(id) ??
+    (() => {
+      const p = persons.find((x) => x.m.id === id);
+      return p ? `${p.m.firstName} ${p.m.lastName}`.trim() : "another athlete";
+    })();
+
   const people = await Promise.all(
     persons.map(async ({ m, isSelf }) => {
       const active = pickActive(m.subscriptions);
@@ -144,9 +205,32 @@ export async function GET() {
         lastInvoice && lastInvoice.paidAt
           ? { amount: (lastInvoice.amountPaid ?? 0) / 100, paidAt: lastInvoice.paidAt }
           : null;
+      const myTransfers = transfers
+        .filter((t) => t.fromMemberId === m.id || t.toMemberId === m.id)
+        .map((t) => {
+          const incoming = t.toMemberId === m.id;
+          const other = nameOf(incoming ? t.fromMemberId : t.toMemberId);
+          const payer = t.payerUserIdAtTransfer ? payerNames.get(t.payerUserIdAtTransfer) ?? null : null;
+          return {
+            id: t.id,
+            direction: incoming ? ("IN" as const) : ("OUT" as const),
+            otherName: other,
+            payerName: payer,
+            at: t.createdAt,
+            // Written server-side so both sides of the same transfer cannot
+            // drift into describing it differently.
+            note: incoming
+              ? `Transferred from ${other}${payer ? `, who remains the payer` : ""}.` +
+                (payer ? ` Payments before this date are recorded under ${payer}.` : "")
+              : `Transferred to ${other}.` +
+                (payer ? ` You remain the payer; earlier payments stay on your record.` : ""),
+          };
+        });
+
       return {
         memberId: m.id,
         name: isSelf ? "You" : `${m.firstName} ${m.lastName}`.trim(),
+        transfers: myTransfers,
         fullName: `${m.firstName} ${m.lastName}`.trim(),
         isSelf,
         isMinor: !!m.isMinor,
