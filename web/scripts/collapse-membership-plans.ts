@@ -185,12 +185,23 @@ async function step3() {
 // evidence of anything, and inventing a minimum term binds a real family to a
 // commitment nobody sold them.
 const STEP4: Record<string, {
-  options: Array<{ label: string; price: number; contractMonths: number; autoRenewDefault?: boolean }>;
+  options: Array<{
+    /** The label AS STORED IN PRODUCTION — this is the match key. */
+    label: string;
+    price: number;
+    contractMonths?: number;
+    autoRenewDefault?: boolean;
+    /** Rename on write. The stored label above stays the match key. */
+    renameTo?: string;
+    /** Drop the option entirely. Refuses if ANY subscription references it. */
+    remove?: true;
+  }>;
 }> = {
-  // Owner's price list, 2026-08-25. EVERY option carries an explicit term —
-  // including the month-to-month ones, which are 1-month commitments and not
-  // "no term", and the Upfront ones, whose term equals their period ($450 buys
-  // three months and commits to three).
+  // Owner's price list, 2026-08-25, reconciled against the live options JSON so
+  // every label below is the one actually stored. EVERY option carries an
+  // explicit term — including the month-to-month ones, which are 1-month
+  // commitments and not "no term", and the Upfront ones, whose term equals
+  // their period ($450 buys a quarter and commits to a quarter).
   //
   // Because every option is explicit, nothing inherits, and the plan-level
   // contractMonths can be cleared without any option silently losing its term.
@@ -202,20 +213,21 @@ const STEP4: Record<string, {
       { label: "3 Months",                 price: 160,  contractMonths: 3  },
       { label: "3 months Upfront",         price: 450,  contractMonths: 3  },
       { label: "12 months",                price: 150,  contractMonths: 12 },
-      { label: "1 year Upfront",           price: 1500, contractMonths: 12 },
+      // Stored as "1 year"; renamed for consistency with "3 months Upfront".
+      // Safe because identity is optionId, never the label — see below.
+      { label: "1 year", price: 1500, contractMonths: 12, renameTo: "1 year Upfront" },
     ],
   },
   "Jr Frogs": {
     options: [
-      { label: "Monthly",   price: 110, contractMonths: 1, autoRenewDefault: false },
-      { label: "3 months",  price: 90,  contractMonths: 3  },
-      { label: "Upfront",   price: 250, contractMonths: 3  },
-      { label: "1 Year",    price: 900, contractMonths: 12 },
-      // "12 months" $80 is NOT here. Step 3 appended it from the dying
-      // commitment plan, and the owner's price list does not include it. It
-      // will surface below as UNMATCHED and block --apply until it is either
-      // given a term or removed — which is the right outcome, because whether
-      // it has ever been sold is a subscriber count, not a memory.
+      { label: "Monthly",  price: 110, contractMonths: 1, autoRenewDefault: false },
+      { label: "3 months", price: 90,  contractMonths: 3  },
+      { label: "Upfront",  price: 250, contractMonths: 3  },
+      { label: "1 Year",   price: 900, contractMonths: 12 },
+      // Step 3 appended this from the dying commitment plan. The owner does not
+      // sell it, and no subscription has ever referenced it — re-verified at
+      // apply time, not taken from here.
+      { label: "12 months", price: 80, remove: true },
     ],
   },
 };
@@ -242,6 +254,7 @@ async function step4() {
     console.log(`   plan autoRenewDefault today: ${String(parent.autoRenewDefault)}\n`);
 
     const used = new Set<number>();
+    const keep: typeof options = [];
     let unmatched = 0;
 
     for (const o of options) {
@@ -252,21 +265,13 @@ async function step4() {
         },
       });
 
-      // Match on the EXACT label first. Fall back to price, which is a real
+      // Match on the EXACT stored label. Fall back to price, which is a real
       // identity inside one plan — no two options may share period AND price,
-      // which is the invariant findDuplicateOptions enforces and option
-      // inference depends on. A price match with a different label means the
-      // stored label differs from the owner's price list; that is reported
-      // loudly rather than silently accepted, because the label is what a
-      // member reads on their receipt.
+      // the invariant findDuplicateOptions enforces and option inference
+      // depends on. A price match is reported loudly rather than accepted
+      // quietly; the label is what a member reads on their receipt.
       let idx = table.options.findIndex((t, i) => !used.has(i) && t.label === o.label);
       let how = "label";
-      if (idx < 0) {
-        idx = table.options.findIndex(
-          (t, i) => !used.has(i) && t.price === o.price && o.billingPeriod === "MONTHLY",
-        );
-        how = "price";
-      }
       if (idx < 0) {
         idx = table.options.findIndex((t, i) => !used.has(i) && t.price === o.price);
         how = "price";
@@ -276,26 +281,57 @@ async function step4() {
 
       if (idx < 0) {
         unmatched++;
+        keep.push(o);
         console.log(`     ✗ UNMATCHED — not in the approved price list. Left untouched.`);
-        console.log(`       ${live > 0
-          ? `${live} live subscription(s) are on it, so it cannot simply be dropped.`
-          : `No live subscriptions. If this is not an option you sell, say so and it is removed.`}`);
         continue;
       }
 
       const t = table.options[idx];
       used.add(idx);
       if (how === "price") {
-        console.log(`     ! matched by PRICE, not label — stored "${o.label}", price list "${t.label}"`);
-        console.log(`       Confirm this is the same option before applying.`);
+        console.log(`     ! matched by PRICE, not label — stored "${o.label}", list "${t.label}"`);
       }
 
-      const effBefore = o.contractMonths ?? parent.contractMonths ?? null;
-      console.log(
-        `     contractMonths ${String(o.contractMonths)} → ${t.contractMonths}` +
-        `   (effective ${effBefore == null ? "none" : effBefore} → ${t.contractMonths})`,
-      );
-      o.contractMonths = t.contractMonths;
+      // ── removal ────────────────────────────────────────────────────────────
+      //
+      // Counted across EVERY status, not just live ones. A canceled or expired
+      // subscription still points at this optionId, and dropping the option out
+      // from under it would leave a historical row that can no longer name what
+      // was sold — which is the whole failure §8.1 existed to end.
+      if (t.remove) {
+        const everReferenced = await prisma.memberSubscription.count({
+          where: { membershipId: parent.id, optionId: o.id },
+        });
+        const everByShape = await prisma.memberSubscription.count({
+          where: { membershipId: parent.id, price: o.price, billingPeriod: o.billingPeriod },
+        });
+        if (everReferenced > 0 || everByShape > 0) {
+          console.error(`     ✗ REFUSING TO REMOVE — ${everReferenced} row(s) by id, ${everByShape} by price+period.`);
+          console.error(`       Dropping it would orphan history. Give it a term instead.`);
+          keep.push(o);
+          unmatched++;
+          continue;
+        }
+        console.log(`     REMOVE — 0 subscriptions reference it, in any status. Not carried onto the card.`);
+        continue;
+      }
+
+      if (t.renameTo && t.renameTo !== o.label) {
+        console.log(`     rename "${o.label}" → "${t.renameTo}"`);
+        console.log(`       Identity is the optionId (${o.id}), never the label, so this moves nothing.`);
+        console.log(`       Existing subscribers keep their stored optionLabel by design — receipts`);
+        console.log(`       do not change retroactively.`);
+        o.label = t.renameTo;
+      }
+
+      if (t.contractMonths !== undefined) {
+        const effBefore = o.contractMonths ?? parent.contractMonths ?? null;
+        console.log(
+          `     contractMonths ${String(o.contractMonths)} → ${t.contractMonths}` +
+          `   (effective ${effBefore == null ? "none" : effBefore} → ${t.contractMonths})`,
+        );
+        o.contractMonths = t.contractMonths;
+      }
 
       if (t.autoRenewDefault !== undefined) {
         const arBefore = o.autoRenewDefault ?? parent.autoRenewDefault;
@@ -306,20 +342,32 @@ async function step4() {
         );
         o.autoRenewDefault = t.autoRenewDefault;
       }
+
+      keep.push(o);
     }
 
     console.log("");
     console.log(`   plan contractMonths: ${parent.contractMonths ?? "null"} → null`);
+    console.log(`   options: ${options.length} → ${keep.length}`);
 
     // The refusal that matters. Clearing the plan fallback while an option is
     // still unmatched would take that option from "inherits 1 month" to "no
-    // term at all" — silently, and in the same write that was supposed to make
-    // terms explicit. Partial is worse than not at all here.
+    // term at all" — silently, in the write meant to make terms explicit.
+    // Partial is worse than not at all here.
     if (unmatched > 0) {
-      console.error(`\n   ✗ REFUSING TO APPLY: ${unmatched} option(s) unmatched on ${parent.name}.`);
+      console.error(`\n   ✗ REFUSING TO APPLY: ${unmatched} option(s) unresolved on ${parent.name}.`);
       console.error(`     Clearing the plan-level term while an option still inherits it would`);
       console.error(`     silently drop that option's ${parent.contractMonths ?? "?"}-month commitment to none.`);
-      console.error(`     Resolve every option first, then re-run.`);
+      process.exitCode = 1;
+      blocked = true;
+      console.log("");
+      continue;
+    }
+
+    const dupes = findDuplicateOptions(keep);
+    if (dupes.length > 0) {
+      console.error(`   ✗ REFUSING: two options would share period AND price:`);
+      for (const d of dupes) console.error(`     $${d.price} ${d.billingPeriod}: ${d.labels.join(" / ")}`);
       process.exitCode = 1;
       blocked = true;
       console.log("");
@@ -329,18 +377,18 @@ async function step4() {
     if (APPLY) {
       await prisma.membership.update({
         where: { id: parent.id },
-        data: { options: serializeOptions(options), contractMonths: null },
+        data: { options: serializeOptions(keep), contractMonths: null },
       });
 
       // Read back and compare EVERY field. This write re-serializes the whole
       // options array, so it is the write that could silently drop the ids
-      // Step 3 just minted, or an entitlement, or a price.
+      // Step 3 minted, or an entitlement, or a price.
       const reread = await planByName(c.parent);
       const got = parseOptions(reread.options);
       const problems: string[] = [];
-      if (got.length !== options.length) problems.push(`option count ${options.length} → ${got.length}`);
-      for (let i = 0; i < Math.min(got.length, options.length); i++) {
-        const a = options[i], b = got[i];
+      if (got.length !== keep.length) problems.push(`option count ${keep.length} → ${got.length}`);
+      for (let i = 0; i < Math.min(got.length, keep.length); i++) {
+        const a = keep[i], b = got[i];
         if (!b.id) problems.push(`${b.label}: lost its id`);
         if (a.id !== b.id) problems.push(`${a.label}: id changed`);
         if (a.label !== b.label) problems.push(`label ${a.label} → ${b.label}`);
@@ -356,7 +404,9 @@ async function step4() {
       if (reread.contractMonths !== null) problems.push("plan contractMonths did not clear");
       // Every option must now state its own term, or clearing the plan value
       // has left a hole.
-      for (const b of got) if (b.contractMonths == null) problems.push(`${b.label}: still inherits, and there is nothing to inherit`);
+      for (const b of got) {
+        if (b.contractMonths == null) problems.push(`${b.label}: still inherits, and there is nothing to inherit`);
+      }
 
       if (problems.length) {
         console.error("   WROTE, BUT THE READ-BACK DISAGREES — INVESTIGATE:");
