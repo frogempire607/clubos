@@ -3790,3 +3790,85 @@ The browser script's default host is `localhost`, not `127.0.0.1`: the app
 redirects to `localhost` after sign-in and the session cookie is host-scoped, so
 signing in on one and landing on the other drops the session silently. Cost a
 round-trip again; now written into the file.
+
+## 2026-08-25 — the missing-transaction question, answered against the webhook log
+
+Kellan Lister has a Stripe charge and no Transaction. The worry was that if the
+webhook dropped his it dropped others and the books are wrong by an unknown
+number. Measured rather than assumed:
+
+**Subscriptions.** Every `invoice.paid` CONNECT event with `amount_paid > 0`,
+grouped by subscription, compared against local Transactions carrying a
+`stripeInvoiceId`. **Exactly one mismatch across the whole club: Kellan,
+$545.37, 2026-07-14.** Everyone else reconciles.
+
+**One-time money** (events, products, class drop-ins — a different path, via
+`checkout.session.completed` + payment intent). Every paid session with
+`amount_total > 0` has a matching Transaction. **Zero gaps.**
+
+### Why his dropped, specifically
+
+His event is in the log, verified, `processed: true`, no error — and produced
+nothing. The payload says why:
+
+```
+api_version               2026-02-25.clover
+has_top_level_subscription   false
+has_nested_subscription      true
+```
+
+The handler read `invoice.subscription`, which does not exist on that API
+version — it moved to `invoice.parent.subscription_details.subscription`. So it
+resolved no subscription, no member, and recorded nothing, silently, while
+marking the event processed. That is the bug `lib/stripeTruth.ts`
+(`invoiceSubscriptionId`) fixed, and **that fix shipped 2026-07-15 — the day
+after his charge.** He is the last victim of it, caught in a one-day window,
+which is exactly why there is one and not many.
+
+Recovery is the existing allowlisted script:
+
+```
+npx tsx scripts/backfill-stripe-transactions.ts --apply --invoices in_1Tsu95EIplcCMoSoKEmLlg5g
+```
+
+### What this measurement cannot see
+
+It compares against the webhook LOG, which is a record of what ARRIVED. The
+earlier failure mode was different in kind: before 2026-07-07 the Connect
+endpoint's events failed signature verification and were rejected with a 400
+**before** logging. The earliest logged CONNECT event is 2026-07-08, so nothing
+before that date is visible here at all, and no query against this table can
+answer for that period.
+
+For that, and as the authoritative check generally, the tool already exists:
+`compareClubCharges` in `lib/stripeSync.ts`, surfaced on Financials → Stripe →
+Reconciliation. It walks Stripe's own charge list rather than our copy of it.
+Run that before concluding the books are clean.
+
+### Also found: Kellan's price disagrees with itself
+
+`unitAmount` on his Stripe subscription is **54537** — $530 + 2.9% — while the
+local row says `price: 450`. The $545.37 collected on 2026-07-14 matches Stripe,
+not us. Which figure was actually sold is an owner question, and it outranks the
+end-date correction: `cancel_at` on the wrong amount just freezes the wrong
+price. The end-date sequence is held until that is settled.
+
+## Queued — commitmentEndDate becomes per-subscription
+
+Approved 2026-08-25, to run as its own batch **after the other session's work is
+merged**, because step 2 touches `approve` and `billing-admin`.
+
+Every failure this week is one shape: a member-level date cannot say WHICH
+membership it meant. chase Robertson's new purchase inherited a dead one;
+Kellan's disagrees with his own billing period; Titus's and Jacob's are days off
+from theirs.
+
+1. **Backfill, not migrate.** No new column — `minimumTermEndsAt` already is the
+   per-subscription version. Populate it from each subscription's OWN start plus
+   term. **Never from the member field**, which is the thing being retired.
+2. **Stop writing it** in the four paths that do (activation, approve,
+   billing-admin, reactivation); write the subscription's term instead.
+3. **Readers.** `planNonRenewal` falls back to `commitmentEndDate` for legacy
+   rows. That fallback stays until the backfill is verified, then goes.
+4. **Leave the column.** It is the only record of what the club believed at
+   import time; dropping it costs the audit trail and buys nothing.
