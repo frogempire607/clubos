@@ -1,3 +1,5 @@
+import { anchorGrant } from "@/lib/billingAnchor";
+import { writeBillingAudit } from "@/lib/billingAudit";
 import { addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
 import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
 import { minimumTermEnd, resolveTerms } from "@/lib/membershipOptions";
@@ -417,7 +419,50 @@ export async function POST(req: Request) {
     });
     if (discount) await recordDiscountUse(discount.id);
 
-    return NextResponse.json({ url: checkoutSession.url, memberSubId: memberSub.id });
+    // ── The anchor is a free-time grant. Record it and say so. ────────────
+    //
+    // Staff pick a billing date; Stripe honours it; the member is not charged
+    // until then. That makes the date picker a way to give away membership, and
+    // until now it left no audit row and showed no number. Levi Schanzenbach
+    // was given 22 days beyond the club's trial — $128.33 — by an anchor set
+    // four weeks out, and nothing anywhere said so.
+    //
+    // The grant is computed ONCE here and both logged and returned, so the
+    // number staff are shown is the same number that lands in the audit log.
+    const grant = anchorGrant({
+      now: new Date(),
+      anchor: billingAnchorDate,
+      trialDays: trialPeriodDays ?? 0,
+      price: Number(option.price),
+      billingPeriod: option.billingPeriod ?? "MONTHLY",
+    });
+    if (grant.grantedDays > 0) {
+      await writeBillingAudit({
+        clubId: club.id,
+        memberId: member.id,
+        actorUserId: session.user.id,
+        action: "BILLING_ANCHOR_GRANT",
+        before: { firstChargeWouldBe: trialPeriodDays ? `${trialPeriodDays}d (trial)` : "immediately" },
+        after: {
+          anchor: billingAnchorDate?.toISOString() ?? null,
+          totalFreeDays: grant.totalFreeDays,
+          trialDays: grant.trialDays,
+          grantedDays: grant.grantedDays,
+          grantedValue: grant.grantedValue,
+        },
+        note:
+          `Billing anchor set to ${billingAnchorDate?.toISOString().slice(0, 10)} on "${option.label}". ` +
+          grant.sentence,
+      });
+    }
+
+    return NextResponse.json({
+      url: checkoutSession.url,
+      memberSubId: memberSub.id,
+      // Surfaced so the confirming screen can state the grant rather than
+      // showing a bare date whose cost nobody computes.
+      anchorGrant: grant.grantedDays > 0 ? grant : null,
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: formatZodError(err) }, { status: 400 });
