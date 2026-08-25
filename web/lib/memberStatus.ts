@@ -102,9 +102,25 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
  * timestamp, never deleted. Cheap to call lazily when the members list loads
  * so the roster self-heals without a cron job.
  */
-export async function expireEndedManualSubscriptions(clubId: string): Promise<number> {
+export async function expireEndedManualSubscriptions(
+  clubId: string,
+  /**
+   * Restrict to these members. The owner roster sweeps the whole club; the
+   * member portal passes just the family it is rendering, because a guardian
+   * opening a page should not walk every subscription in the club.
+   *
+   * This overload exists because the sweep was reachable from ONE place —
+   * `/api/members`, the owner roster. A family whose membership had ended kept
+   * seeing it as active until an owner happened to load that page, which is
+   * how the portal told Shannan Hall that Max still had a live membership
+   * months after it ended.
+   */
+  memberIds?: string[],
+): Promise<number> {
+  if (memberIds && memberIds.length === 0) return 0;
   const ended = await prisma.memberSubscription.findMany({
     where: {
+      ...(memberIds ? { memberId: { in: memberIds } } : {}),
       member: { clubId, deletedAt: null },
       billingType: "MANUAL",
       status: "active",

@@ -43,6 +43,8 @@ const memberSelect = Prisma.validator<Prisma.MemberSelect>()({
       price: true,
       billingPeriod: true,
       billingType: true,
+      stripeSubscriptionId: true,
+      paidThroughDate: true,
       billingAnchorDate: true,
       endDate: true,
       // Reconciled-from-Stripe facts (lib/stripeSync.ts). currentPeriodEnd is
@@ -71,6 +73,14 @@ function pickActive(subs: SubPayload[]): SubPayload | null {
     subs[0] ||
     null
   );
+}
+
+/**
+ * Offline = nobody is charging a card for this. Derived, not stored — the same
+ * rule lib/autopay.ts uses, so the two cannot drift.
+ */
+function isOffline(sub: { billingType: string | null; stripeSubscriptionId: string | null }): boolean {
+  return sub.billingType === "MANUAL" || !sub.stripeSubscriptionId;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -151,8 +161,29 @@ export async function GET() {
         // Present only when a processing fee applies: what's actually charged.
         feeBreakdown: fees ? { base: fees.base, fee: fees.fee, total: fees.total } : null,
         period: active?.billingPeriod ?? null,
-        // Prefer Stripe's real next-billing date once reconciled.
-        nextBilling: active?.currentPeriodEnd ?? active?.billingAnchorDate ?? active?.endDate ?? null,
+        // ── "Next billing" only means something when something bills ────────
+        //
+        // A MANUAL membership has no scheduled charge: the club collects it
+        // directly. This used to fall through to `billingAnchorDate` — a
+        // migration IMPORT field, written once and never advanced — so an
+        // offline member was shown a date from months ago, labelled as their
+        // next billing, and rendered a day early because the anchor is a
+        // date-only UTC value. Max Hall's card read "Next billing July 15,
+        // 2026" in late August. His mother reasonably concluded the membership
+        // had lapsed.
+        //
+        // So: a card-billed row still reports its real next charge. An offline
+        // row reports how far the money reaches, and says who collects.
+        billingMode: active ? (isOffline(active) ? "OFFLINE" : "CARD") : null,
+        nextBilling: active && !isOffline(active)
+          ? active.currentPeriodEnd ?? active.endDate ?? null
+          : null,
+        // Offline only. How far they are paid up, when that is known — never
+        // an import anchor standing in for it.
+        paidThrough: active && isOffline(active)
+          ? active.paidThroughDate ?? active.currentPeriodEnd ?? null
+          : null,
+        endsOn: active?.endDate ?? null,
         lastPayment,
         subscriptionId: active?.id ?? null,
         hasCard: !!customerId,

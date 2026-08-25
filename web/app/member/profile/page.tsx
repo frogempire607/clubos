@@ -149,6 +149,9 @@ type PersonBilling = {
   feeBreakdown?: { base: number; fee: number; total: number } | null;
   period: string | null;
   nextBilling: string | null;
+  billingMode: "OFFLINE" | "CARD" | null;
+  paidThrough: string | null;
+  endsOn: string | null;
   lastPayment: { amount: number; paidAt: string } | null;
   subscriptionId: string | null;
   hasCard: boolean;
@@ -1070,11 +1073,45 @@ export default function MemberAccountPage() {
                                   </dd>
                                 </div>
                               )}
-                              {showNextBilling && p.nextBilling && p.status !== "canceled" && p.status !== "expired" && (
+                              {/* Card-billed: a real scheduled charge, so name the date.
+                                  timeZone UTC because billing dates are date-only
+                                  00:00-UTC values — formatting them locally renders
+                                  the day before, which is half of why "Next billing
+                                  July 15" appeared on a card whose stored date was
+                                  the 16th. */}
+                              {showNextBilling && p.billingMode === "CARD" && p.nextBilling &&
+                                p.status !== "canceled" && p.status !== "expired" && (
                                 <ProfileRow
                                   label={p.status === "pending" ? "First billing" : "Next billing"}
                                   value={new Date(p.nextBilling).toLocaleDateString("en-US", {
-                                    month: "long", day: "numeric", year: "numeric",
+                                    month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+                                  })}
+                                />
+                              )}
+                              {/* Offline: nothing is scheduled to charge. Say that,
+                                  rather than showing an import anchor that never
+                                  moves and reads as a missed payment. */}
+                              {showNextBilling && p.billingMode === "OFFLINE" &&
+                                p.status !== "canceled" && p.status !== "expired" && (
+                                <ProfileRow
+                                  label="Billing"
+                                  value={
+                                    p.paidThrough
+                                      ? `Your club collects this directly — paid through ${new Date(p.paidThrough).toLocaleDateString("en-US", {
+                                          month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+                                        })}`
+                                      : "Your club collects this directly — no card is charged"
+                                  }
+                                />
+                              )}
+                              {/* When it ends, whichever way it is billed. An end
+                                  date the family cannot see is how a membership
+                                  quietly runs out. */}
+                              {p.endsOn && p.status !== "canceled" && p.status !== "expired" && (
+                                <ProfileRow
+                                  label="Ends on"
+                                  value={new Date(p.endsOn).toLocaleDateString("en-US", {
+                                    month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
                                   })}
                                 />
                               )}

@@ -446,8 +446,9 @@ export async function setAutoRenew(
     where: { id: memberSubscriptionId, member: { clubId, deletedAt: null } },
     select: {
       id: true, memberId: true, autoRenew: true, optionLabel: true, price: true,
+      billingPeriod: true, minimumTermEndsAt: true,
       stripeSubscriptionId: true, endDate: true, currentPeriodEnd: true, paidThroughDate: true,
-      member: { select: { club: { select: { stripeAccountId: true } } } },
+      member: { select: { commitmentEndDate: true, club: { select: { stripeAccountId: true } } } },
     },
   });
   if (!sub) return { ok: false, code: "NOT_FOUND", error: "That membership no longer exists." };
@@ -455,19 +456,41 @@ export async function setAutoRenew(
     return { ok: false, code: "UNCHANGED", error: `Auto-renew is already ${autoRenew ? "on" : "off"}.` };
   }
 
+  // The mid-commitment hazard this used to guard against is gone: OFF now
+  // schedules `cancel_at` at the TERM end, so a 3-month member billed monthly
+  // stops after three months rather than one. What is still refused is the case
+  // where neither a term nor a period end is known — there is then no date to
+  // stop on, and inventing one is how a membership ends on the wrong day.
+
   let endsAt: Date | null = sub.endDate;
   const acct = sub.member.club.stripeAccountId;
   if (sub.stripeSubscriptionId && acct) {
     try {
-      const updated = await stripe.subscriptions.update(
-        sub.stripeSubscriptionId,
-        { cancel_at_period_end: !autoRenew },
-        { stripeAccount: acct },
-      );
-      const periodEnd = (updated as unknown as { current_period_end?: number }).current_period_end ?? null;
-      // Turning renewal back ON clears the end date; the membership no longer
-      // stops. Turning it off takes Stripe's own period end, never a local sum.
-      endsAt = autoRenew ? null : periodEnd ? new Date(periodEnd * 1000) : sub.endDate;
+      if (autoRenew) {
+        // Renewal back ON: clear BOTH ways a stop can be scheduled. A row that
+        // was stopped at a term end carries `cancel_at`, and clearing only
+        // `cancel_at_period_end` would leave it silently still ending.
+        await stripe.subscriptions.update(
+          sub.stripeSubscriptionId,
+          { cancel_at_period_end: false, cancel_at: null },
+          { stripeAccount: acct },
+        );
+        endsAt = null;
+      } else {
+        endsAt = await applyNonRenewal(
+          sub.stripeSubscriptionId,
+          acct,
+          planNonRenewal(
+            {
+              minimumTermEndsAt: sub.minimumTermEndsAt,
+              commitmentEndDate: sub.member.commitmentEndDate,
+              currentPeriodEnd: sub.currentPeriodEnd,
+              paidThroughDate: sub.paidThroughDate,
+            },
+            new Date(),
+          ),
+        );
+      }
     } catch (e) {
       return { ok: false, code: "STRIPE_FAILED", error: `Stripe did not accept the change: ${String(e)}` };
     }
@@ -522,4 +545,82 @@ function periodPhrase(period: string | null): string {
     case "ANNUAL": return "every year";
     default: return "each period";
   }
+}
+
+// ── §8.6.6 · "stop at the next period" is not "don't start another term" ─────
+//
+// One flag, `autoRenew`, has been doing two jobs, and the implementation only
+// ever did the first: `cancel_at_period_end`, i.e. stop at the end of the
+// current BILLING period.
+//
+// On a month-to-month membership those are the same thing. On a membership
+// billed monthly against a multi-month commitment they are not, and the
+// difference is a third of the money: turning auto-renew off on "3 Months"
+// ($160/mo, 3-month term) ended it after ONE month.
+//
+// The settled semantics (owner, 2026-08-25):
+//   · The minimum term IS the billing commitment — 3 months charges 3×.
+//   · Auto-renew governs what happens AFTER the term, not during it.
+//
+// So auto-renew OFF means "bill out the term, then stop", which is an absolute
+// `cancel_at` at the term end — never a recomputed period end. With no term,
+// the period end IS the boundary and `cancel_at_period_end` stays correct.
+//
+// No new column. `autoRenew` keeps its name and gains its real meaning; the
+// "stop now, inside the term" case is a CANCELLATION and belongs to the
+// approval queue, where an early termination is recorded rather than implied.
+
+export type NonRenewalPlan =
+  /** Bill out the commitment, then stop. Absolute `cancel_at`. */
+  | { mode: "TERM_END"; at: Date }
+  /** No commitment left to serve — stop at the end of the paid period. */
+  | { mode: "PERIOD_END"; at: Date | null };
+
+type NonRenewalInput = {
+  minimumTermEndsAt: Date | null;
+  /** Legacy rows written before §8.8.1 carry no term; the member row may. */
+  commitmentEndDate?: Date | null;
+  currentPeriodEnd: Date | null;
+  paidThroughDate: Date | null;
+};
+
+/**
+ * Where a non-renewing subscription should actually stop. Pure — `now` is
+ * injected so every branch is testable without waiting for a date to pass.
+ */
+export function planNonRenewal(sub: NonRenewalInput, now: Date): NonRenewalPlan {
+  const term = sub.minimumTermEndsAt ?? sub.commitmentEndDate ?? null;
+  // A term already served is not a boundary — it is history. Falling back to
+  // the period end is right: they are month-to-month from here.
+  if (term && term.getTime() > now.getTime()) return { mode: "TERM_END", at: term };
+  return { mode: "PERIOD_END", at: sub.currentPeriodEnd ?? sub.paidThroughDate ?? null };
+}
+
+/**
+ * Tell Stripe to stop, at the boundary `planNonRenewal` chose, and return the
+ * date it will actually stop on — read back from Stripe, never assumed.
+ */
+export async function applyNonRenewal(
+  stripeSubscriptionId: string,
+  stripeAccountId: string,
+  plan: NonRenewalPlan,
+): Promise<Date | null> {
+  if (plan.mode === "TERM_END") {
+    const updated = await stripe.subscriptions.update(
+      stripeSubscriptionId,
+      // Absolute, not `cancel_at_period_end`. A period end recomputed at each
+      // renewal walks forward forever and never reaches the term.
+      { cancel_at: Math.floor(plan.at.getTime() / 1000) },
+      { stripeAccount: stripeAccountId },
+    );
+    const at = (updated as unknown as { cancel_at?: number }).cancel_at;
+    return at ? new Date(at * 1000) : plan.at;
+  }
+  const updated = await stripe.subscriptions.update(
+    stripeSubscriptionId,
+    { cancel_at_period_end: true },
+    { stripeAccount: stripeAccountId },
+  );
+  const periodEnd = (updated as unknown as { current_period_end?: number }).current_period_end;
+  return periodEnd ? new Date(periodEnd * 1000) : plan.at;
 }

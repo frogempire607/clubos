@@ -440,13 +440,26 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         // Offline period end — anchored to the billing anchor when the owner set
         // one, else to the start date.
         currentPeriodEnd: addBillingPeriod(anchor ?? member.membershipStartDate ?? new Date(), period),
-        // Explicit requested end wins; otherwise a non-renewing plan ends
-        // after its first billing period (expireEndedManualSubscriptions).
+        // When this membership stops, in precedence order.
+        //
+        // `commitmentEndDate` used to be missing from this list, and that is how
+        // Max Hall ended up carried as an active member three months past a
+        // commitment the club itself had recorded. His plan defaulted to
+        // auto-renew, so the `!planAutoRenew` branch never fired, and he got NO
+        // endDate at all — while `Member.commitmentEndDate` said 2026-08-15.
+        // Nothing sweeps a null endDate, so the row simply never ended.
+        //
+        // The Stripe branch below has always read `commitmentEndDate` (it
+        // becomes `cancel_at`). Only the offline branch ignored it, which meant
+        // the same member got a real end date if they paid by card and none if
+        // they paid cash.
         ...(member.requestedCancellationDate
           ? { endDate: member.requestedCancellationDate }
-          : !planAutoRenew && price > 0
-            ? { endDate: addBillingPeriod(anchor ?? member.membershipStartDate ?? new Date(), period) }
-            : {}),
+          : member.commitmentEndDate
+            ? { endDate: member.commitmentEndDate }
+            : !planAutoRenew && price > 0
+              ? { endDate: addBillingPeriod(anchor ?? member.membershipStartDate ?? new Date(), period) }
+              : {}),
         notes:
           price <= 0
             ? "Free / grandfathered membership — no recurring charge"
