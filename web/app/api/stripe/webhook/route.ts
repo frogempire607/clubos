@@ -1105,12 +1105,43 @@ export async function POST(req: Request) {
           },
         });
 
-        // Keep status active on renewal
+        // Keep status active on renewal — but NEVER resurrect a dead one.
+        //
+        // This was an unconditional `status: "active"` on any invoice.paid, and
+        // that is how Dakota Mastrantonio became a member nobody bills.
+        // Her card failed nine times over three weeks; on 2026-08-07 Stripe gave
+        // up and deleted the subscription, and the deletion webhook correctly
+        // wrote status "canceled" + canceledAt. On 2026-08-14 the outstanding
+        // invoice was paid — a week AFTER the subscription no longer existed —
+        // and this line flipped her straight back to "active", leaving a row
+        // that says active and canceledAt in the same breath. There is no Stripe
+        // subscription behind it, so nothing will ever charge her again, and
+        // every screen says she is fine.
+        //
+        // A late payment settles a DEBT. It does not un-cancel a subscription;
+        // only a new purchase does. Reactivation paths create a new row, so no
+        // legitimate flow needs this to revive a canceled one.
         if (memberSub) {
-          await prisma.memberSubscription.update({
-            where: { id: memberSub.id },
-            data: { status: "active" },
-          });
+          const dead =
+            memberSub.status === "canceled" ||
+            memberSub.status === "expired" ||
+            memberSub.canceledAt != null;
+          if (dead) {
+            // The money is still real and is still recorded above — this only
+            // refuses to change the membership's state. Loud, because someone
+            // has paid for something they no longer have.
+            console.error(
+              "[invoice.paid] refusing to reactivate a canceled subscription:",
+              memberSub.id,
+              "invoice", invoice.id,
+              "— payment recorded, membership left canceled. Needs an owner decision.",
+            );
+          } else {
+            await prisma.memberSubscription.update({
+              where: { id: memberSub.id },
+              data: { status: "active" },
+            });
+          }
         }
 
         // Money proof just landed — recompute the member's status HERE.
