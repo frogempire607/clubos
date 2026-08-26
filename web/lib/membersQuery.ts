@@ -91,6 +91,8 @@ export type MemberListFilters = {
   setupState: string | null;
   /** Track 2 state, e.g. ACTIVE | PENDING | PROSPECT | LEAD | INACTIVE. */
   membership: string | null;
+  /** A membership PLAN id. Distinct from `membership`, which is a track. */
+  plan: string | null;
   tag: string | null;
   gender: string | null;
   /** Work-queue shortcuts from the 4-card strip. */
@@ -125,6 +127,7 @@ export const MEMBER_FILTER_PARAM_KEYS = [
   "personType",
   "setupState",
   "membership",
+  "plan",
   "tag",
   "gender",
   "queue",
@@ -154,6 +157,7 @@ export function parseMemberFilters(url: URL): MemberListFilters {
     personType: (str("personType") as PersonType) ?? "everyone",
     setupState: str("setupState"),
     membership: str("membership"),
+    plan: str("plan"),
     tag: str("tag"),
     gender: str("gender"),
     queue: (str("queue") as MemberListFilters["queue"]) ?? null,
@@ -170,6 +174,38 @@ export function parseMemberFilters(url: URL): MemberListFilters {
  * rules that lib/memberTracks.ts already owns — and a duplicated rule is a rule
  * that will drift.
  */
+/**
+ * Statuses that mean "this membership is a thing the member currently holds".
+ *
+ * Exported so the roster filter and the plan's own member count use ONE
+ * definition. Two definitions of "on this plan" is how a card says 2 and the
+ * roster it links to shows 0.
+ */
+export const HOLDS_MEMBERSHIP_STATUSES = ["active", "past_due", "pending"] as const;
+
+/**
+ * Members who hold a live subscription on this plan.
+ *
+ * NOT `Member.membershipId`. That column is a denormalised "current plan"
+ * pointer for a member who can hold, end and re-buy memberships over time, and
+ * it goes stale silently: on 2026-08-25 the Girls Only card read 0 while
+ * Beatriz Godden and Dakota Mastrantonio were both on it, and Girls Jr Frogs
+ * read 2 on the strength of two pointers left behind by memberships that had
+ * already ended. Neither number described anybody.
+ *
+ * The subscription is the fact. Read that.
+ */
+export function onPlanWhere(membershipId: string): Prisma.MemberWhereInput {
+  return {
+    subscriptions: {
+      some: {
+        membershipId,
+        status: { in: [...HOLDS_MEMBERSHIP_STATUSES] },
+      },
+    },
+  };
+}
+
 export function memberWhere(clubId: string, f: MemberListFilters): Prisma.MemberWhereInput {
   // `isHistoricalOnly` rows are imported records kept for all-time reporting
   // only — 2.5.9 is explicit that they appear in "no active rosters, billing or
@@ -201,6 +237,9 @@ export function memberWhere(clubId: string, f: MemberListFilters): Prisma.Member
   }
 
   if (f.tag) and.push({ tags: { contains: f.tag, mode: "insensitive" } });
+  // Filter by the plan someone actually holds — see onPlanWhere for why this
+  // is a subscription test and not a Member.membershipId equality check.
+  if (f.plan) and.push(onPlanWhere(f.plan));
   if (f.gender) and.push({ gender: f.gender });
 
   // Work-queue cards. Each is a saved filter that also arms a bulk action, so
@@ -689,6 +728,7 @@ export async function resolveSelection(
     personType: "everyone",
     setupState: null,
     membership: null,
+    plan: null,
     tag: null,
     gender: null,
     queue: null,

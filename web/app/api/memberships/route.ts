@@ -8,6 +8,7 @@ import {
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { HOLDS_MEMBERSHIP_STATUSES } from "@/lib/membersQuery";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 
 export async function GET() {
@@ -17,10 +18,35 @@ export async function GET() {
   const memberships = await prisma.membership.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },
     orderBy: { createdAt: "desc" },
+    // `_count.members` counts Member.membershipId — a denormalised "current
+    // plan" pointer that goes stale — and it is deliberately still returned so
+    // nothing that reads it breaks. It is NOT the member count any more.
     include: { _count: { select: { members: true } } },
   });
 
-  return NextResponse.json(memberships);
+  // Who actually holds each plan, counted from subscriptions.
+  //
+  // On 2026-08-25 the pointer-based count said Girls Only had 0 members while
+  // Beatriz Godden and Dakota Mastrantonio were both on it, and said Girls Jr
+  // Frogs had 2 on the strength of two pointers left behind by memberships that
+  // had ended. Neither number described anybody.
+  //
+  // One grouped query for the whole list, not one per plan — this endpoint
+  // renders every membership card on the page.
+  const held = await prisma.memberSubscription.groupBy({
+    by: ["membershipId"],
+    where: {
+      membershipId: { in: memberships.map((m) => m.id) },
+      status: { in: [...HOLDS_MEMBERSHIP_STATUSES] },
+      member: { clubId: session.user.clubId, deletedAt: null },
+    },
+    _count: { _all: true },
+  });
+  const heldBy = new Map(held.map((h) => [h.membershipId, h._count._all]));
+
+  return NextResponse.json(
+    memberships.map((m) => ({ ...m, activeMemberCount: heldBy.get(m.id) ?? 0 })),
+  );
 }
 
 // Accept the option objects loosely here and let lib/membershipOptions.parseOptions

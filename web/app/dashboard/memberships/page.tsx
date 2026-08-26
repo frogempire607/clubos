@@ -39,6 +39,8 @@ type Membership = {
   trialAppliesToReturning: boolean;
   createdAt: string;
   _count: { members: number };
+  /** Members holding a live subscription on this plan. The real count. */
+  activeMemberCount?: number;
 };
 
 type FreeTrialConfig = {
@@ -301,7 +303,20 @@ export default function MembershipsPage() {
                 </div>
 
                 <div className="flex items-center justify-between pt-3 border-t border-app-border">
-                  <span className="text-xs text-text-muted">{m._count.members} member{m._count.members === 1 ? "" : "s"}</span>
+                  {/* Counted from subscriptions, and a link to exactly the
+                      rows it counted — the number and the roster it opens now
+                      answer the same question. */}
+                  {(m.activeMemberCount ?? 0) > 0 ? (
+                    <a
+                      href={`/dashboard/members?plan=${m.id}`}
+                      className="text-xs text-brand hover:underline"
+                      title={`Show the ${m.activeMemberCount} member${m.activeMemberCount === 1 ? "" : "s"} on ${m.name}`}
+                    >
+                      {m.activeMemberCount} member{m.activeMemberCount === 1 ? "" : "s"}
+                    </a>
+                  ) : (
+                    <span className="text-xs text-text-muted">No members</span>
+                  )}
                   <div className="flex gap-1 flex-wrap justify-end">
                     {m.active && m.purchaseAccess !== "STAFF_ONLY" && (
                       <button
@@ -312,7 +327,7 @@ export default function MembershipsPage() {
                         {copiedId === m.id ? "Copied!" : "Copy link"}
                       </button>
                     )}
-                    {options.length > 0 && m._count.members > 0 && (
+                    {options.length > 0 && (m.activeMemberCount ?? 0) > 0 && (
                       <button
                         onClick={() => setReviewing({ id: m.id, options })}
                         title="See what every current subscriber pays, and move them onto the plan's price"

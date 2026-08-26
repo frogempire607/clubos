@@ -256,6 +256,15 @@ export default function MembersRoster({
       search: params.get("search") ?? "",
       personType: params.get("personType") ?? "everyone",
       membership: params.get("membership") ?? "",
+      // Every key here must also be in MEMBER_FILTER_PARAM_KEYS, and every key
+      // THERE must be here — this list is what actually reaches the API, and a
+      // param missing from it makes any link carrying it silently do nothing.
+      // `plan` (a membership plan id, from the plan card's member count),
+      // `tag` and `gender` were all readable server-side and unreachable from a
+      // URL for exactly that reason.
+      plan: params.get("plan") ?? "",
+      tag: params.get("tag") ?? "",
+      gender: params.get("gender") ?? "",
       setupState: params.get("setupState") ?? "",
       queue: params.get("queue") ?? "",
       sort: params.get("sort") ?? "lastSeen",
