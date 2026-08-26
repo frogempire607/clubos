@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
 import { applyNonRenewal, planNonRenewal } from "@/lib/autopay";
+import { invoicePeriodEnd } from "@/lib/stripeTruth";
 import { prisma } from "@/lib/prisma";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import {
@@ -1137,9 +1138,25 @@ export async function POST(req: Request) {
               "— payment recorded, membership left canceled. Needs an owner decision.",
             );
           } else {
+            // Advance the local mirror. This is the ONLY event that knows a
+            // period just rolled, and until now it wrote none of it — so
+            // currentPeriodEnd stayed null for every card-billed member and
+            // "next billing" fell through to billingAnchorDate, a one-time
+            // migration input that never moves. Joseph Bower was charged on
+            // 2026-07-30 and his profile kept saying "next billing 7/31/2026".
+            //
+            // paidThroughDate moves with it: the money now reaches this far,
+            // which is what renewal surfacing and "who owes" read.
+            const periodEnd = invoicePeriodEnd(invoice);
             await prisma.memberSubscription.update({
               where: { id: memberSub.id },
-              data: { status: "active" },
+              data: {
+                status: "active",
+                ...(periodEnd
+                  ? { currentPeriodEnd: periodEnd, paidThroughDate: periodEnd }
+                  : {}),
+                stripeStatus: "active",
+              },
             });
           }
         }

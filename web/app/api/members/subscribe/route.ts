@@ -421,6 +421,14 @@ export async function POST(req: Request) {
 
     // ── The anchor is a free-time grant. Record it and say so. ────────────
     //
+    // MANUAL PATH ONLY — do not wire anchorGrant into the reactivation flow.
+    // An anchor that came from a confirmed offer is not discretionary: the date
+    // was frozen in the offer, the member clicked confirm on it, and the offer
+    // row is the record. Orson Chorba's 2026-07-24 anchor was exactly that, and
+    // logging it beside Levi's four-week grant would put a legitimate
+    // arrangement in a list of things to question. A log that flags correct
+    // behaviour is a log that stops being read.
+    //
     // Staff pick a billing date; Stripe honours it; the member is not charged
     // until then. That makes the date picker a way to give away membership, and
     // until now it left no audit row and showed no number. Levi Schanzenbach
