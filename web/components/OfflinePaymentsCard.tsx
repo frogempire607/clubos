@@ -46,12 +46,40 @@ export default function OfflinePaymentsCard({
   }, [memberId]);
   useEffect(() => { load(); }, [load]);
 
-  if (!rows || rows.length === 0) {
+  if (!rows) return null;   // still loading — say nothing rather than "none"
+
+  if (rows.length === 0) {
     // Keep the success confirmation visible after the last row is recorded.
-    if (!paidMsg) return null;
+    if (paidMsg) {
+      return (
+        <Wrapper variant={variant} className={className}>
+          <p className="text-xs text-text-primary bg-lime-accent/20 rounded-lg px-2.5 py-1.5">{paidMsg}</p>
+        </Wrapper>
+      );
+    }
+    // ── Say there is nothing here, rather than rendering nothing ──────────
+    //
+    // This used to `return null`, so a member with no outstanding balance had
+    // no cash/check control on their page at all — just blank space where one
+    // might be. Staff who had taken a month's cash from a family looked for
+    // somewhere to record it, found nothing, and reasonably assumed they had
+    // recorded it somewhere else. Drew Telesky's month went missing exactly
+    // that way: no subscription meant no amount-due row, no amount-due row
+    // meant this card vanished, and the receipt endpoint it fronts 404s with
+    // "no matching outstanding payment" — a message nobody ever saw.
+    //
+    // An empty state that explains itself and points at the right path costs
+    // one paragraph and would have saved that month.
     return (
       <Wrapper variant={variant} className={className}>
-        <p className="text-xs text-text-primary bg-lime-accent/20 rounded-lg px-2.5 py-1.5">{paidMsg}</p>
+        <p className="text-xs text-text-muted">
+          No outstanding cash or check payment to record for this member.
+        </p>
+        <p className="text-[11px] text-text-muted mt-1.5">
+          This records money against a balance the member already owes. If they have{" "}
+          <strong>paid you and have no membership yet</strong>, enrol them from the billing centre
+          instead — that records the payment and starts the membership together.
+        </p>
       </Wrapper>
     );
   }
