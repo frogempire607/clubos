@@ -114,8 +114,26 @@ type ChangeRequestApproval = {
   } | null;
 };
 
+type MembershipChangeApproval = {
+  id: string;
+  kind: "MEMBERSHIP_CHANGE_REQUEST";
+  memberId: string;
+  memberName: string;
+  requestedAt: string;
+  requester: { name: string | null; email: string | null } | null;
+  fromOptionLabel: string | null;
+  fromPrice: number | null;
+  toPlanName: string | null;
+  toOptionLabel: string | null;
+  toPrice: number | null;
+  toBillingPeriod: string | null;
+  note: string | null;
+  billingUrl: string;
+};
+
 type Approval =
   | GuardianApproval
+  | MembershipChangeApproval
   | CancelApproval
   | MigrationApproval
   | PurchaseApproval
@@ -318,6 +336,26 @@ export default function MembersApprovalsPage() {
         .catch(() => {});
     }
   }, [approvals, setConfigured]);
+
+  // "Mark reviewed", not "Approve". The route closes the request and hands back
+  // the billing link; it does NOT create or move a subscription. A button that
+  // said Approve would imply the switch had happened.
+  async function actMembershipChange(a: MembershipChangeApproval, decision: "APPROVE" | "DECLINE") {
+    setBusyId(a.id);
+    setError("");
+    const res = await fetch(`/api/approvals/membership-change`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalId: a.id, decision }),
+    });
+    setBusyId(null);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not complete that action.");
+      return;
+    }
+    load();
+  }
 
   async function actTransfer(a: TransferApproval, decision: "APPROVE" | "DECLINE") {
     setBusyId(a.id);
@@ -870,6 +908,61 @@ export default function MembersApprovalsPage() {
                     </button>
                     <button
                       onClick={() => actSplit(a, "DECLINE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            if (a.kind === "MEMBERSHIP_CHANGE_REQUEST") {
+              return (
+                <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
+                  <div className="min-w-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                      <ArrowRightLeft size={11} /> Plan change requested
+                    </span>
+                    <p className="text-sm text-text-primary">
+                      <strong>{requesterLabel(a.requester)}</strong> asked to move{" "}
+                      <strong>{a.memberName}</strong>
+                      {a.fromOptionLabel ? <> from <strong>{a.fromOptionLabel}</strong>
+                        {a.fromPrice != null ? ` ($${a.fromPrice})` : ""}</> : null}
+                      {" "}to <strong>{a.toPlanName}{a.toOptionLabel ? ` — ${a.toOptionLabel}` : ""}</strong>
+                      {a.toPrice != null ? ` ($${a.toPrice}${a.toBillingPeriod ? ` ${a.toBillingPeriod.toLowerCase()}` : ""})` : ""}.
+                    </p>
+                    {a.note && <p className="text-xs text-text-muted mt-1 italic">“{a.note}”</p>}
+                    {/* The honest bit. This queue cannot make the change: the
+                        price may carry an override or discount, the start date
+                        and the handling of the current period are both open
+                        questions, and the old subscription has to be ended one
+                        of three ways. A one-click apply would have to guess all
+                        four. So say where it happens. */}
+                    <p className="text-xs text-text-muted mt-2 rounded-lg bg-app-bg px-2.5 py-2">
+                      Marking this reviewed records that you have seen it — it does <strong>not</strong> change
+                      their plan or their billing. Make the change in the billing centre, where the price,
+                      start date and what happens to the current subscription are all set explicitly.
+                    </p>
+                    <p className="text-xs text-text-muted mt-1">Requested {fmtDate(a.requestedAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    <a
+                      href={a.billingUrl}
+                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover"
+                    >
+                      Open billing centre
+                    </a>
+                    <button
+                      onClick={() => actMembershipChange(a, "APPROVE")}
+                      disabled={busyId === a.id}
+                      className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                    >
+                      {busyId === a.id ? "Working…" : "Mark reviewed"}
+                    </button>
+                    <button
+                      onClick={() => actMembershipChange(a, "DECLINE")}
                       disabled={busyId === a.id}
                       className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
                     >
