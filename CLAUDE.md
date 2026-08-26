@@ -33,6 +33,54 @@ Two gotchas that already bit us:
 1. When you replace an inline auth check with `requirePermission(session, …)`, TypeScript loses `session` null-narrowing → the build fails with "'session' is possibly null." Add an explicit `if (!session) return 401;` before the guard.
 2. Permission model: `StaffProfile.permissions` is a JSON blob. Keys: `members, attendance, classes, events, schedule, messages, documents, finances, reports, staff`. Levels: `none, view, send, edit, full`. **OWNER bypasses everything.** Guard server-side with `requirePermission` (`web/lib/apiGuard.ts`) or `hasPermission` (`web/lib/permissions.ts`). **Privates are gated under the `events` key**, not a "privates" key.
 
+## The bug that keeps happening: a member-level field describing a subscription
+
+**Before writing any query, count, filter or correction that answers a question
+about a MEMBERSHIP, check whether you are reading a field on `Member`.** If you
+are, you are probably wrong.
+
+A member can hold one membership, end it, and buy another. They can hold two at
+once. One can be transferred to a sibling. So any single field on `Member` that
+names "the" membership, "the" commitment or "the" billing date is a snapshot of
+one moment, and it goes stale silently — nothing updates it, nothing flags it,
+and every reader inherits the staleness as fact.
+
+**Four separate production bugs in one week, all this shape:**
+
+| Field | Read as | What actually happened |
+|---|---|---|
+| `Member.commitmentEndDate` | when this subscription ends | chase Robertson's ended 2026-07-10; he bought a new membership 2026-08-17 and it inherited the dead date. A correction script would have expired a member who paid last week. |
+| `Member.billingAnchorDate` | next billing date | a one-time MIGRATION input, never advanced. Joseph Bower was charged 2026-07-30 and his profile kept saying "next billing 7/31/2026" — a date in the past. |
+| `Member.membershipId` | who is on this plan | Girls Only read **0 members** with two women on it; Girls Jr Frogs read **2** on the strength of pointers left by memberships that had ended. |
+| `Transaction.memberId` (in a join) | whose money this is | reconciling invoices to payments THROUGH `memberId` reported a $545.37 hole that did not exist — the subscription had been transferred from Michael Lister to Kellan, so the money and the subscription sat on different members. |
+
+That last one was mine, in a diagnostic query, while I was writing up the first
+three. The pattern is easy to see in someone else's code and easy to repeat in
+your own.
+
+### What to do instead
+
+- **The subscription is the fact.** `MemberSubscription` carries the plan, the
+  term (`minimumTermEndsAt`), the period (`currentPeriodEnd`), the money reach
+  (`paidThroughDate`) and the payer (`payerUserId`). Read those.
+- **Reconcile money on an immutable key.** `Transaction.stripeInvoiceId` to the
+  invoice id — never through a member, which is deliberately movable.
+- **Count and filter from `subscriptions`, not from `Member.membershipId`.**
+  `lib/membersQuery.onPlanWhere()` is the one definition of "on this plan";
+  use it rather than writing a second one.
+- **When a correction script copies a member-level field onto a subscription,
+  it must refuse rather than guess.** See
+  `scripts/fix-commitment-end-dates.ts`: STALE (the date predates the
+  subscription), UNCORROBORATED (it disagrees with the subscription's own
+  billing period), CARD-BILLED (a local write does not stop Stripe).
+
+### The member-level fields that still exist, and why
+
+They are **not** dropped: `commitmentEndDate` and `billingAnchorDate` are the
+only record of what the club believed at import time, and that history is worth
+keeping. They are inputs and history, never the current answer. Treat a read of
+one outside migration code as a bug until proven otherwise.
+
 ## Database safety — non-negotiable
 
 - NEVER pass a production connection string to `--shadow-database-url`. Prisma
