@@ -137,3 +137,38 @@ export function verifiedStripeTxFields(money: StripeMoneyFacts | null) {
     ...(money?.netAmount != null ? { netAmount: money.netAmount } : {}),
   };
 }
+
+/**
+ * When the period this invoice paid for RUNS OUT — i.e. the member's next
+ * billing date.
+ *
+ * ── Why this is here and not computed locally ───────────────────────────────
+ *
+ * `MemberSubscription.currentPeriodEnd` was written in exactly two places: at
+ * creation by the OFFLINE paths, and by `reconcileClubBilling`, which only runs
+ * when an owner clicks Reconcile. `invoice.paid` — the one event that knows a
+ * period just advanced — wrote none of it.
+ *
+ * So for a card-billed member the local mirror was null from birth and stayed
+ * null, and every "next billing" surface fell through to `billingAnchorDate`:
+ * a one-time MIGRATION input that is never advanced. Joseph Bower was charged
+ * on 2026-07-30 and his profile went on saying "next billing 7/31/2026" — a
+ * date in the past — because that anchor is all there was to read.
+ *
+ * Read from the invoice LINE, not from `invoice.period_end`. On subscription
+ * invoices the top-level period describes the invoice document; the line item
+ * carries the service period actually purchased, which is the one that answers
+ * "when does their coverage run out". Both clover and legacy shapes put it in
+ * the same place.
+ */
+export function invoicePeriodEnd(invoice: unknown): Date | null {
+  const inv = invoice as {
+    lines?: { data?: Array<{ period?: { end?: number | null } | null }> | null } | null;
+    period_end?: number | null;
+  } | null;
+  const line = inv?.lines?.data?.find((l) => l?.period?.end);
+  const secs = line?.period?.end ?? inv?.period_end ?? null;
+  if (!secs || !Number.isFinite(secs)) return null;
+  const d = new Date(secs * 1000);
+  return Number.isNaN(d.getTime()) ? null : d;
+}

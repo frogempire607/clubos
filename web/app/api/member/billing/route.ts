@@ -196,15 +196,37 @@ export async function GET() {
         club?.passProcessingFees && active?.billingType === "RECURRING" && price != null && price > 0
           ? feeBreakdown(price, true)
           : null;
-      const snap = (active?.stripeSnapshot as Record<string, unknown> | null) ?? null;
-      const lastInvoice = snap && typeof snap.latestInvoice === "object" ? (snap.latestInvoice as {
-        amountPaid?: number | null;
-        paidAt?: string | null;
-      }) : null;
-      const lastPayment =
-        lastInvoice && lastInvoice.paidAt
-          ? { amount: (lastInvoice.amountPaid ?? 0) / 100, paidAt: lastInvoice.paidAt }
-          : null;
+      // ── Last payment comes from the LEDGER, not the Stripe snapshot ──────
+      //
+      // This used to read `stripeSnapshot.latestInvoice`, which is written only
+      // by reconcileClubBilling — a manual, owner-triggered sweep. For every
+      // member it has never been run on, the snapshot is null and the row
+      // simply did not render. Orson Chorba's $195.51 on 2026-07-23 was
+      // recorded, VERIFIED, and sitting on his member id the whole time; his
+      // profile showed nothing because the snapshot behind it was empty.
+      //
+      // Transactions are the authoritative record — written by invoice.paid as
+      // the money lands, needing no reconcile — so read those. VOID is excluded
+      // because a voided row is not money; REVIEW is deliberately NOT excluded,
+      // matching every revenue aggregate (the money really did arrive).
+      const lastTx = await prisma.transaction.findFirst({
+        where: {
+          memberId: m.id,
+          type: "MEMBERSHIP",
+          status: "SUCCEEDED",
+          reconciliationStatus: { not: "VOID" },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { amount: true, createdAt: true, txDate: true },
+      });
+      const lastPayment = lastTx
+        ? {
+            amount: Number(lastTx.amount),
+            // txDate is the money's own date when staff recorded one; otherwise
+            // when the row was written, which for Stripe rows is the charge.
+            paidAt: (lastTx.txDate ?? lastTx.createdAt).toISOString(),
+          }
+        : null;
       const myTransfers = transfers
         .filter((t) => t.fromMemberId === m.id || t.toMemberId === m.id)
         .map((t) => {
