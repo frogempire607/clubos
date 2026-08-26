@@ -15,6 +15,7 @@ import { ArrowLeft, CreditCard, RefreshCw } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
 import StaffDiscountPicker, { previewDiscountMath, useEligibleDiscounts } from "@/components/StaffDiscountPicker";
 import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
+import EnrollAlreadyPaidCard from "@/components/EnrollAlreadyPaidCard";
 
 type PaymentMethod = {
   ref: string;
@@ -398,6 +399,18 @@ export default function MemberBillingPage() {
 
         {/* ── Outstanding cash/check (renders only when something is pending) ── */}
         <OfflinePaymentsCard memberId={id} className="lg:col-span-2" onChanged={() => load()} />
+
+        {/* ── Already paid, no membership yet ──────────────────────────────
+            Sits directly beneath the outstanding-payments card on purpose:
+            that one settles a balance the member already owes, this one
+            handles the opposite case — money in hand and nothing to settle it
+            against. Drew Telesky's month went missing in the gap between them. */}
+        <EnrollAlreadyPaidCard
+          memberId={id}
+          memberName={`${m.firstName} ${m.lastName}`.trim()}
+          className="lg:col-span-2"
+          onChanged={() => { setMsg(null); load(); }}
+        />
 
         {/* ── Reactivation ── */}
         <Card
