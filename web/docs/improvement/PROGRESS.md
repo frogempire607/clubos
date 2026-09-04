@@ -3932,3 +3932,108 @@ from theirs.
    rows. That fallback stays until the backfill is verified, then goes.
 4. **Leave the column.** It is the only record of what the club believed at
    import time; dropping it costs the audit trail and buys nothing.
+
+## 2026-09-03 — Phase 6 opens: the check that does not need anyone to notice
+
+Branch `claude/phase-6-safety-integrity-634dea`, in
+`web/.claude/worktrees/elastic-wilson-411ecb`. No migration, no schema change,
+no production write.
+
+### The audit, before building
+
+All four bugs from the CLAUDE.md table have real fixes in the tree. What was
+missing was anything that would have caught them. There is **no CI** — Netlify
+runs `npm run build` and nothing else, so the existing `test:*` scripts and the
+two grep guards only run when somebody types them. And `onPlanWhere()`, the one
+definition of "who is on this plan", had exactly one caller: its own module.
+
+Measured against production (read-only, Supabase MCP):
+
+| | |
+|---|---|
+| `Member.membershipId` agrees with the subscriptions | **19 of 42** people |
+| live subscriptions with no `minimumTermEndsAt` of their own | 28 of 33 |
+| …that would have taken their Stripe stop date from the member row | 17 |
+| …of those, disagreeing with the subscription they would stop | 3 |
+| live subscriptions that cannot say when they next bill | **24 of 33** |
+| duplicate `stripeInvoiceId` / orphaned invoices | 0 / 0 |
+
+The three disagreements: Kellan Lister (field 2026-11-15, quarterly from
+07-07 implies 10-07, `endDate` null), Titus Hall (six days past his
+subscription's own end — §8.14.3's unsettled row, now settled), and **John Doe,
+who holds TWO live subscriptions behind one member-level date of 2027-02-10**.
+The second runs to 2027-07-14. Turning auto-renew off on it would have handed
+Stripe a `cancel_at` five months early. He is the only such member in the club
+and nothing would have surfaced him.
+
+### `planNonRenewal` stops reading the member row (not queued — done)
+
+This was the last live path where a member-level field decided a
+subscription-level fact, and its output goes to Stripe as `cancel_at`. The
+`commitmentEndDate` fallback is **gone from the input type**, so it cannot be
+passed again. It now reads `minimumTermEndsAt ?? endDate`.
+
+`endDate` is the same value, per subscription — activation, approve and
+reactivation all copy `Member.commitmentEndDate` onto it at purchase. So legacy
+rows keep the §8.6.6 behaviour (a 3-month commitment billed monthly still stops
+at the term) while a second membership stops on its own date. Where `endDate` is
+null, PERIOD_END sends `cancel_at_period_end` and **Stripe** supplies the
+boundary — a stale local `currentPeriodEnd` never becomes the date Stripe acts
+on. Three call sites updated: `setAutoRenew`, the checkout webhook, and the
+member auto-renew route. `scripts/non-renewal-tests.ts` 10/10, including a case
+pinned to John Doe's shape.
+
+### `scripts/subscription-truth-guard.ts` — and it blocks the build
+
+Wired into `npm run build` **ahead of** `prisma generate`, so Netlify enforces it
+and a bad read fails in seconds rather than after a full compile. Four guards,
+ratcheting from counts measured today:
+
+- **A** member-level dates read as the current answer — 44 total, **0 outside
+  migration/import paths**. The outside count is the hard fail; the total
+  ratchets the migration zone that legitimately owns these fields.
+- **B** plan membership counted from `Member.membershipId` — baseline 1
+  (`_count.members` in `app/api/memberships/route.ts`, deliberately kept for
+  back-compat beside the real `activeMemberCount`).
+- **C** `memberId` and `stripeInvoiceId` in one transaction filter — 0.
+- **D** `planNonRenewal` reading a member-level commitment — hard 0.
+
+Each guard was **verified by reintroducing its bug** and confirming it fails,
+then confirming green again. The first cut had 17 false positives from character
+windows — a `membershipId` sixty characters past a query, `_count.members` on a
+*MessageGroup*, `reconciliationStatus` matching `/reconcil/`. Rewritten to parse
+the brace-balanced `where` clause. **Do not go back to windows**; every false
+positive spends the credibility the guard runs on.
+
+### `scripts/report-subscription-truth.ts` — the data half
+
+REPORT ONLY, no `--apply`, ever. Four sections matching the four bugs. It found
+every finding above without anyone knowing where to look, which was the point.
+
+Uses `HOLDS_MEMBERSHIP_STATUSES` rather than a hand-written status list, so it
+counts what the app counts (this is why its plan-pointer total differs by one
+from an ad-hoc SQL query using `trialing`).
+
+**§3 carries a boxed warning that must not be removed.** 24 live subscriptions
+cannot say when they next bill, which renders as a blank on the member profile,
+and the obvious-looking repair — reaching for `Member.billingAnchorDate` — is
+the bug that made Joseph Bower's profile read a date in the past. The blank is
+deliberate and honest. The real repair is populating the subscription's own
+`currentPeriodEnd`/`paidThroughDate`. An early cut of that box truncated itself
+mid-sentence at "IS THE"; it word-wraps now, and `pad()` no longer truncates.
+
+### Still open in Phase 6
+
+§6A (transactions, idempotency on non-webhook money POSTs, audit-log coverage)
+and §6B (the test matrix — Stripe test mode, Plaid sandbox, CSV duplicate/
+malformed imports, permission boundaries) are untouched. This batch is the
+standing check that §6 is supposed to be verified *by*.
+
+Two follow-ups worth naming, neither blocking:
+
+1. **`onPlanWhere()` still has one caller.** Guard B stops a second bad
+   definition being written; it does not migrate the reads that already answer
+   the question their own way.
+2. **Kellan Lister's `currentPeriodEnd` is 2026-07-14** — in the past, on a live
+   Stripe row. The reconciler has not refreshed it. That is a `stripeSync`
+   question, not a member-field one.
