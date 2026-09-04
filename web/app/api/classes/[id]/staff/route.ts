@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 const schema = z.object({ userId: z.string().min(1) });
 
@@ -22,9 +23,9 @@ async function loadClass(id: string, clubId: string) {
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "classes", "edit");
+  if (denied) return denied;
 
   let userId: string;
   try {
@@ -55,9 +56,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "classes", "edit");
+  if (denied) return denied;
 
   const userId = new URL(req.url).searchParams.get("userId");
   if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });

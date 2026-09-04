@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
@@ -118,9 +119,9 @@ const createSchema = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "members", "edit");
+  if (denied) return denied;
 
   try {
     const body = await req.json();

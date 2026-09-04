@@ -123,11 +123,22 @@ for (const file of walk(API)) {
 }
 
 /**
- * Measured 2026-09-04. Every entry is a real route that admits any staff
- * member regardless of permissions. This is a KNOWN DEBT baseline, not an
- * approval — see the header. Lower it as routes are fixed; never raise it.
+ * Was 26 when first measured on 2026-09-04. The owner-approved mapping landed
+ * the same day and took it to 4. The four that remain are HELD ON PURPOSE, not
+ * missed:
+ *
+ *   announcements, announcements/[id]   the owner is deciding whether a
+ *                                       broadcast needs a higher bar than
+ *                                       messages:send, and is investigating a
+ *                                       live "staff cannot send" report first
+ *   classes/[id]/charge                 taking money at the door. billing:full
+ *   events/[id]/charge                  is the safe reading but would stop a
+ *                                       coach who checks people in and takes a
+ *                                       drop-in payment — owner's call
+ *
+ * Lower this as those land; never raise it.
  */
-const BASELINE = 26;
+const BASELINE = 4;
 /**
  * Routes with no role check at all.
  *

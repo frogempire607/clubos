@@ -4110,3 +4110,75 @@ duplicate/malformed records; accessibility; mobile/tablet re-verification. And
 the permission check is **static** — it proves a route calls a guard helper, not
 that a staffer with `finances:none` actually gets a 403. That needs a seeded
 staff fixture per level and is the next real piece of work.
+
+## 2026-09-04 (later) — the mapping applied, and permissions tested for real
+
+Branch `claude/phase-6-safety-integrity-634dea`. No migration.
+
+### Why Sal cannot send email — it IS permissions, just not the one being looked at
+
+`messages: "full"` does not grant bulk send. Bulk lives in a SEPARATE nested
+blob, `permissions.messages_subScopes`, and `DEFAULT_MESSAGES_SUBSCOPES.bulk` is
+**false**. `hasMessagesSubScope` never consults the top-level level at all — it
+reads `perms["messages_subScopes"][scope]` and falls back to the default. So a
+staffer can hold `messages: full` and still be denied.
+
+Both surfaces gate on the same sub-scope: `/api/members/bulk` (the Members-tab
+composer, §3L) and `/api/announcements/[id]/send`, `/schedule`, `/cancel`.
+
+Three compounding details:
+
+1. **`audience_all_club` also defaults false.** Even once `bulk` is granted,
+   `lib/coachAudience.ts` narrows the recipient list to members enrolled in
+   classes or events that staffer teaches. Teaching none returns 403
+   `OUTSIDE_COACH_AUDIENCE` — "None of the selected members qualified."
+2. **`requireMessagesSubScope` reads the JWT, not the database.** Unlike
+   `requirePermissionLive`, it uses `session.user.permissions`, frozen at
+   sign-in. Granting the sub-scope does nothing until that staffer signs out and
+   back in.
+3. **No client code reads `messages_subScopes`.** `/api/me` returns it, and the
+   only UI that consults a sub-scope is the member-profile transfer button
+   (`billing_subScopes`). So nothing is hidden.
+
+**What he sees.** Not a missing button and not silence — an error, but the
+latest possible one. The preview route needs only `messages:view`, so he
+composes the email, previews all 293 recipients, and everything looks right.
+Send returns 403 and the composer shows the body inline: *"You don't have the
+'messages.bulk' permission. Ask an owner to enable it in Settings → Staff."*
+On the announcements page the same message arrives as a browser `alert()`.
+
+**Fix:** Settings → Staff, tick `bulk` (and `audience_all_club` if he should
+reach the whole club), then have him sign out and back in.
+
+### §6A.8 mapping applied — 26 → 4
+
+22 route files gated. Money routes use `requirePermissionLive` so a revoked
+permission bites without re-login: `expenses/[id]` (finances:full),
+`products/[id]/sell` (finances:edit), `members/subscribe` and
+`members/subscriptions/[subId]` (billing:full). The rest use `requirePermission`.
+
+Every rewrite adds an explicit `if (!session) return 401` before the guard —
+the CLAUDE.md null-narrowing gotcha, which would otherwise fail the build.
+
+The 4 that remain are held deliberately and named in the guard's baseline
+comment: `announcements` ×2 pending the decision above, and the two at-the-door
+charge routes pending the owner's workflow answer (the reply came through as an
+unfilled template).
+
+### Permission boundaries are now behavioural, not static
+
+`scripts/permission-behaviour-tests.ts` — 18 assertions against the REAL
+exported handlers. It intercepts the module loader before requiring a route, so
+`getServerSession` returns a fabricated session and `@/lib/prisma` is a stub
+whose every non-`staffProfile` model throws. A query that runs is a guard that
+did not fire.
+
+Covers: Sal with `finances:none` → 403 on the expenses DELETE; `finances:view`
+is not enough; owner never blocked; MEMBER 403; no session 401 (not 403); and
+both directions of live revocation — a stale token saying `full` against a live
+row saying `none` is denied, and the reverse is allowed.
+
+Two harness bugs worth remembering, both of which produced false failures:
+`requirePermissionLive` memoises per userId, so every fixture needs a fresh id;
+and a validation 400 is a returned Response, not a throw, so ALLOW cases must
+assert "not 401/403" rather than any specific code.

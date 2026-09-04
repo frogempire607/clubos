@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import {
   parseMemberFormConfig,
   ALWAYS_ON_FIELDS,
@@ -52,9 +53,9 @@ const writeSchema = z.object({
 // PUT /api/club/member-form — owner/staff only
 export async function PUT(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "members", "full");
+  if (denied) return denied;
 
   try {
     const data = writeSchema.parse(await req.json());

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { upsertGuardianProfile, type GuardianInput } from "@/lib/guardian";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
@@ -87,9 +88,9 @@ const IMPORT_CONCURRENCY = 5;
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "members", "full");
+  if (denied) return denied;
 
   // 5 imports per 10 minutes per session. Member import is heavy
   // (DB writes per row up to 2000) and a normal user does it rarely.

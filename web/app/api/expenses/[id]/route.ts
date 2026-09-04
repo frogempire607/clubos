@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermissionLive } from "@/lib/apiGuard";
 
 const updateSchema = z.object({
   description: z.string().min(1).optional(),
@@ -23,9 +24,9 @@ const updateSchema = z.object({
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await requirePermissionLive(session, "finances", "full");
+  if (denied) return denied;
 
   const expense = await prisma.expense.findFirst({ where: { id: params.id, clubId: session.user.clubId } });
   if (!expense) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -46,9 +47,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await requirePermissionLive(session, "finances", "full");
+  if (denied) return denied;
 
   const expense = await prisma.expense.findFirst({ where: { id: params.id, clubId: session.user.clubId } });
   if (!expense) return NextResponse.json({ error: "Not found" }, { status: 404 });

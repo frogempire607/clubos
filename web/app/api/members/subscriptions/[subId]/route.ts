@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermissionLive } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import {
@@ -29,9 +30,9 @@ const patchSchema = z.object({
 export async function PATCH(req: Request, context: { params: Promise<{ subId: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await requirePermissionLive(session, "billing", "full");
+  if (denied) return denied;
 
   const sub = await prisma.memberSubscription.findFirst({
     where: { id: params.subId, member: { clubId: session.user.clubId } },
@@ -86,9 +87,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ subId: st
 export async function DELETE(_req: Request, context: { params: Promise<{ subId: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await requirePermissionLive(session, "billing", "full");
+  if (denied) return denied;
 
   const sub = await prisma.memberSubscription.findFirst({
     where: { id: params.subId, member: { clubId: session.user.clubId } },

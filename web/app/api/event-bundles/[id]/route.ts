@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
@@ -18,9 +19,9 @@ const patchSchema = z.object({
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "events", "edit");
+  if (denied) return denied;
 
   const bundle = await prisma.eventBundle.findFirst({
     where: { id, clubId: session.user.clubId, deletedAt: null },
@@ -68,9 +69,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "events", "edit");
+  if (denied) return denied;
 
   const bundle = await prisma.eventBundle.findFirst({
     where: { id, clubId: session.user.clubId, deletedAt: null },
