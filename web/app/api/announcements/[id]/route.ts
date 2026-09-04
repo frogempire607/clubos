@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { z } from "zod";
 
 const schema = z.object({
@@ -18,9 +19,8 @@ export async function PATCH(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const denied = requirePermission(session, "messages", "full");
+  if (denied) return denied;
 
   try {
     const data = schema.parse(await req.json());
@@ -54,9 +54,8 @@ export async function DELETE(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const denied = requirePermission(session, "messages", "full");
+  if (denied) return denied;
 
   await prisma.announcement.update({
     where: { id: params.id, clubId: session.user.clubId },

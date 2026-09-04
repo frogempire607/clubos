@@ -127,18 +127,17 @@ for (const file of walk(API)) {
  * the same day and took it to 4. The four that remain are HELD ON PURPOSE, not
  * missed:
  *
- *   announcements, announcements/[id]   the owner is deciding whether a
- *                                       broadcast needs a higher bar than
- *                                       messages:send, and is investigating a
- *                                       live "staff cannot send" report first
- *   classes/[id]/charge                 taking money at the door. billing:full
- *   events/[id]/charge                  is the safe reading but would stop a
- *                                       coach who checks people in and takes a
- *                                       drop-in payment — owner's call
+ *   classes/[id]/charge   taking money at the door. billing:full is the safe
+ *   events/[id]/charge    reading, but it would stop a coach who checks people
+ *                         in and takes a drop-in payment. Owner's call, still
+ *                         outstanding as of 2026-09-04.
+ *
+ * Announcements left this list the same day: the owner ruled messages:full,
+ * "a DM and a broadcast to 293 families shouldn't be the same bar."
  *
  * Lower this as those land; never raise it.
  */
-const BASELINE = 4;
+const BASELINE = 2;
 /**
  * Routes with no role check at all.
  *

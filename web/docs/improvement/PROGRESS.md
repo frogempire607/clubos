@@ -4182,3 +4182,23 @@ Two harness bugs worth remembering, both of which produced false failures:
 `requirePermissionLive` memoises per userId, so every fixture needs a fresh id;
 and a validation 400 is a returned Response, not a throw, so ALLOW cases must
 assert "not 401/403" rather than any specific code.
+
+## 2026-09-04 (later still) — announcements raised to messages:full
+
+Owner ruling: "a DM and a broadcast to 293 families shouldn't be the same bar."
+
+Applied to create, edit and delete — and also to **send, schedule and cancel**,
+which were on `messages:send` + the `bulk` sub-scope. Raising only the create
+path would have left a staffer who cannot WRITE an announcement able to SEND one
+somebody else drafted, which reaches the same 293 families. The `bulk` sub-scope
+stays on top of the higher level, so both gates now have to pass.
+
+Sal is unaffected — he holds `messages: full`.
+
+Permission-boundary baseline 4 → 2. The two left are the at-the-door charge
+routes; the owner's answer has now arrived as an unfilled template twice, so
+they stay held rather than guessed.
+
+`scripts/permission-behaviour-tests.ts` grew to 23, including the three cases
+that pin the new bar: send refuses `messages:send` even WITH `bulk`, allows
+`messages:full` WITH `bulk`, and still refuses `messages:full` WITHOUT it.

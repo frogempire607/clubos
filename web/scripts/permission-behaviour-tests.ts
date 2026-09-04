@@ -173,6 +173,8 @@ const PRODUCTS = require.resolve("../app/api/products/route.ts");
 const RELATIONSHIPS = require.resolve("../app/api/members/[id]/relationships/route.ts");
 const DOCUMENTS = require.resolve("../app/api/documents/route.ts");
 const MEMBERS = require.resolve("../app/api/members/route.ts");
+const ANNOUNCEMENTS = require.resolve("../app/api/announcements/route.ts");
+const ANNOUNCE_SEND = require.resolve("../app/api/announcements/[id]/send/route.ts");
 
 async function main() {
   console.log("\nPERMISSION BEHAVIOUR — real handlers, real status codes\n");
@@ -244,6 +246,25 @@ async function main() {
     denied(await call(MEMBERS, "POST", staff(COACH_DEFAULTS), COACH_DEFAULTS), 403));
   check("members POST allows members:edit",
     allowed(await call(MEMBERS, "POST", staff({ ...COACH_DEFAULTS, members: "edit" }), null)));
+
+  // The owner's 2026-09-04 ruling: a broadcast is not a DM. messages:send is
+  // deliberately NOT enough — including on the send route, which a staffer who
+  // cannot write an announcement could otherwise still fire.
+  console.log("\nannouncements — broadcast needs messages:full, not messages:send");
+  const SEND_LEVEL = { ...COACH_DEFAULTS, messages: "send" };
+  check("create refuses messages:send",
+    denied(await call(ANNOUNCEMENTS, "POST", staff(SEND_LEVEL), SEND_LEVEL), 403));
+  check("create allows messages:full",
+    allowed(await call(ANNOUNCEMENTS, "POST", staff({ ...COACH_DEFAULTS, messages: "full" }), null)));
+  check("SEND refuses messages:send even with the bulk sub-scope",
+    denied(await call(ANNOUNCE_SEND, "POST",
+      staff({ ...SEND_LEVEL, messages_subScopes: { bulk: true } }), null, { id: "a1" }), 403));
+  check("SEND allows messages:full with the bulk sub-scope",
+    allowed(await call(ANNOUNCE_SEND, "POST",
+      staff({ ...COACH_DEFAULTS, messages: "full", messages_subScopes: { bulk: true } }), null, { id: "a1" })));
+  check("SEND still refuses messages:full WITHOUT the bulk sub-scope",
+    denied(await call(ANNOUNCE_SEND, "POST",
+      staff({ ...COACH_DEFAULTS, messages: "full", messages_subScopes: { bulk: false } }), null, { id: "a1" }), 403));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) {
