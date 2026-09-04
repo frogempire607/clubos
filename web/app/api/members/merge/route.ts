@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { writeBillingAudit } from "@/lib/billingAudit";
 
 // POST /api/members/merge  { winnerId, loserId, fields? }
 //
@@ -280,6 +281,27 @@ export async function POST(req: Request) {
         notes: `${winner.notes ? winner.notes + " " : ""}[merged duplicate ${loser.firstName} ${loser.lastName} (${loserId}) on ${today}]`,
       },
     });
+  });
+
+  // §6A — "Add audit logs for … merges". The breadcrumb in `notes` is for a
+  // human reading the profile; this is the queryable record. A merge moves
+  // bookings, signatures, messages and relationships between two people and
+  // soft-deletes one of them, and until now the only trace was a sentence
+  // appended to a free-text field.
+  await writeBillingAudit({
+    clubId,
+    memberId: winnerId,
+    actorUserId: session.user.id ?? null,
+    action: "MEMBERS_MERGED",
+    before: {
+      loser: { id: loserId, name: `${loser.firstName} ${loser.lastName}`.trim(), email: loser.email, userId: loser.userId },
+      winner: { id: winnerId, name: `${winner.firstName} ${winner.lastName}`.trim(), email: winner.email, userId: winner.userId },
+    },
+    after: { survivorId: winnerId, fieldsTakenFromDuplicate: Object.keys(fieldCarry) },
+    note:
+      `Merged ${loser.firstName} ${loser.lastName} (${loserId}) into ${winner.firstName} ` +
+      `${winner.lastName} (${winnerId}). The duplicate is soft-deleted, not removed — ` +
+      "its history now hangs off the survivor and the row is retained for reversal.",
   });
 
   return NextResponse.json({ ok: true, winnerId, loserId });

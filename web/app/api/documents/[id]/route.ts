@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
 import { REQUIRED_DOCUMENT_SURFACES } from "@/lib/documents";
 
@@ -48,9 +49,9 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "documents", "edit");
+  if (denied) return denied;
 
   const doc = await getDoc(params.id, session.user.clubId);
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -102,9 +103,9 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "documents", "edit");
+  if (denied) return denied;
 
   const doc = await getDoc(params.id, session.user.clubId);
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });

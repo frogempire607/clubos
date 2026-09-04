@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { sendEmail, isEmailConfigured, smtpMissingVars } from "@/lib/email";
 import { buildUnsubscribeUrl } from "@/lib/unsubscribe";
 import { getTierFeatures } from "@/lib/tier";
@@ -49,9 +50,8 @@ export async function POST(req: Request) {
   // Role gate: only OWNER or STAFF with messages permission can broadcast.
   // Without this a MEMBER could craft a POST and broadcast to every member
   // (including email blasts on Pro+) — never accepted to ship that.
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const denied = requirePermission(session, "messages", "full");
+  if (denied) return denied;
 
   try {
     const data = schema.parse(await req.json());

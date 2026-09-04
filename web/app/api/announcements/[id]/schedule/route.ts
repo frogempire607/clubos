@@ -26,7 +26,7 @@ const schema = z.object({
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "messages", "send");
+  const denied = requirePermission(session, "messages", "full");
   if (denied) return denied;
   const scopeDenied = requireMessagesSubScope(session, "bulk");
   if (scopeDenied) return scopeDenied;

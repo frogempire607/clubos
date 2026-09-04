@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -36,9 +37,9 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "finances", "edit");
+  if (denied) return denied;
 
   try {
     const body = schema.parse(await req.json());

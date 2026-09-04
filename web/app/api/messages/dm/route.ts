@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { getTierFeatures } from "@/lib/tier";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
@@ -100,9 +101,9 @@ const dmBodySchema = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "messages", "send");
+  if (denied) return denied;
 
   // Rate limit: 30 messages per minute per sender (owner/staff). Keeps a
   // runaway script from spamming the entire club roster.

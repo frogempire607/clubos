@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 import { getTierFeatures } from "@/lib/tier";
 
 async function requireGrowth(clubId: string) {
@@ -48,9 +49,9 @@ const createSchema = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = requirePermission(session, "messages", "send");
+  if (denied) return denied;
 
   const gate = await requireGrowth(session.user.clubId);
   if (gate) return gate;

@@ -4037,3 +4037,168 @@ Two follow-ups worth naming, neither blocking:
 2. **Kellan Lister's `currentPeriodEnd` is 2026-07-14** — in the past, on a live
    Stripe row. The reconciler has not refreshed it. That is a `stripeSync`
    question, not a member-field one.
+
+## 2026-09-04 — §6A/§6B: the audit-log gaps, and the permission boundary
+
+Branch `claude/phase-6-safety-integrity-634dea`. No migration, no schema change.
+Full deliverable: `docs/improvement/PHASE-6-DELIVERABLE.md`.
+
+### Most of §6A was already met
+
+Worth recording, because the phase reads like a to-do list and mostly is not.
+Transactions, idempotency, deletion safety, double-counting and family isolation
+all check out — the three idempotency gaps ARCHITECTURE-NOTES named for Phase 6
+to close were closed by Phases 3, 4 and 5 (`(sendBatchId, dedupeKey)`, the
+transfer's conditional `updateMany` claim, and `aox-eventreg-<id>-a<attempt>`).
+
+### The one real hole: `/api` has no middleware
+
+`middleware.ts` matches `/dashboard`, `/admin`, `/member`. **Not `/api`.** So
+middleware governs which pages a staffer can open and nothing about which
+requests they can send; for an API route the guard in that route is the whole
+boundary.
+
+**26 staff-facing mutating routes check only `OWNER || STAFF`** and admit every
+staff member regardless of `StaffProfile.permissions`. Sharpest case:
+`/api/expenses/[id]` PATCH and DELETE are ungated while
+`DEFAULT_PERMISSIONS.finances` is `"none"` — a coach explicitly denied finances
+can edit and delete expenses by calling the API directly. Also in the list:
+create members, sell products, cancel subscriptions, import members, create and
+delete family relationships.
+
+**Not fixed, deliberately.** Each route needs a key AND a level, and a wrong
+choice locks real staff out mid-season — "do not break role permissions" is a
+standing guardrail. The proposed mapping is in the deliverable and needs owner
+approval; two entries genuinely need a decision rather than a default
+(at-the-door charge routes: `billing:full` vs `attendance:full`; announcements:
+`messages:send` vs `messages:full`).
+
+`scripts/permission-boundary-guard.ts` holds the line at 26 and gates the build,
+so the number cannot grow while the mapping waits. Verified by adding a probe
+route and confirming it fails.
+
+Two things the first cut of that scan got wrong, both corrected: it missed
+`requirePermissionLive` (78 false hits), and it lumped owner-only routes in with
+any-staff ones. Owner-only is *stronger* than a permission — 23 routes are
+correctly owner-gated and are reported separately, not as debt.
+
+### Three audit-log gaps closed (§6A.3)
+
+All were previously silent, and `writeBillingAudit` never throws or blocks:
+
+- **`members/merge`** → `MEMBERS_MERGED`. A merge moves bookings, signatures,
+  messages and relationships between two people and soft-deletes one; the only
+  trace was a sentence appended to `notes`.
+- **`transactions/[id]` PATCH** → `TRANSACTION_RECLASSIFIED` /
+  `TRANSACTION_REFUND_RECORDED`, with a real before/after (the preflight select
+  had to widen to carry it). This route moves rows between tax categories and
+  legal entities and records refunds.
+- **`transactions/[id]` DELETE** → `TRANSACTION_DELETED`. The row still goes —
+  it is the manual-entry escape hatch and a mistyped cash entry should not be
+  permanent — but the fact it existed no longer does.
+- **`members/[id]/relationships`** → `RELATIONSHIP_ADDED` / `RELATIONSHIP_REMOVED`.
+  A family link decides who can see and book for whom.
+
+### §6B, honestly
+
+`npm run test:phase6` = subscription-truth + permission-boundary + non-renewal.
+Both guards gate `npm run build`, still the only enforcement point in the repo.
+
+**Not done, and not to be read as done:** Plaid sandbox flows (no fixture — the
+double-counting rule is enforced by a unique index, not a test); CSV import with
+duplicate/malformed records; accessibility; mobile/tablet re-verification. And
+the permission check is **static** — it proves a route calls a guard helper, not
+that a staffer with `finances:none` actually gets a 403. That needs a seeded
+staff fixture per level and is the next real piece of work.
+
+## 2026-09-04 (later) — the mapping applied, and permissions tested for real
+
+Branch `claude/phase-6-safety-integrity-634dea`. No migration.
+
+### Why Sal cannot send email — it IS permissions, just not the one being looked at
+
+`messages: "full"` does not grant bulk send. Bulk lives in a SEPARATE nested
+blob, `permissions.messages_subScopes`, and `DEFAULT_MESSAGES_SUBSCOPES.bulk` is
+**false**. `hasMessagesSubScope` never consults the top-level level at all — it
+reads `perms["messages_subScopes"][scope]` and falls back to the default. So a
+staffer can hold `messages: full` and still be denied.
+
+Both surfaces gate on the same sub-scope: `/api/members/bulk` (the Members-tab
+composer, §3L) and `/api/announcements/[id]/send`, `/schedule`, `/cancel`.
+
+Three compounding details:
+
+1. **`audience_all_club` also defaults false.** Even once `bulk` is granted,
+   `lib/coachAudience.ts` narrows the recipient list to members enrolled in
+   classes or events that staffer teaches. Teaching none returns 403
+   `OUTSIDE_COACH_AUDIENCE` — "None of the selected members qualified."
+2. **`requireMessagesSubScope` reads the JWT, not the database.** Unlike
+   `requirePermissionLive`, it uses `session.user.permissions`, frozen at
+   sign-in. Granting the sub-scope does nothing until that staffer signs out and
+   back in.
+3. **No client code reads `messages_subScopes`.** `/api/me` returns it, and the
+   only UI that consults a sub-scope is the member-profile transfer button
+   (`billing_subScopes`). So nothing is hidden.
+
+**What he sees.** Not a missing button and not silence — an error, but the
+latest possible one. The preview route needs only `messages:view`, so he
+composes the email, previews all 293 recipients, and everything looks right.
+Send returns 403 and the composer shows the body inline: *"You don't have the
+'messages.bulk' permission. Ask an owner to enable it in Settings → Staff."*
+On the announcements page the same message arrives as a browser `alert()`.
+
+**Fix:** Settings → Staff, tick `bulk` (and `audience_all_club` if he should
+reach the whole club), then have him sign out and back in.
+
+### §6A.8 mapping applied — 26 → 4
+
+22 route files gated. Money routes use `requirePermissionLive` so a revoked
+permission bites without re-login: `expenses/[id]` (finances:full),
+`products/[id]/sell` (finances:edit), `members/subscribe` and
+`members/subscriptions/[subId]` (billing:full). The rest use `requirePermission`.
+
+Every rewrite adds an explicit `if (!session) return 401` before the guard —
+the CLAUDE.md null-narrowing gotcha, which would otherwise fail the build.
+
+The 4 that remain are held deliberately and named in the guard's baseline
+comment: `announcements` ×2 pending the decision above, and the two at-the-door
+charge routes pending the owner's workflow answer (the reply came through as an
+unfilled template).
+
+### Permission boundaries are now behavioural, not static
+
+`scripts/permission-behaviour-tests.ts` — 18 assertions against the REAL
+exported handlers. It intercepts the module loader before requiring a route, so
+`getServerSession` returns a fabricated session and `@/lib/prisma` is a stub
+whose every non-`staffProfile` model throws. A query that runs is a guard that
+did not fire.
+
+Covers: Sal with `finances:none` → 403 on the expenses DELETE; `finances:view`
+is not enough; owner never blocked; MEMBER 403; no session 401 (not 403); and
+both directions of live revocation — a stale token saying `full` against a live
+row saying `none` is denied, and the reverse is allowed.
+
+Two harness bugs worth remembering, both of which produced false failures:
+`requirePermissionLive` memoises per userId, so every fixture needs a fresh id;
+and a validation 400 is a returned Response, not a throw, so ALLOW cases must
+assert "not 401/403" rather than any specific code.
+
+## 2026-09-04 (later still) — announcements raised to messages:full
+
+Owner ruling: "a DM and a broadcast to 293 families shouldn't be the same bar."
+
+Applied to create, edit and delete — and also to **send, schedule and cancel**,
+which were on `messages:send` + the `bulk` sub-scope. Raising only the create
+path would have left a staffer who cannot WRITE an announcement able to SEND one
+somebody else drafted, which reaches the same 293 families. The `bulk` sub-scope
+stays on top of the higher level, so both gates now have to pass.
+
+Sal is unaffected — he holds `messages: full`.
+
+Permission-boundary baseline 4 → 2. The two left are the at-the-door charge
+routes; the owner's answer has now arrived as an unfilled template twice, so
+they stay held rather than guessed.
+
+`scripts/permission-behaviour-tests.ts` grew to 23, including the three cases
+that pin the new bar: send refuses `messages:send` even WITH `bulk`, allows
+`messages:full` WITH `bulk`, and still refuses `messages:full` WITHOUT it.

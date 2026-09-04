@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 const bookSchema = z.object({
   memberId: z.string(),
@@ -15,9 +16,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // Owner-side booking creation. Members must use /api/member/events/[id]/register
   // (which enforces parent controls + tier gates). Without this gate a MEMBER
   // could book any other member into any event in the club.
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const denied = requirePermission(session, "events", "edit");
+  if (denied) return denied;
 
   try {
     const body = await req.json();
@@ -65,9 +65,8 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const denied = requirePermission(session, "events", "edit");
+  if (denied) return denied;
 
   try {
     const { searchParams } = new URL(req.url);

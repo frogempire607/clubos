@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermissionLive } from "@/lib/apiGuard";
 import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
@@ -22,9 +23,9 @@ const schema = z.object({
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await requirePermissionLive(session, "finances", "edit");
+  if (denied) return denied;
 
   const product = await prisma.product.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null, active: true },

@@ -9,6 +9,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermissionLive } from "@/lib/apiGuard";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
@@ -74,9 +75,9 @@ function billingAnchorForDay(day: number, now: Date = new Date()): Date {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await requirePermissionLive(session, "billing", "full");
+  if (denied) return denied;
 
   try {
     const body = schema.parse(await req.json());
