@@ -32,7 +32,7 @@ async function authorize(subscriptionId: string, clubId: string, userId: string)
       id: true, memberId: true, status: true, autoRenew: true, optionLabel: true,
       price: true, billingPeriod: true, endDate: true, minimumTermEndsAt: true,
       currentPeriodEnd: true, paidThroughDate: true,
-      member: { select: { userId: true, commitmentEndDate: true } },
+      member: { select: { userId: true } },
     },
   });
   if (!sub) return { error: NextResponse.json({ error: "Membership not found." }, { status: 404 }) };
@@ -59,7 +59,10 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   if (gate.error) return gate.error;
   const sub = gate.sub!;
 
-  const term = sub.minimumTermEndsAt ?? sub.member.commitmentEndDate ?? null;
+  // Subscription-level only. This read used to fall back to
+  // Member.commitmentEndDate and could describe a DIFFERENT membership — see
+  // the note above planNonRenewal in lib/autopay.ts.
+  const term = sub.minimumTermEndsAt ?? sub.endDate ?? null;
   const termRunning = !!term && term.getTime() > Date.now();
 
   return NextResponse.json({

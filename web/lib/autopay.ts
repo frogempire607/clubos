@@ -448,7 +448,7 @@ export async function setAutoRenew(
       id: true, memberId: true, autoRenew: true, optionLabel: true, price: true,
       billingPeriod: true, minimumTermEndsAt: true,
       stripeSubscriptionId: true, endDate: true, currentPeriodEnd: true, paidThroughDate: true,
-      member: { select: { commitmentEndDate: true, club: { select: { stripeAccountId: true } } } },
+      member: { select: { club: { select: { stripeAccountId: true } } } },
     },
   });
   if (!sub) return { ok: false, code: "NOT_FOUND", error: "That membership no longer exists." };
@@ -483,7 +483,7 @@ export async function setAutoRenew(
           planNonRenewal(
             {
               minimumTermEndsAt: sub.minimumTermEndsAt,
-              commitmentEndDate: sub.member.commitmentEndDate,
+              endDate: sub.endDate,
               currentPeriodEnd: sub.currentPeriodEnd,
               paidThroughDate: sub.paidThroughDate,
             },
@@ -578,8 +578,14 @@ export type NonRenewalPlan =
 
 type NonRenewalInput = {
   minimumTermEndsAt: Date | null;
-  /** Legacy rows written before §8.8.1 carry no term; the member row may. */
-  commitmentEndDate?: Date | null;
+  /**
+   * Legacy rows written before §8.8.1 carry no `minimumTermEndsAt`, and this is
+   * where their commitment date already lives: activation, approve and
+   * reactivation all COPY `Member.commitmentEndDate` onto the subscription's
+   * `endDate` at purchase. Reading it here instead of the member row is the
+   * whole fix — see the note above `planNonRenewal`.
+   */
+  endDate: Date | null;
   currentPeriodEnd: Date | null;
   paidThroughDate: Date | null;
 };
@@ -587,9 +593,34 @@ type NonRenewalInput = {
 /**
  * Where a non-renewing subscription should actually stop. Pure — `now` is
  * injected so every branch is testable without waiting for a date to pass.
+ *
+ * ── Why this no longer reads `Member.commitmentEndDate` (2026-09-03) ────────
+ *
+ * It used to, as a fallback for rows with no `minimumTermEndsAt`, and the date
+ * it produced was written to STRIPE as `cancel_at`. That made this the last
+ * live path where a member-level field decided a subscription-level fact.
+ *
+ * A member holds one membership, ends it, buys another — or holds two at once.
+ * One date on the member row cannot say which of those it meant. Measured
+ * against production on 2026-09-03: 28 of 33 live subscriptions had no term of
+ * their own, 17 would have taken their Stripe stop date from the member row,
+ * and three of those disagreed with the subscription they would have stopped.
+ * One member held TWO live subscriptions behind a single member-level date;
+ * turning auto-renew off on the second would have handed Stripe a date five
+ * months early.
+ *
+ * `endDate` is the same value, per subscription. Activation, approve and
+ * reactivation all copy `Member.commitmentEndDate` onto it at purchase, so
+ * legacy rows keep the behaviour §8.6.6 gave them — a 3-month commitment billed
+ * monthly still stops at the term, not after one month — while a second
+ * membership now stops on its own date instead of its predecessor's.
+ *
+ * When `endDate` is null there is no term, and PERIOD_END sends
+ * `cancel_at_period_end: true`, which lets STRIPE supply the period boundary.
+ * A stale local `currentPeriodEnd` is never the date Stripe acts on.
  */
 export function planNonRenewal(sub: NonRenewalInput, now: Date): NonRenewalPlan {
-  const term = sub.minimumTermEndsAt ?? sub.commitmentEndDate ?? null;
+  const term = sub.minimumTermEndsAt ?? sub.endDate ?? null;
   // A term already served is not a boundary — it is history. Falling back to
   // the period end is right: they are month-to-month from here.
   if (term && term.getTime() > now.getTime()) return { mode: "TERM_END", at: term };

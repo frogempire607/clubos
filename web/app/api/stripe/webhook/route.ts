@@ -201,7 +201,7 @@ export async function POST(req: Request) {
         if (memberSubscriptionId) {
           const memberSub = await prisma.memberSubscription.findFirst({
             where: { id: memberSubscriptionId, member: { clubId } },
-            include: { member: { select: { clubId: true, commitmentEndDate: true } } },
+            include: { member: { select: { clubId: true } } },
           });
 
           if (memberSub) {
@@ -258,7 +258,7 @@ export async function POST(req: Request) {
                     planNonRenewal(
                       {
                         minimumTermEndsAt: memberSub.minimumTermEndsAt,
-                        commitmentEndDate: memberSub.member?.commitmentEndDate ?? null,
+                        endDate: memberSub.endDate,
                         currentPeriodEnd: memberSub.currentPeriodEnd,
                         paidThroughDate: memberSub.paidThroughDate,
                       },

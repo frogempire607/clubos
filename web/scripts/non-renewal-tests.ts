@@ -24,7 +24,7 @@ const iso = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : null);
 // The case that cost a third of the money: monthly billing, 3-month commitment.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: d("2026-11-24"), commitmentEndDate: null,
+    minimumTermEndsAt: d("2026-11-24"), endDate: null,
     currentPeriodEnd: d("2026-09-24"), paidThroughDate: null,
   }, NOW);
   check("a 3-month commitment billed monthly stops at the TERM, not the next month",
@@ -34,7 +34,7 @@ const iso = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : null);
 // Month-to-month: the period IS the boundary, and the old behaviour was right.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: null, commitmentEndDate: null,
+    minimumTermEndsAt: null, endDate: null,
     currentPeriodEnd: d("2026-09-24"), paidThroughDate: null,
   }, NOW);
   check("with no commitment it still stops at the end of the paid period",
@@ -45,37 +45,57 @@ const iso = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : null);
 // auto-renew off would schedule a stop in the past.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: d("2026-06-01"), commitmentEndDate: null,
+    minimumTermEndsAt: d("2026-06-01"), endDate: null,
     currentPeriodEnd: d("2026-09-24"), paidThroughDate: null,
   }, NOW);
   check("a COMPLETED term falls back to the period end, never a date in the past",
     p.mode === "PERIOD_END" && iso(p.at) === "2026-09-24", JSON.stringify(p));
 }
 
-// Rows written before §8.8.1 have no minimumTermEndsAt but the member row may
-// still record the commitment — exactly Max Hall's shape.
+// Rows written before §8.8.1 have no minimumTermEndsAt, but activation/approve
+// copied the commitment onto the SUBSCRIPTION's endDate at purchase. That is
+// what a legacy row falls back to now — never the member row.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: null, commitmentEndDate: d("2027-01-15"),
+    minimumTermEndsAt: null, endDate: d("2027-01-15"),
     currentPeriodEnd: d("2026-09-24"), paidThroughDate: null,
   }, NOW);
-  check("a legacy row falls back to Member.commitmentEndDate",
+  check("a legacy row falls back to the SUBSCRIPTION's own endDate",
     p.mode === "TERM_END" && iso(p.at) === "2027-01-15", JSON.stringify(p));
 }
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: d("2026-11-24"), commitmentEndDate: d("2027-01-15"),
+    minimumTermEndsAt: d("2026-11-24"), endDate: d("2027-01-15"),
     currentPeriodEnd: d("2026-09-24"), paidThroughDate: null,
   }, NOW);
-  check("the subscription's own term beats the member-level one",
+  check("an explicit term beats the copied endDate",
     p.mode === "TERM_END" && iso(p.at) === "2026-11-24", JSON.stringify(p));
+}
+
+// ── The shape the member-level field could not express ─────────────────────
+// Production, 2026-09-03: one member held two live subscriptions behind a
+// single Member.commitmentEndDate of 2027-02-10. The second runs to 2027-07-14.
+// Under the old fallback BOTH stopped on the first one's date — five months
+// early for the second. Each row now answers from itself.
+{
+  const first = planNonRenewal({
+    minimumTermEndsAt: null, endDate: d("2027-02-10"),
+    currentPeriodEnd: null, paidThroughDate: null,
+  }, NOW);
+  const second = planNonRenewal({
+    minimumTermEndsAt: null, endDate: d("2027-07-14"),
+    currentPeriodEnd: null, paidThroughDate: null,
+  }, NOW);
+  check("two subscriptions on one member stop on their OWN dates",
+    iso(first.at) === "2027-02-10" && iso(second.at) === "2027-07-14",
+    JSON.stringify({ first, second }));
 }
 
 // Upfront options: period and term coincide, so both readings agree. Worth
 // pinning — this is the shape that accidentally worked before the fix.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: d("2026-11-24"), commitmentEndDate: null,
+    minimumTermEndsAt: d("2026-11-24"), endDate: null,
     currentPeriodEnd: d("2026-11-24"), paidThroughDate: null,
   }, NOW);
   check("when period and term coincide, the answer is that date either way",
@@ -85,18 +105,21 @@ const iso = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : null);
 // paidThroughDate is the fallback when nothing has reconciled a period end.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: null, commitmentEndDate: null,
+    minimumTermEndsAt: null, endDate: null,
     currentPeriodEnd: null, paidThroughDate: d("2026-10-01"),
   }, NOW);
   check("with no period end it uses how far the money reaches",
     p.mode === "PERIOD_END" && iso(p.at) === "2026-10-01", JSON.stringify(p));
 }
 
-// Nothing known at all: null, not a guess. The caller refuses rather than
-// stopping somebody on an invented date.
+// Nothing known at all: null, not a guess. PERIOD_END means applyNonRenewal
+// sends `cancel_at_period_end`, so STRIPE supplies the boundary — the local
+// nulls never become a date. 24 of 33 live rows were in this state on
+// 2026-09-03, and reaching for Member.billingAnchorDate to fill that gap is
+// the bug, not the fix.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: null, commitmentEndDate: null,
+    minimumTermEndsAt: null, endDate: null,
     currentPeriodEnd: null, paidThroughDate: null,
   }, NOW);
   check("knowing nothing yields null, never today's date",
@@ -106,7 +129,7 @@ const iso = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : null);
 // A term ending today is not still running — the boundary is strict.
 {
   const p = planNonRenewal({
-    minimumTermEndsAt: NOW, commitmentEndDate: null,
+    minimumTermEndsAt: NOW, endDate: null,
     currentPeriodEnd: d("2026-09-24"), paidThroughDate: null,
   }, NOW);
   check("a term ending exactly now counts as served",
