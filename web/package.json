@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
-    "build": "npm run test:subscription-truth && prisma generate && next build",
+    "build": "npm run test:subscription-truth && npm run test:permission-boundary && prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "cap:sync": "node scripts/native-shell-config.mjs && cap sync",
@@ -28,7 +28,8 @@
     "test:members-guards": "tsx scripts/members-grep-guards.ts",
     "test:subscription-truth": "tsx scripts/subscription-truth-guard.ts",
     "test:non-renewal": "tsx scripts/non-renewal-tests.ts",
-    "test:phase6": "npm run test:subscription-truth && npm run test:non-renewal",
+    "test:permission-boundary": "tsx scripts/permission-boundary-guard.ts",
+    "test:phase6": "npm run test:subscription-truth && npm run test:permission-boundary && npm run test:non-renewal",
     "report:subscription-truth": "tsx scripts/report-subscription-truth.ts",
     "test:sport-terms": "tsx scripts/sport-terms-guard.ts",
     "test:phase45": "npm run test:member-tracks && npm run test:member-ui && npm run test:members-guards",

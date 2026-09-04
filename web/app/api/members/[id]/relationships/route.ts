@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { writeBillingAudit } from "@/lib/billingAudit";
 import { relationshipConflictFor } from "@/lib/familyRules";
 
 const REL_TYPES = ["SIBLING", "COUSIN", "FRIEND", "TEAMMATE", "PARENT", "CHILD", "SPOUSE", "OTHER"] as const;
@@ -80,6 +81,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       note: body.note || null,
     },
   });
+
+  // §6A — "Add audit logs for … relationship changes". A family link decides
+  // who can see and book for whom, so who added it is a safety question, not
+  // bookkeeping.
+  await writeBillingAudit({
+    clubId: session.user.clubId,
+    memberId: id,
+    actorUserId: session.user.id ?? null,
+    action: "RELATIONSHIP_ADDED",
+    before: null,
+    after: { relationshipId: rel.id, relatedMemberId: body.relatedMemberId, type: body.type },
+    note: `Linked member ${id} to ${body.relatedMemberId} as ${body.type}.`,
+  });
+
   return NextResponse.json(rel, { status: 201 });
 }
 
@@ -103,6 +118,15 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   });
   if (!rel) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  await writeBillingAudit({
+    clubId: session.user.clubId,
+    memberId: id,
+    actorUserId: session.user.id ?? null,
+    action: "RELATIONSHIP_REMOVED",
+    before: { relationshipId: rel.id, memberId: rel.memberId, relatedMemberId: rel.relatedMemberId, type: rel.type },
+    after: null,
+    note: `Unlinked member ${rel.memberId} from ${rel.relatedMemberId}.`,
+  });
   await prisma.memberRelationship.delete({ where: { id: rel.id } });
   return NextResponse.json({ ok: true });
 }

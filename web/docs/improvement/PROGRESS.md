@@ -4037,3 +4037,76 @@ Two follow-ups worth naming, neither blocking:
 2. **Kellan Lister's `currentPeriodEnd` is 2026-07-14** — in the past, on a live
    Stripe row. The reconciler has not refreshed it. That is a `stripeSync`
    question, not a member-field one.
+
+## 2026-09-04 — §6A/§6B: the audit-log gaps, and the permission boundary
+
+Branch `claude/phase-6-safety-integrity-634dea`. No migration, no schema change.
+Full deliverable: `docs/improvement/PHASE-6-DELIVERABLE.md`.
+
+### Most of §6A was already met
+
+Worth recording, because the phase reads like a to-do list and mostly is not.
+Transactions, idempotency, deletion safety, double-counting and family isolation
+all check out — the three idempotency gaps ARCHITECTURE-NOTES named for Phase 6
+to close were closed by Phases 3, 4 and 5 (`(sendBatchId, dedupeKey)`, the
+transfer's conditional `updateMany` claim, and `aox-eventreg-<id>-a<attempt>`).
+
+### The one real hole: `/api` has no middleware
+
+`middleware.ts` matches `/dashboard`, `/admin`, `/member`. **Not `/api`.** So
+middleware governs which pages a staffer can open and nothing about which
+requests they can send; for an API route the guard in that route is the whole
+boundary.
+
+**26 staff-facing mutating routes check only `OWNER || STAFF`** and admit every
+staff member regardless of `StaffProfile.permissions`. Sharpest case:
+`/api/expenses/[id]` PATCH and DELETE are ungated while
+`DEFAULT_PERMISSIONS.finances` is `"none"` — a coach explicitly denied finances
+can edit and delete expenses by calling the API directly. Also in the list:
+create members, sell products, cancel subscriptions, import members, create and
+delete family relationships.
+
+**Not fixed, deliberately.** Each route needs a key AND a level, and a wrong
+choice locks real staff out mid-season — "do not break role permissions" is a
+standing guardrail. The proposed mapping is in the deliverable and needs owner
+approval; two entries genuinely need a decision rather than a default
+(at-the-door charge routes: `billing:full` vs `attendance:full`; announcements:
+`messages:send` vs `messages:full`).
+
+`scripts/permission-boundary-guard.ts` holds the line at 26 and gates the build,
+so the number cannot grow while the mapping waits. Verified by adding a probe
+route and confirming it fails.
+
+Two things the first cut of that scan got wrong, both corrected: it missed
+`requirePermissionLive` (78 false hits), and it lumped owner-only routes in with
+any-staff ones. Owner-only is *stronger* than a permission — 23 routes are
+correctly owner-gated and are reported separately, not as debt.
+
+### Three audit-log gaps closed (§6A.3)
+
+All were previously silent, and `writeBillingAudit` never throws or blocks:
+
+- **`members/merge`** → `MEMBERS_MERGED`. A merge moves bookings, signatures,
+  messages and relationships between two people and soft-deletes one; the only
+  trace was a sentence appended to `notes`.
+- **`transactions/[id]` PATCH** → `TRANSACTION_RECLASSIFIED` /
+  `TRANSACTION_REFUND_RECORDED`, with a real before/after (the preflight select
+  had to widen to carry it). This route moves rows between tax categories and
+  legal entities and records refunds.
+- **`transactions/[id]` DELETE** → `TRANSACTION_DELETED`. The row still goes —
+  it is the manual-entry escape hatch and a mistyped cash entry should not be
+  permanent — but the fact it existed no longer does.
+- **`members/[id]/relationships`** → `RELATIONSHIP_ADDED` / `RELATIONSHIP_REMOVED`.
+  A family link decides who can see and book for whom.
+
+### §6B, honestly
+
+`npm run test:phase6` = subscription-truth + permission-boundary + non-renewal.
+Both guards gate `npm run build`, still the only enforcement point in the repo.
+
+**Not done, and not to be read as done:** Plaid sandbox flows (no fixture — the
+double-counting rule is enforced by a unique index, not a test); CSV import with
+duplicate/malformed records; accessibility; mobile/tablet re-verification. And
+the permission check is **static** — it proves a route calls a guard helper, not
+that a staffer with `finances:none` actually gets a 403. That needs a seeded
+staff fixture per level and is the next real piece of work.
