@@ -142,6 +142,12 @@ async function call(
   const mod = require(modulePath) as Record<string, (r: Request, c?: unknown) => Promise<Response>>;
   const handler = mod[verb];
   if (!handler) throw new Error(`${modulePath} has no ${verb}`);
+  // Handlers that get past the guard hit this file's empty body and log the
+  // resulting ZodError. That is correct behaviour and completely unreadable
+  // here, so their console is muted for the duration of the call — never
+  // globally, or a real failure would be muted too.
+  const realLog = console.log, realError = console.error, realWarn = console.warn;
+  console.log = console.error = console.warn = () => {};
   try {
     const res = await handler(req(), { params: Promise.resolve(params) });
     return { status: res.status, blocked: res.status === 401 || res.status === 403 };
@@ -149,6 +155,8 @@ async function call(
     // Reached the stubbed database, or threw parsing the body. Either way the
     // guard did not stop it.
     return { status: null, blocked: false };
+  } finally {
+    console.log = realLog; console.error = realError; console.warn = realWarn;
   }
 }
 
@@ -175,6 +183,8 @@ const DOCUMENTS = require.resolve("../app/api/documents/route.ts");
 const MEMBERS = require.resolve("../app/api/members/route.ts");
 const ANNOUNCEMENTS = require.resolve("../app/api/announcements/route.ts");
 const ANNOUNCE_SEND = require.resolve("../app/api/announcements/[id]/send/route.ts");
+const CLASS_CHARGE = require.resolve("../app/api/classes/[id]/charge/route.ts");
+const EVENT_CHARGE = require.resolve("../app/api/events/[id]/charge/route.ts");
 
 async function main() {
   console.log("\nPERMISSION BEHAVIOUR — real handlers, real status codes\n");
@@ -265,6 +275,26 @@ async function main() {
   check("SEND still refuses messages:full WITHOUT the bulk sub-scope",
     denied(await call(ANNOUNCE_SEND, "POST",
       staff({ ...COACH_DEFAULTS, messages: "full", messages_subScopes: { bulk: false } }), null, { id: "a1" }), 403));
+
+  // Owner ruling 2026-09-08: at-the-door charging follows whoever runs the
+  // door, so it is gated on attendance, not billing. DEFAULT_PERMISSIONS gives
+  // a fresh coach attendance:full, which is the point — this must NOT lock the
+  // front desk out mid-session.
+  console.log("\nat-the-door charging — attendance:full, deliberately not billing");
+  check("a coach on the shipped defaults CAN charge at the door",
+    allowed(await call(CLASS_CHARGE, "POST", staff(COACH_DEFAULTS), COACH_DEFAULTS, { id: "c1" })));
+  check("attendance:view is not enough — 403",
+    denied(await call(CLASS_CHARGE, "POST", staff({ ...COACH_DEFAULTS, attendance: "view" }),
+      { ...COACH_DEFAULTS, attendance: "view" }, { id: "c1" }), 403));
+  check("billing:none does NOT block the door (that was the whole ruling)",
+    allowed(await call(EVENT_CHARGE, "POST", staff({ ...COACH_DEFAULTS, billing: "none" }),
+      { ...COACH_DEFAULTS, billing: "none" }, { id: "e1" })));
+  check("event charge refuses attendance:none",
+    denied(await call(EVENT_CHARGE, "POST", staff({ ...COACH_DEFAULTS, attendance: "none" }),
+      { ...COACH_DEFAULTS, attendance: "none" }, { id: "e1" }), 403));
+  check("revoking attendance mid-shift bites without a re-login",
+    denied(await call(CLASS_CHARGE, "POST", staff(COACH_DEFAULTS),
+      { ...COACH_DEFAULTS, attendance: "none" }, { id: "c1" }), 403));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) {

@@ -4202,3 +4202,26 @@ they stay held rather than guessed.
 `scripts/permission-behaviour-tests.ts` grew to 23, including the three cases
 that pin the new bar: send refuses `messages:send` even WITH `bulk`, allows
 `messages:full` WITH `bulk`, and still refuses `messages:full` WITHOUT it.
+
+## 2026-09-08 — the permission boundary reaches zero
+
+Owner ruling: at-the-door charging is a COACH workflow. `classes/[id]/charge`
+and `events/[id]/charge` are gated on **`attendance:full`**, live-checked because
+they move money. `DEFAULT_PERMISSIONS.attendance` is already `full`, so a fresh
+coach can still take a drop-in — the alternative reading (`billing:full`) would
+have stopped the front desk mid-session, which is why this one was worth waiting
+three days to have answered rather than guessed.
+
+**Permission-boundary baseline is now 0, and the guard is a WALL rather than a
+ratchet.** Every staff-facing mutating API route consults permissions. The next
+one that does not is a regression, not inherited debt. `middleware.ts` still does
+not match `/api`, which is exactly why the zero is worth defending.
+
+`permission-behaviour-tests.ts` is at 28, including the five that pin this
+ruling: a default coach CAN charge, `attendance:view` cannot, `billing:none` does
+NOT block the door, and revoking attendance mid-shift bites without a re-login.
+
+Harness note: handlers that pass the guard hit the tests' empty body and log the
+resulting ZodError, which buried the results. `call()` now mutes console for the
+duration of each handler call and restores it in a `finally` — never globally,
+or a real failure would be muted with it.

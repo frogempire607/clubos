@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermissionLive } from "@/lib/apiGuard";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
@@ -31,9 +32,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   // Owner-side at-the-door charge. Members must use the member-facing
   // registration flow which enforces parent controls and tier eligibility.
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // §6A.8 — at-the-door charging is a COACH workflow (owner ruling 2026-09-08):
+  // whoever checks people in takes the drop-in. Gated on attendance, not
+  // billing, so a coach running the door is not blocked. Live-checked because
+  // it moves money — a revoked permission must bite without a re-login.
+  const denied = await requirePermissionLive(session, "attendance", "full");
+  if (denied) return denied;
 
   try {
     const body = await req.json();
