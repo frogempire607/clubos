@@ -96,20 +96,40 @@ export function detectTransferPairs(plaidRows: PlaidRowLite[]): {
   const transfersDetected = new Set<string>();
   const transferPairAmountByGroup = new Map<string, number>();
   const rows = plaidRows.filter((r) => r.amount);
+  // Pairing is ONE-TO-ONE: a credit that has already answered one debit cannot
+  // answer another.
+  //
+  // Without this, every debit of the same size in the window paired with the
+  // SAME credit, so a genuine expense on a third account was excluded from the
+  // statement alongside the real transfer — a real cost silently erased. It
+  // also made the summary incoherent: three rows excluded while
+  // accountTransfers reported one pair, because the amount map is keyed by
+  // (date, amount) and collapsed them.
+  //
+  // Consuming the credit and stopping at the first match makes the row count
+  // and the pair count agree. Order-dependence is acceptable here: the rows are
+  // interchangeable by construction (same amount, same window), so which debit
+  // claims the credit does not change any total. Erring toward INCLUDING a row
+  // is the safe direction — a missed exclusion overstates a transfer, a wrong
+  // exclusion hides money.
+  const usedCredits = new Set<string>();
   for (const debit of rows) {
     if (Number(debit.amount) <= 0) continue;
     if (debit.markedAsTransfer) transfersDetected.add(debit.id);
     for (const credit of rows) {
       if (credit.id === debit.id) continue;
+      if (usedCredits.has(credit.id)) continue;
       if (Number(credit.amount) >= 0) continue;
       if (credit.plaidConnectionId === debit.plaidConnectionId) continue;
       if (Math.abs(Number(debit.amount) + Number(credit.amount)) > 0.01) continue;
       const daysApart = Math.abs(debit.date.getTime() - credit.date.getTime()) / 86400000;
       if (daysApart > TRANSFER_WINDOW_DAYS) continue;
+      usedCredits.add(credit.id);
       transfersDetected.add(debit.id);
       transfersDetected.add(credit.id);
-      const groupKey = `${Math.min(debit.date.getTime(), credit.date.getTime())}:${Number(debit.amount).toFixed(2)}`;
+      const groupKey = `${Math.min(debit.date.getTime(), credit.date.getTime())}:${Number(debit.amount).toFixed(2)}:${debit.id}`;
       transferPairAmountByGroup.set(groupKey, Math.abs(Number(debit.amount)));
+      break;
     }
   }
   const totalAmount = Array.from(transferPairAmountByGroup.values()).reduce((s, v) => s + v, 0);

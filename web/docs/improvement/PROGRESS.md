@@ -4331,3 +4331,43 @@ are mathematically reachable and useless: day-0 flags every month-end date in th
 database, i.e. most billing dates. Both were dropped, and the reasons are in the
 file so nobody adds them back. Same rule as the permission guard — a screen that
 flags everything gets ignored.
+
+## 2026-09-08 — bank reconciliation tested, and the transfer matcher fixed
+
+`scripts/bank-reconciliation-tests.ts`, 30 assertions over `detectTransferPairs`
+and `classifyPlaidRow` in `lib/reportsCashFlow.ts`. Closes §6B's Plaid line and
+gives §6A.6 ("do not double count Stripe payments and bank deposits") an actual
+test. Both functions already carried a "PURE — used by tests and by
+buildCashFlow" comment; nothing used them.
+
+**Mocked rows, not the Plaid sandbox.** A sandbox test proves Plaid returns
+transactions, which is Plaid's problem. What can go wrong here is arithmetic on
+rows once they have arrived.
+
+### The bug it found: one credit answering every debit
+
+`detectTransferPairs` compared every debit against every credit with no
+consumption, so a single credit could pair with several debits. A genuine
+expense on a THIRD account, same size and same day as a real transfer between
+two others, was marked as a transfer and **excluded from the cash-flow
+statement** — a real cost silently erased.
+
+It also made the summary contradict itself: three rows excluded while
+`accountTransfers` reported one pair, because the amount map is keyed by
+(date, amount) and collapsed them.
+
+Fixed by consuming the credit and stopping at the first match. Order-dependence
+is fine — the candidates are interchangeable by construction — and erring toward
+INCLUDING a row is the safe direction: a missed exclusion overstates a transfer,
+a wrong exclusion hides money. Two regression cases pin it: two genuine
+same-size transfers on one day must both be found, and rows-excluded must equal
+pairs-reported × 2.
+
+### What else the suite pins
+
+A matched Stripe payout is excluded (that is the double-count defence) while an
+UNMATCHED one still counts as cash in — losing real money from the statement
+would be the worse failure. Matching keys on `plaidTransactionId`, not the local
+row id. Plaid's sign convention (positive is money OUT) is asserted directly,
+because reversing it inverts an entire statement. Exclusion beats classification:
+a transfer carrying a financing category is still a transfer.

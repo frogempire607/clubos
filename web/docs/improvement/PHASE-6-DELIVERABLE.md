@@ -116,8 +116,12 @@ nothing else.
 
 These are **not done** and should not be read as done:
 
-- **Plaid sandbox flows** — no fixture, no mock. The double-counting rule
-  (§6A.6) is enforced by a unique index rather than by a test.
+- ~~Plaid sandbox flows~~ — **closed 2026-09-08.**
+  `scripts/bank-reconciliation-tests.ts`, 30 assertions over the pure
+  classifiers. Mocked rows rather than the sandbox: what can go wrong here is
+  arithmetic on rows once they arrive, not whether Plaid returns them. It found
+  a real bug — `detectTransferPairs` matched one credit against every
+  same-size debit, so a genuine expense on a third account was erased.
 - ~~CSV import with duplicate and malformed records~~ — **closed 2026-09-08.**
   `scripts/import-integrity-tests.ts`, 59 assertions. It found a real bug on the
   first run: BOTH date parsers rolled over instead of refusing, so `13/01/2026`
