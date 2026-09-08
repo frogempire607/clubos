@@ -4278,3 +4278,56 @@ non-numeric amount are refused.
 Test-authoring note: `normalizeStatus("frozen")` returns PAUSED — "frozen" is
 recognised. Using it as the "unrecognised status" example produced a false
 failure on the first run.
+
+## 2026-09-08 — did the rollover reach the data? Almost certainly not
+
+`npm run report:rolled-over-dates` — read-only, no `--apply` and there will not
+be one: a rollover cannot be reversed from the stored value, so any correction
+has to come from the original CSV.
+
+### The fingerprint says no
+
+Every path that could roll over parsed the string as a LOCAL time, so a rolled
+date landed at local midnight — 04:00/05:00Z here. A value that went through the
+ISO branch, or was written by the app, is exactly 00:00Z.
+
+**432 date values across 310 members. Zero carry the local-midnight
+fingerprint.** Six are full clock stamps with sub-second precision — `new Date()`
+at approval time, not parsed values — and those are reported separately so they
+are not mistaken for evidence.
+
+Two independent reasons this holds: V8 rejects an invalid ISO day outright
+(`new Date("2026-02-31")` is Invalid Date, not March 3rd), and the migration
+wizard's own `convertDate` already refused an out-of-range month or day and
+passed the raw string through instead of converting it. The bug was real in the
+code; it does not appear to have fired on this club's data.
+
+Also worth recording: **`importBatchId` is null for all 310 members**, so the
+reports importer — `reportsImports.parseDateWith` — has never run in production
+at all. The whole exposure was the members importer.
+
+### What it found anyway
+
+Four imported dates sit on a short-month overflow boundary — reachable by a
+rollover, not proof of one. All four are DOBs, and Julian is cross-checking them
+against the original file: Maxim Lazarenko 2015-10-01 (could be 09/31/2015),
+Delos Stone 2010-03-01 (02/29/2010, not a leap year), Mack Munroe 2021-07-01
+(06/31/2021), Drew Telesky 2025-05-01 (04/31/2025).
+
+**Two members are treated as adults while their own DOB says minor** — Zachary
+Lawell (age 4) and Colin LoGalbo (age 16), neither imported. No guardian consent
+gate, no parental controls, may sign their own documents. This is not a rollover
+artifact; `isMinor` was simply never set. It needs a decision regardless of what
+any CSV says.
+
+Twenty more are flagged minor but have aged past 18 — nothing recomputes
+`isMinor` on a birthday. Five have an implausible age (0–1), which is what a DOB
+column holding a join date looks like.
+
+### A note on screen design
+
+The first cut also reported the "day 0" and "month 13" rollover classes, which
+are mathematically reachable and useless: day-0 flags every month-end date in the
+database, i.e. most billing dates. Both were dropped, and the reasons are in the
+file so nobody adds them back. Same rule as the permission guard — a screen that
+flags everything gets ignored.
