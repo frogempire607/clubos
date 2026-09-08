@@ -124,20 +124,17 @@ for (const file of walk(API)) {
 
 /**
  * Was 26 when first measured on 2026-09-04. The owner-approved mapping landed
- * the same day and took it to 4. The four that remain are HELD ON PURPOSE, not
- * missed:
+ * over 2026-09-04 and 09-08 and took it to **zero**.
  *
- *   classes/[id]/charge   taking money at the door. billing:full is the safe
- *   events/[id]/charge    reading, but it would stop a coach who checks people
- *                         in and takes a drop-in payment. Owner's call, still
- *                         outstanding as of 2026-09-04.
+ * This is now a WALL, not a ratchet. Every staff-facing mutating API route
+ * consults permissions, and the next one that does not is a regression rather
+ * than inherited debt. `middleware.ts` still does not match `/api`, so the
+ * route's own guard remains the entire boundary — that fact is what makes the
+ * zero worth defending.
  *
- * Announcements left this list the same day: the owner ruled messages:full,
- * "a DM and a broadcast to 293 families shouldn't be the same bar."
- *
- * Lower this as those land; never raise it.
+ * Do not raise this to get a build green.
  */
-const BASELINE = 2;
+const BASELINE = 0;
 /**
  * Routes with no role check at all.
  *
