@@ -124,8 +124,21 @@ export function parseDateWith(raw: string | null | undefined, format: "MDY" | "D
     if (format === "MDY") { year = c < 100 ? 2000 + c : c; month = a; day = b; }
     else if (format === "DMY") { year = c < 100 ? 2000 + c : c; month = b; day = a; }
     else { year = a; month = b; day = c; }
+    // Date.UTC ROLLS OVER instead of failing: month 13 becomes the next
+    // January, and 02/30 becomes March 2nd. Without this check a malformed
+    // date in an import is not refused — it is silently accepted as a
+    // DIFFERENT date. "13/01/2026" in an MDY file imported as 2027-01-01, a
+    // year wrong, and "02/30/2026" as 2026-03-02. On a date of birth that
+    // moves an age gate; on membershipStartDate it moves billing.
+    //
+    // Round-tripping the components is the check: if the Date does not report
+    // back the year, month and day we asked for, the input was out of range.
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
     const d = new Date(Date.UTC(year, month - 1, day));
     if (Number.isNaN(d.getTime())) return null;
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+      return null;
+    }
     return d;
   }
   const d = new Date(s);

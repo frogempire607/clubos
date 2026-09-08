@@ -96,7 +96,7 @@ Both open questions were settled by the owner:
 | Targeted tests for new behavior | `test:phase6` | ✓ new |
 | Stripe test-mode flows | manual; `scripts/browser-autopay.ts` and friends drive the local rig | partial — see gaps |
 | Plaid sandbox / mocked transactions | — | **not built** |
-| CSV imports with duplicate and malformed records | — | **not built** |
+| CSV imports with duplicate and malformed records | `test:import-integrity` (59) | ✓ — and it found a live bug |
 | Mobile and tablet layouts | manual | not re-verified this phase |
 | Permission boundaries | `test:permission-boundary` (static) + `test:permission-behaviour` (18 real handler calls) | ✓ |
 
@@ -118,9 +118,10 @@ These are **not done** and should not be read as done:
 
 - **Plaid sandbox flows** — no fixture, no mock. The double-counting rule
   (§6A.6) is enforced by a unique index rather than by a test.
-- **CSV import with duplicate and malformed records** — the import path has
-  `@@unique([clubId, dedupeHash])` and a `parseFlexibleDate`, but nothing
-  exercises a malformed file end to end.
+- ~~CSV import with duplicate and malformed records~~ — **closed 2026-09-08.**
+  `scripts/import-integrity-tests.ts`, 59 assertions. It found a real bug on the
+  first run: BOTH date parsers rolled over instead of refusing, so `13/01/2026`
+  imported as 2027-01-01 and `02/31` as March 2nd. Fixed in the same commit.
 - ~~Permission boundaries are checked statically~~ — **closed 2026-09-04.**
   `scripts/permission-behaviour-tests.ts` calls the real exported handlers with
   a stubbed session and asserts the status that comes back. Sal with

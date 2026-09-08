@@ -73,18 +73,37 @@ export function parseFlexibleDate(raw: string | null | undefined): Date | null {
   if (!raw) return null;
   const s = String(raw).trim();
   if (!s) return null;
-  // ISO / RFC first.
-  const direct = new Date(s);
-  if (!isNaN(direct.getTime()) && /\d{4}/.test(s)) return direct;
+  // The EXPLICIT numeric form is tried FIRST, and this ordering is load-bearing.
+  //
+  // `new Date("02/31/2026")` does not fail — V8 rolls it to March 3rd — so
+  // running the generic parse first returned a wrong date before the validated
+  // branch below ever ran. The regex cannot match an ISO string ("2026" is four
+  // digits and the first group takes one or two), so ISO and RFC inputs still
+  // reach the fallback underneath.
+  //
   // MM/DD/YYYY or M-D-YY etc.
   const m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (m) {
-    let [, mm, dd, yy] = m;
+    const [, mm, dd, yy] = m;
     let year = parseInt(yy, 10);
     if (year < 100) year += year < 50 ? 2000 : 1900;
-    const d = new Date(year, parseInt(mm, 10) - 1, parseInt(dd, 10));
-    if (!isNaN(d.getTime())) return d;
+    const month = parseInt(mm, 10);
+    const day = parseInt(dd, 10);
+    // `new Date(y, m, d)` ROLLS OVER rather than failing: month 13 becomes the
+    // next January and 02/30 becomes March 2nd. Without this check a malformed
+    // date in a member import is not rejected — it is silently stored as a
+    // DIFFERENT date, which on `dateOfBirth` moves an age gate and on
+    // `membershipStartDate` moves billing. Same fix as
+    // lib/reportsImports.parseDateWith; both parsers had it.
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const d = new Date(year, month - 1, day);
+    if (isNaN(d.getTime())) return null;
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+    return d;
   }
+  // ISO / RFC — anything the numeric form above did not claim.
+  const direct = new Date(s);
+  if (!isNaN(direct.getTime()) && /\d{4}/.test(s)) return direct;
   return null;
 }
 

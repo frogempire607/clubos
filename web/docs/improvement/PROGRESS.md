@@ -4225,3 +4225,56 @@ Harness note: handlers that pass the guard hit the tests' empty body and log the
 resulting ZodError, which buried the results. `call()` now mutes console for the
 duration of each handler call and restores it in a `finally` — never globally,
 or a real failure would be muted with it.
+
+## 2026-09-08 (later) — CSV import integrity, and the bug it found immediately
+
+`scripts/import-integrity-tests.ts`, 59 assertions over the pure functions in
+`lib/reportsImports.ts` and `lib/migration.ts`. Closes the §6B line "test CSV
+imports with duplicate and malformed records". Wired into `test:phase6`.
+
+### The bug: both date parsers rolled over instead of refusing
+
+`new Date(Date.UTC(y, m - 1, d))` and `new Date(y, m - 1, d)` do not fail on an
+out-of-range component — they roll it forward. So a malformed date in an import
+was never rejected; it was **silently stored as a different date**:
+
+| input | was stored as | now |
+|---|---|---|
+| `13/01/2026` (MDY) | 2027-01-01 — a year out | refused |
+| `02/31/2026` | 2026-03-03 | refused |
+| `02/29/2026` (not a leap year) | 2026-03-01 | refused |
+| `01/00/2026` | 2025-12-31 | refused |
+
+On `dateOfBirth` that moves an age gate and therefore minor status. On
+`membershipStartDate` and `commitmentEndDate` it moves billing.
+
+**Both parsers had it**, which is the part worth remembering: the reports import
+uses `reportsImports.parseDateWith`, the members import uses
+`migration.parseFlexibleDate`, and a suite covering only one would have left the
+member-facing path still storing wrong dates. Fixed by round-tripping the
+components — if the Date does not report back the year, month and day it was
+given, the input was out of range.
+
+`parseFlexibleDate` needed a second fix: it tried `new Date(s)` FIRST, and
+`new Date("02/31/2026")` rolls over too, so the generic parse claimed the string
+before the validated branch ran. The explicit numeric form is now tried first.
+That ordering is load-bearing — the regex cannot match ISO, so ISO and RFC
+inputs still reach the fallback underneath.
+
+### What the suite pins beyond that
+
+Duplicates: `makeDedupeHash` is tenant-scoped and changes on date, amount, payer
+and item. The known-and-accepted collision is recorded rather than fixed — two
+genuinely distinct same-day payments of the same amount by the same payer for
+the same item hash identically, because with no vendor transaction id there is
+nothing else to tell them apart. Under-counting is recoverable; double-counting
+revenue is not.
+
+Malformed: which rows are REFUSED vs merely WARNED is a product decision, so it
+is asserted. A future DOB, an unnormalizable phone and a non-reconciling net all
+import with a flag; no identity, an unparseable DOB, an end-before-start and a
+non-numeric amount are refused.
+
+Test-authoring note: `normalizeStatus("frozen")` returns PAUSED — "frozen" is
+recognised. Using it as the "unrecognised status" example produced a false
+failure on the first run.
