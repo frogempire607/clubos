@@ -4402,3 +4402,78 @@ browser, and §2.5.12 is already the Reports mobile audit. Holding Phase 6 open
 for them would keep a closed gate looking open.
 
 Phase 7's correction scripts remain unrun against production, deliberately.
+
+## 2026-09-09 — a class time change forked the schedule instead of moving it
+
+Reported live: the Tadpoles time changed, attendance showed the old AND the new
+time as separate sessions, and two people were booked into 5:30–6:15, which is
+no longer when the class runs.
+
+### The edit path did delete the old sessions — just not the ones that mattered
+
+`PATCH /api/classes/[id]` deleted future sessions and regenerated them, but the
+delete deliberately spared any session carrying attendance, and **a member
+booking a class is an `AttendanceRecord`**. So the rule "preserve sessions with
+attendance" and the rule "regenerate the series" contradicted each other on
+exactly the days somebody had already booked: the old-time row survived, a
+new-time row was created beside it, and both showed on the schedule.
+
+`createMany({ skipDuplicates: true })` was no defence. `class_sessions` has **no
+unique constraint**, so skipDuplicates has nothing to match on — it has been
+inert this whole time. Four of the eleven affected days carry the *same* start
+time twice, which is that fact sitting in the data.
+
+Production, read-only: **11 duplicated days across 3 classes** — Tadpoles ×7,
+MS/HS Preseason ×3, Sunday Funday ×1. The Tadpoles edit is stamped
+2026-09-02 22:03:18, and every surviving old-time row has attendance ≥ 1.
+
+### The two on the wrong session, and what each one proves
+
+Session `cmrtnw924000dn4rh5alr966y`, 2026-09-09 17:30–18:15:
+
+- **Zachary Lawell** — booked **2026-08-01**, three weeks *before* the change.
+  His booking is what kept the 5:30 row alive.
+- **Wenhuan Wang** (TRIAL) — booked **2026-09-07**, five days *after* the
+  change. He booked a session that had already stopped being a real class.
+
+Both failure modes in one day: one stranded, one newly misdirected. The correct
+Wednesday time is **18:15–19:00**, and the empty new-time row for that day
+(`cmtkn7f7m0002kdo3yj17h7rm`) has nobody on it.
+
+Also worth recording: on 2026-09-02 four members hold attendance on BOTH rows —
+that night's attendance is double-counted.
+
+### The fix moves the session instead of replacing it
+
+`planSessionChanges` (pure, in `lib/classSessions.ts`) reconciles **by date**:
+one session per class per day, its time updated in place. A booking stays
+attached to the row it was made against, so nobody is cancelled on and no
+confirmation is re-sent. This is what the per-occurrence "following" edit
+already did; the series path was the one that forked. `lib/classSessionSync.ts`
+applies it, and both series paths — `PATCH /api/classes/[id]` and
+`POST /api/classes/[id]/occurrence` with `scope: "series"` — now go through it.
+
+It refuses rather than guesses: an attended row on a dropped day is reported,
+not deleted; a day holding two attended rows is reported, not merged; an
+overridden or canceled occurrence keeps its own time through a series change.
+The `todayStart` boundary also moved from local to UTC midnight, matching how
+`buildSessions` stamps `date` — on a non-UTC server the local boundary would
+have skipped *today*, which is the day a same-day time change is about.
+
+`scripts/class-session-reconcile-tests.ts` — 17 assertions, the Tadpoles
+regression pinned by name.
+
+### Repairing the rows already written
+
+`scripts/fix-duplicate-class-sessions.ts`, dry-run by default, `--apply` plus a
+`--sessions` allowlist naming every row that will be removed. Replayed against
+the real production rows it moves the three booked Wednesdays to 18:15, deletes
+five empty duplicates, and loses **zero** bookings.
+
+Past duplicated days are reported and left alone. Which sitting a child actually
+attended is a fact about the gym, not about the database.
+
+**Unfixed, and deliberately so:** `class_sessions` still has no unique
+constraint on `(classId, date)`. Adding one would make `skipDuplicates` mean
+something and make this class of bug structurally impossible — but it needs the
+existing duplicates cleared first, so it waits on the correction script running.

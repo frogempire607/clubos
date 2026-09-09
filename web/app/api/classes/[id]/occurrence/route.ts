@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
-import { buildSessions, type DayOverride } from "@/lib/classSessions";
+import { syncFutureSessions } from "@/lib/classSessionSync";
 
 const TIME = /^\d{2}:\d{2}$/;
 
@@ -73,32 +73,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
     const updated = await prisma.recurringClass.update({ where: { id }, data });
 
-    // Regenerate future, non-attended, non-overridden sessions if times moved.
-    if (body.startTime || body.endTime) {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      await prisma.classSession.deleteMany({
-        where: {
-          classId: id,
-          date: { gte: todayStart },
-          canceled: false,
-          overridden: false,
-          attendance: { none: {} },
-        },
-      });
-      const rows = buildSessions(
-        id,
-        cls.clubId,
-        updated.daysOfWeek as number[],
-        updated.startTime,
-        updated.endTime,
-        (updated.dayOverrides as unknown as DayOverride[]) ?? [],
-        new Date(Math.max(todayStart.getTime(), updated.recurrenceStartDate.getTime())),
-        updated.recurrenceEndDate,
-      );
-      if (rows.length > 0) await prisma.classSession.createMany({ data: rows, skipDuplicates: true });
-    }
-    return NextResponse.json({ ok: true, scope: "series" });
+    // Move future sessions to the new times if the times moved. Reconciled by
+    // date so an already-booked occurrence is UPDATED rather than replaced —
+    // see lib/classSessionSync.ts. Per-occurrence edits and cancellations on
+    // individual days survive a series change untouched.
+    const sessionSync = (body.startTime || body.endTime)
+      ? await syncFutureSessions(updated)
+      : null;
+
+    return NextResponse.json({ ok: true, scope: "series", sessionSync });
   }
 
   // ── OCCURRENCE / FOLLOWING: write per-session overrides ──

@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { z } from "zod";
-import { buildSessions, type DayOverride } from "@/lib/classSessions";
+import { syncFutureSessions } from "@/lib/classSessionSync";
 
 const TIME_REGEX = /^\d{2}:\d{2}$/;
 const dayOverrideSchema = z.object({
@@ -93,9 +93,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     },
   });
 
-  // Regenerate future sessions when scheduling-relevant fields change. We only
-  // touch sessions in the future (>= today) so historical attendance stays
-  // intact. Canceled sessions are also preserved.
+  // Bring future sessions in line when scheduling-relevant fields change. The
+  // series is RECONCILED BY DATE, not deleted and regenerated: a member's
+  // booking is an AttendanceRecord on a specific ClassSession row, so dropping
+  // the row and making a new one is a cancellation as far as that member is
+  // concerned. Moving the row's time carries the bookings with it. Past
+  // sessions are never touched.
   const scheduleChanged =
     rest.daysOfWeek !== undefined ||
     rest.startTime !== undefined ||
@@ -104,36 +107,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     recurrenceStartDate !== undefined ||
     recurrenceEndDate !== undefined;
 
-  if (scheduleChanged) {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    await prisma.classSession.deleteMany({
-      where: {
-        classId: updated.id,
-        date: { gte: todayStart },
-        canceled: false,
-        // Preserve sessions with attendance AND any session that carries a
-        // per-occurrence override (substitute coach, one-off time/note).
-        overridden: false,
-        attendance: { none: {} },
-      },
-    });
-    const newSessions = buildSessions(
-      updated.id,
-      updated.clubId,
-      updated.daysOfWeek as number[],
-      updated.startTime,
-      updated.endTime,
-      (updated.dayOverrides as unknown as DayOverride[]) ?? [],
-      new Date(Math.max(todayStart.getTime(), updated.recurrenceStartDate.getTime())),
-      updated.recurrenceEndDate,
-    );
-    if (newSessions.length > 0) {
-      await prisma.classSession.createMany({ data: newSessions, skipDuplicates: true });
-    }
-  }
+  const sessionSync = scheduleChanged ? await syncFutureSessions(updated) : null;
 
-  return NextResponse.json(updated);
+  return NextResponse.json({ ...updated, sessionSync });
 }
 
 export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
