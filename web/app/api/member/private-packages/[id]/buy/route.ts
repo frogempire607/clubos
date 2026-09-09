@@ -186,6 +186,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       clubId,
       userId: member.userId,
       isMinor: member.isMinor,
+      dateOfBirth: member.dateOfBirth,
       parentControls: member.parentControls,
     },
     bookerUserId: session.user.id,

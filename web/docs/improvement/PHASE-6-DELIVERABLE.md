@@ -1,6 +1,6 @@
 # Phase 6 — Safety, Data Integrity and Verification
 
-Status as of 2026-09-04. Branch `claude/phase-6-safety-integrity-634dea`.
+Status: **CLOSED 2026-09-09.** Branch `claude/phase-6-safety-integrity-634dea`.
 
 Phase 6 is a **gate**, not a feature. Most of §6A was already satisfied by
 Phases 1–5; the value of this phase is finding the parts that were not, and
@@ -22,8 +22,8 @@ look.
 | 7 | Do not expose one family to another | **Met** | guardian links via `lib/familyAccess`; 26 member-portal routes consult them; the DM route scopes recipient AND subject to `clubId` |
 | 8 | Respect owner/administrator/staff/coach/client permissions | **Met — 26 → 0** | see below |
 | 9 | Loading, empty, success, warning, error states | Pre-existing | `components/EmptyState.tsx`, `LoadingSkeleton.tsx` applied across sections in the 2026-05-30 sweep |
-| 10 | Accessibility and keyboard navigation | **Not verified** | no automated a11y check exists; not claimed |
-| 11 | Desktop, tablet, mobile layouts | Pre-existing | 2D sweep; not re-verified this phase |
+| 10 | Accessibility and keyboard navigation | **Deferred to §2.5.12** | needs a browser; bundled with the Reports mobile audit |
+| 11 | Desktop, tablet, mobile layouts | **Deferred to §2.5.12** | same reason |
 
 ### The one that is not met: §6A.8
 
@@ -97,7 +97,7 @@ Both open questions were settled by the owner:
 | Stripe test-mode flows | manual; `scripts/browser-autopay.ts` and friends drive the local rig | partial — see gaps |
 | Plaid sandbox / mocked transactions | — | **not built** |
 | CSV imports with duplicate and malformed records | `test:import-integrity` (59) | ✓ — and it found a live bug |
-| Mobile and tablet layouts | manual | not re-verified this phase |
+| Mobile and tablet layouts | — | **deferred to §2.5.12** |
 | Permission boundaries | `test:permission-boundary` (static) + `test:permission-behaviour` (18 real handler calls) | ✓ |
 
 ### `npm run test:phase6`
@@ -130,8 +130,10 @@ These are **not done** and should not be read as done:
   `scripts/permission-behaviour-tests.ts` calls the real exported handlers with
   a stubbed session and asserts the status that comes back. Sal with
   `finances:none` getting a 403 on the expenses DELETE is now a measured fact.
-- **Accessibility and keyboard navigation** — no automated check. Not claimed.
-- **Mobile/tablet** — not re-verified this phase.
+- **Accessibility and mobile/tablet** — moved to §2.5.12 (owner decision,
+  2026-09-09). Both need a browser rather than a test file, and §2.5.12 is
+  already the Reports mobile + responsive audit. Holding Phase 6 open for them
+  would keep a closed gate looking open.
 
 ---
 
@@ -170,3 +172,62 @@ Stripe as `cancel_at`.
 4. `onPlanWhere()` still has one caller (carried from 2026-09-03).
 5. Kellan Lister's `currentPeriodEnd` is stale on a live Stripe row — a
    `stripeSync` question.
+
+---
+
+## Exit summary — closed 2026-09-09
+
+Phase 6 was a verification gate, and the honest finding is that most of §6A was
+already satisfied by Phases 1–5. The value was in the parts that were not, and
+in what the checks found once they existed.
+
+### Five bugs, every one found by a check rather than by someone noticing
+
+| | |
+|---|---|
+| `planNonRenewal` read `Member.commitmentEndDate` and wrote it to Stripe as `cancel_at`. One member held two live subscriptions behind a single date; the second would have stopped five months early. | fixed |
+| 26 staff-facing mutating API routes admitted any staff member regardless of permissions. `middleware.ts` does not match `/api`. A coach denied finances could edit and delete expenses. | fixed, 26 → 0 |
+| Both CSV date parsers rolled over instead of refusing. `13/01/2026` imported as 2027-01-01; `02/31` as March 2nd. On a DOB that moves an age gate. | fixed |
+| `detectTransferPairs` matched one credit against every same-size debit, so a genuine expense on a third account was excluded from the cash-flow statement. | fixed |
+| `applyParentalControls` was the last gate reading raw `Member.isMinor`, and its select never fetched `dateOfBirth`. Two live minors — ages 4 and 16 — had no parental controls available at all. | fixed |
+
+Four silent mutations gained audit rows: member merge, transaction
+reclassification, transaction deletion, relationship changes.
+
+### What guards the build now
+
+`npm run build` runs two source guards before it compiles. There is no CI in
+this repo, so the build is the only enforcement point that exists.
+
+- `subscription-truth-guard` — a member-level field answering a
+  subscription-level question. Four guards, ratcheted.
+- `permission-boundary-guard` — a **wall at zero**. Every staff-facing mutating
+  route consults permissions; the next one that does not is a regression.
+
+`npm run test:phase6` = 136 assertions across permission behaviour (28), CSV
+import integrity (59), bank reconciliation (30), the parental gate (9) and
+non-renewal (10).
+
+Two read-only reports, neither with an `--apply`: `report:subscription-truth`
+and `report:rolled-over-dates`. One dry-run correction: `fix:minor-status`.
+
+### What Phase 6 deliberately did not do
+
+- **Accessibility and mobile/tablet** → §2.5.12, with the Reports responsive audit.
+- **Full `isMinor` derivation** → Phase 7 dependency. 32 members have no DOB and
+  are flagged minor, so the column cannot be dropped until those are collected.
+  The cheap 80% — the one gate that was actually wrong — is done.
+- **Phase 7's correction scripts** (SELF_GUARDIAN, CHILD_EMAIL, AJ_DUPLICATE,
+  ORPHAN_MINORS) — never run against production, and deliberately not run at the
+  tail of this phase. Zachary Lawell and Colin LoGalbo are both in Phase 7
+  shapes that a flag does not fix.
+
+### Open, carried forward
+
+1. Zachary Lawell — no guardian on record, own login on what looks like a
+   parent's email. Needs the Lawells' details before `isMinor` can be set.
+2. Five members aged 0–1 — a DOB column holding a join date.
+3. Four rollover candidates to check against the original CSV: Maxim Lazarenko,
+   Delos Stone, Mack Munroe, Drew Telesky.
+4. `onPlanWhere()` still has one caller.
+5. Kellan Lister's `currentPeriodEnd` is stale on a live Stripe row.

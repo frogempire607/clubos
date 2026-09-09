@@ -4371,3 +4371,34 @@ would be the worse failure. Matching keys on `plaidTransactionId`, not the local
 row id. Plaid's sign convention (positive is money OUT) is asserted directly,
 because reversing it inverts an entire statement. Exclusion beats classification:
 a transfer carrying a financing category is still a transfer.
+
+## 2026-09-09 — the last raw-flag gate, and Phase 6 closes
+
+### `applyParentalControls` now resolves from the date of birth
+
+The cheap 80% of the isMinor question, per the owner's call. `lib/parentalControls.ts`
+had TWO raw-flag reads, not one — `applyParentalControls` and `memberCanMessage`,
+each with its own select that never fetched `dateOfBirth`. Both now call
+`resolveIsMinor`.
+
+`GateInput.member.dateOfBirth` is **required, not optional**, and that is the
+durable part: TypeScript refused all six call sites until each passed it, so a
+future caller cannot silently fall back to the flag. Every upstream query
+already selected the column, so no query changed.
+
+`scripts/parental-gate-tests.ts` (9) pins both directions and the fallback: a
+4-year-old flagged adult is now gated, an adult still flagged minor is freed, and
+with NO DOB the stored flag still governs — which is exactly why the column
+cannot be dropped while 32 members have no birthday on file.
+
+### Phase 6 closed
+
+Full exit summary in `PHASE-6-DELIVERABLE.md`. Five bugs found by checks rather
+than by accident, four silent mutations audited, two guards gating the build, 136
+test assertions.
+
+Accessibility and mobile/tablet moved to §2.5.12 (owner decision) — both need a
+browser, and §2.5.12 is already the Reports mobile audit. Holding Phase 6 open
+for them would keep a closed gate looking open.
+
+Phase 7's correction scripts remain unrun against production, deliberately.

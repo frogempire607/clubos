@@ -24,6 +24,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { resolveIsMinor } from "@/lib/parentalConsent";
 import { sendEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
@@ -73,6 +74,13 @@ export type GateInput = {
     clubId: string;
     userId: string | null;
     isMinor: boolean;
+    // REQUIRED, not optional, and deliberately so. The gate below resolves
+    // minor status with `resolveIsMinor`, which lets a date of birth outrank
+    // the stored flag — and it can only do that if the caller selected it.
+    // Making this optional would let a caller silently fall back to the flag,
+    // which is the bug this field exists to close. TypeScript now refuses the
+    // call instead.
+    dateOfBirth: Date | null;
     parentControls: Prisma.JsonValue | null;
   };
   bookerUserId: string;
@@ -132,9 +140,21 @@ export async function applyParentalControls(input: GateInput): Promise<GateResul
     return { kind: "allow" };
   }
 
-  // Non-minor accounts never see parental gates regardless of any
-  // accidental parentControls JSON on the row.
-  if (!member.isMinor) return { kind: "allow" };
+  // Non-minor accounts never see parental gates regardless of any accidental
+  // parentControls JSON on the row.
+  //
+  // DOB decides, not the stored flag. This read used to be `!member.isMinor`,
+  // and the select did not even fetch `dateOfBirth`, so nothing could outrank
+  // it. That made this the last gate in the app where `Member.isMinor` was the
+  // final word — the document, consent and login gates have all used
+  // `resolveIsMinor` for some time.
+  //
+  // The consequence was not a leak, it was an ABSENCE: a minor whose row said
+  // `isMinor: false` had NO parental controls available at all. Every payment
+  // approval, spend limit and messaging restriction short-circuited to "allow"
+  // here, before the controls JSON was ever read. Two live members were in
+  // that state on 2026-09-08 — ages 4 and 16.
+  if (!resolveIsMinor(member)) return { kind: "allow" };
 
   const controls = readControls(member.parentControls);
   // No controls configured = no gate.
@@ -309,6 +329,9 @@ export const GATE_MEMBER_SELECT = {
   clubId: true,
   userId: true,
   isMinor: true,
+  // Load-bearing: `resolveIsMinor` cannot let a birthday outrank the stored
+  // flag if the birthday was never fetched.
+  dateOfBirth: true,
   parentControls: true,
 } as const;
 
@@ -325,10 +348,12 @@ export const GATE_MEMBER_SELECT = {
 export async function memberCanMessage(userId: string, clubId: string): Promise<boolean> {
   const member = await prisma.member.findFirst({
     where: { userId, clubId, deletedAt: null },
-    select: { isMinor: true, parentControls: true },
+    // dateOfBirth for the same reason as GATE_MEMBER_SELECT — this gate had
+    // the identical raw-flag read.
+    select: { isMinor: true, dateOfBirth: true, parentControls: true },
   });
   if (!member) return true; // No linked member = can't tell, default allow.
-  if (!member.isMinor) return true;
+  if (!resolveIsMinor(member)) return true;
   const controls = readControls(member.parentControls);
   // Default to allowed when the toggle is unset.
   return controls.allowOwnMessaging !== false;
