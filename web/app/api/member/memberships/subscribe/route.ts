@@ -139,6 +139,7 @@ export async function POST(req: Request) {
         clubId: club.id,
         userId: member.userId,
         isMinor: member.isMinor,
+        dateOfBirth: member.dateOfBirth,
         parentControls: member.parentControls,
       },
       bookerUserId: session.user.id,
