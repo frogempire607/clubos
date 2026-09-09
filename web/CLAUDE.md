@@ -505,7 +505,7 @@ Core dashboard:
 - `/api/members/subscriptions/[subId]` (DELETE) — owner cancel: cancels on Stripe (if attached) + locally + recomputes member status
 - `/api/memberships`, `/api/memberships/[id]` — schema accepts trial fields
 - `/api/custom-fields`, `/api/custom-fields/[id]`
-- `/api/classes`, `/api/classes/[id]` — supports `dayOverrides`; PATCH regenerates future non-canceled sessions when scheduling changes, preserving sessions with attendance
+- `/api/classes`, `/api/classes/[id]` — supports `dayOverrides`; PATCH **reconciles** future sessions BY DATE via `lib/classSessionSync.ts` when scheduling changes (one session per class per day: the booked row is MOVED to the new time, rows are created only for dates that have none, and nothing anyone booked is deleted). It does NOT delete-and-regenerate — that forked every already-booked date into an old-time and a new-time session, because the delete spared attended rows and a booking IS an AttendanceRecord (2026-09-02 Tadpoles)
 - `/api/classes/[id]/sessions`
 - `/api/classes/[id]/charge` — emits booking confirmation email on free membership-covered path
 - `/api/events`, `/api/events/[id]`
