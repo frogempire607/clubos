@@ -97,8 +97,9 @@ Treat each phase as a complete product area before moving to the next.
 | 6 | Safety, Data Integrity, Testing, Deployment & Final Handoff | ⬜ Planned |
 | 7 | The Family Model in the Experience | ⬜ In progress |
 | **8** | **Membership Structure, Entitlements & Per-Member Pricing** (one card per class, option-level terms + day grants, attendance enforcement, membership-first price tool) | ⬜ Spec written 2026-08-16 — awaiting decisions D1–D10 |
+| **9** | **Family & Group Discounts** (club-configurable discount rules, groupable fields, detect-and-recommend, group rate, drift probes) | ⬜ Spec written 2026-09-10 — 11 decisions settled, 4 open |
 
-**Remaining work: 4.5, 5, 6, 7, 8.** (There is no Phase 4.6 in this plan — 4.5 is the last decimal phase.)
+**Remaining work: 4.5, 5, 6, 7, 8, 9.** (There is no Phase 4.6 in this plan — 4.5 is the last decimal phase. The family/sibling discount work that was drafted as §4.6 in August 2026 was never committed and is now **Phase 9**, which respects that line the same way Phase 7 does.)
 
 **The ⬜ statuses in this table are the plan's original schedule and lag reality — 4.5 and 5 have close-out entries in `PROGRESS.md`, and 7.1 is merged. `PROGRESS.md` is the current state; this table is the ordering.**
 
@@ -120,6 +121,10 @@ Treat each phase as a complete product area before moving to the next.
 | Phase 2.5.7 (Cash flow) | Phase 1B (`PlaidTransaction` persistence) + new `PayoutMatch` | Cash flow reads bank ledger + excludes Stripe payouts. |
 | Phase 2.5.11 (granular permissions) + Phase 3.1.1 (`messages` sub-scopes) | Independent | Same pattern (nested JSON under existing key). |
 | Phase 5.2 (server-rendered event confirmation) | ~~Phase 4.5.10~~ — **unblocked**, reads `ImportBatch.sourceLabel` directly (shipped in 2.5.9) | Registration UI never prints a vendor name the owner didn't type. Phase 5.2 no longer waits on 4.5.10 for this; it does still have to honor the same degrade-when-blank copy rules (§4a-i). |
+| Phase 9 (discount rules) | Phase 4 (`MemberSubscription.payerUserId`, `resolvePayerUserId`, stored `MemberGuardianUser.isPrimary`) + Phase 4.5.1 (`serializeMemberForList`) | **Satisfied.** A payer-scoped group cannot be resolved before the payer column and the stored primary-guardian flag exist — both shipped in M29. The Members-list group preview and the bulk `assign_discount` selection reuse 4.5.1's serialization. |
+| Phase 9 (recommendation surfaces) ↔ Phase 8.7 (membership-first bulk price tool) | **Mutual — either order works, neither may ignore the other** | 8.7's price tool is where a Phase 9 recommendation is applied. If 8 ships first, its screen must accept a rule-sourced recommendation line; if 9 ships first, 8.7 must not be designed as though price has one source. See §9.11. |
+| Phase 9 (rule-sourced discounts) | Phase 8.0.7 (renewal-quote hazard) | The renewal-quote hazard is live, and a rule-sourced discount is one more thing a renewal quote can get wrong. **Whichever phase lands second owns the combined test.** |
+| Phase 5.2 (shared confirmation render context) | Phase 9 (`discountLabel` / `discountLine` on the render context) | Either Phase 9 lands first, or Phase 5's shared render context must accept `discountLine` / `discountLabel` from the start so Phase 9 does not reopen a finished surface. |
 | Reports ↔ Financials | Phase 1 | Reports **reads** Financials data; Reports must NOT modify `/dashboard/financials`. Regression test at 6.1. |
 
 ### 4a-i. Shared-migration plan for imports + `sourceLabel` is closed (2026-08-04)
@@ -4125,6 +4130,554 @@ D11's modes exist — it is the only decision that changes what happens to money
 on accounts that are working correctly today.
 
 
+
+---
+
+# PHASE 9 — Family & Group Discounts
+
+**Goal:** a club can express its own discount policy — "siblings get a break", "the Lincoln High kids get a group rate" — as a rule the software understands, and every athlete that rule reaches is *found* and *surfaced* rather than remembered by a human. The club stops hand-typing a `SIBLING` code and stops forgetting to. Nothing about how discounts are validated, priced, recorded, or displayed forks into a second implementation.
+
+**What this phase is not:** it is not an auto-pricing engine. **Nothing reprices on its own.** The engine detects and recommends; a human applies. See §9.3, which is the section most changed from the superseded draft.
+
+**Phase number:** this is **Phase 9**, not 4.6. §4 states "there is no Phase 4.6 — 4.5 is the last decimal phase," and that line was written deliberately to stop decimal sprawl; it is respected here, the same way Phase 7 respected it. An earlier draft of this work was written as §4.6 in August 2026 and was never committed; this section supersedes it entirely.
+
+---
+
+## 9.0 What already exists (audit — do not rebuild)
+
+Ordered strongest → weakest.
+
+**Discount engine — complete, reuse verbatim.**
+- `lib/discounts.ts` is the model. `findValidDiscountFor(clubId, code, { type, membershipId })` validates active / expiry / `maxUses` / `appliesTo` type scope / `membershipIds` plan scope and returns a `ValidDiscount { id, code, type, value }`. `discountedPrice(price, d)` does the math (clamped ≥ $0, rounded to cents). `recordDiscountUse(id)` increments `usedCount`.
+- `DiscountItemType` = `MEMBERSHIP | EVENT | CLASS | PRODUCT | PRIVATE_PACK`. `Discount.appliesTo` `[]` = every type; legacy plan-narrowed rows with empty `appliesTo` are treated memberships-only.
+- `Discount` already carries three scoping columns — `appliesTo Json`, `membershipIds Json`, `eventIds Json`. **Scoping precedent exists; do not invent a fourth shape.**
+- `lib/staffPayments.ts` `resolveStaffDiscount` + `quotePayment` is the staff-side wrapper: invalid code = **hard block**, **one discount max, no stacking by construction**, quote clamps ≥ $0 and refuses sub-$0.50 card charges.
+- `GET /api/discounts/eligible?itemType=&membershipId=` (billing:view) feeds every staff dropdown with a server-computed `eligible` flag + a `reason` for the greyed-out rows.
+- Offers **freeze** the discount with server math (`amountOff`, `finalPrice`); `offerEffectivePrice(offer)` is what the client pays; a stored-but-now-invalid discount **blocks** offer creation (400 `DISCOUNT_INVALID`) and never silently drops; changing the discount stales the open offer via `diffOffer`.
+
+**The snapshot precedent — copy this, not the scalar pair.**
+`EventRegistration` ([`schema.prisma:1745`](../../prisma/schema.prisma)) already carries a five-column redemption snapshot: `discountId, discountCode, discountType, discountValue, discountAmount`, with the comment *"soft pointer, NO FK; the snapshot outlives the code."* That is the discipline this phase needs at rest. `MemberSubscription.discountCode/discountAmount` ([`1103`](../../prisma/schema.prisma)) and `Transaction.discountCode/discountAmount` ([`2088`](../../prisma/schema.prisma)) are **single scalar pairs** and are *not* sufficient to record which rule produced a number — see §9.10.
+
+**The configurable-field precedent — `lib/eventCategories.ts`. This is the pattern this phase copies.**
+Participant categories solved exactly the problem a groupable field poses: *the club supplies the words, the code supplies the plumbing.* Its properties, all of which this phase reuses:
+- **A field is `{ key, label, options[], required? }`** — a stable machine key plus the club's own human label. Never a sport word, never a defaulted word.
+- **Definitions live in existing JSON, not new columns** — `Event.registrationForm` per event, `ClubEventType.defaultPolicy.categoryFields` per type.
+- **A reserved id prefix** (`participant_category:<key>`) makes it backward compatible without touching a row.
+- **`CATEGORY_PRESETS`** offers starting points to an owner (`Weight Class · wrestling, judo, boxing, MMA`). Sport words are legitimate *there* because they are choices offered to an owner, not copy shown to a parent — and `scripts/sport-terms-guard.ts` deliberately does not scan `lib/` for that reason.
+- **Resolvers are pure functions in `lib/`** — `resolveCategoryFields`, `categoryFieldsFromForm`, `proposableKeys`. No prisma, no IO.
+
+**Family model — complete as of Phase 4, reuse verbatim.**
+- `MemberGuardianUser` is the **only** table that grants anything: `clubId`, `status` (CONFIRMED | PENDING | REVOKED), stored `isPrimary`, the `canBook/canPay/canSignWaivers/canReceiveEmails` grid, `source`, `createdByUserId`, `@@index([memberId])`. `ACTIVE_GUARDIAN_LINK` / `activeGuardianLinkWhere()` in `lib/familyAccess.ts` are the canonical filters. **This is why sibling detection needs no new data.**
+- `MemberSubscription.payerUserId` (M29) + `resolvePayerUserId({ subscriptionPayerUserId, memberResponsiblePayerUserId, memberUserId })` — a three-step fallback chain resolving to exactly what pre-Phase-4 rows already meant.
+- `MemberRelationship` is a **descriptive label with no authority**. `Guardian` is a legacy email-keyed import profile. Neither may be read for eligibility.
+- `lib/emailRecipients.ts` already treats "household" as **computed, never stored** (`HouseholdMode`). Precedent for §9.1.
+- `lib/membersQuery.onPlanWhere()` is the one definition of "on this plan". Count from subscriptions through it, never from `Member.membershipId`.
+
+**Action Center — probes, not rows.**
+`lib/actionCenter.ts` composes ~18 live probes (`UNASSIGNED_PRIVATES`, `GUARDIAN_LINK`, `MIGRATION_BILLING`, `EVENT_CHARGE_OVERDUE`, …). Each is one `probe(...)` call, permission-gated, individually failure-isolated ("a single probe failing must never break the whole command center"). **Nothing is persisted except `ActionItemSnooze { kind, targetId, snoozedUntil }`.** A recommendation probe is therefore free of schema cost — but it also has **no memory**, which §9.5 has to solve.
+
+**The fee gross-up — `lib/fees.ts`.**
+`recurringUnitWithFee(subtotalCents, pass)` folds the club's passthrough into the recurring unit amount, because "subscription mode can't carry a one-time line item." Called from `lib/autopay.ts:218,409`, `lib/bulkPriceChange.ts:618`, `lib/reactivation.ts`, `app/api/reactivate/[token]/confirm`. `lib/reactivation.ts:369` already documents the correct ordering — *"on the same DISCOUNTED cent base."* **A discount that does not route through this helper silently strips the club's fee off every discounted subscription.** See §9.9 rule 13.
+
+**What does not exist.**
+- No automatic discount of any kind. Every discount today is a code a human types or picks.
+- No ordinal / tier / ladder concept anywhere.
+- No way to scope a discount to a **set of members** — `Discount` is club-wide by code, narrowed only by item type and plan.
+- No `Member` column for a school, team, or any other groupable trait. `Member.customFieldValues` exists but is **`String @default("{}")`** — a stringified blob in a `text` column. It cannot be indexed, grouped, or filtered in SQL. This is the central schema constraint of the phase (§9.2, §9.10).
+- **No Stripe coupons on the connected account.** Member subscriptions bake the discounted amount into `unit_amount` on inline `price_data` (or a cached catalog price keyed `"<PERIOD>:<amountCents>"`). **A discount is a price snapshot, not a Stripe object** — the single most important constraint in this phase.
+- **No live-subscription reprice anywhere in the codebase.** Nothing calls `stripe.subscriptions.update` with a new price item. Nothing calls `stripe.refunds.create`. This is why §9.6 cuts retroactivity outright rather than shipping it disabled.
+- `sendPaymentReceiptEmail` takes `{ description, amountPaid, paidAt }` and has **no discount line at all**. The reactivation email is the only template with a `discountLine` — that string is the target format.
+
+---
+
+## 9.1 The model: a configurable rule, not a sibling ladder
+
+**A discount rule reads: *when N or more athletes share a value on field X, recommend discount Y.*** That is the whole model. There is **one rule type** at launch. No stacking, no conditional logic, no combining rules.
+
+The two things a club actually asks for are the same rule with a different X:
+
+| The club says | X | Threshold | Needs new data? |
+|---|---|---|---|
+| "Siblings get a break" | the household — resolved through the payer, guardian-backed | N ≥ 2 | **No.** `MemberGuardianUser` + `payerUserId` already link athletes to a shared adult. |
+| "The Lincoln High kids get a group rate" | a school (or team, or squad, or anything the club names) | N ≥ 3, club-set | **One column**, settable on the signup form and editable on the profile. |
+
+This is the whole reason to build a rule engine instead of a ladder: the second row costs one column once the first row's machinery exists, and a club that thinks in cohorts nobody anticipated — one bus route, one homeschool co-op, one feeder gym — is served without a release.
+
+### Field X is a key with a resolver, not a column name
+
+A bare column enum would make every future groupable trait a migration. Instead a rule stores a **field key**, and a **resolver type** says how to turn that key into a group key for an athlete. Three resolver types, mirroring `lib/eventCategories.ts`'s pure-function shape:
+
+```ts
+// lib/discountRules.ts — PURE. No prisma, no IO. Mirrors lib/eventCategories.ts.
+export type GroupResolverType = "RELATION" | "COLUMN" | "CUSTOM_FIELD";
+
+export type GroupableField = {
+  /** Stable machine key. Never shown to anyone. */
+  key: string;
+  /** The club's own word for it. Never assumed, never defaulted to a sport. */
+  label: string;
+  resolver: GroupResolverType;
+  /** COLUMN only: which supported Member column backs it. */
+  column?: SupportedGroupColumn;
+  /** CUSTOM_FIELD only: the CustomField.id whose value groups. */
+  customFieldId?: string;
+};
+```
+
+| Resolver | Group key for an athlete | Scope | Status at launch |
+|---|---|---|---|
+| **`RELATION`** | `resolvePayerUserId({...}) ?? primaryGuardianUserId(member)` — a `User` id. Null = a group of one, never eligible. | **payer** | ✅ **Built.** This is the sibling rule. |
+| **`COLUMN`** | the normalised value of a supported `Member` column, club-scoped (`Member.school` is the one supported column this phase) | **cohort** | ✅ **Built.** This is the group rate. |
+| **`CUSTOM_FIELD`** | the normalised value of an arbitrary `CustomField`, read from the side table in §9.10 | **cohort** | ⬜ **Designed, not built.** See below. |
+
+**Adding a resolver later is a new `case` in one pure function plus, for `CUSTOM_FIELD`, one table. It is not a redesign.** That is the point of spending the abstraction now.
+
+### Payer scope vs cohort scope — a rule's shape depends on which it is
+
+This distinction is not cosmetic and it was absent from the superseded draft, which only ever had one resolver.
+
+- A **payer-scoped** group is *one bill*. "Second child 10% off" is a volume concession to a payer who is buying volume. Ordinals are meaningful: someone pays full price, the rest ladder down.
+- A **cohort-scoped** group spans families. Twenty Lincoln High athletes from twenty households share no bill. "The cheapest athlete pays full price" would single out one arbitrary family, and "the 2nd athlete gets 10%" is meaningless when there is no first.
+
+Therefore:
+
+| | payer-scoped (`RELATION`) | cohort-scoped (`COLUMN`, `CUSTOM_FIELD`) |
+|---|---|---|
+| Ordinals assigned | Yes, deterministically (§9.3) | **No** |
+| `PER_POSITION` ladder | ✅ allowed | ⛔ rejected on save |
+| `FLAT_ADDITIONAL` | ✅ allowed | ⛔ rejected on save |
+| `FIXED` / flat-all | ✅ allowed | ✅ allowed — every athlete in the group, once N is met |
+| "Which athlete pays full price" setting | applies | not rendered, ignored if stored |
+
+**Validation, on save:** a cohort-scoped rule carrying an ordinal-bearing amount shape is a 400 naming the conflict. Do not let a club configure a rule whose arithmetic has no meaning and then wonder why nothing was recommended.
+
+### Accepting the residual failures, deliberately
+
+Payer-keying does not fix the two-logins case (Cameron Lister's activation minted a second "Michael" login 8 minutes after the real one — `PHASE-4-DISCOVERY.md` §2). It makes it **visible and repairable** instead of invisible:
+
+- Every surface showing a recommendation must also show **the group it computed and who is in it** — "Group: Michael Lister · 2 athletes (Kellen, Cameron)". A staff member expecting three and seeing two has found the bug in one glance.
+- When two distinct payer groups share a CONFIRMED guardian link, or share an athlete, a **`SPLIT_FAMILY_SUSPECTED`** probe proposes the merge. **It never merges automatically** — the fix is repointing `payerUserId` / repairing the guardian link, both audited money operations that belong to a human.
+- **Divorced parents paying separately get nothing automatically. That is intended** — a volume concession is owed to a payer who buys volume, and two payers are two groups of one. The recourse is the per-athlete override in §9.5, not a change to the grouping.
+
+### Explicit non-decisions
+
+- **No `Household` table.** Phase 4's whole diagnosis was three tables that look like family; a fourth needs an argument that beats this section.
+- **`MemberRelationship` (SIBLING/…) is never read for eligibility.** It may be *displayed* beside the group preview as corroborating context, clearly labelled as a label.
+- **`Guardian` (legacy) is never read for eligibility.** Per `ARCHITECTURE-NOTES` §2.3 item 10 it is on its way to read-only.
+- **`deliberateFree` gets no second job.** It is already load-bearing for member pricing on events and privates. Comp exclusion is its own flag — §9.7.
+
+---
+
+## 9.2 One engine, one resolver function
+
+Every path that resolves a discount goes through one function, so no surface knows or cares whether a number came from a typed code or a rule.
+
+```ts
+// lib/familyDiscounts.ts — the model. Do not implement a second one.
+resolveApplicableDiscount({
+  clubId, item: { type, membershipId }, beneficiaryMemberId, typedCode,
+}): Promise<
+  | { ok: true;
+      discount: ValidDiscount | null;
+      origin: "CODE" | "RULE" | null;
+      label: string | null;          // §9.8 canonical label
+      ruleId: string | null;
+      ordinal: number | null;        // payer-scoped rules only; null for cohort
+      groupKey: string | null;
+      groupSize: number;
+      considered: DiscountCandidate[]; // every candidate + why it lost
+    }
+  | { ok: false; error: string }      // hard block, same contract as resolveStaffDiscount
+>
+```
+
+- It returns **at most one** discount (§9.6).
+- It returns a `ValidDiscount`, so `discountedPrice()`, `quotePayment()` and every existing call site are unchanged.
+- An invalid **typed** code is still a hard block. **A rule that fails to resolve is never a block** — it silently means "no recommendation", and the reason lands in `considered`.
+- `resolveStaffDiscount` becomes a thin wrapper, keeping its current signature.
+- `considered[]` powers the "why this price" panel. A number a staff member cannot explain is a support ticket.
+
+**Where it is called is the thing that changed.** In the superseded draft this function ran inside `POST /api/member/memberships/subscribe` and priced the purchase. It no longer does. See §9.3.
+
+---
+
+## 9.3 Detect and recommend — never auto-apply
+
+**This section replaces the superseded draft's automatic application wholesale. The draft assumed a rule that matched became a price. It does not.**
+
+### Why
+
+1. **A discount is baked into a Stripe price** (`unit_amount` on inline `price_data`, or a cached catalog price). Changing it means creating a new price — and **nothing in this codebase repriced a live subscription** when the draft was written, and nothing does now.
+2. **Saving a setting must never charge anyone.** A rule edit that silently repriced twelve live families would be the single most dangerous write in the product.
+3. **A parent who gets an unannounced new amount cannot reconcile their own bank statement.** The club also cannot explain it, because nobody decided it.
+4. The club's own judgement is load-bearing. A rule is a good detector and a poor decider — it cannot see the conversation the owner had with a family in the car park.
+
+### What actually happens
+
+The engine computes, on read, for every athlete: *does a rule reach this athlete, and is that athlete priced as the rule says?* When the answer is "a rule reaches them and they are not priced for it", that is a **recommendation**. It surfaces in exactly two places:
+
+| Surface | Shape |
+|---|---|
+| **The athlete's profile** — staff billing centre, `/dashboard/members/[id]/billing` | A **Discount recommendation** card: the rule that matched, the group it computed and every athlete in it, the current price, the recommended price, the saving. One button: *Review in billing centre* → the existing `PATCH … preview:true` diff. |
+| **The Action Center** — one new probe in `lib/actionCenter.ts` | `FAMILY_DISCOUNT_DRIFT`, `severity: medium`, permission `billing:full`, snoozable through the existing `ActionItemSnooze`. Copy names the rule and the money in both directions. |
+
+> *Sibling membership discount now covers 2 athletes in the Lister group. Kellen's membership is priced without it — $530.00/quarter, would be $477.00.*
+
+**Applying it is one explicit, permission-gated, audited confirm through the existing billing-admin preview → apply path, and it changes the price going forward only.** There is no path from a recommendation to a charge that does not pass through a human. `FAMILY_DISCOUNT_DRIFT` **is** the manual path; it is not a fallback for a missing automatic one.
+
+**Downward drift is treated identically.** When an athlete leaves a group the remaining discount is now unearned — but a silent price *increase* is strictly worse than a silent discount. Same probe, reversed copy, waits for a human.
+
+### The eligibility set — who is countable
+
+Given a group key, the countable set is every `MemberSubscription` where:
+
+- the beneficiary member is in the caller's club and `deletedAt IS NULL`, and
+- the athlete's resolved group key for this rule equals the group key, and
+- `status IN ('active','past_due')`, and
+- `price > 0` after any stored `discountAmount` — the club is actually collecting money, and
+- `membershipId` is in the rule's `membershipIds` scope (`[]` = every plan), and
+- the subscription is not comp and does not carry a staff override to $0.
+
+Count through **`lib/membersQuery.onPlanWhere()`** and the `subscriptions` relation. **Never** count from `Member.membershipId` — see the repo-root `CLAUDE.md` on member-level fields that describe a subscription; Girls Only read 0 members with two women on it for exactly this reason.
+
+**Comp, $0 and override-to-free subscriptions are excluded from the numerator and the denominator, and are never repriced.** `countCompMemberships` defaults **false** and is the only knob (§9.7). A comp athlete must not manufacture a "2nd child" for a paying sibling, and a comp subscription must never be "discounted" off $0.
+
+### Ordinals — payer-scoped rules only, and deterministic
+
+Sort the countable set and assign ordinals 1..N. Ordinal 1 pays full price; the amount shape applies from 2 up.
+
+The sort is **total**, and which end pays full price is club config (§9.7):
+
+- `HIGHEST_PRICED_FIRST` → `price DESC, startDate ASC, id ASC`
+- `LOWEST_PRICED_FIRST` → `price ASC, startDate ASC, id ASC` — **Frog Empire discounts the cheaper athlete**, so this is the configuration in use
+- `OLDEST_JOINED_FIRST` → `startDate ASC, price DESC, id ASC`
+
+If ordinals hop between siblings on recompute, the discount appears to move between children and every price the parent has seen becomes a lie. The `id ASC` tiebreak is not optional.
+
+### Where the engine is read
+
+Not at purchase time — at **display** time, plus the preview path:
+
+- `GET /api/members/[id]/billing-admin` — returns the resolved group, the matched rule, the recommended amount and the diff, so `PATCH … preview:true` can show it.
+- `lib/actionCenter.ts` — the `FAMILY_DISCOUNT_DRIFT` probe.
+- The member portal billing card (§9.8), for the household saving line.
+- `lib/reactivation.ts buildOffer` — an offer **freezes** a rule-sourced discount exactly as it freezes a code today, including `ruleId` and `ordinal`. A group whose size later changed stales the open offer via `diffOffer` (add `discountOrigin`, `discountLabel`, `discountOrdinal` to the diff set).
+
+Purchase endpoints (`POST /api/member/memberships/subscribe`, `POST /api/members/subscribe`, `POST /api/members/migration/[id]/approve`) keep today's behaviour: a typed or staff-picked code, nothing more. **They may show the recommendation; they may not apply it.**
+
+---
+
+## 9.4 Group rate — the same rule, a different field
+
+**"Group rate", never "team".** Two collisions make "team" the wrong word: the competitive-squad meaning a club already uses in conversation, and the in-flight person-type label work in the Members redesign. Name it Group rate in every surface — settings, the profile card, the Action Center, the receipt line.
+
+A group rate is not a second mechanism. It is a rule whose X is a `COLUMN` resolver over one new athlete field:
+
+- **`Member.school String?`** — added this phase, indexed `(clubId, school)`. Settable on the signup form, editable on the profile, editable in bulk through the existing Members bulk machinery.
+- The field's **label is the club's**, exactly as `lib/eventCategories.ts` does it. A club that groups by feeder gym calls it "Feeder gym"; the column is `school` because a column needs a name, and no parent ever sees it.
+- **Normalisation matters more than it looks.** `"Lincoln High"`, `"lincoln high"` and `"Lincoln HS "` are three cohorts unless the resolver trims, collapses internal whitespace and compares case-insensitively. Store what the parent typed; group on the normalised form. A free-text field that silently fragments its own cohorts is worse than no field.
+- Prefer `options[]` on the field definition (a picklist) over free text where the club knows its schools — same `CategoryField.options` shape, same "empty = free text" rule.
+
+**Staff assignment stays available and is not replaced.** A club that wants to hand-pick a cohort does not need a field:
+
+- `Discount.audience`: `ANYONE` (default — today's behaviour, unchanged) | `ASSIGNED_ONLY`.
+- `DiscountAssignment { id, clubId, discountId, memberId, assignedByUserId, assignedAt, removedAt? }`, `@@unique([discountId, memberId])`. Soft-remove only.
+- `findValidDiscountFor` gains an optional `beneficiaryMemberId`. Under `ASSIGNED_ONLY`, a missing or unassigned beneficiary returns `{ ok: false, error: "That discount code isn't available for this athlete." }` — the same hard-block contract as every other failure.
+- Bulk action `assign_discount` reuses the Phase 3 query-scoped `selection: { mode: 'ids'|'allMatching', filter, count }` shape, preview-before-commit and caps. Gated on **`billing:full`**, not `members:edit` — assigning a discount is a money operation, and a coach who can edit members must not be able to hand out 20% off. `unassign_discount` is its own action, same gate. Removing an assignment **never** changes an already-purchased subscription.
+- `Discount.maxUses` still counts redemptions, not assignments. Assigning 40 members to a code with `maxUses: 20` is allowed and the preview says so plainly.
+
+Every assignment and removal writes a `BillingAuditLog` row (`lib/billingAudit.ts writeBillingAudit` — every billing mutation must).
+
+---
+
+## 9.5 Attachment, and the per-athlete override
+
+Three different things, three different owners.
+
+| Concept | Attaches to | Why |
+|---|---|---|
+| **Eligibility** — *may* a rule reach this athlete | The **group** (§9.1) — payer-scoped or cohort-scoped per resolver | Volume is a property of a billing account; a cohort is a property of a trait. |
+| **Entitlement** — *which* discounts this athlete can reach | The **member** (`DiscountAssignment`, `MemberDiscountOverride`) | Staff assign people, not accounts. |
+| **The applied discount** — what was actually granted | The **subscription**, and the **transaction** for one-time money | This is the record of a price that was charged. |
+
+**The applied discount is an immutable snapshot.** Once stamped it is never re-read from the rule, never recomputed, never silently changed — the same discipline as the offer snapshots (`offerEffectivePrice`, `diffOffer`) and the event payment consent snapshots. Editing a rule changes what future purchases resolve to and raises a recommendation on existing ones. **It does not reach into a live subscription.**
+
+**A membership transfer moves the beneficiary, not the group.** `MembershipTransfer` (M29) leaves Stripe, the customer, the card and `payerUserId` untouched, so the payer group and the ordinals are unchanged — correct. But a transfer can change *who is countable* (a subscription moving from a comp athlete to a paying one). The transfer preview must therefore carry a "this changes the group" line when recomputed ordinals differ, using the same computation as §9.3.
+
+### The override — one table, two jobs
+
+Decision 7 needs a manual per-athlete override for cases the rule misses. Separately, §9.3's recommendation is computed live by a probe, which means **it has no memory**: an owner who decides *no* would be re-asked forever, and `ActionItemSnooze` is time-bounded by design.
+
+These are the same row. A permanent decline **is** an override of "none".
+
+```
+MemberDiscountOverride {
+  id, clubId, memberId,
+  ruleId String?          // null = applies to every rule
+  mode                    // FORCE_IN | FORCE_OUT | FORCE_AMOUNT
+  amountType String?      // FORCE_AMOUNT only: PERCENT | FIXED
+  amountValue Decimal?    // FORCE_AMOUNT only
+  reason String?          // required in the UI; the audit trail's usefulness depends on it
+  createdByUserId, createdAt, removedAt?
+}
+@@unique([memberId, ruleId])   @@index([clubId, memberId])
+```
+
+- **`FORCE_IN`** — grant this rule's discount to an athlete the group did not reach. This is the divorced-parent recourse.
+- **`FORCE_OUT`** — this athlete never receives this rule. Doubles as "I considered the recommendation and the answer is no", and suppresses the probe permanently rather than for seven days.
+- **`FORCE_AMOUNT`** — a hand-set concession, still recorded as a rule-attributed discount so Reports can see it.
+- `billing:full`, audited, soft-removed. An override is a money decision.
+
+**An override changes what is recommended. It still does not apply anything.** `FORCE_IN` produces a recommendation for an athlete who otherwise had none; a human still confirms it.
+
+---
+
+## 9.6 One discount per line, multiple rules, no retroactivity
+
+### Stacking: no. It is a schema fact, not a UI preference.
+
+`Transaction.discountCode/discountAmount` and `MemberSubscription.discountCode/discountAmount` are single scalar columns. Every receipt line, every reconciliation surface, every offer snapshot and `resolveStaffDiscount`'s "one discount max, no stacking by construction" assume exactly one. Stacking would require a schema change and would break all of them at once.
+
+**One discount per line. Enforced in `resolveApplicableDiscount`, never in a caller.**
+
+### Multiple active rules: supported, off by default, highest wins
+
+`Club.allowMultipleDiscountRules BOOLEAN default false`. **Frog Empire runs single-rule.**
+
+- **Off (default):** a second rule cannot be activated. The settings page says which rule is already active and offers to deactivate it. This is a guard rail, not a limitation — a club with two overlapping rules and no mental model of precedence will be surprised by its own configuration.
+- **On:** when more than one rule matches a group, **the highest discount wins** — compared as the resulting dollar saving on that athlete's price, not as a percentage, because 10% and $40 are not comparable in the abstract. Ties break on the lower `ruleId` so the winner is stable across recomputes.
+- Every loser lands in `considered[]` with its computed saving, and the recommendation card names the comparison. An owner who cannot see why the group rate beat the sibling discount will assume the software is wrong.
+
+Precedence against a **typed code** stays `Club.automaticDiscountPolicy`:
+
+- **`BEST_FOR_CLIENT`** (default) — whichever produces the lower final price wins; ties go to the rule.
+- `CODE_WINS` — an explicitly typed code always beats a rule.
+- `AUTO_WINS` — standing policy always beats a typed code.
+
+Whichever loses is returned in `considered[]`, and **the UI must say what happened**: *"Sibling membership discount applied — it saves more than code `SUMMER10`."* A parent who types a code and sees no code on the receipt has been given a support ticket.
+
+### Retroactivity: cut, not shipped disabled
+
+**`APPLY_NEXT_CYCLE` is cut.** The superseded draft proposed shipping it greyed-out with a "not yet available" note. That is worse than absent: it advertises a capability, invites the owner to plan around it, and leaves dead configuration in the schema that a later reader must interpret.
+
+It required a live-subscription reprice capability that **does not exist and is not being built in this phase** — no `stripe.subscriptions.update` price change, no proration policy, no test coverage. `FAMILY_DISCOUNT_DRIFT` (§9.3) is the manual path and the only path.
+
+So the rule's retroactivity column collapses to two values:
+
+| `retroactivity` | Behaviour |
+|---|---|
+| `FORWARD_ONLY` (default) | New purchases only. Existing subscriptions raise a recommendation. |
+| `PROMPT_ON_CHANGE` | Same, but the probe is `high` severity and not snoozable for 7 days. |
+
+**No setting issues a refund or a credit.** Making a family whole for a past period is a manual `Transaction` adjustment by a human, exactly as today.
+
+---
+
+## 9.7 What owners configure vs what happens automatically
+
+**Owner configures** — Settings → Billing → *Discount rules*, `billing:full`:
+
+- Which groupable fields exist, with the club's own labels (the `lib/eventCategories.ts` editor pattern, presets offered: Household · School · Team · Squad, and "add your own").
+- Per rule: the field X, the threshold N, on/off, and which plans it covers (`membershipIds`, empty = all).
+- **The amount, in one of three shapes** — all three are supported, and the amounts are **club config, not spec constants**:
+
+  | Shape | Config | Scope |
+  |---|---|---|
+  | **`PER_POSITION`** — a ladder | `[{ ordinal: 2, type: 'PERCENT', value: 10 }, { ordinal: 3, type: 'PERCENT', value: 15, andBeyond: true }]` | payer-scoped only |
+  | **`FLAT_ADDITIONAL`** — every athlete after the first | `{ type: 'PERCENT', value: 10 }` | payer-scoped only |
+  | **`FIXED`** — a flat amount for every athlete in the group once N is met | `{ type: 'FIXED', value: 40 }` | either |
+
+  `type`/`value` reuse `Discount`'s vocabulary (`PERCENT | FIXED`) exactly, so `discountedPrice()` is unchanged. `PER_POSITION` tiers must be contiguous from 2 — a gap is a 400 naming the missing ordinal. `andBeyond: true` on the last tier extends it to every subsequent athlete; without it, ordinals past the ladder get nothing. **"2nd 10%, 3rd 15%" is an example in this document, not a default in the code.**
+- Which athlete pays full price: lowest-priced (Frog Empire), highest-priced, or longest-enrolled. Payer-scoped rules only.
+- Whether comp athletes count toward the number (`countCompMemberships`, default **false**).
+- Whether more than one rule may be active (`Club.allowMultipleDiscountRules`, default **false**).
+- Retroactivity (§9.6) and code-vs-rule precedence (`Club.automaticDiscountPolicy`).
+- Item scope is **MEMBERSHIP only** (§9.12 item 6) and is not presented as a choice.
+
+**Happens automatically, with no owner input:** group resolution, the count, ordinal assignment, the computed amount, the label, and the recommendation — everywhere a price is displayed, previewed or reported. Plus the `FAMILY_DISCOUNT_DRIFT` and `SPLIT_FAMILY_SUSPECTED` probes.
+
+**Never automatic, in any configuration:** a charge, a refund, a credit, a price change to a live subscription, a group merge, a guardian link, a change to `payerUserId`, or a discount applied to a purchase.
+
+The settings page must show a **live worked example** off the club's real data — pick the largest existing group and render it in dollars: *"Lister group · 3 athletes · $530 + $477 + $450.50 = $1,457.50/quarter (saving $132.50)"*. A ladder that is wrong is far easier to see in dollars than in percentages.
+
+---
+
+## 9.8 Surfacing
+
+The rule: **a parent must be able to answer "why is this athlete's price different?" without asking anyone.** The discount must be named, attributed to a reason, and shown against the pre-discount price on every surface where money appears.
+
+### Naming — "Sibling membership discount", everywhere
+
+**Memberships only at launch.** Not events, not classes, not packs. So the name must say so, on every surface **including the receipt line**, or a parent will reasonably assume their tournament entry and their drop-ins are covered too and will be annoyed exactly once per family.
+
+> `Sibling membership discount (2nd athlete) — $477.00 quarterly (was $530.00)`
+> `Lincoln High group rate — $477.00 quarterly (was $530.00)`
+
+One helper, `familyDiscountLabel()`, used everywhere. This matches the reactivation email's existing `discountLine` format; reuse that string shape rather than inventing a second one. No user-facing string may name a sport — `npm run test:sport-terms` gates the build, and the club's own field labels are what appear in copy.
+
+| Surface | Today | Required |
+|---|---|---|
+| **Receipt email** (`sendPaymentReceiptEmail`) | `description` + `amountPaid` only. **No discount line at all.** | Add `originalAmount` + `discountLine`. Render Subtotal / Discount / Amount charged when present; unchanged single-line layout when not. The discount line carries the word **membership**. |
+| **Stripe invoice line description** | `"${membership.name} — ${option.label}${discount ? \` (code ${discount.code})\` : ''}"` | Rule-sourced discounts have no code. Render the **label**: `"Kellen Lister — Quarterly (Sibling membership discount, 2nd athlete)"`. **Never write a fake code into the description.** |
+| **`MemberSubscription`** | `discountCode` + `discountAmount` | Rule-sourced discounts leave `discountCode` **null** and stamp the §9.10 snapshot. Do not write a sentinel like `SIBLING:2` into `discountCode` — that column is read by code-lookup paths and by reconciliation. |
+| **`Transaction`** | `discountCode` + `discountAmount` | Same split. Financials rows show the label; Reports groups by `discountRuleId`, not by string. |
+| **Member portal billing card** | Per-person plan / status / price / next billing / card | Per-athlete base price, discount line, net. Plus **one household summary**: *"2 athletes · you're saving $53.00 per quarter."* |
+| **Checkout / confirm buttons** | Explicit total, always | Unchanged rule; the supporting line names the discount. Never show a discounted total without naming why. |
+| **Staff billing centre** (`/dashboard/members/[id]/billing`) | `deriveBillingState` lead chip + explanation | The **Discount recommendation** card of §9.3, plus a **Group** card: the resolved key, every athlete with ordinal and price, and any drift. This card is the two-logins detector. |
+| **Offer / reactivation email** | `discountLine` supported | Populate from `familyDiscountLabel()`. No template change. |
+| **Reports** | Revenue by source | Rules become a groupable dimension via `discountRuleId`. "How much are we giving away in sibling discounts" is a real owner question and is unanswerable today. |
+
+### The saving is visible even when prices are not
+
+`Club.memberBillingVisibility.showPrice` off must **not** hide the household saving. A club that hides prices from members is hiding *what each athlete costs*; it is not trying to hide *that the family is getting a break* — that is goodwill the club is paying for and wants credit for.
+
+So when `showPrice` is off, render the saving **without the underlying prices**:
+
+> *2 athletes · you're saving $53.00 per quarter.*
+
+and omit the per-athlete base/net lines entirely. The superseded draft suppressed both together; that was the more conservative reading and it was wrong.
+
+### New probes
+
+Both extend the existing `ACTION_ITEM_KINDS` (`lib/reportsActionItems.ts:32`) and both snooze through `ActionItemSnooze` with no schema change:
+
+- **`FAMILY_DISCOUNT_DRIFT`** — a rule reaches an athlete whose price does not match it, in either direction. `severity: medium` (`high` under `PROMPT_ON_CHANGE`). Action: the billing-admin preview diff. Permission `billing:full`. Permanently silenced by a `FORCE_OUT` override (§9.5), not by an endless snooze.
+- **`SPLIT_FAMILY_SUSPECTED`** — two distinct payer groups share a CONFIRMED guardian link or an athlete. `severity: low`. Action: the Family & access card. Permission `members:edit`. **Never offers a one-click merge.**
+
+---
+
+## 9.9 Correctness rules (restated for the audit)
+
+1. **One discount per line.** Enforced in `resolveApplicableDiscount`, never in a caller.
+2. **Detect and recommend; never apply.** No rule, setting, or probe may change a price. Every application is a human confirm through the billing-admin preview → apply path, audited.
+3. **A typed invalid code is a hard block. A failing rule is silent.** Never invert these.
+4. **Applied discounts are immutable snapshots.** Never recomputed on read, never rewritten by a rule edit.
+5. **Never reprice a live Stripe subscription implicitly.** No reprice capability exists; do not add one in this phase.
+6. **Never refund or credit automatically.** No setting may cause money to move backwards.
+7. **Comp / $0 / override-to-free subscriptions are never counted as discountable and never repriced.** `deliberateFree` keeps its existing single job.
+8. **Ordinals are deterministic and payer-scoped only.** Total sort order; recomputing produces the same assignment. Cohort rules have no ordinals.
+9. **Count from `subscriptions` through `onPlanWhere()`, never from `Member.membershipId`.** And never reconcile money through `Transaction.memberId` — use `stripeInvoiceId`.
+10. **Group membership is displayed wherever it is used.** A discount that cannot be traced to a named group and a named rule may not be recommended.
+11. **Never merge two groups automatically.** Suggest, never act.
+12. **Every discount mutation writes `BillingAuditLog`.**
+13. **The discount applies before the fee gross-up, through `recurringUnitWithFee`.** A $110 athlete at 10% is $99, then +2.9% = **$101.87 charged**. Discount first, gross-up second, on the discounted cent base — `lib/reactivation.ts:369` is the existing precedent. Any path that computes a discounted subscription amount without routing through `lib/fees.ts` silently strips the club's passthrough off every discounted subscription, on every renewal, invisibly.
+14. **`MemberRelationship` and `Guardian` are never read for eligibility.**
+15. **Server recomputes every amount.** Only codes, member ids and rule ids cross the wire.
+16. **No user-facing string names a sport.** The club's field labels supply the vocabulary; `npm run test:sport-terms` gates the build.
+
+---
+
+## 9.10 Schema proposal
+
+**No migrations are written in this session.** This is the proposal; the DDL and the folder come later, and **`npx prisma migrate deploy` is run by Julian from his own terminal, before the `schema.prisma` field lands, never after.**
+
+### Numbering — the draft's M30–M35 collide and are withdrawn
+
+The superseded draft allocated M30–M35 on the belief that M29 was the last. **M30 is already taken:** `20260804000000_members_experience`, all of Phase 4.5 in one migration, written 2026-08-04 and not yet applied. Phase 9's changes are renumbered **M31–M36** below.
+
+Per `PROGRESS.md`'s own instruction at line 117 — *"Name migrations by folder, never by `M<n>` — the M-numbers below are a planning inventory that has been renumbered before"* — **the folder name is the identifier.** Proposed: `20260910000000_discount_rules`. It must sort after `20260804000000_members_experience`.
+
+### Does the single scalar `discountCode`/`discountAmount` pair still hold?
+
+**No — and this is the draft's most consequential schema error.** The draft kept the scalar pair and added `discountRuleId` + `discountLabel` + `discountOrdinal` beside it. That is three loose columns whose consistency nothing enforces, and it loses the rule's *terms* at the moment they mattered.
+
+The right shape already exists in this codebase: **`EventRegistration`'s five-column redemption snapshot** (`discountId, discountCode, discountType, discountValue, discountAmount`), documented as *"soft pointer, NO FK; the snapshot outlives the code."* A rule edit must not change what a family was charged, so the snapshot must record `type` and `value` **as of application**, not a pointer to a row that will drift.
+
+So: mirror the `EventRegistration` snapshot, and keep `discountCode` meaning exactly what it means today — *a code a human used.*
+
+| # | Change | Type | Purpose |
+|---|---|---|---|
+| **M31** | `DiscountRule` — `{ id, clubId, name, active, fieldKey, resolver ('RELATION'\|'COLUMN'\|'CUSTOM_FIELD'), resolverConfig Json, threshold Int default 2, appliesTo Json (validated `["MEMBERSHIP"]`), membershipIds Json, amountShape ('PER_POSITION'\|'FLAT_ADDITIONAL'\|'FIXED'), amountConfig Json, fullPriceEnd ('LOWEST_PRICED_FIRST'\|'HIGHEST_PRICED_FIRST'\|'OLDEST_JOINED_FIRST'), countCompMemberships Bool default false, retroactivity ('FORWARD_ONLY'\|'PROMPT_ON_CHANGE'), createdAt, updatedAt, deletedAt? }`, `@@index([clubId, active])` | Additive, new table | §9.1, §9.7. Named `DiscountRule`, not `FamilyDiscountRule` — a group rate is not a family. `resolverConfig`/`amountConfig` are validated on read by a pure resolver, the same contract as `ClubEventType.defaultPolicy`. |
+| **M32** | `Club.groupableFields Json default '[]'` | Additive, one default | §9.1. The club's field definitions — `{ key, label, resolver, column?, customFieldId? }[]`. **No new table**, exactly as `ClubEventType.defaultPolicy.categoryFields` holds participant categories. |
+| **M33** | `Member.school String?` + `@@index([clubId, school])` | Additive, nullable | §9.4. The one `COLUMN`-backed groupable field this phase ships. Settable on the signup form, editable on the profile and in bulk. Indexed because the cohort `GROUP BY` runs on every recommendation read. |
+| **M34** | `MemberSubscription`: `discountRuleId String?`, `discountLabel String?`, `discountOrdinal Int?`, `discountType String?`, `discountValue Decimal?` — the `EventRegistration` snapshot shape. `@@index([discountRuleId])` | Additive, all nullable | §9.5, §9.8. `discountCode` keeps meaning "a code a human used" and stays null for rule-sourced discounts. `discountAmount` is unchanged and stays the derived dollars-off. |
+| **M35** | `Transaction`: `discountRuleId String?`, `discountLabel String?`, `discountType String?`, `discountValue Decimal?`. `@@index([discountRuleId])` | Additive, all nullable | Parallel to M34 for one-time money and for Reports grouping. `Transaction.athleteMemberId` already exists (`schema.prisma:2105`), so Reports can attribute a discount to the athlete without a join. |
+| **M36** | `Discount.audience String default 'ANYONE'` + `Discount.autoApply Boolean default false`; new `DiscountAssignment { id, clubId, discountId, memberId, assignedByUserId, assignedAt, removedAt? }`, `@@unique([discountId, memberId])`, `@@index([clubId, memberId])`; new `MemberDiscountOverride` per §9.5, `@@unique([memberId, ruleId])`, `@@index([clubId, memberId])`; `Club.allowMultipleDiscountRules Boolean default false`; `Club.automaticDiscountPolicy String default 'BEST_FOR_CLIENT'`; indexes `MemberSubscription(payerUserId, status)` and `MemberGuardianUser(memberId, isPrimary, status)` | Additive; every default reproduces today's behaviour | §9.4, §9.5, §9.6. The two indexes serve the group-count query and the primary-guardian fallback, both of which run on every recommendation read — `@@index([payerUserId])` alone cannot serve the status filter. |
+
+**No backfill is required by any of these.** Every new column is nullable or carries a default that reproduces current behaviour. A pre-Phase-9 row simply has `discountRuleId = null`, which readers must treat as *"a typed code, or nothing."*
+
+### The `CUSTOM_FIELD` resolver — designed, not built
+
+An arbitrary `CustomField` cannot back a rule today, and the reason is worth stating precisely so nobody re-derives it: **`Member.customFieldValues` is `String @default("{}")`** — a stringified JSON blob in a `text` column. `GROUP BY` over a value inside it is not indexable and not expressible in SQL. Loading every member and grouping in TypeScript is viable at Frog Empire's scale and is not a general answer.
+
+Two options were considered and one is reserved:
+
+- **Migrating `customFieldValues` to `jsonb`** — delivers arbitrary grouping, but it is a type change on a column every member row carries and every existing reader parses with `JSON.parse`. That is a backfill plus a full read-path audit, for a capability nobody has asked for yet.
+- **A normalised side table — reserved, and this is the design:**
+
+```
+MemberGroupableValue {
+  id, clubId, memberId,
+  fieldKey String        // the GroupableField.key
+  value String           // NORMALISED: trimmed, whitespace-collapsed, lowercased
+  displayValue String    // what the parent actually typed
+  updatedAt
+}
+@@unique([memberId, fieldKey])
+@@index([clubId, fieldKey, value])
+```
+
+Written **on save**, alongside the blob, by whatever path writes the custom field. Two rows for one truth is a drift risk, so drift is made **visible rather than silent**: a reconcile job walks `customFieldValues` against the side table, and a **`GROUPABLE_VALUE_DRIFT`** probe fires when they disagree, naming the members. Same pattern as every other Action Center probe — detect, surface, let a human decide.
+
+**Adding this later is one new `case` in the resolver plus one table. It is not a redesign** — which is the entire justification for spending §9.1's abstraction now rather than hard-coding two columns.
+
+---
+
+## 9.11 Which phase this is
+
+**Its own phase: 9, sequenced after Phase 8 and before Phase 6.** Numeric order is not execution order — Phase 6 remains the final safety and verification gate, and a phase introducing money-affecting behaviour must land *before* the gate, not after it.
+
+Why not fold it elsewhere:
+
+- **Not 4.6.** §4 and Phase 7 both assert in writing that there is no Phase 4.6. That line exists to stop decimal sprawl and is honoured here.
+- **Not Phase 4** — code-complete, M29 applied 2026-08-03. Reopening it re-migrates `member_guardian_users`, which `PROGRESS.md` explicitly warns against.
+- **Not Phase 4.5** — a locked design handoff with its own acceptance criteria and owner sign-off list.
+- **Not Phase 7** — Phase 7 makes the family model visible in signup and the portal. This is the money layer on top of it, and 7.1 is already merged.
+- **Not Phase 8** — the closest call, and the argument against is scheduling: Phase 8 is a large spec already awaiting decisions D1–D12. Adding a discount engine to an undecided phase delays both. But the coupling is real and is recorded in §4a below.
+- **Not Phase 6** — Phase 6 is the release-wide gate. It stays last.
+
+**Dependencies, all satisfied or noted:**
+
+- Phase 4's `payerUserId`, `resolvePayerUserId`, stored `isPrimary` and `MembershipTransfer` are preconditions and all shipped.
+- Phase 4.5's `serializeMemberForList` feeds the group preview on the Members list and the bulk `assign_discount` selection payload.
+- **Phase 8 §8.7 (the bulk price tool starts from the membership) and §8.8 (what Stripe can express) are the surfaces a recommendation lands on.** If Phase 8 ships first, its price tool must accept a rule-sourced recommendation line; if Phase 9 ships first, §8.7's screen must not be designed as though price has one source. Either order works; neither may ignore the other.
+- **Phase 8 §8.0.7's renewal-quote hazard is live**, and a rule-sourced discount is one more thing a renewal quote can get wrong. Whichever phase lands second owns the combined test.
+- **Phase 5's shared confirmation render context** must accept `discountLine` / `discountLabel` so this phase does not reopen a finished surface.
+
+---
+
+## 9.12 Settled decisions
+
+**These eleven are settled and are not open for re-litigation during the build.** They are recorded here because a spec that does not distinguish a settled decision from a placeholder gets re-argued at implementation time.
+
+| # | Decision |
+|---|---|
+| 1 | **Detect and recommend, never auto-apply.** Recommendations surface on the athlete's profile and as an Action Center probe. Nothing reprices on its own; the owner applies through the billing centre. §9.3 |
+| 2 | **Multiple active rules per club are supported but off by default** (`Club.allowMultipleDiscountRules`). When more than one rule matches, **the highest discount wins**, compared as dollars saved. Frog Empire runs single-rule. §9.6 |
+| 3 | **Which athlete pays full price is club-configurable** — lowest-priced or highest-priced discounted. **Frog Empire discounts the cheaper athlete** (`LOWEST_PRICED_FIRST`). §9.3, §9.7 |
+| 4 | **Discount amounts are club config, not spec constants.** All three shapes ship: per-position ladder, flat percentage for each additional athlete, fixed dollar amount. "2nd 10%, 3rd 15%" is an example, never a default. §9.7 |
+| 5 | **`APPLY_NEXT_CYCLE` retroactivity is cut, not shipped greyed-out.** No live-subscription reprice capability exists and none is being built. `FAMILY_DISCOUNT_DRIFT` is the manual path. §9.6 |
+| 6 | **Memberships only at launch.** Not events, classes or packs. Named **"Sibling membership discount"** in every surface including the receipt line, so parents do not assume it covers drop-ins and tournament fees. §9.8 |
+| 7 | **Payer-keyed, with a manual per-athlete override** for cases the rule misses. Divorced parents paying separately get nothing automatically — intended; the override is the recourse. §9.1, §9.5 |
+| 8 | **Comps do not count toward the athlete count** (`countCompMemberships` false). **`deliberateFree` does not get a second job** — it is already load-bearing for member pricing on events and privates. §9.3, §9.7 |
+| 9 | **"Group rate", not "team"** — avoids collision with the competitive-squad meaning and with the in-flight person-type label work. §9.4 |
+| 10 | **Show the household saving even when `Club.memberBillingVisibility.showPrice` is off** — the saving amount without exposing underlying prices. §9.8 |
+| 11 | **The discount applies before the `passProcessingFees` gross-up.** A $110 athlete at 10% is $99, then +2.9% = $101.87 charged. Must route through `recurringUnitWithFee` or it silently strips the fee off every discounted subscription. §9.9 rule 13 |
+
+### Still open
+
+Four items, none blocking the build:
+
+1. **The club's real numbers and thresholds.** Every amount and every `N` in this document is illustrative. The owner sets them and they are the entire feature.
+2. **The groupable-field label set to offer as presets.** Household · School · Team · Squad is a starting proposal; the club supplies the words, and `lib/eventCategories.ts`'s preset list is the model for how they are offered.
+3. **Whether the `COLUMN` field ships as free text or a picklist.** Free text fragments cohorts on typos and normalisation only goes so far; a picklist needs the club to enumerate its schools up front. Recommendation: picklist with an "other" free-text escape, mirroring `CategoryField.options` where empty means free text.
+4. **Whether a cohort rate needs a cap.** A group rate with no ceiling on group size is a standing concession whose cost grows with the cohort. No cap is proposed; the owner should confirm that is intended before the first cohort reaches thirty athletes.
+
+**Decisions taken in this revision that were not in the brief**, flagged for confirmation rather than buried:
+
+- **Ordinal-bearing amount shapes are rejected on cohort-scoped rules** (§9.1). "The 2nd athlete gets 10%" has no meaning across twenty unrelated families, so the validator refuses the combination rather than picking an arbitrary first athlete.
+- **`FORCE_OUT` on the override doubles as a permanent recommendation dismissal** (§9.5). Probes are computed live and `ActionItemSnooze` is time-bounded, so without this an owner who decides *no* is re-asked forever.
+- **M30–M35 renumbered to M31–M36** (§9.10), because M30 is already `20260804000000_members_experience`.
 ---
 
 ## 8. Final Deliverable
