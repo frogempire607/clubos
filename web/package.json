@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
-    "build": "npm run test:subscription-truth && npm run test:permission-boundary && prisma generate && next build",
+    "build": "npm run test:subscription-truth && npm run test:permission-boundary && npm run test:attendance-billing && prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "cap:sync": "node scripts/native-shell-config.mjs && cap sync",
@@ -27,6 +27,7 @@
     "test:entitlements": "tsx scripts/entitlements-tests.ts",
     "test:members-guards": "tsx scripts/members-grep-guards.ts",
     "test:subscription-truth": "tsx scripts/subscription-truth-guard.ts",
+    "test:attendance-billing": "tsx --tsconfig scripts/tsconfig.render.json scripts/attendance-billing-tests.ts",
     "test:non-renewal": "tsx scripts/non-renewal-tests.ts",
     "test:permission-boundary": "tsx scripts/permission-boundary-guard.ts",
     "test:permission-behaviour": "tsx scripts/permission-behaviour-tests.ts",
