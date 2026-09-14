@@ -250,9 +250,10 @@ export async function buildActionItems(
       detail: "Older than 10 days without a matching charge ID.",
       count: unreconciled,
       amount: null,
-      // Bare link — see the note on OFFLINE_PAYMENT_PENDING below. `?tab=stripe`
-      // never selected the Stripe tab; that tab is useState.
-      href: "/dashboard/financials",
+      // Financials reads `tab` + `show` from the URL since 2026-09-14 (see the
+      // deep-link note at the top of app/dashboard/financials/page.tsx).
+      // `show=unreconciled` = SUCCEEDED rows not VERIFIED against Stripe.
+      href: "/dashboard/financials?tab=stripe&show=unreconciled",
       action: { label: "Reconcile", kind: "OPEN", permission: "finances:full" },
     });
   }
@@ -279,12 +280,10 @@ export async function buildActionItems(
       detail: `Total: $${amount.toFixed(2)}. Older than 3 days.`,
       count: offlinePending.length,
       amount,
-      // Bare link: /dashboard/financials parses NO query parameters at all —
-      // its `tab` is useState, not a URL param — so `?tab=offline&filter=pending`
-      // selected nothing and filtered nothing. Fourth of five dead Action Item
-      // links found on 2026-08-16. Deep-linking Financials means teaching that
-      // page to read its tab from the URL, which is a feature, not a bug fix.
-      href: "/dashboard/financials",
+      // Lands on Cash & Offline with the "Awaiting receipt" toggle on — the
+      // PENDING rows this card counts. (Was a bare link from 2026-08-16 to
+      // 2026-09-14 because Financials parsed no query parameters.)
+      href: "/dashboard/financials?tab=offline&show=awaiting",
       action: { label: "Record", kind: "OPEN", permission: "billing:full" },
     });
   }
@@ -315,8 +314,8 @@ export async function buildActionItems(
       detail: `Total abs: $${totalAbs.toFixed(2)}. Categorize so tax + P&L stay accurate.`,
       count: largeUncategorized.length,
       amount: totalAbs,
-      // Same as above — no query parameter here was ever read.
-      href: "/dashboard/financials",
+      // Bank tab with "Needs review only" on — the uncategorised rows.
+      href: "/dashboard/financials?tab=bank&show=review",
       action: { label: "Categorize", kind: "OPEN", permission: "finances:full" },
     });
   }

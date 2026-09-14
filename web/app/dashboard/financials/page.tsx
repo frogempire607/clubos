@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePlaidLink } from "react-plaid-link";
 import {
   REVENUE_CATEGORIES,
@@ -109,8 +110,46 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
+// ── Deep links ───────────────────────────────────────────────────────────────
+// `?tab=<key>` selects a tab; `?show=<focus>` narrows that tab to the rows an
+// Action Item or Alert is complaining about. Until 2026-09-14 this page parsed
+// NO query parameters — `tab` was plain useState — so every card that linked
+// here with a query string landed on Overview with nothing selected (four dead
+// Action Item links found 2026-08-16). The tab is mirrored back into the URL on
+// click so a Financials link can be copied, like /dashboard/reports.
+//
+//   show=awaiting      Cash & Offline → only PENDING rows (offline payment
+//                      recorded, physical receipt not yet confirmed)
+//   show=unreconciled  Stripe → only rows not VERIFIED against Stripe
+//   show=review        Bank → only rows still needing categorisation
+//
+// `filter=needs_review` is accepted as an alias of `show=review` because
+// lib/reportsAlerts already emitted it.
+type ShowFocus = "awaiting" | "unreconciled" | "review" | null;
+function parseTab(v: string | null): TabKey {
+  return (TABS.find((t) => t.key === v)?.key ?? "overview") as TabKey;
+}
+function parseShow(search: URLSearchParams): ShowFocus {
+  const v = search.get("show") ?? (search.get("filter") === "needs_review" ? "review" : null);
+  return v === "awaiting" || v === "unreconciled" || v === "review" ? v : null;
+}
+
 export default function FinancialsPage() {
-  const [tab, setTab] = useState<TabKey>("overview");
+  const router = useRouter();
+  const search = useSearchParams();
+  const [tab, setTabState] = useState<TabKey>(() => parseTab(search.get("tab")));
+  // Read once at mount. Each tab owns its own toggle after that, so clicking
+  // "All" inside a tab is not fought by the URL.
+  const [show] = useState<ShowFocus>(() => parseShow(search));
+  const setTab = useCallback(
+    (next: TabKey) => {
+      setTabState(next);
+      // Keep the address honest: the tab is in the URL, the one-shot focus is
+      // dropped once the owner navigates away from the deep-linked view.
+      router.replace(next === "overview" ? "/dashboard/financials" : `/dashboard/financials?tab=${next}`, { scroll: false });
+    },
+    [router],
+  );
   const [entities, setEntities] = useState<Entity[]>([]);
   const [entity, setEntity] = useState("all");
   const [preset, setPreset] = useState("ytd");
@@ -202,9 +241,9 @@ export default function FinancialsPage() {
       {tab === "out" && <MoneyOutTab entity={entity} entities={entities} bank={bank} bankConnections={bankConnections} />}
       {tab === "donations" && <DonationsTab qs={qs} entity={entity} entities={entities} />}
       {tab === "tax" && <TaxSummaryTab qs={qs} />}
-      {tab === "stripe" && <StripeTab qs={qs} />}
-      {tab === "offline" && <CashOfflineTab qs={qs} entities={entities} />}
-      {tab === "bank" && <BankTab />}
+      {tab === "stripe" && <StripeTab qs={qs} initialUnreconciledOnly={show === "unreconciled"} />}
+      {tab === "offline" && <CashOfflineTab qs={qs} entities={entities} initialAwaitingOnly={show === "awaiting"} />}
+      {tab === "bank" && <BankTab initialNeedsReviewOnly={show === "review"} />}
     </div>
   );
 }
@@ -969,9 +1008,16 @@ function TaxSummaryTab({ qs }: { qs: string }) {
 }
 
 /* ── Stripe (paymentSource=STRIPE only — never mixes cash / offline) ── */
-function StripeTab({ qs }: { qs: string }) {
+function StripeTab({ qs, initialUnreconciledOnly = false }: { qs: string; initialUnreconciledOnly?: boolean }) {
   const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; stripeFees: number; platformFees: number; refunded: number; net: number } } | null>(null);
   const [loading, setLoading] = useState(true);
+  // Deep-link focus from the UNRECONCILED_DEPOSIT Action Item. "Unreconciled"
+  // here = a SUCCEEDED row that is not VERIFIED against a Stripe balance
+  // transaction (lib/paymentSources) — the same rows the card counts.
+  const [unreconciledOnly, setUnreconciledOnly] = useState(initialUnreconciledOnly);
+  const rows = (data?.transactions ?? []).filter(
+    (t) => !unreconciledOnly || (t.status === "SUCCEEDED" && t.reconciliationStatus !== "VERIFIED"),
+  );
   useEffect(() => {
     setLoading(true);
     // Server filter: paymentSource=stripe means "Stripe-source rows only".
@@ -994,12 +1040,30 @@ function StripeTab({ qs }: { qs: string }) {
           <StatCard label="Net" value={money(data?.totals.net || 0)} hint="Revenue − fees − refunds" />
         </div>
       )}
+      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-4 w-fit flex-wrap">
+        {([
+          { key: false, label: "All Stripe" },
+          { key: true, label: "Unreconciled" },
+        ] as const).map((f) => (
+          <button
+            key={String(f.key)}
+            onClick={() => setUnreconciledOnly(f.key)}
+            className={`text-xs px-3 py-1 rounded-md transition ${
+              unreconciledOnly === f.key ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
       <div className="bg-white rounded-xl border border-app-border overflow-hidden">
-        <div className="px-5 py-3 border-b border-app-border"><h2 className="text-sm font-semibold text-text-primary">Stripe transactions</h2></div>
+        <div className="px-5 py-3 border-b border-app-border"><h2 className="text-sm font-semibold text-text-primary">Stripe transactions{unreconciledOnly ? " — unreconciled only" : ""}</h2></div>
         {loading ? (
           <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
-        ) : !data?.transactions.length ? (
-          <div className="p-12 text-center text-sm text-text-muted">No Stripe transactions in this period.</div>
+        ) : !rows.length ? (
+          <div className="p-12 text-center text-sm text-text-muted">
+            {unreconciledOnly ? "Every Stripe row in this period is reconciled." : "No Stripe transactions in this period."}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1007,7 +1071,7 @@ function StripeTab({ qs }: { qs: string }) {
                 <tr><Th>Date</Th><Th>Member</Th><Th>Description</Th><Th>Status</Th><Th>Amount</Th><Th>Fee</Th></tr>
               </thead>
               <tbody>
-                {data.transactions.map((t) => (
+                {rows.map((t) => (
                   <tr key={t.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
                     <Td><span className="text-xs text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</span></Td>
                     <Td><span className="text-sm text-text-primary">{t.member ? `${t.member.firstName} ${t.member.lastName}` : "—"}</span></Td>
@@ -1032,11 +1096,16 @@ function StripeTab({ qs }: { qs: string }) {
 }
 
 /* ── Cash & Offline (every non-Stripe money record) ── */
-function CashOfflineTab({ qs, entities }: { qs: string; entities: Entity[] }) {
+function CashOfflineTab({ qs, entities, initialAwaitingOnly = false }: { qs: string; entities: Entity[]; initialAwaitingOnly?: boolean }) {
   const [data, setData] = useState<{ transactions: Tx[]; totals: { revenue: number; refunded: number; net: number } } | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "CASH" | "CHECK" | "EXTERNAL_READER" | "COMP" | "MANUAL_ADJUSTMENT">("all");
   const [edit, setEdit] = useState<Tx | null>(null);
+  // Deep-link focus from the OFFLINE_PAYMENT_PENDING Action Item: a cash/check
+  // payment was recorded as owed but the physical receipt has not been
+  // confirmed. Those rows are PENDING; "Record" on the card lands here.
+  const [awaitingOnly, setAwaitingOnly] = useState(initialAwaitingOnly);
+  const rows = (data?.transactions ?? []).filter((t) => !awaitingOnly || t.status === "PENDING");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1081,16 +1150,28 @@ function CashOfflineTab({ qs, entities }: { qs: string; entities: Entity[] }) {
             {f.label}
           </button>
         ))}
+        <span className="self-center w-px h-4 bg-app-border mx-1" aria-hidden="true" />
+        <button
+          onClick={() => setAwaitingOnly((v) => !v)}
+          aria-pressed={awaitingOnly}
+          className={`text-xs px-3 py-1 rounded-md transition ${
+            awaitingOnly ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
+          }`}
+        >
+          Awaiting receipt
+        </button>
       </div>
       {loading ? (
         <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={5} /></div>
-      ) : !data?.transactions.length ? (
-        <div className="bg-white rounded-xl border border-app-border p-12 text-center text-sm text-text-muted">No offline payments in this period.</div>
+      ) : !rows.length ? (
+        <div className="bg-white rounded-xl border border-app-border p-12 text-center text-sm text-text-muted">
+          {awaitingOnly ? "Nothing is awaiting receipt in this period." : "No offline payments in this period."}
+        </div>
       ) : (
         <>
           {/* Mobile: card layout — the wide table is hidden below md. */}
           <ul className="md:hidden space-y-2">
-            {data.transactions.map((t) => {
+            {rows.map((t) => {
               const isRefunded = !!t.refundedAt || Number(t.refundedAmount || 0) > 0;
               const state = isRefunded
                 ? { label: "Refunded", cls: "bg-red-100 text-red-800" }
@@ -1143,7 +1224,7 @@ function CashOfflineTab({ qs, entities }: { qs: string; entities: Entity[] }) {
                 </tr>
               </thead>
               <tbody>
-                {data.transactions.map((t) => {
+                {rows.map((t) => {
                   const isRefunded = !!t.refundedAt || Number(t.refundedAmount || 0) > 0;
                   const state = isRefunded
                     ? { label: "Refunded", cls: "bg-red-100 text-red-800" }
@@ -1450,9 +1531,14 @@ type BankDataV2 = {
   pagination?: { total: number; page: number; pageSize: number };
 };
 
-function BankTab() {
+function BankTab({ initialNeedsReviewOnly = false }: { initialNeedsReviewOnly?: boolean }) {
   const [bankData, setBankData] = useState<BankDataV2 | null>(null);
   const [loading, setLoading] = useState(true);
+  // Deep-link focus from the UNCATEGORIZED_LARGE_BANK Action Item / Alert:
+  // only rows that still need a human decision (bankRowStatus "Needs review"
+  // or "Suggested"). Client-side over the loaded page — the same rows the
+  // owner would otherwise scan for by eye.
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(initialNeedsReviewOnly);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [plaidError, setPlaidError] = useState<string | null>(null);
@@ -1635,6 +1721,11 @@ function BankTab() {
   }
   const totalBalance = bankData.accounts.reduce((s, a) => s + (a.balances.current || 0), 0);
   const connections = bankData.connections ?? [];
+  const bankRows = bankData.transactions.filter((t) => {
+    if (!needsReviewOnly) return true;
+    const label = bankRowStatus(t).label;
+    return label === "Needs review" || label === "Suggested";
+  });
   return (
     <>
       {/* Per-bank manager — list of connected accounts with rename /
@@ -1798,14 +1889,31 @@ function BankTab() {
               </span>
             )}
           </h2>
-          <button onClick={disconnectAll} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">
-            Disconnect all
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setNeedsReviewOnly((v) => !v)}
+              aria-pressed={needsReviewOnly}
+              className={`text-xs px-3 py-1 rounded-md transition border ${
+                needsReviewOnly ? "bg-orange-accent/15 border-orange-accent/40 text-text-primary font-medium" : "border-app-border text-text-muted"
+              }`}
+            >
+              Needs review only
+            </button>
+            <button onClick={disconnectAll} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">
+              Disconnect all
+            </button>
+          </div>
         </div>
-        {bankData.transactions.length === 0 ? (
+        {bankRows.length === 0 ? (
           <div className="p-8 text-center text-text-muted text-sm">
-            No transactions in this range.{" "}
-            <button onClick={runSync} className="text-brand hover:underline">Sync from Plaid</button> to pull the latest.
+            {needsReviewOnly ? (
+              <>Nothing on this page needs review.</>
+            ) : (
+              <>
+                No transactions in this range.{" "}
+                <button onClick={runSync} className="text-brand hover:underline">Sync from Plaid</button> to pull the latest.
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -1814,7 +1922,7 @@ function BankTab() {
                 <tr><Th>Date</Th><Th>Description</Th><Th>Bank</Th><Th>Category</Th><Th>Amount</Th><Th>Status</Th><Th></Th></tr>
               </thead>
               <tbody>
-                {bankData.transactions.map((t) => (
+                {bankRows.map((t) => (
                   <BankRow
                     key={t.id || t.transaction_id}
                     tx={t}

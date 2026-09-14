@@ -1294,6 +1294,35 @@ section("Missing / incomplete data:");
 }
 
 {
+  // Dead-link guard (2026-09-14). Four Action Item cards linked into
+  // /dashboard/financials with query strings that page never parsed. It now
+  // reads `tab` and `show` from the URL; every financials deep link in the
+  // Action Item and Alert modules must use a tab key the page defines and a
+  // `show` value it understands, so a card can never point at nothing again.
+  const finSrc = readFileSync(resolve(process.cwd(), "app/dashboard/financials/page.tsx"), "utf8");
+  const tabKeys = Array.from(finSrc.matchAll(/\{ key: "([a-z]+)", label: "/g)).map((m) => m[1]);
+  check("financials page defines its tab keys", tabKeys.length >= 7);
+  const showValues = ["awaiting", "unreconciled", "review"];
+  for (const v of showValues) check(`financials page parses show=${v}`, finSrc.includes(`"${v}"`));
+  check("financials page reads the URL (useSearchParams)", finSrc.includes("useSearchParams"));
+  for (const mod of ["lib/reportsActionItems.ts", "lib/reportsAlerts.ts"]) {
+    const src = readFileSync(resolve(process.cwd(), mod), "utf8");
+    const links = Array.from(src.matchAll(/href: "\/dashboard\/financials\?([^"]+)"/g)).map((m) => m[1]);
+    for (const q of links) {
+      const params = new URLSearchParams(q);
+      const tab = params.get("tab");
+      check(`${mod} → ?${q} uses a real tab`, !!tab && tabKeys.includes(tab), `tab=${tab}`);
+      const show = params.get("show");
+      if (show) check(`${mod} → ?${q} uses a known show`, showValues.includes(show), `show=${show}`);
+      for (const k of Array.from(params.keys())) {
+        check(`${mod} → ?${q} has no unread parameter`, k === "tab" || k === "show", `param=${k}`);
+      }
+    }
+    check(`${mod} has no bare /dashboard/financials link left`, !src.includes('href: "/dashboard/financials"'));
+  }
+}
+
+{
   // Fewer than 3 complete months → forecast null. reportsCashFlow.ts checks
   // earliestAvailableDate ≥ 90 days.
   const cfSrc = readFileSync(resolve(process.cwd(), "lib/reportsCashFlow.ts"), "utf8");

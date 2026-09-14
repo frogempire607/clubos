@@ -192,7 +192,7 @@ export async function buildAlerts(clubId: string): Promise<{ alerts: AlertItem[]
       state: triggered ? "TRIGGERED" : "OK",
       title: `${count} uncategorized bank rows (threshold ${t})`,
       detail: triggered ? "Categorize them to keep tax + P&L accurate." : "All caught up.",
-      href: "/dashboard/financials?tab=bank&filter=needs_review",
+      href: "/dashboard/financials?tab=bank&show=review",
       threshold: t,
       currentValue: count,
       unit: "rows",

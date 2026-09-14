@@ -9,7 +9,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 ## Next up
 
 - **Julian, do first:** A1 Colton Waite (overdue since Sep 8) · then A2 Wyatt Eastman by Oct 2
-- **Next Claude Code session:** B1 is on disk awaiting Julian's build + push → then B4 dead Action Item links (B3 Phase 9 needs a clear run; B2 blocked by A3)
+- **Next Claude Code session:** B4 is on disk awaiting Julian's build + push → then B3 Phase 9 (needs a clear run — say when) or B8 branch review (small); B2 blocked by A3
 - **Julian, to unblock code:** A3 four minors → guardians (blocks B2 COPPA)
 
 ---
@@ -56,9 +56,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
-- [ ] **B1 · Member.status is a label, not an authority** · CODE ON DISK 2026-09-14 — Julian: run
-  `cd ~/Desktop/clubos/web && npx tsx scripts/member-tracks-tests.ts && npx tsc --noEmit && npm run build`,
-  then commit + push; tick when live
+- [x] **B1 · Member.status is a label, not an authority** · SHIPPED 2026-09-14, commit 7efbe0e on main
   Done: portal label + profile-switcher derived from subscription rows; `|| member.status`
   removed from both event pricing routes; profile-page fallback pill derived; 12-month
   prospect lapse rule (attendance-based, reclassifies nobody until mid-2027). Write-up in
@@ -74,9 +72,14 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Spec merged, all §4.6.12 decisions settled, nothing built. Biggest remaining job — don't
   start it in a gap between other items.
 
-- [ ] **B4 · Four dead Action Item links** · ready
-  /dashboard/financials parses no query params (tab is useState): UNRECONCILED_DEPOSIT,
-  OFFLINE_PAYMENT_PENDING, UNCATEGORIZED_LARGE_BANK, UPCOMING_RENEWAL_LARGE.
+- [ ] **B4 · Four dead Action Item links** · CODE ON DISK 2026-09-14 — Julian: run
+  `cd ~/Desktop/clubos/web && npx tsx scripts/reports-tests.ts && npx tsc --noEmit && npm run build`,
+  then commit + push; tick when live
+  Done: Financials reads `?tab=` + `?show=` and writes tab back to the URL; Stripe/Offline/Bank got
+  the matching toggles; three cards + the Alert now deep-link correctly; guard test added.
+  OPEN (Julian decides): UPCOMING_RENEWAL_LARGE still opens the bare roster — no 7-day renewal
+  queue exists. (a) point at `?queue=endingSoon` (120-day window), (b) build a `renewingSoon`
+  queue, (c) leave bare. Write-up in docs/improvement/PROGRESS.md (2026-09-14, second entry).
 
 - [ ] **B5 · 2.5.12 Reports — mobile + accessibility** · ready
 
@@ -102,4 +105,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-14 (B1 built)_
+_Last reviewed: 2026-09-14 (B1 shipped, B4 built)_
