@@ -27,4 +27,13 @@ export STRIPE_SECRET_KEY=""
 export STRIPE_WEBHOOK_SECRET=""
 export STRIPE_CONNECT_WEBHOOK_SECRET=""
 export NEXT_PUBLIC_APP_URL="http://127.0.0.1:3000"
-exec ./node_modules/.bin/next dev -H 127.0.0.1 -p 3000
+# A git worktree has no node_modules of its own — Node resolves upward to the
+# main checkout's. The hardcoded ./node_modules/.bin/next therefore does not
+# exist here, which made this script unusable from a worktree and is exactly
+# the moment somebody reaches for a hand-rolled `npm run dev` override instead.
+# `npm root` cannot answer it either — it reports the worktree's own path
+# whether or not that path exists. npx does the same upward resolution Node does.
+if [ -x ./node_modules/.bin/next ]; then
+  exec ./node_modules/.bin/next dev -H 127.0.0.1 -p 3000
+fi
+exec npx --no-install next dev -H 127.0.0.1 -p 3000

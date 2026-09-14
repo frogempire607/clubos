@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { trialWindowDays, freeTrialSummary } from "@/lib/freeTrial";
+import { needsNoMembershipConfirmation, noMembershipMessage } from "@/lib/attendanceBilling";
 import { sendEmail } from "@/lib/email";
 
 // GET /api/attendance?date=YYYY-MM-DD
@@ -59,6 +60,10 @@ const recordSchema = z.object({
   notes: z.string().optional().nullable(),
   // TRIAL only: email the client a "your free trial started" receipt.
   emailReceipt: z.boolean().optional().default(false),
+  // Set by the client AFTER the "No active membership" prompt, when staff chose
+  // "Mark present anyway". Absent = the prompt has not been shown yet, so a
+  // billable status for somebody with no subscription is refused with 409.
+  confirmNoMembership: z.boolean().optional().default(false),
 });
 
 // POST /api/attendance — upsert an attendance record
@@ -72,7 +77,8 @@ export async function POST(req: Request) {
   const parsed = recordSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { classSessionId, eventId, memberId, status, notes, emailReceipt } = parsed.data;
+  const { classSessionId, eventId, memberId, status, notes, emailReceipt, confirmNoMembership } =
+    parsed.data;
   if (!classSessionId && !eventId) {
     return NextResponse.json({ error: "classSessionId or eventId required" }, { status: 400 });
   }
@@ -83,6 +89,77 @@ export async function POST(req: Request) {
   });
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
+  // The record already on this roster for this session, if any. Loaded BEFORE
+  // the membership gate because "they already paid at the door" is one of the
+  // reasons not to ask again.
+  const existing = await prisma.attendanceRecord.findFirst({
+    where: {
+      ...(classSessionId ? { classSessionId } : {}),
+      ...(eventId ? { eventId } : {}),
+      memberId,
+    },
+  });
+
+  // ── Recording attendance for somebody with no membership ──────────────────
+  //
+  // Refuse ONCE, with everything the prompt needs to offer a real choice, and
+  // accept the same request back with `confirmNoMembership`. The gate lives
+  // here rather than in the page because all three call sites are this one
+  // endpoint — Quick-Add, the roster status change, and the eventId branch —
+  // and a client-side check is a check a client can skip.
+  //
+  // The membership question is the COUNT OF ACTIVE SUBSCRIPTION ROWS and
+  // nothing else. See lib/attendanceBilling.ts for why not Member.status and
+  // why not countsAsMembership().
+  const trialWindowActive = !!member.trialEndsAt && member.trialEndsAt > new Date();
+  const activeSubscriptionCount = await prisma.memberSubscription.count({
+    where: { memberId, status: "active" },
+  });
+
+  if (
+    needsNoMembershipConfirmation({
+      status,
+      activeSubscriptionCount,
+      trialWindowActive,
+      alreadyCharged: existing?.amountCharged != null,
+      confirmed: confirmNoMembership,
+    })
+  ) {
+    // Whether the club's free-trial offer can grant this person a window. The
+    // SERVER decides, so the prompt can't offer a trial the check-in would then
+    // reject — and so the reason shown is the same sentence the TRIAL branch
+    // below would have produced.
+    const club = await prisma.club.findUnique({
+      where: { id: session.user.clubId },
+      select: { freeTrialConfig: true },
+    });
+    const summary = freeTrialSummary(club?.freeTrialConfig);
+    const days = trialWindowDays(club?.freeTrialConfig, member);
+
+    return NextResponse.json(
+      {
+        needsConfirmation: true,
+        reason: "NO_ACTIVE_SUBSCRIPTION",
+        memberFirstName: member.firstName,
+        status,
+        message: noMembershipMessage(member.firstName),
+        trial: {
+          available: days != null,
+          name: summary.name,
+          days: days ?? summary.days,
+          renewable: summary.renewable,
+          unavailableReason:
+            days != null
+              ? null
+              : summary.active
+                ? `${member.firstName} already used their free trial and the offer doesn't allow renewals.`
+                : "Your club isn't offering a free trial right now — set one up from the Memberships page.",
+        },
+      },
+      { status: 409 },
+    );
+  }
+
   // A staff "Trial" check-in starts the club's free trial — one offer,
   // membership-like: the window (Member.trialEndsAt) covers class booking for
   // the configured days and then expires on its own. When the offer's renewal
@@ -92,18 +169,15 @@ export async function POST(req: Request) {
   let trialGranted = false;
   let trialEndsAt: Date | null = null;
   if (status === "TRIAL") {
-    const activeSub = await prisma.memberSubscription.findFirst({
-      where: { memberId, status: "active" },
-      select: { id: true },
-    });
-    if (activeSub) {
+    // Same count the membership gate above used — one query, one definition of
+    // "has a membership" for both answers this endpoint can give.
+    if (activeSubscriptionCount > 0) {
       return NextResponse.json(
         { error: `${member.firstName} already has an active membership — mark them Present instead.` },
         { status: 400 },
       );
     }
-    const windowActive = member.trialEndsAt && member.trialEndsAt > new Date();
-    if (windowActive) {
+    if (trialWindowActive) {
       trialEndsAt = member.trialEndsAt;
     } else {
       const club = await prisma.club.findUnique({
@@ -130,15 +204,6 @@ export async function POST(req: Request) {
       trialGranted = true;
     }
   }
-
-  // Upsert: find existing then update or create
-  const existing = await prisma.attendanceRecord.findFirst({
-    where: {
-      ...(classSessionId ? { classSessionId } : {}),
-      ...(eventId ? { eventId } : {}),
-      memberId,
-    },
-  });
 
   let record;
   if (existing) {

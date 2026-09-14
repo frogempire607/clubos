@@ -9,6 +9,8 @@ import PageHeader from "@/components/PageHeader";
 import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import { todayLocalISO } from "@/lib/datetime";
+import { classDropInPrice } from "@/lib/attendanceBilling";
+import NoMembershipPanel, { type NoMembershipPrompt } from "@/components/attendance/NoMembershipPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -877,9 +879,13 @@ function QuickAddForm({
 
   function openDropIn(memberId: string) {
     if (dropInId === memberId) { setDropInId(null); return; }
-    // Default matches the panel's default status (Drop-in).
-    const def = dropInPrice?.price ?? nonMemberPrice?.price ?? memberPrice?.price ?? 0;
-    setPayAmount(def ? String(def) : "");
+    // THIS class's drop-in price, or nothing. The chain here used to fall
+    // through to the nonmember and then the MEMBER price — prefilling a
+    // membership rate for somebody who has no membership, which is the exact
+    // person this panel is opened for. Blank is a coach typing the right
+    // number; a wrong prefill is a coach accepting the wrong one.
+    const def = classDropInPrice(pricingOptions);
+    setPayAmount(def == null ? "" : String(def));
     setPayMethod("CASH");
     setPayStatus("DROP_IN");
     setPayNotes("");
@@ -959,27 +965,56 @@ function QuickAddForm({
     );
   }, [query, allMembers]);
 
-  async function checkIn(memberId: string, status = "PRESENT", emailReceipt = false): Promise<string | null> {
+  async function checkIn(
+    memberId: string,
+    status = "PRESENT",
+    emailReceipt = false,
+    confirmNoMembership = false,
+  ): Promise<string | null> {
     setSaving(true);
     const res = await fetch("/api/attendance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classSessionId: sessionId, memberId, status, emailReceipt }),
+      body: JSON.stringify({ classSessionId: sessionId, memberId, status, emailReceipt, confirmNoMembership }),
     });
+    const d = await res.json().catch(() => ({}));
     setSaving(false);
+
+    // 409 = nobody is billed for this and staff have not said that's intended.
+    // Not an error: open the panel and let them choose. Nothing was written.
+    if (res.status === 409 && d?.needsConfirmation) {
+      setError("");
+      setConfirmError("");
+      setConfirmEmailReceipt(false);
+      setTrialingId(null);
+      setDropInId(null);
+      setConfirmPrompt(d as NoMembershipPrompt);
+      setConfirmId(memberId);
+      return null;
+    }
     if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
       const msg = typeof d.error === "string" ? d.error : "Could not check them in.";
-      setError(msg);
+      // While the panel is open its own slot shows the failure — the row-level
+      // error sits above the search results and would be missed.
+      if (confirmId === memberId) setConfirmError(msg);
+      else setError(msg);
       return msg;
     }
     setError("");
+    setConfirmId(null);
+    setConfirmPrompt(null);
     setQuery("");
     setResults([]);
     setTrialingId(null);
     onAdded();
     return null;
   }
+
+  // The "No active membership" prompt, per search row.
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [confirmPrompt, setConfirmPrompt] = useState<NoMembershipPrompt | null>(null);
+  const [confirmEmailReceipt, setConfirmEmailReceipt] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
 
   // Trial needs an explicit confirmation (it starts the club's free-trial
   // membership window) — small inline panel per search row.
@@ -1218,6 +1253,29 @@ function QuickAddForm({
                     setOwesNotes((n) => ({ ...n, [m.id]: "Payment recorded." }));
                     onOwedChanged();
                   }}
+                />
+              )}
+              {confirmId === m.id && confirmPrompt && (
+                <NoMembershipPanel
+                  prompt={confirmPrompt}
+                  dropInPrice={classDropInPrice(pricingOptions)}
+                  showDropIn={!!classId}
+                  busy={saving}
+                  emailReceipt={confirmEmailReceipt}
+                  onEmailReceiptChange={setConfirmEmailReceipt}
+                  onTrial={() => checkIn(m.id, "TRIAL", confirmEmailReceipt)}
+                  onDropIn={() => {
+                    setConfirmId(null);
+                    setConfirmPrompt(null);
+                    openDropIn(m.id);
+                  }}
+                  onAnyway={() => checkIn(m.id, confirmPrompt.status, false, true)}
+                  onCancel={() => {
+                    setConfirmId(null);
+                    setConfirmPrompt(null);
+                    setConfirmError("");
+                  }}
+                  error={confirmError}
                 />
               )}
               {trialingId === m.id && (
@@ -1462,25 +1520,76 @@ function AttendancePanel({
 
   useEffect(() => { load(); }, [load]);
 
-  async function setStatus(memberId: string, status: string) {
+  async function setStatus(memberId: string, status: string, confirmNoMembership = false) {
     setUpdating(memberId);
-    await fetch("/api/attendance", {
+    const res = await fetch("/api/attendance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classSessionId: sessionId, memberId, status }),
+      body: JSON.stringify({ classSessionId: sessionId, memberId, status, confirmNoMembership }),
     });
+    const d = await res.json().catch(() => ({}));
     setUpdating(null);
+
+    // Changing a roster row to a billable status for somebody with no
+    // membership asks the same question the Quick-Add path does. Nothing was
+    // written — the row keeps whatever status it had.
+    if (res.status === 409 && d?.needsConfirmation) {
+      setChargeRecId(null);
+      setTrialRecId(null);
+      setConfirmError("");
+      setConfirmEmailReceipt(false);
+      setConfirmPrompt(d as NoMembershipPrompt);
+      setConfirmMemberId(memberId);
+      return;
+    }
+    if (!res.ok) {
+      if (confirmMemberId === memberId) {
+        setConfirmError(typeof d.error === "string" ? d.error : "Could not update them.");
+        return;
+      }
+    }
+    setConfirmMemberId(null);
+    setConfirmPrompt(null);
+    load();
+  }
+
+  // The "No active membership" prompt, per roster row.
+  const [confirmMemberId, setConfirmMemberId] = useState<string | null>(null);
+  const [confirmPrompt, setConfirmPrompt] = useState<NoMembershipPrompt | null>(null);
+  const [confirmEmailReceipt, setConfirmEmailReceipt] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
+
+  /** "Start trial" from inside the prompt — the panel already explained it. */
+  async function startTrialFromPrompt(memberId: string) {
+    setUpdating(memberId);
+    setConfirmError("");
+    const res = await fetch("/api/attendance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classSessionId: sessionId,
+        memberId,
+        status: "TRIAL",
+        emailReceipt: confirmEmailReceipt,
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setUpdating(null);
+    if (!res.ok) {
+      setConfirmError(typeof d.error === "string" ? d.error : "Could not start the trial");
+      return;
+    }
+    setConfirmMemberId(null);
+    setConfirmPrompt(null);
     load();
   }
 
   function openDropInCharge(rec: AttendanceRecord) {
     if (chargeRecId === rec.id) { setChargeRecId(null); return; }
-    const opts = data?.pricingOptions ?? [];
-    const dropIn = opts.find((o) => o.type === "dropin") as { price: number } | undefined;
-    const nonMember = opts.find((o) => o.type === "nonmember") as { price: number } | undefined;
-    const memberOpt = opts.find((o) => o.type === "member") as { price: number } | undefined;
-    const def = dropIn?.price ?? nonMember?.price ?? memberOpt?.price ?? 0;
-    setChargeAmount(def ? String(def) : "");
+    // This class's drop-in price only — never the nonmember or member tier.
+    // See lib/attendanceBilling.classDropInPrice.
+    const def = classDropInPrice(data?.pricingOptions ?? []);
+    setChargeAmount(def == null ? "" : String(def));
     setChargeMethod("CASH");
     setChargeEmailReceipt(false);
     setChargeError("");
@@ -1833,6 +1942,29 @@ function AttendancePanel({
                             )}
                             {chargeError && <p className="text-red-600 text-xs">{chargeError}</p>}
                           </div>
+                        )}
+                        {confirmMemberId === rec.member.id && confirmPrompt && (
+                          <NoMembershipPanel
+                            prompt={confirmPrompt}
+                            dropInPrice={classDropInPrice(data?.pricingOptions ?? [])}
+                            showDropIn
+                            busy={updating === rec.member.id}
+                            emailReceipt={confirmEmailReceipt}
+                            onEmailReceiptChange={setConfirmEmailReceipt}
+                            onTrial={() => startTrialFromPrompt(rec.member.id)}
+                            onDropIn={() => {
+                              setConfirmMemberId(null);
+                              setConfirmPrompt(null);
+                              openDropInCharge(rec);
+                            }}
+                            onAnyway={() => setStatus(rec.member.id, confirmPrompt.status, true)}
+                            onCancel={() => {
+                              setConfirmMemberId(null);
+                              setConfirmPrompt(null);
+                              setConfirmError("");
+                            }}
+                            error={confirmError}
+                          />
                         )}
                         {/* Start-free-trial confirmation — the trial acts like a
                             membership for the configured days, so it's explicit. */}
