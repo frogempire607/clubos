@@ -7,6 +7,7 @@ import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { PREVIEW_COOKIE, readPreviewCookie, canStartPreview } from "@/lib/preview";
 import { wallClockNowUTC } from "@/lib/datetime";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { portalMembershipStatusFor, type PortalMembershipStatus } from "@/lib/memberTracks";
 
 async function fetchUser(userId: string, clubTimezone: string | null) {
   // Class registrations live in AttendanceRecord, not Booking, so we pull
@@ -201,9 +202,11 @@ export async function GET() {
     attendanceLast30d: number;
     upcomingBookings: number;
     activeMembershipName: string | null;
+    /** Derived from subscription rows — see portalMembershipStatusFor. */
+    membershipStatus: PortalMembershipStatus;
   }> = {};
   if (accessibleIds.length > 0) {
-    const [attCounts, upcomingCounts, subs, trialMembers] = await Promise.all([
+    const [attCounts, upcomingCounts, subs, trialMembers, subRows, statusRows] = await Promise.all([
       prisma.attendanceRecord.groupBy({
         by: ["memberId"],
         where: {
@@ -231,9 +234,19 @@ export async function GET() {
         where: { id: { in: accessibleIds }, trialEndsAt: { gt: now } },
         select: { id: true, trialEndsAt: true },
       }),
+      // Every subscription row, any status, so "ever held one" is answerable.
+      prisma.memberSubscription.findMany({
+        where: { memberId: { in: accessibleIds } },
+        select: { memberId: true, status: true },
+      }),
+      prisma.member.findMany({
+        where: { id: { in: accessibleIds } },
+        select: { id: true, status: true, trialEndsAt: true },
+      }),
     ]);
     for (const id of accessibleIds) {
       const trial = trialMembers.find((t) => t.id === id);
+      const stored = statusRows.find((r) => r.id === id);
       summaries[id] = {
         attendanceLast30d: attCounts.find((r) => r.memberId === id)?._count._all ?? 0,
         upcomingBookings: upcomingCounts.find((r) => r.memberId === id)?._count._all ?? 0,
@@ -242,8 +255,31 @@ export async function GET() {
           (trial
             ? `Free trial (ends ${trial.trialEndsAt!.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
             : null),
+        membershipStatus: portalMembershipStatusFor(
+          {
+            status: stored?.status ?? "PROSPECT",
+            subscriptions: subRows.filter((r) => r.memberId === id),
+            trialEndsAt: stored?.trialEndsAt ?? null,
+          },
+          now,
+        ),
       };
     }
+  }
+
+  // The portal's `status` field is what a family reads as "are we members".
+  // The stored Member.status column lags the subscriptions it describes
+  // (2026-09-13: AJ Dorn, Weston Knowlton and Parker Strickland were PROSPECT
+  // while paying — their families saw the wrong thing). Serve the derived
+  // answer under the same field so every portal surface — home tiles, the
+  // account pill, the profile switcher — agrees with what they are billed.
+  // (PENDING is not a MemberStatus enum value, hence the widening cast — the
+  // client types this field as `string`.)
+  if (user?.memberProfile && summaries[user.memberProfile.id]) {
+    (user.memberProfile as { status: string }).status = summaries[user.memberProfile.id].membershipStatus;
+  }
+  for (const g of user?.guardianOf ?? []) {
+    if (summaries[g.member.id]) (g.member as { status: string }).status = summaries[g.member.id].membershipStatus;
   }
 
   return NextResponse.json({ user, club, summaries });

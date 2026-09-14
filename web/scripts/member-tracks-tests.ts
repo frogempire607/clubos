@@ -47,6 +47,7 @@ import {
   sourcePhrase,
   type MemberTrackInput,
   countsAsMembership,
+  portalMembershipStatusFor,
 } from "../lib/memberTracks";
 
 let pass = 0;
@@ -157,6 +158,23 @@ eq("Prospect — trialled, never joined", mt(member({ hasAttendance: true })), M
 eq("Prospect — a lapsed free trial still counts as having trialled", mt(member({ trialEndsAt: daysAgo(30) })), MEMBERSHIP_TRACK.PROSPECT);
 eq("Prospect — signed up for a portal login", mt(member({ userId: "u1" })), MEMBERSHIP_TRACK.PROSPECT);
 eq("Lead — a name nobody has contacted", mt(member()), MEMBERSHIP_TRACK.LEAD);
+// Julian's third definition (2026-09-14): a prospect with no return in 12 months
+// is Inactive. "Return" = attended; only a real last-attendance date can lapse.
+eq("Prospect — attended 11 months ago is still a prospect", mt(member({ hasAttendance: true, lastAttendedAt: daysAgo(330) })), MEMBERSHIP_TRACK.PROSPECT);
+eq("Inactive — prospect whose last attendance is 13 months old", mt(member({ hasAttendance: true, lastAttendedAt: daysAgo(400) })), MEMBERSHIP_TRACK.INACTIVE);
+eq("Prospect — no attendance date on record never lapses (trial-only prospect)", mt(member({ trialEndsAt: daysAgo(400) })), MEMBERSHIP_TRACK.PROSPECT);
+eq("Lead — an untouched name never lapses into Inactive", mt(member({ lastAttendedAt: daysAgo(400) })), MEMBERSHIP_TRACK.LEAD);
+eq("Lapsed prospect detail says why", membershipDetailFor(member({ hasAttendance: true, lastAttendedAt: daysAgo(400) }), NOW), "Trialled, no visit in 12+ months");
+eq("Active — an old attendance date is irrelevant once they hold a membership", mt(member({ hasAttendance: true, lastAttendedAt: daysAgo(400), subscriptions: [{ status: "active", billingType: "MANUAL" }] })), MEMBERSHIP_TRACK.ACTIVE);
+
+// The client-facing question (portal label + event pricing): active ROW, never Member.status.
+const ps = (m: Parameters<typeof portalMembershipStatusFor>[0]) => portalMembershipStatusFor(m, NOW);
+eq("Portal — PROSPECT label with an active paid row reads Active (AJ Dorn's case)", ps({ status: "PROSPECT", subscriptions: [{ status: "active" }] }), "ACTIVE");
+eq("Portal — ACTIVE label with no rows is NOT active", ps({ status: "ACTIVE", subscriptions: [] }), "PROSPECT");
+eq("Portal — ACTIVE label whose only row ended reads Inactive", ps({ status: "ACTIVE", subscriptions: [{ status: "canceled" }] }), "INACTIVE");
+eq("Portal — pending purchase reads Pending", ps({ status: "PROSPECT", subscriptions: [{ status: "pending" }] }), "PENDING");
+eq("Portal — live staff trial reads Active", ps({ status: "PROSPECT", subscriptions: [], trialEndsAt: daysAhead(3) }), "ACTIVE");
+eq("Portal — Paused is owner-controlled and sticky", ps({ status: "PAUSED", subscriptions: [{ status: "active" }] }), "PAUSED");
 eq("Paused — owner-controlled and sticky", mt(member({ status: "PAUSED", subscriptions: [{ status: "active", billingType: "MANUAL" }] })), MEMBERSHIP_TRACK.PAUSED);
 eq(
   "Inactive — had one, it ended",

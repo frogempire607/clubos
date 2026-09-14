@@ -60,9 +60,10 @@ export async function GET(req: Request) {
     : [[], []];
 
   // An "active member" of the club = has at least one active membership
-  // subscription (manual or Stripe), or the profile is marked ACTIVE.
-  // Drives member vs non-member event pricing automatically.
-  const isActiveMember = subscriptions.length > 0 || member?.status === "ACTIVE";
+  // subscription row (manual or Stripe). NOT Member.status — that is a label
+  // that lags the rows, and this flag must agree with what the register route
+  // will actually charge. Drives member vs non-member event pricing.
+  const isActiveMember = subscriptions.length > 0;
 
   return NextResponse.json({
     events,

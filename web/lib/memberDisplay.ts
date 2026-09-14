@@ -143,6 +143,8 @@ export type MemberTrackRow = Prisma.MemberGetPayload<{ select: typeof MEMBER_TRA
 export type MemberTrackContext = {
   /** memberId → attendance count. Absent = treated as no attendance. */
   attendanceByMember?: Map<string, number>;
+  /** memberId → most recent attendance record. Absent = unknown, never lapses. */
+  lastAttendedByMember?: Map<string, Date>;
   /** memberId → outstanding balance in dollars. */
   balanceByMember?: Map<string, number>;
   /**
@@ -215,6 +217,7 @@ export function toTrackInput(row: MemberTrackRow, ctx: MemberTrackContext = {}):
     hasGuardianAccount: liveGuardianLinks.length > 0,
 
     hasAttendance: (ctx.attendanceByMember?.get(row.id) ?? 0) > 0,
+    lastAttendedAt: ctx.lastAttendedByMember?.get(row.id) ?? null,
     guardianOfCount: row.user?.guardianOf?.length ?? 0,
     isStaff: row.user?.role === "OWNER" || row.user?.role === "STAFF",
     // They fund something: a subscription names them as payer, or they hold

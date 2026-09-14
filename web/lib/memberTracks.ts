@@ -100,6 +100,12 @@ export type MemberTrackInput = {
 
   /** Role signals. */
   hasAttendance?: boolean;
+  /**
+   * When they were last in the room (any billable attendance status). Drives
+   * the 12-month prospect lapse rule below; absent = unknown, and unknown never
+   * lapses anyone.
+   */
+  lastAttendedAt?: DateLike;
   /** This member's user is a confirmed guardian of ≥1 other member. */
   guardianOfCount?: number;
   /** Staff/owner role on the linked user. */
@@ -327,6 +333,58 @@ export function hasTouchedTheClub(m: MemberTrackInput): boolean {
   return false;
 }
 
+/** A prospect stops being a prospect after this long without attending. */
+export const PROSPECT_LAPSE_MONTHS = 12;
+
+/**
+ * Has this never-a-member prospect gone PROSPECT_LAPSE_MONTHS without attending?
+ * Only a real last-attendance date can say yes: no attendance on record means
+ * "we don't know", and unknown never demotes anyone.
+ */
+export function prospectHasLapsed(m: MemberTrackInput, now: Date = new Date()): boolean {
+  const last = toDate(m.lastAttendedAt);
+  if (!last) return false;
+  const cutoff = new Date(now);
+  cutoff.setMonth(cutoff.getMonth() - PROSPECT_LAPSE_MONTHS);
+  return last < cutoff;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The client-facing question: "do they hold a membership right now?"
+//
+// Member.status is a LABEL. It is recomputed after subscription changes, but it
+// lags (2026-09-13: three PROSPECT rows held active paid subscriptions, so
+// their families saw "Prospect" on the portal while being billed). Nothing that
+// prices, gates or labels may read it as truth. This asks the subscription rows
+// directly, in the same form lib/attendanceBilling.ts and the event pricing
+// routes use — an active ROW — so what the family sees and what they are
+// charged can never disagree.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PortalMembershipStatus = "ACTIVE" | "PENDING" | "PAUSED" | "INACTIVE" | "PROSPECT";
+
+export function holdsActiveMembershipRow(subs: ReadonlyArray<{ status: string }>): boolean {
+  return subs.some((s) => s.status === ACTIVE_SUB);
+}
+
+export function portalMembershipStatusFor(
+  m: {
+    /** Stored Member.status — consulted ONLY for the owner-controlled PAUSED. */
+    status: string;
+    /** Every subscription row, any status. */
+    subscriptions: ReadonlyArray<{ status: string }>;
+    trialEndsAt?: DateLike;
+  },
+  now: Date = new Date(),
+): PortalMembershipStatus {
+  if (m.status === "PAUSED") return "PAUSED";
+  if (holdsActiveMembershipRow(m.subscriptions)) return "ACTIVE";
+  if (isFuture(m.trialEndsAt, now)) return "ACTIVE";
+  if (m.subscriptions.some((s) => s.status === PENDING_SUB)) return "PENDING";
+  // Ever held one and it ended → former member. Never held one → prospect.
+  return m.subscriptions.length > 0 ? "INACTIVE" : "PROSPECT";
+}
+
 export function membershipTrackFor(m: MemberTrackInput, now: Date = new Date()): MembershipTrack {
   // Owner-controlled and sticky — never inferred away.
   if (m.status === "PAUSED") return MEMBERSHIP_TRACK.PAUSED;
@@ -350,7 +408,15 @@ export function membershipTrackFor(m: MemberTrackInput, now: Date = new Date()):
     // J-10: Prospect means they SHOWED UP. Someone typed into the roster and
     // never contacted is a different state with a different next action —
     // offer them a membership vs. make contact at all.
-    return hasTouchedTheClub(m) ? MEMBERSHIP_TRACK.PROSPECT : MEMBERSHIP_TRACK.LEAD;
+    if (!hasTouchedTheClub(m)) return MEMBERSHIP_TRACK.LEAD;
+    // Julian's third definition (2026-09-14): a prospect who has not returned
+    // in 12 months is Inactive. "Returned" means ATTENDED — this reads the
+    // last attendance record, never account age or import date, so a prospect
+    // with no attendance at all (most of the roster) is untouched. Measured
+    // before shipping: the oldest attendance row is 2026-07-05, so this
+    // reclassifies nobody until mid-2027.
+    if (prospectHasLapsed(m, now)) return MEMBERSHIP_TRACK.INACTIVE;
+    return MEMBERSHIP_TRACK.PROSPECT;
   }
 
   return MEMBERSHIP_TRACK.INACTIVE;
@@ -383,6 +449,10 @@ export function membershipDetailFor(m: MemberTrackInput, now: Date = new Date())
   }
 
   if (track === MEMBERSHIP_TRACK.INACTIVE) {
+    // A lapsed prospect has no subscription to date the lapse from.
+    if (!everHeldMembership(m) && prospectHasLapsed(m, now)) {
+      return `Trialled, no visit in ${PROSPECT_LAPSE_MONTHS}+ months`;
+    }
     const ended = subs
       .map((s) => toDate(s.canceledAt) ?? toDate(s.endDate))
       .filter((d): d is Date => d !== null)

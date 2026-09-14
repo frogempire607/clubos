@@ -427,10 +427,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // decides from real subscription state so a non-member can't pay the
     // member rate. The only client-driven choice is opting into DROP_IN
     // (single-session price), and only on multi-session events.
+    //
+    // Subscription rows ONLY. Member.status is a label that lags the rows it
+    // describes (2026-09-13: three PROSPECT members held active paid
+    // subscriptions), and `|| member.status === "ACTIVE"` also let a stale
+    // ACTIVE label buy member pricing with no membership behind it. Same rule
+    // as lib/attendanceBilling.ts and portalMembershipStatusFor.
     const activeSubCount = await prisma.memberSubscription.count({
       where: { memberId: member.id, status: "active" },
     });
-    const isActiveMember = activeSubCount > 0 || member.status === "ACTIVE";
+    const isActiveMember = activeSubCount > 0;
     const isMultiSession = event.sessions.length > 1;
 
     const memberCents = event.memberPrice != null ? Math.round(Number(event.memberPrice) * 100) : null;

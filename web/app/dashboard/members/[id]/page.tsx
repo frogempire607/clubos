@@ -486,15 +486,24 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   const pendingSub = m.subscriptions.find((s) => s.status === "pending");
   const pastSubs = m.subscriptions.filter((s) => s.status !== "active");
   const inTrial = !!m.trialEndsAt && new Date(m.trialEndsAt) > new Date();
-  // An ACTIVE account with no active paid membership (and not on a staff-granted
-  // trial) is really a Prospect — that's Kelly's case. If a purchase is mid-flight,
-  // surface it as Pending instead so it reads clearly as "not charged yet".
+  // This is only the FALLBACK when the server sent no tracks. It must still
+  // answer from the subscription rows, not Member.status — that column is a
+  // label that lags (a paying PROSPECT, an ACTIVE with nothing behind it), and
+  // the old fallback read it as truth. Same order as portalMembershipStatusFor:
+  // paused (owner-controlled) → active row or live trial → pending → migrating
+  // → ever held one (former member) → never held one (prospect).
   const displayStatus =
-    m.status === "PROSPECT" && m.migrationStatus && m.migrationStatus !== "COMPLETED"
-      ? "MIGRATING"
-      : m.status === "ACTIVE" && !activeSub && !inTrial
-        ? (pendingSub ? "PENDING" : "PROSPECT")
-        : m.status;
+    m.status === "PAUSED"
+      ? "PAUSED"
+      : activeSub || inTrial
+        ? "ACTIVE"
+        : pendingSub
+          ? "PENDING"
+          : m.migrationStatus && m.migrationStatus !== "COMPLETED"
+            ? "MIGRATING"
+            : m.subscriptions.length > 0
+              ? "INACTIVE"
+              : "PROSPECT";
   const sc = statusColors[displayStatus] ?? statusColors.INACTIVE;
   void sc;
 

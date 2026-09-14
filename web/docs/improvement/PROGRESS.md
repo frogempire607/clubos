@@ -4477,3 +4477,23 @@ attended is a fact about the gym, not about the database.
 constraint on `(classId, date)`. Adding one would make `skipDuplicates` mean
 something and make this class of bug structurally impossible — but it needs the
 existing duplicates cleared first, so it waits on the correction script running.
+
+## 2026-09-14 — Member.status is a label, not an authority (B1)
+
+Code-only, no migration. Branch `main`, main checkout. Julian runs the verify loop and pushes.
+
+**What was wrong.** Three surfaces still read `Member.status` as truth. Measured 2026-09-13 on production: AJ Dorn, Weston Knowlton and Parker Strickland were `PROSPECT` while holding active paid subscriptions, so (a) their families saw "Prospect" on the portal home, account pill and profile switcher, and (b) the two event pricing reads (`/api/member/events` and `…/[id]/register`) used `activeSubCount > 0 || member.status === "ACTIVE"` — harmless for those three, but the `||` also let a stale `ACTIVE` label with no membership behind it buy member pricing. The profile page's no-tracks fallback hand-rolled a pill from `m.status` too. (Jeffrey Clark and Kelly Merrill, the ACTIVE-with-no-subscription pair, are both soft-deleted since July — the flag was reading dead rows.)
+
+**Owner definitions, now enforced.** Active = holds a membership. Prospect = trialed or attended, never held one. Inactive = was active and isn't, OR a prospect with no attendance in 12 months.
+
+**Changes.**
+- `lib/memberTracks.ts` — NEW `portalMembershipStatusFor()` + `holdsActiveMembershipRow()`: the client-facing question, answered from subscription rows only (PAUSED stays owner-sticky; live trial counts as Active; pending purchase → PENDING; ever-held-and-ended → INACTIVE; never → PROSPECT). NEW `prospectHasLapsed()` + `PROSPECT_LAPSE_MONTHS = 12` and a `lastAttendedAt` input; `membershipTrackFor` now returns INACTIVE for a never-a-member prospect whose LAST ATTENDANCE is >12 months old. Reads attendance only — never account age or import date; a prospect with no attendance on record never lapses (189 of the 273 stored prospects have none). Measured before shipping: oldest attendance row is 2026-07-05, so this reclassifies nobody until mid-2027. Detail line: "Trialled, no visit in 12+ months".
+- `lib/membersQuery.ts buildTrackContext` — attendance groupBy now also takes `_max.createdAt` → `lastAttendedByMember`; `lib/memberDisplay.ts` passes it as `lastAttendedAt`. Every roster/profile/migration caller goes through `buildTrackContext`, so the rule is club-wide with one change.
+- `/api/member/portal` — `summaries[id].membershipStatus` added, and the `status` field on `memberProfile` and each `guardianOf.member` is REPLACED with the derived value before the response leaves, so the home tiles, account pill and profile switcher all agree with what the family is billed. (Widening cast because PENDING is not a `MemberStatus` enum value.)
+- Event pricing: `|| member.status === "ACTIVE"` removed from both routes. Rule is now identical to `lib/attendanceBilling.ts` (an active ROW).
+- `/dashboard/members/[id]` fallback pill derives from subscriptions/trial/pending, never `m.status`.
+- `scripts/member-tracks-tests.ts` — 12 new assertions (lapse boundary at 330 vs 400 days, no-date-never-lapses, untouched lead never lapses, active row overrides an old date, and the six portal cases incl. AJ Dorn's).
+
+**Verify:** `cd web && npx tsx scripts/member-tracks-tests.ts && npx tsc --noEmit && npm run build`. Non-incremental `tsc --noEmit` was clean from the sandbox; tsx and build must run on the Mac (sandbox node_modules are darwin-only).
+
+**Why the three never flipped (read-only check, 2026-09-14):** Weston Knowlton ($110), AJ Dorn ($175) and Parker Strickland ($75) each hold an active RECURRING Stripe-linked row with ZERO succeeded transactions on the subscription or the member. `recomputeMemberStatus` is behaving as designed — `countsAsMembership` wants proof money arrived for a priced row (the Levi Schanzenbach trial case), so a full-price Stripe row that has never been paid stays PROSPECT on the roster. Either they are trialing/unpaid, or their invoices were paid in Stripe and the webhook never wrote a Transaction. That is a Stripe-side check for Julian (backlog A9), not a code fix. Note the deliberate asymmetry: the portal/pricing "row question" now shows them Active (they have access and get member pricing), while the roster's "money question" still says not-yet-a-member until a payment lands.

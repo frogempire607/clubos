@@ -462,6 +462,9 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
       by: ["memberId"],
       where: { memberId: { in: memberIds } },
       _count: { _all: true },
+      // Last time they were in the room — the 12-month prospect lapse rule
+      // (memberTracks.prospectHasLapsed) reads this, never account age.
+      _max: { createdAt: true },
     }),
     // Phase 4.5.1's per-send log. Before any invitation has been recorded
     // through it this simply returns nothing and the rules fall back to
@@ -530,8 +533,11 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
   }
 
   const attendanceByMember = new Map<string, number>();
+  const lastAttendedByMember = new Map<string, Date>();
   for (const a of attendance) {
-    if (a.memberId) attendanceByMember.set(a.memberId, a._count._all);
+    if (!a.memberId) continue;
+    attendanceByMember.set(a.memberId, a._count._all);
+    if (a._max.createdAt) lastAttendedByMember.set(a.memberId, a._max.createdAt);
   }
 
   const invitationsByMember = new Map<
@@ -561,7 +567,7 @@ export async function buildTrackContext(memberIds: string[], now?: Date): Promis
     paidSubs.map((t) => t.stripeSubscriptionId).filter(Boolean) as string[],
   );
 
-  return { attendanceByMember, invitationsByMember, balanceByMember, paidStripeSubIds, now };
+  return { attendanceByMember, lastAttendedByMember, invitationsByMember, balanceByMember, paidStripeSubIds, now };
 }
 
 export async function listMembers(clubId: string, f: MemberListFilters): Promise<MemberListResult> {
