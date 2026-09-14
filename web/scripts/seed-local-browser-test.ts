@@ -472,11 +472,135 @@ async function main() {
     }
   }
 
+  // ── Attendance: the states the non-member confirmation has to handle ────
+  //
+  // Added so the "No active membership" prompt can actually be clicked. The
+  // seed previously created no classes and no sessions at all, so the
+  // attendance screen had never been driven against a fixture — which is how
+  // a silent write survived on it in the first place.
+  //
+  // THREE classes, because the prompt's drop-in price must come from the class
+  // being looked at and nowhere else:
+  //   Jr Frogs     dropin 25            → "Charge a drop-in — $25"
+  //   Girls Class  dropin 40            → "Charge a drop-in — $40"
+  //   Open Mat     NO dropin, member 175 → "Charge a drop-in", no price, and an
+  //                                        EMPTY amount box. This is the class
+  //                                        that catches a fallback chain
+  //                                        reaching the membership rate.
+  await prisma.club.update({
+    where: { id: clubId },
+    // Mirrors Frog Empire's live offer (verified 2026-09-13): one 7-day trial
+    // per client, no renewals. The panel's "One per client" line is this
+    // setting talking, so the fixture has to carry it or the copy can't be
+    // checked.
+    data: {
+      freeTrialConfig: {
+        name: "Free trial",
+        days: 7,
+        membershipIds: [],
+        renewable: false,
+        allowRepeatUse: false,
+        active: true,
+      },
+    },
+  });
+
+  // The session the roster shows is found by UTC-midnight date, and wall-clock
+  // times are stamped as UTC — see lib/classSessions.ts and the note in
+  // lib/entitlements.ts. Building the fixture any other way puts it on the
+  // wrong day.
+  const todayUTC = new Date();
+  todayUTC.setUTCHours(0, 0, 0, 0);
+  const at = (h: number, m = 0) => {
+    const d = new Date(todayUTC);
+    d.setUTCHours(h, m, 0, 0);
+    return d;
+  };
+
+  const classSpecs: [string, string, unknown[], number][] = [
+    ["cls_jrfrogs", "Jr Frogs", [{ type: "dropin", price: 25 }], 16],
+    ["cls_girls", "Girls Class", [{ type: "dropin", price: 40 }], 17],
+    // No drop-in tier. A member price that a fallback chain would reach for.
+    ["cls_openmat", "Open Mat", [{ type: "member", price: 175 }], 18],
+  ];
+
+  for (const [id, name, pricingOptions, hour] of classSpecs) {
+    await prisma.recurringClass.upsert({
+      where: { id },
+      update: { pricingOptions: pricingOptions as never },
+      create: {
+        id,
+        clubId,
+        name,
+        daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+        startTime: `${String(hour).padStart(2, "0")}:00`,
+        endTime: `${String(hour + 1).padStart(2, "0")}:00`,
+        recurrenceStartDate: ago(30),
+        pricingOptions: pricingOptions as never,
+        capacity: 30,
+      },
+    });
+    await prisma.classSession.upsert({
+      where: { id: `${id}_today` },
+      update: { date: todayUTC, startsAt: at(hour), endsAt: at(hour + 1) },
+      create: {
+        id: `${id}_today`,
+        classId: id,
+        clubId,
+        date: todayUTC,
+        startsAt: at(hour),
+        endsAt: at(hour + 1),
+      },
+    });
+  }
+
+  // The four people the gate has to tell apart. Each is a branch of
+  // lib/attendanceBilling.needsNoMembershipConfirmation.
+  const attendanceFolk: [string, string, string, Date | null][] = [
+    // PROMPTS: no subscription row, no trial window. The ~17.
+    ["m_att_nomember", "Bruno", "Castellanos", null],
+    // PROMPTS, but the trial option is unavailable — window expired and the
+    // club's offer is not renewable, so the panel shows the reason instead of
+    // a button that the check-in would then refuse.
+    ["m_att_trialused", "Odette", "Vasquez", ago(20)],
+    // SILENT: trial window still running. Prompting on day 2 of 7 is how you
+    // teach somebody to click through the prompt.
+    ["m_att_trialing", "Ravi", "Menon", new Date(Date.now() + 4 * day)],
+  ];
+  for (const [id, firstName, lastName, trialEndsAt] of attendanceFolk) {
+    await prisma.member.create({
+      data: {
+        id, clubId, firstName, lastName, status: "PROSPECT",
+        email: `${firstName.toLowerCase()}@local.test`, joinedAt: ago(10), trialEndsAt,
+      },
+    });
+  }
+  // SILENT: holds an active subscription row. The control — if this one
+  // prompts, the gate is asking the wrong question.
+  await prisma.member.create({
+    data: {
+      id: "m_att_member", clubId, firstName: "Yusra", lastName: "Haddad", status: "ACTIVE",
+      email: "yusra@local.test", joinedAt: ago(200),
+    },
+  });
+  await prisma.memberSubscription.create({
+    data: {
+      memberId: "m_att_member", membershipId: membership.id, optionLabel: "Monthly",
+      price: 175, billingPeriod: "MONTHLY", status: "active", startedAt: ago(200),
+    },
+  });
+
   const total = await prisma.member.count({ where: { clubId } });
   const visible = await prisma.member.count({ where: { clubId, deletedAt: null, isHistoricalOnly: false } });
   console.log(`\nSeeded. members table rows: ${total} · roster-visible: ${visible}`);
   console.log(`  soft-deleted: ${await prisma.member.count({ where: { clubId, deletedAt: { not: null } } })}`);
   console.log(`  historical-only: ${await prisma.member.count({ where: { clubId, isHistoricalOnly: true } })}`);
+  console.log(`\nAttendance fixture — /dashboard/attendance, today:`);
+  console.log(`  Jr Frogs (drop-in $25) · Girls Class (drop-in $40) · Open Mat (NO drop-in, member $175)`);
+  console.log(`  Bruno Castellanos  — no membership, no trial      → prompts, trial offered`);
+  console.log(`  Odette Vasquez     — trial used, offer not renewable → prompts, trial refused with reason`);
+  console.log(`  Ravi Menon         — trial window running          → no prompt`);
+  console.log(`  Yusra Haddad       — active subscription           → no prompt`);
   console.log(`\nLog in at http://127.0.0.1:3000/login — owner@local.test / localtest123 / club slug frog-empire\n`);
 }
 
