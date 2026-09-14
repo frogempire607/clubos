@@ -3145,6 +3145,7 @@ model PrivateBooking {
   @@index([coachId])
   @@index([status])
   @@map("private_bookings")
+  
 }
 
 // Additional athletes on a multi-athlete private lesson booking. One row per
@@ -3438,6 +3439,7 @@ model ClassSession {
   @@index([clubId])
   @@index([date])
   @@map("class_sessions")
+  @@unique([classId, date])
 }
 
 // ── Attendance ────────────────────────────────────────────────────────────────
