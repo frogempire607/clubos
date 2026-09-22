@@ -1,0 +1,1795 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#EFEEF2;font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}*{box-sizing:border-box}a{color:#6D5DF6}a:hover{color:#5948E8}input,select,textarea,button{font-family:inherit}</style></helmet>
+
+<section style="padding:40px 44px 36px">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<a href="#t2" style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">2</a>
+<span style="font:600 13px/1.2 Inter,system-ui,sans-serif;color:#1a1a1a">Products — real variant inventory, one Bookable type, tiers anywhere</span>
+</div>
+<p style="margin:0 0 24px;font:400 12px/1.6 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55);max-width:980px">Today every type-specific field is a free-text “one per line” textarea, and <code style="font-size:11px">variantStock</code> is explicitly only a note (“until variant checkout is connected”) — so you can't tell how many Youth M are left. Here: a <strong>variant matrix</strong> where each Size × Color row owns its stock, price, SKU and photo; up to <strong>4 photos</strong> per product; <strong>Bookable</strong> as one type covering facility rentals, parties and lessons; a <strong>tiers table any type can turn on</strong>; and <code style="font-size:11px">visibility</code> + <code style="font-size:11px">showLocation</code> collapsed into one “where it's sold”.</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start">
+
+<div id="2a" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2a" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2a</a>Add / edit product — switch the type chips to watch the locks change</div>
+<div style="width:940px;background:#fff;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden">
+
+<div style="padding:18px 24px;border-bottom:1px solid #E5E7EB;display:flex;align-items:flex-start;justify-content:space-between;gap:20px">
+<div>
+<h2 style="margin:0;font-size:20px;font-weight:600;color:#111">Edit product</h2>
+<p style="margin:3px 0 0;font-size:12.5px;color:#6B7280">{{ headerSummary }}</p>
+</div>
+<div style="display:flex;gap:8px">
+<button type="button" style="padding:9px 14px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:10px;font-size:13.5px;cursor:pointer">Cancel</button>
+<button type="button" style="padding:9px 18px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer">Save product</button>
+</div>
+</div>
+
+<div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:12px">
+
+<div style="border:1px solid #E5E7EB;border-radius:14px;padding:16px;background:#FAFAFB">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF;margin-bottom:10px">What are you selling?</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ typeOpts }}" as="t" hint-placeholder-count="11">
+<button type="button" onClick="{{ t.onClick }}" style="{{ t.chip }}">{{ t.label }}</button>
+</sc-for>
+</div>
+<p style="margin:10px 0 0;font-size:11.5px;line-height:1.5;color:#4B5563">{{ typeNote }}</p>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden">
+<div onClick="{{ toggleBasics }}" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:#111">Basics &amp; photos</div><div style="font-size:12px;color:#6B7280;margin-top:2px">{{ basicsSummary }}</div></div>
+<span style="font-size:11.5px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretBasics }}</span>
+</div>
+<sc-if value="{{ openBasics }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Product name</label><input type="text" value="Club rashguard" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff"></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Short description</label><input type="text" value="Long-sleeve competition rashguard" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff"></div>
+</div>
+<div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+<label style="font-size:12px;font-weight:600;color:#374151">Photos <span style="font-weight:400;color:#9CA3AF">up to 4 — the first is the cover</span></label>
+<span style="font-size:11.5px;color:#6B7280">Drag to reorder</span>
+</div>
+<div style="display:flex;gap:10px">
+<sc-for list="{{ photoSlots }}" as="p" hint-placeholder-count="4">
+<div style="{{ p.box }}">
+<span style="font:500 8px ui-monospace,Menlo,monospace;color:#9CA3AF;text-align:center;line-height:1.4">{{ p.label }}</span>
+<sc-if value="{{ p.isCover }}" hint-placeholder-val="{{ false }}">
+<span style="position:absolute;top:6px;left:6px;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;background:#111;color:#fff;padding:2px 6px;border-radius:4px">Cover</span>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;color:#6B7280">JPG, PNG, WebP — max 10 MB each. A variant can also carry its own photo below.</p>
+</div>
+</div>
+</sc-if>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden">
+<div onClick="{{ togglePrice }}" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:#111">Pricing</div><div style="font-size:12px;color:#6B7280;margin-top:2px">{{ priceSummary }}</div></div>
+<span style="font-size:11.5px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretPrice }}</span>
+</div>
+<sc-if value="{{ openPrice }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end">
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Price</label><input type="number" value="{{ price }}" onChange="{{ setPrice }}" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff;font-variant-numeric:tabular-nums"></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Member price <span style="font-weight:400;color:#9CA3AF">optional</span></label><input type="number" value="{{ memberPrice }}" onChange="{{ setMemberPrice }}" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff;font-variant-numeric:tabular-nums"></div>
+<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;cursor:pointer;font-size:13.5px;font-weight:500;color:#111"><input type="checkbox" checked>Taxable</label>
+</div>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111">Sell this as tiers</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">Named packages at different prices — party packages, rental lengths, class packs, kit levels. Any product type can use it.</div>
+</div>
+<button type="button" onClick="{{ toggleTiers }}" style="{{ tiersSwitch }}"><span style="{{ tiersKnob }}"></span></button>
+</div>
+<sc-if value="{{ tiersOn }}" hint-placeholder-val="{{ true }}">
+<div>
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<div style="display:grid;grid-template-columns:1.1fr 2fr .8fr .8fr 28px;gap:10px;padding:9px 12px;background:#FAFAFB;border-bottom:1px solid #E5E7EB">
+<sc-for list="{{ tierHead }}" as="h" hint-placeholder-count="5">
+<span style="{{ h.style }}">{{ h.label }}</span>
+</sc-for>
+</div>
+<sc-for list="{{ tierRows }}" as="r" hint-placeholder-count="3">
+<div style="{{ r.row }}">
+<input type="text" value="{{ r.name }}" onChange="{{ r.onName }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;font-weight:500;color:#111;background:#fff">
+<input type="text" value="{{ r.includes }}" onChange="{{ r.onIncludes }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#4B5563;background:#fff">
+<input type="text" value="{{ r.length }}" onChange="{{ r.onLength }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#111;background:#fff">
+<input type="number" value="{{ r.price }}" onChange="{{ r.onPrice }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+<button type="button" onClick="{{ r.onRemove }}" style="border:none;background:none;color:#9CA3AF;font-size:16px;line-height:1;cursor:pointer;padding:0">×</button>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px">
+<button type="button" onClick="{{ addTier }}" style="border:none;background:none;padding:0;font-size:12.5px;font-weight:600;color:#6D5DF6;cursor:pointer">+ Add tier</button>
+<span style="font-size:11.5px;color:#6B7280">{{ tierRangeLine }}</span>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden">
+<div onClick="{{ toggleStock }}" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:#111">Inventory &amp; variants</div><div style="font-size:12px;color:#6B7280;margin-top:2px">{{ stockSummary }}</div></div>
+<span style="font-size:11.5px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretStock }}</span>
+</div>
+<sc-if value="{{ openStock }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<sc-if value="{{ stockLocked }}" hint-placeholder-val="{{ false }}">
+<div style="background:#F4F4F6;border:1px dashed #D7D7DC;border-radius:10px;padding:11px 13px;font-size:11.5px;line-height:1.5;color:#6B7280">{{ stockLockReason }}</div>
+</sc-if>
+<sc-if value="{{ stockOpen }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:7px">Option groups</label>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ optionGroups }}" as="g" hint-placeholder-count="2">
+<div style="display:flex;align-items:center;gap:10px;border:1px solid #E5E7EB;border-radius:12px;padding:10px 12px">
+<span style="font-size:12.5px;font-weight:600;color:#111;width:52px;flex-shrink:0">{{ g.name }}</span>
+<div style="display:flex;flex-wrap:wrap;gap:6px;flex:1">
+<sc-for list="{{ g.values }}" as="v" hint-placeholder-count="3">
+<span style="{{ v.chip }}">{{ v.label }}</span>
+</sc-for>
+<button type="button" onClick="{{ g.onAdd }}" style="padding:5px 10px;border-radius:9999px;border:1px dashed #D7D7DC;background:#fff;color:#6B7280;font-size:12px;cursor:pointer">+ value</button>
+</div>
+</div>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;color:#6B7280">{{ matrixNote }}</p>
+</div>
+
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+<span style="font-size:12px;font-weight:600;color:#374151">Variants — {{ variantCount }} combinations</span>
+<div style="display:flex;gap:10px">
+<button type="button" onClick="{{ fillStock }}" style="border:none;background:none;padding:0;font-size:12px;font-weight:600;color:#6D5DF6;cursor:pointer">Set all stock to 10</button>
+<button type="button" onClick="{{ applyPrice }}" style="border:none;background:none;padding:0;font-size:12px;font-weight:600;color:#6D5DF6;cursor:pointer">Apply base price to all</button>
+</div>
+</div>
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<div style="display:grid;grid-template-columns:34px 1.4fr 1fr .8fr .7fr 1.1fr;gap:10px;padding:9px 12px;background:#FAFAFB;border-bottom:1px solid #E5E7EB">
+<sc-for list="{{ variantHead }}" as="h" hint-placeholder-count="6">
+<span style="{{ h.style }}">{{ h.label }}</span>
+</sc-for>
+</div>
+<sc-for list="{{ variantRows }}" as="v" hint-placeholder-count="6">
+<div style="{{ v.row }}">
+<div style="{{ v.thumb }}">{{ v.thumbLabel }}</div>
+<div style="min-width:0">
+<div style="font-size:13px;font-weight:600;color:#111;line-height:17px">{{ v.name }}</div>
+<div style="font-size:11px;color:#9CA3AF">{{ v.note }}</div>
+</div>
+<input type="text" value="{{ v.sku }}" onChange="{{ v.onSku }}" style="width:100%;padding:7px 9px;border:1px solid #E5E7EB;border-radius:8px;font:400 11.5px ui-monospace,Menlo,monospace;color:#4B5563;background:#fff">
+<input type="number" value="{{ v.price }}" onChange="{{ v.onPrice }}" style="width:100%;padding:7px 9px;border:1px solid #E5E7EB;border-radius:8px;font-size:12.5px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+<input type="number" value="{{ v.stock }}" onChange="{{ v.onStock }}" style="{{ v.stockStyle }}">
+<span style="{{ v.pill }}">{{ v.status }}</span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:10px">
+<span style="font-size:11.5px;color:#6B7280">Low-stock alert at <input type="number" value="{{ lowAt }}" onChange="{{ setLowAt }}" style="width:52px;padding:5px 7px;border:1px solid #E5E7EB;border-radius:7px;font-size:12px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums"> per variant</span>
+<span style="font-size:12px;font-weight:600;color:#111;font-variant-numeric:tabular-nums">{{ stockTotalLine }}</span>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden">
+<div onClick="{{ toggleBooking }}" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:#111">Booking &amp; availability</div><div style="font-size:12px;color:#6B7280;margin-top:2px">{{ bookingSummary }}</div></div>
+<span style="font-size:11.5px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretBooking }}</span>
+</div>
+<sc-if value="{{ openBooking }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<sc-if value="{{ bookingLocked }}" hint-placeholder-val="{{ false }}">
+<div style="background:#F4F4F6;border:1px dashed #D7D7DC;border-radius:10px;padding:11px 13px;font-size:11.5px;line-height:1.5;color:#6B7280">{{ bookingLockReason }}</div>
+</sc-if>
+<sc-if value="{{ bookingOpen }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:7px">Bookable days</label>
+<div style="display:flex;gap:6px">
+<sc-for list="{{ dayOpts }}" as="d" hint-placeholder-count="7">
+<button type="button" onClick="{{ d.onClick }}" style="{{ d.chip }}">{{ d.label }}</button>
+</sc-for>
+</div>
+</div>
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+<label style="font-size:12px;font-weight:600;color:#374151">Time windows</label>
+<span style="font-size:12px;font-weight:600;color:#6D5DF6">+ Add window</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ windowRows }}" as="w" hint-placeholder-count="2">
+<div style="display:grid;grid-template-columns:1.3fr .8fr .8fr 28px;gap:10px;align-items:center;border:1px solid #E5E7EB;border-radius:11px;padding:9px 11px">
+<span style="font-size:12.5px;font-weight:500;color:#111">{{ w.days }}</span>
+<input type="time" value="{{ w.from }}" style="width:100%;padding:7px 9px;border:1px solid #E5E7EB;border-radius:8px;font-size:12.5px;color:#111;background:#fff">
+<input type="time" value="{{ w.to }}" style="width:100%;padding:7px 9px;border:1px solid #E5E7EB;border-radius:8px;font-size:12.5px;color:#111;background:#fff">
+<span style="color:#9CA3AF;font-size:16px;line-height:1;text-align:center">×</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Buffer between</label><input type="number" value="15" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:13.5px;color:#111;background:#fff"></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Bookings per slot</label><input type="number" value="1" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:13.5px;color:#111;background:#fff"></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Booking window</label><select style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:13.5px;color:#111;background:#fff"><option>Up to 8 weeks ahead</option><option>Up to 4 weeks ahead</option><option>Any future date</option></select></div>
+</div>
+
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+<label style="font-size:12px;font-weight:600;color:#374151">Length &amp; price</label>
+<button type="button" onClick="{{ addDuration }}" style="border:none;background:none;padding:0;font-size:12px;font-weight:600;color:#6D5DF6;cursor:pointer">+ Add length</button>
+</div>
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<div style="display:grid;grid-template-columns:1.4fr .8fr 28px;gap:10px;padding:9px 12px;background:#FAFAFB;border-bottom:1px solid #E5E7EB">
+<sc-for list="{{ durationHead }}" as="h" hint-placeholder-count="3">
+<span style="{{ h.style }}">{{ h.label }}</span>
+</sc-for>
+</div>
+<sc-for list="{{ durationRows }}" as="d" hint-placeholder-count="4">
+<div style="{{ d.row }}">
+<div style="display:flex;align-items:center;gap:7px">
+<input type="number" value="{{ d.mins }}" onChange="{{ d.onMins }}" style="width:70px;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+<span style="font-size:12.5px;color:#6B7280">minutes</span>
+</div>
+<input type="number" value="{{ d.price }}" onChange="{{ d.onPrice }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+<button type="button" onClick="{{ d.onRemove }}" style="border:none;background:none;color:#9CA3AF;font-size:16px;line-height:1;cursor:pointer;padding:0">×</button>
+</div>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.5;color:#6B7280">{{ durationNote }}</p>
+</div>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:7px">Payment at booking</label>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+<sc-for list="{{ payOpts }}" as="p" hint-placeholder-count="3">
+<button type="button" onClick="{{ p.onClick }}" style="{{ p.card }}">
+<span style="display:block;font-size:13.5px;font-weight:600;line-height:17px">{{ p.label }}</span>
+<span style="display:block;font-size:11px;line-height:1.4;color:#6B7280;margin-top:2px">{{ p.sub }}</span>
+</button>
+</sc-for>
+</div>
+<sc-if value="{{ depositOn }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+<label style="font-size:12px;font-weight:600;color:#374151">Deposit amount</label>
+<input type="number" value="{{ deposit }}" onChange="{{ setDeposit }}" style="width:110px;padding:9px 11px;border:1px solid #E5E7EB;border-radius:10px;font-size:13.5px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+<span style="font-size:11.5px;color:#6B7280">{{ depositLine }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ depositLocked }}" hint-placeholder-val="{{ true }}">
+<div style="margin-top:10px;background:#F4F4F6;border:1px dashed #D7D7DC;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.5;color:#6B7280">{{ depositLockReason }}</div>
+</sc-if>
+</div>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111">Staff approves each booking</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">Requests land in Bookings and hold no slot until you accept.</div>
+</div>
+<button type="button" onClick="{{ toggleApproval }}" style="{{ approvalSwitch }}"><span style="{{ approvalKnob }}"></span></button>
+</div>
+<div style="border-top:1px solid #F1F1F3;padding-top:14px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+<label style="font-size:12px;font-weight:600;color:#374151">Add-ons</label>
+<button type="button" onClick="{{ addAddOn }}" style="border:none;background:none;padding:0;font-size:12px;font-weight:600;color:#6D5DF6;cursor:pointer">+ Add-on</button>
+</div>
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<div style="display:grid;grid-template-columns:1.6fr .8fr .7fr 28px;gap:10px;padding:9px 12px;background:#FAFAFB;border-bottom:1px solid #E5E7EB">
+<sc-for list="{{ addOnHead }}" as="h" hint-placeholder-count="4">
+<span style="{{ h.style }}">{{ h.label }}</span>
+</sc-for>
+</div>
+<sc-for list="{{ addOnEditRows }}" as="a" hint-placeholder-count="3">
+<div style="{{ a.row }}">
+<input type="text" value="{{ a.label }}" onChange="{{ a.onLabel }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;font-weight:500;color:#111;background:#fff">
+<button type="button" onClick="{{ a.onPerGuest }}" style="{{ a.perGuestChip }}">{{ a.perGuestLabel }}</button>
+<input type="number" value="{{ a.price }}" onChange="{{ a.onPrice }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+<button type="button" onClick="{{ a.onRemove }}" style="border:none;background:none;color:#9CA3AF;font-size:16px;line-height:1;cursor:pointer;padding:0">×</button>
+</div>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.5;color:#6B7280">Families pick these at checkout, and the prices land on their order total — replacing the free-text “Extra 30 minutes: $75” list.</p>
+</div>
+
+<div style="display:grid;grid-template-columns:180px 1fr;gap:12px;align-items:end">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Max guests</label>
+<input type="number" value="{{ maxGuests }}" onChange="{{ setMaxGuests }}" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff;font-variant-numeric:tabular-nums">
+</div>
+<p style="margin:0 0 4px;font-size:11.5px;line-height:1.5;color:#6B7280">Shown on the booking page and enforced on the guest-count question.</p>
+</div>
+
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+<label style="font-size:12px;font-weight:600;color:#374151">Questions at checkout</label>
+<button type="button" onClick="{{ addQuestion }}" style="border:none;background:none;padding:0;font-size:12px;font-weight:600;color:#6D5DF6;cursor:pointer">+ Add question</button>
+</div>
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<sc-for list="{{ questionRows }}" as="q" hint-placeholder-count="3">
+<div style="{{ q.row }}">
+<input type="text" value="{{ q.label }}" onChange="{{ q.onLabel }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;font-weight:500;color:#111;background:#fff">
+<select value="{{ q.kind }}" onChange="{{ q.onKind }}" style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12.5px;color:#111;background:#fff"><option>Short text</option><option>Long text</option><option>Number</option></select>
+<button type="button" onClick="{{ q.onRequired }}" style="{{ q.requiredChip }}">{{ q.requiredMark }}</button>
+<button type="button" onClick="{{ q.onRemove }}" style="border:none;background:none;color:#9CA3AF;font-size:16px;line-height:1;cursor:pointer;padding:0">×</button>
+</div>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.5;color:#6B7280">Party theme, waiver notes, guest names, allergies — a real list instead of one free-text box, so answers arrive on the booking.</p>
+</div>
+
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:7px">Blackout dates</label>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ blackouts }}" as="b" hint-placeholder-count="3">
+<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:9999px;background:#F1F1F3;color:#4B5563;font-size:12px;font-weight:500">{{ b.label }}<span style="color:#9CA3AF">×</span></span>
+</sc-for>
+<button type="button" style="padding:6px 11px;border-radius:9999px;border:1px dashed #D7D7DC;background:#fff;color:#6B7280;font-size:12px;cursor:pointer">+ Add date</button>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden">
+<div onClick="{{ toggleSell }}" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:#111">Where it's sold</div><div style="font-size:12px;color:#6B7280;margin-top:2px">{{ sellSummary }}</div></div>
+<span style="font-size:11.5px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretSell }}</span>
+</div>
+<sc-if value="{{ openSell }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ storefronts }}" as="s" hint-placeholder-count="3">
+<div style="{{ s.row }}">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111;line-height:18px">{{ s.label }}</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">{{ s.hint }}</div>
+</div>
+<button type="button" onClick="{{ s.onClick }}" style="{{ s.box }}">{{ s.mark }}</button>
+</div>
+</sc-for>
+</div>
+<p style="margin:10px 0 0;font-size:11.5px;line-height:1.5;color:#4B5563">One list replaces “Who can buy/view?” + “Show location”, which could previously disagree — members-only visibility while shown on the public checkout link.</p>
+</div>
+
+<sc-if value="{{ publicLinkOn }}" hint-placeholder-val="{{ true }}">
+<div style="border:1px solid #E5E7EB;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:14px;background:#FAFAFB">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">Public link, QR &amp; website embed</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Link address</label>
+<div style="display:flex;align-items:center;border:1px solid #E5E7EB;border-radius:10px;background:#fff;overflow:hidden">
+<span style="font:400 12px ui-monospace,Menlo,monospace;color:#9CA3AF;padding:0 0 0 11px;flex-shrink:0">/p/</span>
+<input type="text" value="{{ slug }}" onChange="{{ setSlug }}" style="flex:1;min-width:0;padding:10px 8px;border:none;outline:none;font:400 12.5px ui-monospace,Menlo,monospace;color:#111;background:#fff">
+</div>
+<p style="margin:6px 0 0;font-size:11.5px;color:#6B7280">Every product gets one, whatever its type. <strong>New route</strong> — it mirrors the existing public event page <code style="font-size:11px">/e/{slug}</code>; today <code style="font-size:11px">PUBLIC_CHECKOUT</code> only widens who sees a product inside the member store.</p>
+</div>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Share it</label>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #E5E7EB;border-radius:10px;background:#fff;padding:9px 11px">
+<code style="font-size:12px;color:#111;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ publicUrl }}</code>
+<span style="font-size:12px;font-weight:600;color:#6D5DF6;flex-shrink:0">Copy</span>
+</div>
+<div style="display:flex;gap:8px;margin-top:8px">
+<button type="button" style="flex:1;padding:8px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:9px;font-size:12px;font-weight:500;cursor:pointer">Email it</button>
+<button type="button" style="flex:1;padding:8px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:9px;font-size:12px;font-weight:500;cursor:pointer">Announcement</button>
+</div>
+<p style="margin:7px 0 0;font-size:11.5px;color:#6B7280">Like events: “the shareable link is generated when you save”.</p>
+</div>
+</div>
+
+<div style="display:flex;gap:14px;align-items:flex-start;border-top:1px solid #F1F1F3;padding-top:14px">
+<div style="{{ qrTile }}"><span style="position:absolute;bottom:-17px;left:0;right:0;text-align:center;font:500 8px ui-monospace,Menlo,monospace;color:#9CA3AF">QR PREVIEW</span></div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">QR code</label>
+<div style="display:flex;gap:8px">
+<sc-for list="{{ qrActions }}" as="q" hint-placeholder-count="3">
+<button type="button" style="{{ q.style }}">{{ q.label }}</button>
+</sc-for>
+</div>
+<p style="margin:7px 0 0;font-size:11.5px;line-height:1.5;color:#6B7280">{{ qrNote }}</p>
+</div>
+<div style="display:flex;gap:8px">
+<button type="button" style="padding:8px 13px;background:#6D5DF6;color:#fff;border:none;border-radius:9px;font-size:12.5px;font-weight:600;cursor:pointer">Print tag sheet</button>
+<span style="align-self:center;font-size:11px;font-weight:600;padding:3px 8px;border-radius:9999px;background:rgba(109,93,246,.1);color:#5948E8">New</span>
+<span style="align-self:center;font-size:11.5px;color:#6B7280">6 tags a page — today's Print does one code</span>
+</div>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border:1px solid #E5E7EB;border-radius:11px;padding:11px 12px;background:#fff">
+<div style="flex:1;min-width:0">
+<div style="font-size:13px;font-weight:600;color:#111">Count scans</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">{{ scanLine }}</div>
+</div>
+<button type="button" onClick="{{ toggleScans }}" style="{{ scansSwitch }}"><span style="{{ scansKnob }}"></span></button>
+</div>
+</div>
+</div>
+
+<div style="border-top:1px solid #F1F1F3;padding-top:14px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px">
+<label style="font-size:12px;font-weight:600;color:#374151">Website button</label>
+<span style="font-size:12px;font-weight:600;color:#6D5DF6">Copy embed code</span>
+</div>
+<div style="font:400 11.5px/1.6 ui-monospace,Menlo,monospace;color:#4B5563;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px 12px;overflow-x:auto;white-space:pre">{{ embedSnippet }}</div>
+<p style="margin:7px 0 0;font-size:11.5px;line-height:1.5;color:#6B7280">Paste into any club website. Non-members check out with Stripe; members are offered the member price once they sign in.</p>
+</div>
+</div>
+</sc-if>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Fulfillment</label><select style="{{ fulfillSelect }}"><option>Pickup at the front desk</option><option>Handed out at practice</option><option>Shipping (coming later)</option></select><p style="margin:6px 0 0;font-size:11.5px;color:#6B7280">{{ fulfillNote }}</p></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Internal note <span style="font-weight:400;color:#9CA3AF">staff only</span></label><input type="text" placeholder="Supplier, reorder link, sizing notes" style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff"></div>
+</div>
+</div>
+</sc-if>
+</div>
+
+<div style="border:1px solid rgba(109,93,246,.25);background:rgba(109,93,246,.06);border-radius:14px;padding:14px 16px">
+<div style="font-size:12.5px;font-weight:600;color:#111">{{ recapTitle }}</div>
+<div style="font-size:12px;line-height:1.55;color:#4B5563;margin-top:4px">{{ recapBody }}</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<div id="2b" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2b" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2b</a>Product list — photo grid, stock legible per size</div>
+<div style="width:1000px;background:#fff;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden">
+<div style="padding:18px 22px;border-bottom:1px solid #E5E7EB;display:flex;align-items:flex-start;justify-content:space-between;gap:20px">
+<div>
+<h2 style="margin:0;font-size:20px;font-weight:600;color:#111">Products</h2>
+<p style="margin:3px 0 0;font-size:12.5px;color:#6B7280">{{ listSubtitle }}</p>
+</div>
+<div style="display:flex;gap:8px">
+<button type="button" style="padding:9px 14px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:10px;font-size:13px;cursor:pointer">Receive stock</button>
+<button type="button" style="padding:9px 16px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">+ Add product</button>
+</div>
+</div>
+<div style="padding:14px 22px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;gap:16px;background:#FAFAFB">
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ listFilters }}" as="f" hint-placeholder-count="5">
+<button type="button" onClick="{{ f.onClick }}" style="{{ f.chip }}">{{ f.label }}</button>
+</sc-for>
+</div>
+<input type="text" placeholder="Search products" style="width:200px;padding:8px 11px;border:1px solid #E5E7EB;border-radius:9px;font-size:12.5px;color:#111;background:#fff">
+</div>
+<div style="padding:18px 22px 22px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+<sc-for list="{{ listCards }}" as="c" hint-placeholder-count="8">
+<div style="border:1px solid #E5E7EB;border-radius:13px;overflow:hidden;background:#fff">
+<div style="{{ c.cover }}">
+<span style="font:500 8px ui-monospace,Menlo,monospace;color:#9CA3AF">{{ c.coverLabel }}</span>
+<span style="{{ c.stockPill }}">{{ c.stockLabel }}</span>
+</div>
+<div style="padding:11px 12px 12px;display:flex;flex-direction:column;gap:7px">
+<div>
+<div style="font-size:13.5px;font-weight:600;color:#111;line-height:17px">{{ c.name }}</div>
+<div style="font-size:11px;color:#9CA3AF;margin-top:2px">{{ c.type }}</div>
+</div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+<span style="font-size:14px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ c.price }}</span>
+<span style="font-size:11px;color:#6B7280">{{ c.sold }}</span>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:4px">
+<sc-for list="{{ c.chips }}" as="ch" hint-placeholder-count="3">
+<span style="{{ ch.style }}">{{ ch.label }}</span>
+</sc-for>
+</div>
+<div style="display:flex;gap:6px;padding-top:2px">
+<button type="button" style="flex:1;padding:7px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer">{{ c.primary }}</button>
+<button type="button" style="padding:7px 9px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;border-radius:8px;font-size:12px;cursor:pointer">⋯</button>
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+
+</div>
+
+<div id="2c" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px;margin-top:32px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2c" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2c</a>Inventory across every product — sold out first, one row per variant</div>
+<div style="width:1000px;background:#fff;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden">
+<div style="padding:18px 22px;border-bottom:1px solid #E5E7EB;display:flex;align-items:flex-start;justify-content:space-between;gap:20px">
+<div>
+<h2 style="margin:0;font-size:20px;font-weight:600;color:#111">Inventory</h2>
+<p style="margin:3px 0 0;font-size:12.5px;color:#6B7280">{{ invHeaderLine }}</p>
+</div>
+<div style="display:flex;gap:8px">
+<button type="button" style="padding:9px 14px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:10px;font-size:13px;cursor:pointer">Export count sheet</button>
+<button type="button" style="padding:9px 16px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Receive stock</button>
+</div>
+</div>
+<div style="padding:14px 22px;background:#FAFAFB;border-bottom:1px solid #E5E7EB;display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+<sc-for list="{{ invTiles }}" as="t" hint-placeholder-count="4">
+<div style="{{ t.card }}">
+<div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#6B7280">{{ t.label }}</div>
+<div style="font-size:20px;font-weight:700;color:#111;margin-top:3px;font-variant-numeric:tabular-nums">{{ t.value }}</div>
+<div style="font-size:11.5px;color:#6B7280;margin-top:1px">{{ t.sub }}</div>
+</div>
+</sc-for>
+</div>
+<div style="padding:14px 22px 20px">
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<div style="display:grid;grid-template-columns:32px 1.6fr 1fr .9fr .6fr .6fr .7fr .6fr;gap:10px;padding:9px 12px;background:#FAFAFB;border-bottom:1px solid #E5E7EB">
+<sc-for list="{{ invHead }}" as="h" hint-placeholder-count="8">
+<span style="{{ h.style }}">{{ h.label }}</span>
+</sc-for>
+</div>
+<sc-for list="{{ invRows }}" as="r" hint-placeholder-count="9">
+<div style="{{ r.row }}">
+<div style="{{ r.thumb }}"></div>
+<div style="min-width:0">
+<div style="font-size:13px;font-weight:600;color:#111;line-height:17px">{{ r.variant }}</div>
+<div style="font-size:11px;color:#9CA3AF">{{ r.product }}</div>
+</div>
+<span style="font:400 11.5px ui-monospace,Menlo,monospace;color:#6B7280">{{ r.sku }}</span>
+<div style="display:flex;align-items:center;justify-content:center;gap:6px">
+<button type="button" style="width:22px;height:22px;border-radius:7px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;font-size:13px;line-height:1;cursor:pointer">−</button>
+<span style="font-size:13.5px;font-weight:700;color:#111;min-width:20px;text-align:center;font-variant-numeric:tabular-nums">{{ r.on }}</span>
+<button type="button" style="width:22px;height:22px;border-radius:7px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;font-size:13px;line-height:1;cursor:pointer">+</button>
+</div>
+<span style="font-size:12.5px;color:#6B7280;text-align:right;font-variant-numeric:tabular-nums">{{ r.low }}</span>
+<span style="font-size:12.5px;color:#6B7280;text-align:right;font-variant-numeric:tabular-nums">{{ r.sold }}</span>
+<span style="font-size:12.5px;color:#111;text-align:right;font-variant-numeric:tabular-nums">{{ r.value }}</span>
+<div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">
+<span style="{{ r.pill }}">{{ r.status }}</span>
+</div>
+</div>
+</sc-for>
+</div>
+<p style="margin:10px 0 0;font-size:11.5px;color:#6B7280">Adjusting a count here writes the same number the member store and the Sell screen read — there is no second “stock note” to keep in sync.</p>
+</div>
+</div>
+</div>
+
+<div id="2d" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px;margin-top:32px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2d" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2d</a>Rental &amp; party bookings — slots plus who booked what</div>
+<div style="width:1000px;background:#fff;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden">
+<div style="padding:18px 22px;border-bottom:1px solid #E5E7EB;display:flex;align-items:flex-start;justify-content:space-between;gap:20px">
+<div>
+<h2 style="margin:0;font-size:20px;font-weight:600;color:#111">Bookings</h2>
+<p style="margin:3px 0 0;font-size:12.5px;color:#6B7280">Facility rentals &amp; birthday parties · week of Aug 17 · 2 waiting on you · <span style="color:#9CA3AF">private lessons live in Privates</span></p>
+</div>
+<div style="display:flex;align-items:center;gap:8px">
+<button type="button" style="padding:8px 11px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;border-radius:9px;font-size:13px;cursor:pointer">‹</button>
+<span style="font-size:13px;font-weight:600;color:#111">Aug 17 – 22</span>
+<button type="button" style="padding:8px 11px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;border-radius:9px;font-size:13px;cursor:pointer">›</button>
+<button type="button" style="margin-left:6px;padding:9px 14px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">+ Add booking</button>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 340px">
+<div style="padding:16px 18px 20px;border-right:1px solid #E5E7EB">
+<div style="display:grid;grid-template-columns:56px repeat(6,1fr);gap:6px;margin-bottom:2px">
+<span></span>
+<sc-for list="{{ calHead }}" as="h" hint-placeholder-count="6">
+<span style="{{ h.style }}">{{ h.label }}</span>
+</sc-for>
+</div>
+<sc-for list="{{ calRows }}" as="r" hint-placeholder-count="5">
+<div style="display:grid;grid-template-columns:56px repeat(6,1fr);gap:6px;margin-bottom:6px;align-items:stretch">
+<span style="font-size:11px;color:#9CA3AF;font-variant-numeric:tabular-nums;padding-top:8px">{{ r.time }}</span>
+<sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="6">
+<div style="{{ c.style }}">
+<div>{{ c.label }}</div>
+<div style="font-weight:400;opacity:.85">{{ c.sub }}</div>
+</div>
+</sc-for>
+</div>
+</sc-for>
+<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px">
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#6B7280"><span style="width:11px;height:11px;border-radius:3px;background:rgba(109,93,246,.35)"></span>Confirmed</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#6B7280"><span style="width:11px;height:11px;border-radius:3px;background:#FFE4C7"></span>Waiting on you</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#6B7280"><span style="width:11px;height:11px;border-radius:3px;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 3px,#EAEAEE 3px,#EAEAEE 6px)"></span>Blackout</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#6B7280"><span style="width:11px;height:11px;border-radius:3px;border:1px dashed #D7D7DC"></span>Open</span>
+</div>
+</div>
+<div style="padding:16px 18px 20px;background:#FAFAFB;display:flex;flex-direction:column;gap:10px">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">This week's bookings</div>
+<sc-for list="{{ bookingReqs }}" as="b" hint-placeholder-count="4">
+<div style="{{ b.row }}">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+<div style="min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111;line-height:17px">{{ b.name }}</div>
+<div style="font-size:11.5px;color:#6B7280;margin-top:1px">{{ b.what }}</div>
+</div>
+<span style="{{ b.pill }}">{{ b.status }}</span>
+</div>
+<div style="font-size:11.5px;color:#4B5563;font-variant-numeric:tabular-nums">{{ b.when }}</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+<span style="font-size:11.5px;font-weight:500;color:#111">{{ b.money }}</span>
+<span style="font-size:11.5px;font-weight:600;color:#6D5DF6">{{ b.actions }}</span>
+</div>
+</div>
+</sc-for>
+<p style="margin:2px 0 0;font:400 11.5px/1.5 Inter,system-ui,sans-serif;color:#6B7280">Same language as event attendees: one list, money per person, and approving a request is what fills the slot.</p>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;margin-top:32px">
+
+<div id="2e" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2e" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2e</a>Member store — tap a size to see its real stock</div>
+<div style="width:393px;height:760px;background:#FAFAF9;border-radius:28px;border:1px solid #E7E5E4;box-shadow:0 12px 32px rgba(28,25,23,.14);overflow:hidden;display:flex;flex-direction:column">
+<div style="flex-shrink:0;background:#fff;border-bottom:1px solid #ECEAE7;padding:8px 18px 12px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#1C1917;padding:4px 0 8px"><span>9:41</span><span style="letter-spacing:1px;color:#78716C">▮▮▮ ◗</span></div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+<span style="font-size:13.5px;color:#78716C">‹ Shop</span>
+<span style="font-size:15px;font-weight:600;color:#1C1917">Club rashguard</span>
+<span style="font-size:13.5px;font-weight:600;color:#1C1917">Cart 2</span>
+</div>
+</div>
+<div style="flex:1;overflow-y:auto">
+<div style="height:300px;background:repeating-linear-gradient(135deg,#F1EFEC,#F1EFEC 8px,#E9E6E2 8px,#E9E6E2 16px);display:flex;align-items:flex-end;justify-content:center;padding-bottom:14px;position:relative">
+<span style="position:absolute;top:14px;left:50%;transform:translateX(-50%);font:500 9px ui-monospace,Menlo,monospace;color:#A8A29E">PRODUCT PHOTO 1 OF 4</span>
+<div style="display:flex;gap:6px">
+<span style="width:7px;height:7px;border-radius:9999px;background:#1C1917"></span>
+<span style="width:7px;height:7px;border-radius:9999px;background:#D6D3D1"></span>
+<span style="width:7px;height:7px;border-radius:9999px;background:#D6D3D1"></span>
+<span style="width:7px;height:7px;border-radius:9999px;background:#D6D3D1"></span>
+</div>
+</div>
+<div style="padding:16px 16px 20px;display:flex;flex-direction:column;gap:14px;background:#FAFAF9">
+<div style="background:#fff;border:1px solid #ECEAE7;border-radius:16px;box-shadow:0 1px 2px rgba(28,25,23,.04),0 1px 3px rgba(28,25,23,.03);padding:15px 16px">
+<span style="display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:2px 8px;border-radius:9999px;background:#F5F5F4;color:#57534E">Shop</span>
+<h1 style="margin:8px 0 0;font-size:19px;font-weight:600;color:#1C1917;line-height:1.25">Club rashguard</h1>
+<p style="margin:4px 0 0;font-size:13px;line-height:1.5;color:#78716C">Long-sleeve competition rashguard in club colors.</p>
+<div style="display:flex;align-items:baseline;gap:8px;margin-top:10px">
+<span style="font-size:22px;font-weight:700;color:#1C1917;font-variant-numeric:tabular-nums">$29.00</span>
+<span style="font-size:13px;color:#A8A29E;text-decoration:line-through">$34.00</span>
+<span style="display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:2px 8px;border-radius:9999px;background:rgba(28,25,23,.06);color:#1C1917">Member price</span>
+</div>
+</div>
+<div style="background:#fff;border:1px solid #ECEAE7;border-radius:16px;box-shadow:0 1px 2px rgba(28,25,23,.04),0 1px 3px rgba(28,25,23,.03);padding:13px 14px">
+<div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;color:#78716C;margin-bottom:8px">Buying for</div>
+<div style="display:flex;gap:7px">
+<span style="flex:1;padding:9px 10px;border-radius:12px;text-align:center;font-size:13px;font-weight:600;background:#1C1917;color:#fff;box-shadow:0 1px 3px rgba(28,25,23,.22)">Delos</span>
+<span style="flex:1;padding:9px 10px;border-radius:12px;text-align:center;font-size:13px;font-weight:500;background:#F5F5F4;color:#57534E">Nora</span>
+<span style="flex:1;padding:9px 10px;border-radius:12px;text-align:center;font-size:13px;font-weight:500;background:#F5F5F4;color:#57534E">Myself</span>
+</div>
+</div>
+<div style="background:#fff;border:1px solid #ECEAE7;border-radius:16px;box-shadow:0 1px 2px rgba(28,25,23,.04),0 1px 3px rgba(28,25,23,.03);padding:15px 16px;display:flex;flex-direction:column;gap:14px">
+<div>
+<div style="font-size:12px;font-weight:600;color:#44403C;margin-bottom:7px">Size</div>
+<div style="display:flex;gap:7px">
+<sc-for list="{{ sizeOpts }}" as="z" hint-placeholder-count="3">
+<button type="button" onClick="{{ z.onClick }}" style="{{ z.chip }}">
+<span style="display:block;font-size:13.5px;font-weight:600">{{ z.label }}</span>
+<span style="display:block;font-size:10.5px;margin-top:1px;opacity:.75">{{ z.note }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+<div>
+<div style="font-size:12px;font-weight:600;color:#44403C;margin-bottom:7px">Color</div>
+<div style="display:flex;gap:7px">
+<sc-for list="{{ colorOpts }}" as="c" hint-placeholder-count="2">
+<button type="button" onClick="{{ c.onClick }}" style="{{ c.chip }}">
+<span style="display:block;font-size:13.5px;font-weight:600">{{ c.label }}</span>
+<span style="display:block;font-size:10.5px;margin-top:1px;opacity:.75">{{ c.note }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+<div style="{{ selStockStyle }}">{{ selLabel }} — {{ selStockLine }}</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+<span style="font-size:12px;font-weight:600;color:#44403C">Quantity</span>
+<div style="display:flex;align-items:center;gap:12px">
+<button type="button" style="width:34px;height:34px;border-radius:11px;border:1px solid #D6D3D1;background:#fff;color:#57534E;font-size:16px;cursor:pointer">−</button>
+<span style="font-size:15px;font-weight:700;color:#1C1917;min-width:16px;text-align:center">1</span>
+<button type="button" style="width:34px;height:34px;border-radius:11px;border:1px solid #D6D3D1;background:#fff;color:#57534E;font-size:16px;cursor:pointer">+</button>
+</div>
+</div>
+<div>
+<div style="font-size:11px;font-weight:600;color:#78716C;margin-bottom:6px">Discount code</div>
+<input type="text" placeholder="TEAM10" style="width:100%;padding:11px 12px;border:1px solid #D6D3D1;border-radius:12px;font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:#1C1917;background:#fff">
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;color:#78716C">Pick up at the front desk — we'll text you when it's set aside.</p>
+</div>
+</div>
+</div>
+<div style="flex-shrink:0;padding:12px 16px 10px;background:#fff;border-top:1px solid #ECEAE7">
+<button type="button" style="{{ buyStyle }}">{{ buyLabel }}</button>
+<p style="margin:7px 0 0;font-size:11px;color:#78716C;text-align:center">Secure checkout by Stripe</p>
+</div>
+<div style="flex-shrink:0;display:flex;background:#fff;border-top:1px solid #ECEAE7;padding:6px 4px 14px">
+<span style="flex:1;text-align:center;font-size:10px;font-weight:600;color:#A8A29E">Home</span>
+<span style="flex:1;text-align:center;font-size:10px;font-weight:700;color:#1C1917">Book</span>
+<span style="flex:1;text-align:center;font-size:10px;font-weight:600;color:#A8A29E">Schedule</span>
+<span style="flex:1;text-align:center;font-size:10px;font-weight:600;color:#A8A29E">Messages</span>
+<span style="flex:1;text-align:center;font-size:10px;font-weight:600;color:#A8A29E">More</span>
+</div>
+</div>
+</div>
+
+<div id="2f" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2f" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2f</a>Party / rental booking flow — three steps, deposit stated up front</div>
+<div style="display:flex;gap:14px">
+
+<div style="width:393px;height:760px;background:#fff;border-radius:28px;border:1px solid #E7E5E4;box-shadow:0 12px 32px rgba(28,25,23,.14);overflow:hidden;display:flex;flex-direction:column">
+<div style="flex-shrink:0;border-bottom:1px solid #D6D3D1;padding:8px 18px 14px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#1C1917;padding:4px 0 10px"><span>9:41</span><span style="letter-spacing:1px;color:#78716C">▮▮▮ ◗</span></div>
+<div style="display:flex;align-items:center;justify-content:center;gap:8px">
+<sc-for list="{{ bookSteps }}" as="st" hint-placeholder-count="3">
+<span style="{{ st.style }}">{{ st.label }}</span>
+</sc-for>
+</div>
+<p style="margin:9px 0 0;font-size:13px;font-weight:600;color:#1C1917;text-align:center">Pick your package</p>
+</div>
+<div style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ tierCards }}" as="t" hint-placeholder-count="3">
+<button type="button" onClick="{{ t.onClick }}" style="{{ t.card }}">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+<span style="font-size:15px;font-weight:700;color:#1C1917">{{ t.name }}</span>
+<span style="font-size:15px;font-weight:700;color:#1C1917;font-variant-numeric:tabular-nums">{{ t.price }}</span>
+</div>
+<div style="font-size:12px;color:#78716C;margin-top:4px;line-height:1.45">{{ t.includes }}</div>
+<div style="font-size:11px;font-weight:600;color:#1C1917;margin-top:5px">{{ t.length }}</div>
+</button>
+</sc-for>
+<p style="margin:4px 0 0;font-size:11.5px;line-height:1.5;color:#78716C">{{ guestLine }}</p>
+</div>
+<div style="flex-shrink:0;padding:12px 16px 20px;border-top:1px solid #D6D3D1">
+<button type="button" style="width:100%;padding:14px;border:none;border-radius:13px;background:#1C1917;color:#fff;font-size:15px;font-weight:600;cursor:pointer">Choose a date</button>
+</div>
+</div>
+
+<div style="width:393px;height:760px;background:#fff;border-radius:28px;border:1px solid #E7E5E4;box-shadow:0 12px 32px rgba(28,25,23,.14);overflow:hidden;display:flex;flex-direction:column">
+<div style="flex-shrink:0;border-bottom:1px solid #D6D3D1;padding:8px 18px 14px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#1C1917;padding:4px 0 10px"><span>9:41</span><span style="letter-spacing:1px;color:#78716C">▮▮▮ ◗</span></div>
+<p style="margin:0;font-size:13px;font-weight:600;color:#1C1917;text-align:center">{{ stepTwoHeader }}</p>
+</div>
+<div style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px">
+<div>
+<div style="font-size:12px;font-weight:600;color:#44403C;margin-bottom:8px">Pick a day</div>
+<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px">
+<span style="flex-shrink:0;width:52px;padding:9px 0;border-radius:11px;text-align:center;border:1px solid #D6D3D1;background:#fff"><span style="display:block;font-size:10px;color:#A8A29E">FRI</span><span style="display:block;font-size:15px;font-weight:700;color:#1C1917">21</span></span>
+<span style="flex-shrink:0;width:52px;padding:9px 0;border-radius:11px;text-align:center;border:1px solid #1C1917;background:rgba(28,25,23,.05)"><span style="display:block;font-size:10px;color:#1C1917">SAT</span><span style="display:block;font-size:15px;font-weight:700;color:#1C1917">22</span></span>
+<span style="flex-shrink:0;width:52px;padding:9px 0;border-radius:11px;text-align:center;border:1px solid #F0EEEC;background:#FAFAF9"><span style="display:block;font-size:10px;color:#A8A29E">SUN</span><span style="display:block;font-size:15px;font-weight:700;color:#A8A29E">23</span></span>
+<span style="flex-shrink:0;width:52px;padding:9px 0;border-radius:11px;text-align:center;border:1px solid #D6D3D1;background:#fff"><span style="display:block;font-size:10px;color:#A8A29E">MON</span><span style="display:block;font-size:15px;font-weight:700;color:#1C1917">24</span></span>
+<span style="flex-shrink:0;width:52px;padding:9px 0;border-radius:11px;text-align:center;border:1px solid #D6D3D1;background:#fff"><span style="display:block;font-size:10px;color:#A8A29E">TUE</span><span style="display:block;font-size:15px;font-weight:700;color:#1C1917">25</span></span>
+</div>
+<p style="margin:7px 0 0;font-size:11px;color:#78716C">Sunday is closed for parties.</p>
+</div>
+<div>
+<div style="font-size:12px;font-weight:600;color:#44403C;margin-bottom:8px">{{ stepTwoSlotLabel }}</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px">
+<sc-for list="{{ slotChips }}" as="sl" hint-placeholder-count="6">
+<span style="{{ sl.style }}">{{ sl.label }}</span>
+</sc-for>
+</div>
+<p style="margin:7px 0 0;font-size:11px;color:#78716C">3:00 PM is taken. Slots include 15 minutes to reset the mat.</p>
+</div>
+</div>
+<div style="flex-shrink:0;padding:12px 16px 20px;border-top:1px solid #D6D3D1">
+<button type="button" style="width:100%;padding:14px;border:none;border-radius:13px;background:#1C1917;color:#fff;font-size:15px;font-weight:600;cursor:pointer">Continue · 12:00 PM</button>
+</div>
+</div>
+
+<div style="width:393px;height:760px;background:#fff;border-radius:28px;border:1px solid #E7E5E4;box-shadow:0 12px 32px rgba(28,25,23,.14);overflow:hidden;display:flex;flex-direction:column">
+<div style="flex-shrink:0;border-bottom:1px solid #D6D3D1;padding:8px 18px 14px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#1C1917;padding:4px 0 10px"><span>9:41</span><span style="letter-spacing:1px;color:#78716C">▮▮▮ ◗</span></div>
+<p style="margin:0;font-size:13px;font-weight:600;color:#1C1917;text-align:center">Guests &amp; details</p>
+</div>
+<div style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px">
+<sc-for list="{{ flowQuestions }}" as="q" hint-placeholder-count="3">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#44403C;margin-bottom:6px">{{ q.label }}</label>
+<sc-if value="{{ q.isLong }}" hint-placeholder-val="{{ false }}">
+<textarea rows="2" placeholder="{{ q.hint }}" style="width:100%;padding:11px 12px;border:1px solid #D6D3D1;border-radius:11px;font-size:14px;color:#1C1917;background:#fff;resize:none"></textarea>
+</sc-if>
+<sc-if value="{{ q.isNumber }}" hint-placeholder-val="{{ false }}">
+<input type="number" value="{{ q.value }}" style="width:100%;padding:11px 12px;border:1px solid #D6D3D1;border-radius:11px;font-size:14px;color:#1C1917;background:#fff">
+</sc-if>
+<sc-if value="{{ q.isText }}" hint-placeholder-val="{{ true }}">
+<input type="text" placeholder="{{ q.hint }}" style="width:100%;padding:11px 12px;border:1px solid #D6D3D1;border-radius:11px;font-size:14px;color:#1C1917;background:#fff">
+</sc-if>
+</div>
+</sc-for>
+<div>
+<div style="font-size:12px;font-weight:600;color:#44403C;margin-bottom:7px">Add-ons</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<sc-for list="{{ addOnRows }}" as="a" hint-placeholder-count="3">
+<div onClick="{{ a.onClick }}" style="{{ a.row }}"><span style="display:flex;align-items:center;gap:9px"><span style="{{ a.box }}">{{ a.mark }}</span>{{ a.label }}</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{{ a.price }}</span></div>
+</sc-for>
+</div>
+</div>
+<div style="border:1px solid #D6D3D1;border-radius:12px;padding:12px 13px;display:flex;flex-direction:column;gap:7px">
+<sc-for list="{{ orderRows }}" as="r" hint-placeholder-count="2">
+<div style="{{ r.row }}"><span>{{ r.label }}</span><span style="font-variant-numeric:tabular-nums">{{ r.value }}</span></div>
+</sc-for>
+<div style="display:flex;justify-content:space-between;font-size:13.5px;font-weight:700;color:#1C1917;border-top:1px solid #F0EEEC;padding-top:7px"><span>Total</span><span style="font-variant-numeric:tabular-nums">{{ orderTotal }}</span></div>
+<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:#1C1917"><span>{{ orderDueLabel }}</span><span style="font-variant-numeric:tabular-nums">{{ orderDueNow }}</span></div>
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;background:#FFFBEB;border:1px solid rgba(146,64,14,.2);border-radius:11px;padding:10px 12px;color:#92400E">{{ confirmLine }}</p>
+</div>
+<div style="flex-shrink:0;padding:12px 16px 20px;border-top:1px solid #D6D3D1">
+<button type="button" style="width:100%;padding:14px;border:none;border-radius:13px;background:#1C1917;color:#fff;font-size:15px;font-weight:600;cursor:pointer">{{ bookCta }}</button>
+</div>
+</div>
+
+</div>
+</div>
+
+</div>
+
+<div id="2g" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px;margin-top:32px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2g" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2g</a>Front desk — Sell screen with variant stock on every tile</div>
+<div style="width:860px;background:#fff;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden">
+<div style="padding:16px 20px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;gap:16px">
+<div>
+<h2 style="margin:0;font-size:18px;font-weight:600;color:#111">Sell</h2>
+<p style="margin:2px 0 0;font-size:12px;color:#6B7280">Front desk · Kate Zavuholnik</p>
+</div>
+<input type="text" placeholder="Scan or search — name, size, SKU" style="width:300px;padding:9px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:13px;color:#111;background:#fff">
+</div>
+<div style="display:grid;grid-template-columns:1fr 320px">
+<div style="padding:16px 18px 20px;border-right:1px solid #E5E7EB">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF;margin-bottom:10px">Quick tiles</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px">
+<sc-for list="{{ posItems }}" as="i" hint-placeholder-count="6">
+<button type="button" style="{{ i.card }}">
+<div style="height:40px;border-radius:8px;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 5px,#EDEDF1 5px,#EDEDF1 10px);margin-bottom:8px"></div>
+<div style="font-size:12.5px;font-weight:600;color:#111;line-height:16px">{{ i.name }}</div>
+<div style="font-size:11px;color:#9CA3AF;margin-top:1px">{{ i.meta }}</div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:6px">
+<span style="font-size:13px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ i.price }}</span>
+<span style="{{ i.stockStyle }}">{{ i.stock }}</span>
+</div>
+</button>
+</sc-for>
+</div>
+<p style="margin:12px 0 0;font-size:11.5px;line-height:1.5;color:#6B7280">Every tile is a variant, not a product — the desk can't sell a Youth M that isn't there, and the count drops the moment it's charged.</p>
+</div>
+<div style="padding:16px 18px 20px;background:#FAFAFB;display:flex;flex-direction:column;gap:12px">
+<div>
+<label style="display:block;font-size:11.5px;font-weight:600;color:#374151;margin-bottom:6px">Member <span style="font-weight:400;color:#9CA3AF">optional</span></label>
+<select style="width:100%;padding:10px 11px;border:1px solid #E5E7EB;border-radius:10px;font-size:13px;color:#111;background:#fff"><option>Delos Stone</option><option>Walk-in / no member</option></select>
+<p style="margin:6px 0 0;font-size:11px;color:#5948E8;font-weight:600">Member price applied automatically</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<sc-for list="{{ cartLines }}" as="l" hint-placeholder-count="2">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 11px;border:1px solid #E5E7EB;border-radius:11px;background:#fff">
+<div style="min-width:0">
+<div style="font-size:12.5px;font-weight:600;color:#111">{{ l.name }}</div>
+<div style="font-size:11px;color:#9CA3AF">{{ l.meta }} · qty {{ l.qty }}</div>
+<div style="font-size:10.5px;font-weight:600;color:#5948E8">{{ l.note }}</div>
+</div>
+<span style="font-size:13px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ l.amount }}</span>
+</div>
+</sc-for>
+</div>
+<div>
+<label style="display:block;font-size:11.5px;font-weight:600;color:#374151;margin-bottom:6px">Note <span style="font-weight:400;color:#9CA3AF">optional</span></label>
+<input type="text" placeholder="Size, color, special instructions…" style="width:100%;padding:9px 11px;border:1px solid #E5E7EB;border-radius:10px;font-size:12.5px;color:#111;background:#fff">
+</div>
+<div>
+<label style="display:block;font-size:11.5px;font-weight:600;color:#374151;margin-bottom:6px">Discount</label>
+<div style="display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{ posDiscounts }}" as="d" hint-placeholder-count="3">
+<div onClick="{{ d.onClick }}" style="{{ d.row }}">
+<div style="min-width:0">
+<div style="{{ d.nameStyle }}">{{ d.name }}</div>
+<div style="{{ d.metaStyle }}">{{ d.meta }}</div>
+</div>
+<span style="font:400 11px ui-monospace,Menlo,monospace;color:#9CA3AF">{{ d.code }}</span>
+</div>
+</sc-for>
+</div>
+<p style="margin:6px 0 0;font-size:11px;color:#6B7280">Ineligible codes stay visible with the reason — the server re-checks every code when the sale is recorded.</p>
+</div>
+<div style="border-top:1px solid #E5E7EB;padding-top:10px;display:flex;flex-direction:column;gap:5px">
+<div style="display:flex;justify-content:space-between;font-size:12px;color:#6B7280"><span>Subtotal</span><span style="font-variant-numeric:tabular-nums">{{ posLines.subtotal }}</span></div>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:#6B7280"><span>{{ posLines.discountLabel }}</span><span style="font-variant-numeric:tabular-nums">{{ posLines.discountAmount }}</span></div>
+<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;color:#111"><span>Total</span><span style="font-variant-numeric:tabular-nums">{{ posLines.total }}</span></div>
+</div>
+<div>
+<label style="display:block;font-size:11.5px;font-weight:600;color:#374151;margin-bottom:6px">Payment method</label>
+<div style="display:flex;gap:8px">
+<button type="button" onClick="{{ setManualTrue }}" style="{{ manualStyle }}">Cash / Manual</button>
+<button type="button" onClick="{{ setManualFalse }}" style="{{ stripeStyle }}">Stripe Checkout</button>
+</div>
+<p style="margin:6px 0 0;font-size:11px;color:#6B7280">{{ payHint }}</p>
+</div>
+<button type="button" style="width:100%;padding:13px;border:none;border-radius:12px;background:#6D5DF6;color:#fff;font-size:14.5px;font-weight:600;cursor:pointer">{{ posCta }} · {{ posLines.total }}</button>
+</div>
+</div>
+</div>
+</div>
+
+<div id="2h" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px;margin-top:32px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2h" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2h</a>What the QR produces — shelf tag, poster and the public page</div>
+<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+
+<div style="width:300px;background:#fff;border:1px solid #E5E7EB;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">Shelf tag · 3 × 4 in</div>
+<div style="border:1px dashed #D7D7DC;border-radius:12px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center">
+<div style="font-size:15px;font-weight:700;color:#111;line-height:1.25">{{ tagName }}</div>
+<div style="font-size:26px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ tagPrice }}</div>
+<div style="width:96px;height:96px;border-radius:8px;border:1px solid #E5E7EB;background:repeating-conic-gradient(#1C1917 0% 25%, #ffffff 0% 50%) 0 0 / 12px 12px"></div>
+<div style="font-size:10.5px;font-weight:600;color:#4B5563;letter-spacing:.02em">Scan to buy · pick your size</div>
+<div style="font:400 9px ui-monospace,Menlo,monospace;color:#9CA3AF">{{ publicUrl }}</div>
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;color:#6B7280">Prints 6 to a sheet. Name and price come from the product, so a price change reprints correctly. Today's <code style="font-size:11px">QRModal</code> print view does a single 320 px code with the URL beneath — the tag sheet is the new part.</p>
+</div>
+
+<div style="width:300px;background:#fff;border:1px solid #E5E7EB;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">Gym-door poster</div>
+<div style="border:1px dashed #D7D7DC;border-radius:12px;padding:18px 16px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;background:#FAFAFB">
+<div style="font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6D5DF6">Frog Empire Wrestling</div>
+<div style="font-size:19px;font-weight:700;color:#111;line-height:1.2">Birthday parties<br>at the club</div>
+<div style="width:120px;height:120px;border-radius:10px;border:1px solid #E5E7EB;background:repeating-conic-gradient(#1C1917 0% 25%, #ffffff 0% 50%) 0 0 / 15px 15px"></div>
+<div style="font-size:12px;font-weight:600;color:#111">{{ posterPriceLine }}</div>
+<div style="font-size:10.5px;color:#6B7280;line-height:1.45">Scan to see packages, pick a date and pay the deposit.</div>
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;color:#6B7280">Same builder, poster preset — one QR per placement so scans are attributable.</p>
+</div>
+
+<div style="width:340px;background:#fff;border:1px solid #E5E7EB;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">Where the link lands</div>
+<div style="border:1px solid #ECEAE7;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(28,25,23,.06)">
+<div style="height:44px;background:#FAFAF9;border-bottom:1px solid #ECEAE7;display:flex;align-items:center;gap:8px;padding:0 12px">
+<span style="width:8px;height:8px;border-radius:9999px;background:#D6D3D1"></span>
+<span style="flex:1;font:400 10px ui-monospace,Menlo,monospace;color:#78716C;background:#fff;border:1px solid #ECEAE7;border-radius:6px;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ publicUrl }}</span>
+</div>
+<div style="height:120px;background:repeating-linear-gradient(135deg,#F1EFEC,#F1EFEC 8px,#E9E6E2 8px,#E9E6E2 16px);display:flex;align-items:center;justify-content:center;font:500 8px ui-monospace,Menlo,monospace;color:#A8A29E">PRODUCT PHOTO</div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:9px">
+<div>
+<div style="font-size:15px;font-weight:600;color:#1C1917">{{ tagName }}</div>
+<div style="font-size:12px;color:#78716C;margin-top:2px">Frog Empire Wrestling · pick up at the club</div>
+</div>
+<div style="display:flex;align-items:baseline;gap:8px">
+<span style="font-size:19px;font-weight:700;color:#1C1917;font-variant-numeric:tabular-nums">{{ tagPrice }}</span>
+<sc-if value="{{ memberSaves }}" hint-placeholder-val="{{ true }}">
+<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:9999px;background:#F5F5F4;color:#57534E">{{ memberSaveLine }}</span>
+</sc-if>
+</div>
+<div style="display:flex;gap:6px">
+<span style="flex:1;padding:8px;border-radius:10px;text-align:center;font-size:11.5px;font-weight:600;border:1px solid #1C1917;background:rgba(28,25,23,.05);color:#1C1917">Youth M</span>
+<span style="flex:1;padding:8px;border-radius:10px;text-align:center;font-size:11.5px;font-weight:600;border:1px solid #D6D3D1;background:#fff;color:#1C1917">Adult S</span>
+<span style="flex:1;padding:8px;border-radius:10px;text-align:center;font-size:11.5px;font-weight:600;border:1px solid #F0EEEC;background:#FAFAF9;color:#A8A29E">Adult L</span>
+</div>
+<button type="button" style="width:100%;padding:11px;border:none;border-radius:12px;background:#1C1917;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(28,25,23,.16)">Checkout · {{ tagPrice }}</button>
+<div style="font-size:10.5px;color:#78716C;text-align:center">No account needed · secure checkout by Stripe</div>
+</div>
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;color:#6B7280">A public page in the club's own branding, with the same per-variant stock as the member store — sold-out sizes show greyed, not missing.</p>
+</div>
+
+</div>
+</div>
+
+<p style="margin:26px 0 0;font:400 12px/1.5 Inter,system-ui,sans-serif;color:rgba(0,0,0,.5)">Try next: “put the tier table on the Punch card type” · “show the booking calendar by month” · “make <a href="#2b" style="text-decoration:none">2b</a> a photo row list instead of a grid”</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = {
+    open: { basics: false, price: true, stock: true, booking: true, sell: false },
+    type: "GEAR",
+    price: 34,
+    memberPrice: 29,
+    tiersOn: false,
+    tiers: [
+      { name: "Basic", includes: "60 min mat time, 1 coach", length: "60 min", price: 150 },
+      { name: "Plus", includes: "90 min, 1 coach, party room", length: "90 min", price: 225 },
+      { name: "Premium", includes: "120 min, 2 coaches, room, t-shirts", length: "120 min", price: 300 },
+    ],
+    sizes: ["Youth M", "Adult S", "Adult L"],
+    colors: ["Black", "White"],
+    lowAt: 3,
+    stock: { "Youth M|Black": 10, "Youth M|White": 2, "Adult S|Black": 8, "Adult S|White": 0, "Adult L|Black": 6, "Adult L|White": 4 },
+    prices: {},
+    skus: {},
+    days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    payMode: "FULL",
+    durations: [
+      { mins: 30, price: 40 },
+      { mins: 60, price: 75 },
+      { mins: 90, price: 110 },
+      { mins: 120, price: 140 },
+    ],
+    deposit: 75,
+    approval: true,
+    storefronts: ["MEMBER_PORTAL", "PUBLIC_LINK"],
+    listFilter: "all",
+  };
+
+  static TYPES = [
+    { k: "GEAR", label: "Gear / merch", note: "Physical items with sizes and colors. Each variant carries its own stock, price, SKU and photo." },
+    { k: "BOOKABLE", label: "Bookable", note: "Facility rentals and birthday parties — days, slots, deposits and approval. Turn on tiers for party packages or rental lengths. Private lessons stay OUT of products: they keep their own Privates surface (coach selection, request times, partner rules) at /dashboard/privates and /member/privates." },
+    { k: "PUNCH", label: "Punch card / class pack", note: "A number of visits sold up front. Stock is unlimited; what matters is how many punches and when they expire." },
+    { k: "KIT", label: "Team registration kit", note: "A bundle of gear sold as one line. Stock comes from the items inside it, so it can't be counted on its own." },
+    { k: "CONCESSION", label: "Concessions", note: "Snack-bar items sold fast at the desk. Simple count per item, no sizes." },
+    { k: "GIFTCARD", label: "Gift card", note: "A balance, not an object — no stock, no shipping, and it never goes out of date on a shelf." },
+    { k: "ADDON", label: "Membership add-on", note: "Lockers, gi service and the like. Billed alongside a membership rather than sold as stock." },
+    { k: "ENTRY", label: "Tournament entry", note: "An entry fee. Capacity lives on the event, so inventory stays off here." },
+    { k: "PREORDER", label: "Fundraiser pre-order", note: "Sold before it exists — collect orders now, count what you owe families later." },
+    { k: "DIGITAL", label: "Digital item", note: "Delivered after purchase. Nothing to count and nothing to hand over." },
+    { k: "OTHER", label: "Other", note: "Anything else purchasable, with optional questions at checkout." },
+  ];
+
+  set(patch) { this.setState(patch); }
+  toggleOpen(k) { this.setState((s) => ({ open: { ...s.open, [k]: !s.open[k] } })); }
+  money(n) { return "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+  money2(n) { return "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  chip(active) {
+    return active
+      ? "padding:7px 12px;border-radius:9999px;border:1px solid #6D5DF6;background:rgba(109,93,246,.1);color:#5948E8;font-size:12.5px;font-weight:600;cursor:pointer"
+      : "padding:7px 12px;border-radius:9999px;border:1px solid #E5E7EB;background:#fff;color:#4B5563;font-size:12.5px;font-weight:500;cursor:pointer";
+  }
+  bigCard(active) {
+    return active
+      ? "text-align:left;padding:11px 13px;border-radius:12px;border:1px solid #6D5DF6;background:rgba(109,93,246,.07);color:#5948E8;cursor:pointer"
+      : "text-align:left;padding:11px 13px;border-radius:12px;border:1px solid #E5E7EB;background:#fff;color:#111;cursor:pointer";
+  }
+  switchStyle(on) {
+    return "position:relative;display:inline-flex;height:26px;width:44px;border-radius:9999px;border:none;flex-shrink:0;padding:0;background:" + (on ? "#6D5DF6" : "#D7D7DC") + ";cursor:pointer";
+  }
+  knobStyle(on) {
+    return "display:block;height:22px;width:22px;border-radius:9999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);margin:2px 0 0 " + (on ? "20px" : "2px") + ";transition:margin .16s ease";
+  }
+  checkBox(on) {
+    return "flex-shrink:0;width:24px;height:24px;border-radius:7px;border:1.5px solid " + (on ? "#6D5DF6" : "#C9CBD1") + ";background:" + (on ? "#6D5DF6" : "#fff") + ";color:#fff;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer";
+  }
+  head(label, align) {
+    return { label, style: "font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9CA3AF" + (align ? ";text-align:" + align : "") };
+  }
+
+  variantKey(size, color) { return size + "|" + color; }
+
+  // Member portal chip — stone + club accent (#1C1917), not the dashboard violet.
+  memberChip(selected, out) {
+    return "flex:1;padding:11px 8px;border-radius:12px;text-align:center;cursor:pointer;border:1px solid "
+      + (selected ? "#1C1917" : out ? "#F0EEEC" : "#D6D3D1") + ";background:"
+      + (selected ? "rgba(28,25,23,.05)" : out ? "#FAFAF9" : "#fff") + ";color:"
+      + (out ? "#A8A29E" : "#1C1917");
+  }
+
+  renderVals() {
+    const s = this.state;
+    const typeDef = Component.TYPES.find((t) => t.k === s.type) || Component.TYPES[0];
+    const countsStock = s.type === "GEAR" || s.type === "CONCESSION" || s.type === "PREORDER";
+    const hasVariants = s.type === "GEAR" || s.type === "PREORDER";
+    const isBookable = s.type === "BOOKABLE";
+    const pillBase = "display:inline-block;font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:9999px;white-space:nowrap;";
+    const tones = {
+      warn: "background:#FFF7ED;color:#B45309;border:1px solid rgba(180,83,9,.22)",
+      danger: "background:#FEF2F2;color:#B91C1C;border:1px solid rgba(185,28,28,.22)",
+      success: "background:rgba(163,230,53,.25);color:#3F6212;border:1px solid rgba(63,98,18,.25)",
+      chip: "background:#F1F1F3;color:#4B5563",
+      brand: "background:rgba(109,93,246,.10);color:#5948E8;border:1px solid rgba(109,93,246,.25)",
+    };
+
+    const combos = [];
+    s.sizes.forEach((size) => s.colors.forEach((color) => combos.push({ size, color })));
+    const stockOf = (k) => (s.stock[k] == null ? 0 : s.stock[k]);
+    const totalUnits = combos.reduce((a, c) => a + stockOf(this.variantKey(c.size, c.color)), 0);
+    const lowCount = combos.filter((c) => { const n = stockOf(this.variantKey(c.size, c.color)); return n > 0 && n <= s.lowAt; }).length;
+    const outCount = combos.filter((c) => stockOf(this.variantKey(c.size, c.color)) === 0).length;
+
+    const tierPrices = s.tiers.map((t) => Number(t.price || 0));
+    const tierLow = tierPrices.length ? Math.min.apply(null, tierPrices) : 0;
+    const tierHigh = tierPrices.length ? Math.max.apply(null, tierPrices) : 0;
+
+    const storefrontDefs = [
+      { k: "MEMBER_PORTAL", label: "Member portal store", hint: "Signed-in members see it and pay with a card on file." },
+      { k: "PUBLIC_LINK", label: "Public checkout link", hint: "Anyone with the link can buy — no account needed." },
+      { k: "STAFF_ONLY", label: "Front desk only", hint: "Never listed publicly; staff sell it from the Sell screen." },
+    ];
+    const sfOn = (k) => s.storefronts.includes(k);
+    const sfNames = storefrontDefs.filter((d) => sfOn(d.k)).map((d) => d.label);
+
+    const stockSummary = !countsStock
+      ? typeDef.label + " — nothing to count"
+      : hasVariants
+        ? totalUnits + " units across " + combos.length + " variants" + (outCount ? " · " + outCount + " out of stock" : "") + (lowCount ? " · " + lowCount + " low" : "")
+        : totalUnits + " on hand";
+
+    const priceSummary = s.tiersOn
+      ? s.tiers.length + " tiers · " + this.money(tierLow) + "–" + this.money(tierHigh)
+      : this.money(s.price) + (s.memberPrice ? " · members " + this.money(s.memberPrice) : "") + " · taxable";
+
+    return {
+      headerSummary: typeDef.label + " · " + (s.tiersOn ? s.tiers.length + " tiers" : this.money(s.price)) + " · " + (sfNames.length ? sfNames.join(" + ") : "not listed anywhere"),
+      typeOpts: Component.TYPES.map((t) => ({ label: t.label, chip: this.chip(s.type === t.k), onClick: () => this.set({ type: t.k, tiersOn: t.k === "BOOKABLE" || t.k === "PUNCH" ? true : s.tiersOn }) })),
+      typeNote: typeDef.note,
+
+      openBasics: s.open.basics, openPrice: s.open.price, openStock: s.open.stock, openBooking: s.open.booking, openSell: s.open.sell,
+      caretBasics: s.open.basics ? "Hide" : "Edit", caretPrice: s.open.price ? "Hide" : "Edit",
+      caretStock: s.open.stock ? "Hide" : "Edit", caretBooking: s.open.booking ? "Hide" : "Edit", caretSell: s.open.sell ? "Hide" : "Edit",
+      toggleBasics: () => this.toggleOpen("basics"), togglePrice: () => this.toggleOpen("price"),
+      toggleStock: () => this.toggleOpen("stock"), toggleBooking: () => this.toggleOpen("booking"), toggleSell: () => this.toggleOpen("sell"),
+
+      basicsSummary: "Club rashguard · 3 of 4 photos",
+      photoSlots: [0, 1, 2, 3].map((i) => ({
+        isCover: i === 0,
+        label: i < 3 ? "PHOTO " + (i + 1) : "+ ADD",
+        box: "position:relative;width:96px;height:96px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;" +
+          (i < 3
+            ? "background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 6px,#EDEDF1 6px,#EDEDF1 12px);border:1px solid #E5E7EB"
+            : "background:#fff;border:1px dashed #D7D7DC;cursor:pointer"),
+      })),
+
+      price: s.price, memberPrice: s.memberPrice,
+      setPrice: (e) => this.set({ price: Number(e.target.value || 0) }),
+      setMemberPrice: (e) => this.set({ memberPrice: Number(e.target.value || 0) }),
+      priceSummary,
+      tiersOn: s.tiersOn,
+      toggleTiers: () => this.set({ tiersOn: !s.tiersOn }),
+      tiersSwitch: this.switchStyle(s.tiersOn),
+      tiersKnob: this.knobStyle(s.tiersOn),
+      tierHead: [this.head("Tier"), this.head("What's included"), this.head("Length"), this.head("Price", "right"), this.head("")],
+      tierRows: s.tiers.map((t, i) => ({
+        name: t.name, includes: t.includes, length: t.length, price: t.price,
+        row: "display:grid;grid-template-columns:1.1fr 2fr .8fr .8fr 28px;gap:10px;align-items:center;padding:9px 12px;background:#fff" + (i < s.tiers.length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+        onName: (e) => this.patchTier(i, { name: e.target.value }),
+        onIncludes: (e) => this.patchTier(i, { includes: e.target.value }),
+        onLength: (e) => this.patchTier(i, { length: e.target.value }),
+        onPrice: (e) => this.patchTier(i, { price: Number(e.target.value || 0) }),
+        onRemove: () => this.setState((st) => ({ tiers: st.tiers.filter((_, idx) => idx !== i) })),
+      })),
+      addTier: () => this.setState((st) => ({ tiers: [...st.tiers, { name: "New tier", includes: "", length: "60 min", price: 0 }] })),
+      tierRangeLine: s.tiers.length ? "Families choose one at checkout · " + this.money(tierLow) + " to " + this.money(tierHigh) : "No tiers yet",
+
+      stockSummary,
+      stockLocked: !countsStock,
+      stockOpen: countsStock,
+      stockLockReason: s.type === "GIFTCARD"
+        ? "A gift card is a balance, not an object — there is nothing to count and nothing to ship."
+        : s.type === "KIT"
+          ? "A kit's stock comes from the items inside it. Add those as gear products and pick them here; counting the bundle separately would double-count."
+          : s.type === "PUNCH"
+            ? "A class pack has no stock — set how many punches it holds and when they expire in Pricing."
+            : s.type === "BOOKABLE"
+              ? "Bookings are limited by slots and capacity, not by units. That lives in Booking & availability below."
+              : s.type === "ENTRY"
+                ? "Entries are capped by the event's capacity, so there is nothing to track here."
+                : s.type === "ADDON"
+                  ? "Add-ons bill alongside a membership, so there is no shelf to count."
+                  : "Digital items are delivered after purchase — nothing to count.",
+      optionGroups: [
+        { name: "Size", values: s.sizes, onAdd: () => this.setState((st) => ({ sizes: [...st.sizes, "Adult XL"] })) },
+        { name: "Color", values: s.colors, onAdd: () => this.setState((st) => ({ colors: [...st.colors, "Navy"] })) },
+      ].map((g) => ({
+        name: g.name, onAdd: g.onAdd,
+        values: g.values.map((v) => ({ label: v, chip: "display:inline-flex;align-items:center;padding:5px 10px;border-radius:9999px;background:#F1F1F3;color:#4B5563;font-size:12px;font-weight:500" })),
+      })),
+      matrixNote: "Every combination below is its own line item — " + s.sizes.length + " sizes × " + s.colors.length + " colors = " + combos.length + " variants a member can actually run out of.",
+      variantCount: combos.length,
+      variantHead: [this.head(""), this.head("Variant"), this.head("SKU"), this.head("Price", "right"), this.head("Stock", "right"), this.head("Status")],
+      variantRows: combos.map((c, i) => {
+        const key = this.variantKey(c.size, c.color);
+        const n = stockOf(key);
+        const tone = n === 0 ? "danger" : n <= s.lowAt ? "warn" : "success";
+        const status = n === 0 ? "Out of stock" : n <= s.lowAt ? "Low — reorder" : "In stock";
+        return {
+          name: c.size + " · " + c.color,
+          note: c.color === "Black" ? "cover photo" : "own photo",
+          sku: s.skus[key] != null ? s.skus[key] : "RG-" + c.size.split(" ").map((w) => w[0]).join("") + "-" + c.color.slice(0, 3).toUpperCase(),
+          price: s.prices[key] != null ? s.prices[key] : s.price,
+          stock: n,
+          status, pill: pillBase + tones[tone],
+          thumb: "width:34px;height:34px;border-radius:8px;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 4px,#EDEDF1 4px,#EDEDF1 8px);border:1px solid #E5E7EB;display:flex;align-items:center;justify-content:center;font:500 7px ui-monospace,Menlo,monospace;color:#9CA3AF",
+          thumbLabel: c.color.slice(0, 3).toUpperCase(),
+          stockStyle: "width:100%;padding:7px 9px;border-radius:8px;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums;background:#fff;border:1px solid " + (n === 0 ? "#B91C1C" : n <= s.lowAt ? "rgba(180,83,9,.5)" : "#E5E7EB") + ";color:#111",
+          row: "display:grid;grid-template-columns:34px 1.4fr 1fr .8fr .7fr 1.1fr;gap:10px;align-items:center;padding:9px 12px;background:#fff" + (i < combos.length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+          onStock: (e) => this.setState((st) => ({ stock: { ...st.stock, [key]: Number(e.target.value || 0) } })),
+          onPrice: (e) => this.setState((st) => ({ prices: { ...st.prices, [key]: Number(e.target.value || 0) } })),
+          onSku: (e) => this.setState((st) => ({ skus: { ...st.skus, [key]: e.target.value } })),
+        };
+      }),
+      fillStock: () => this.setState((st) => {
+        const next = { ...st.stock };
+        combos.forEach((c) => { next[this.variantKey(c.size, c.color)] = 10; });
+        return { stock: next };
+      }),
+      applyPrice: () => this.setState((st) => {
+        const next = { ...st.prices };
+        combos.forEach((c) => { next[this.variantKey(c.size, c.color)] = st.price; });
+        return { prices: next };
+      }),
+      lowAt: s.lowAt,
+      setLowAt: (e) => this.set({ lowAt: Number(e.target.value || 0) }),
+      stockTotalLine: totalUnits + " units · " + this.money2(totalUnits * s.price) + " at retail",
+
+      bookingSummary: isBookable
+        ? s.days.length + " days · " + (s.payMode === "FULL" ? "full payment" : s.payMode === "DEPOSIT" ? this.money(s.deposit) + " deposit" : "request first") + (s.approval ? " · staff approves" : "")
+        : "Off for " + typeDef.label.toLowerCase(),
+      bookingLocked: !isBookable,
+      bookingOpen: isBookable,
+      bookingLockReason: "Only Bookable products take dates and times. Switch the type to Bookable for a facility rental or a party — private lessons are booked from Privates, not here.",
+      dayOpts: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => ({
+        label: d, chip: this.chip(s.days.includes(d)),
+        onClick: () => this.setState((st) => ({ days: st.days.includes(d) ? st.days.filter((x) => x !== d) : [...st.days, d] })),
+      })),
+      windowRows: [
+        { days: "Mon – Fri", from: "16:00", to: "20:00" },
+        { days: "Saturday", from: "09:00", to: "13:00" },
+      ],
+      payOpts: [
+        { k: "FULL", label: "Pay in full", sub: "Charged when they book" },
+        { k: "DEPOSIT", label: "Deposit", sub: "Rest due at the event" },
+        { k: "REQUEST", label: "Request first", sub: "Nothing charged yet" },
+      ].map((p) => ({ label: p.label, sub: p.sub, card: this.bigCard(s.payMode === p.k), onClick: () => this.set({ payMode: p.k }) })),
+      depositOn: s.payMode === "DEPOSIT",
+      depositLocked: s.payMode !== "DEPOSIT",
+      depositLockReason: s.payMode === "FULL"
+        ? "Deposit amount is off because the whole price is charged at booking."
+        : "Deposit amount is off because nothing is charged until you approve the request.",
+      deposit: s.deposit,
+      setDeposit: (e) => this.set({ deposit: Number(e.target.value || 0) }),
+      depositLine: "of " + this.money(s.tiersOn ? tierLow : s.price) + " — " + this.money((s.tiersOn ? tierLow : s.price) - s.deposit) + " due after",
+      approval: s.approval,
+      toggleApproval: () => this.set({ approval: !s.approval }),
+      approvalSwitch: this.switchStyle(s.approval),
+      approvalKnob: this.knobStyle(s.approval),
+      blackouts: ["Jul 4", "Nov 26", "Dec 25"].map((b) => ({ label: b })),
+
+      // Add-ons, max guests and checkout questions — the three fields the
+      // current BIRTHDAY_PARTY section owns as free text (page.tsx ~485–500),
+      // given real editors so the buyer flow can read them.
+      addOnHead: [this.head("Add-on"), this.head("Charged"), this.head("Price", "right"), this.head("")],
+      addOnEditRows: (s.addOns || Component.ADDONS).map((a, i) => ({
+        label: a.label, price: a.price,
+        perGuestLabel: a.perGuest ? "Per guest" : "Flat",
+        row: "display:grid;grid-template-columns:1.6fr .8fr .7fr 28px;gap:10px;align-items:center;padding:9px 12px;background:#fff" + (i < (s.addOns || Component.ADDONS).length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+        perGuestChip: this.chip(!!a.perGuest).replace("padding:7px 12px", "padding:6px 10px").replace("font-size:12.5px", "font-size:11.5px"),
+        onLabel: (e) => this.patchAddOn(i, { label: e.target.value }),
+        onPrice: (e) => this.patchAddOn(i, { price: Number(e.target.value || 0) }),
+        onPerGuest: () => this.patchAddOn(i, { perGuest: !a.perGuest }),
+        onRemove: () => this.setState((st) => ({ addOns: (st.addOns || Component.ADDONS).filter((_, idx) => idx !== i) })),
+      })),
+      addAddOn: () => this.setState((st) => ({ addOns: [...(st.addOns || Component.ADDONS), { label: "New add-on", price: 0, on: false }] })),
+      maxGuests: s.maxGuests == null ? 20 : s.maxGuests,
+      setMaxGuests: (e) => this.set({ maxGuests: Number(e.target.value || 0) }),
+      questionRows: (s.questions || Component.QUESTIONS).map((q, i) => ({
+        label: q.label, kind: q.kind, hint: q.hint || "",
+        requiredMark: q.required ? "Required" : "Optional",
+        requiredChip: this.chip(!!q.required).replace("padding:7px 12px", "padding:6px 10px").replace("font-size:12.5px", "font-size:11.5px"),
+        row: "display:grid;grid-template-columns:1.5fr 1fr .8fr 28px;gap:10px;align-items:center;padding:9px 12px;background:#fff" + (i < (s.questions || Component.QUESTIONS).length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+        onLabel: (e) => this.patchQuestion(i, { label: e.target.value }),
+        onKind: (e) => this.patchQuestion(i, { kind: e.target.value }),
+        onRequired: () => this.patchQuestion(i, { required: !q.required }),
+        onRemove: () => this.setState((st) => ({ questions: (st.questions || Component.QUESTIONS).filter((_, idx) => idx !== i) })),
+      })),
+      addQuestion: () => this.setState((st) => ({ questions: [...(st.questions || Component.QUESTIONS), { label: "New question", kind: "Short text", required: false }] })),
+      questionsSummary: (s.questions || Component.QUESTIONS).length + " asked at checkout · up to " + (s.maxGuests == null ? 20 : s.maxGuests) + " guests",
+
+      guestLine: "Up to " + (s.maxGuests == null ? 20 : s.maxGuests) + " guests. "
+        + ((s.addOns || Component.ADDONS).length
+          ? (s.addOns || Component.ADDONS).length + " add-ons available on the last step."
+          : "No add-ons offered."),
+      flowQuestions: (s.questions || Component.QUESTIONS).map((q) => ({
+        label: q.label + (q.required ? "" : " (optional)"),
+        hint: q.hint || "",
+        isText: q.kind !== "Long text" && q.kind !== "Number",
+        isNumber: q.kind === "Number",
+        isLong: q.kind === "Long text",
+        value: q.kind === "Number" ? String(Math.min(18, s.maxGuests == null ? 20 : s.maxGuests)) : "",
+      })),
+
+      sellSummary: sfNames.length ? sfNames.join(" · ") : "Not listed anywhere yet",
+      storefronts: storefrontDefs.map((d) => ({
+        label: d.label, hint: d.hint, mark: sfOn(d.k) ? "✓" : "",
+        box: this.checkBox(sfOn(d.k)),
+        row: "display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:12px;border:1px solid " + (sfOn(d.k) ? "#E5E7EB" : "#EFEFF2") + ";background:#fff",
+        onClick: () => this.setState((st) => ({ storefronts: st.storefronts.includes(d.k) ? st.storefronts.filter((x) => x !== d.k) : [...st.storefronts, d.k] })),
+      })),
+      publicLinkOn: sfOn("PUBLIC_LINK"),
+      slug: s.slug || "club-rashguard",
+      setSlug: (e) => this.set({ slug: e.target.value }),
+      publicUrl: "athletix-os.com/p/" + (s.slug || "club-rashguard"),
+      qrTile: "width:104px;height:104px;flex-shrink:0;border-radius:8px;border:1px solid #E5E7EB;background:repeating-conic-gradient(#1C1917 0% 25%, #ffffff 0% 50%) 0 0 / 13px 13px;position:relative",
+      qrNote: "Generated by the same code path as attendance QRs (QRModal → qrcode, 320 px, margin 2, error correction M). The checker above is a placeholder for this mock.",
+      qrActions: [
+        { label: "Open", hint: "Opens the page in a new tab" },
+        { label: "Copy link", hint: "Copies the URL — the button reads “Copied” for a moment" },
+        { label: "Print", hint: "Print view with the code at 320 px and the URL beneath it" },
+      ].map((a) => ({
+        label: a.label, hint: a.hint,
+        style: "flex:1;padding:9px 10px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:9px;font-size:12.5px;font-weight:500;cursor:pointer;text-align:center",
+      })),
+      qrScans: s.trackScans !== false,
+      toggleScans: () => this.set({ trackScans: s.trackScans === false }),
+      scansSwitch: this.switchStyle(s.trackScans !== false),
+      scansKnob: this.knobStyle(s.trackScans !== false),
+      scanLine: s.trackScans !== false
+        ? "142 scans · 38 checkouts since Jun 1, grouped per tag so a door poster and a shelf tag report separately. New — nothing counts scans today."
+        : "Scans aren't counted. The link still works — you just won't know where sales came from.",
+      embedSnippet: '<a href="https://athletix-os.com/p/' + (s.slug || "club-rashguard") + '">Buy the club rashguard</a>',
+      tagPrice: this.money2(s.price),
+      tagName: "Club rashguard",
+      posterPriceLine: (() => {
+        const mins = s.tiers.map((t) => parseInt(String(t.length).replace(/[^0-9]/g, ""), 10)).filter((n) => !isNaN(n));
+        const span = mins.length ? (Math.min.apply(null, mins) === Math.max.apply(null, mins)
+          ? Math.min.apply(null, mins) + " minutes"
+          : Math.min.apply(null, mins) + "–" + Math.max.apply(null, mins) + " minutes") : "any length";
+        return "From " + this.money(tierLow) + " · " + span;
+      })(),
+      memberSaves: s.memberPrice > 0 && s.price - s.memberPrice > 0,
+      memberSaveLine: "Members save " + this.money(s.price - s.memberPrice),
+      fulfillSelect: "width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:13.5px;color:" + (countsStock ? "#111" : "#9CA3AF") + ";background:" + (countsStock ? "#fff" : "#F4F4F6"),
+      fulfillNote: countsStock ? "Shipping stays off until postage is configured." : typeDef.label + " needs no handover — fulfillment is ignored.",
+
+      recapTitle: outCount > 0 && hasVariants ? "One variant is sold out" : "This product is ready",
+      recapBody: hasVariants
+        ? (outCount > 0
+            ? combos.filter((c) => stockOf(this.variantKey(c.size, c.color)) === 0).map((c) => c.size + " · " + c.color).join(", ") + " will show as sold out instead of disappearing, so families stop asking for it. " + lowCount + " more " + (lowCount === 1 ? "variant is" : "variants are") + " at or below your alert of " + s.lowAt + "."
+            : "All " + combos.length + " variants have stock. Members see per-size availability at checkout, and the front desk sees the same numbers on the Sell screen.")
+        : isBookable
+          ? (s.tiersOn ? s.tiers.length + " tiers" : "One price") + " on " + s.days.length + " days, " + (s.payMode === "DEPOSIT" ? "a " + this.money(s.deposit) + " deposit" : s.payMode === "FULL" ? "paid in full" : "request-only") + (s.approval ? ", each request waiting on staff." : ", booked instantly.")
+          : typeDef.note,
+
+      listFilters: [
+        { k: "all", label: "All" },
+        { k: "gear", label: "Gear" },
+        { k: "bookable", label: "Bookable" },
+        { k: "low", label: "Low or out" },
+        { k: "off", label: "Inactive" },
+      ].map((f) => ({
+        label: f.label + " " + this.ledger().filter((p) => this.matchesFilter(f.k, p)).length,
+        chip: this.chip(s.listFilter === f.k),
+        onClick: () => this.set({ listFilter: f.k }),
+      })),
+      listCards: this.listData().map((c) => {
+        const stockLabel = !c.active ? "Inactive"
+          : c.kind === "bookable" ? "Bookable"
+            : c.kind === "punch" ? "Unlimited"
+              : c.kind === "preorder" ? "Pre-order"
+                : c.units === 0 ? "Out of stock" : c.units + " in stock";
+        const tone = !c.active ? "chip"
+          : c.kind === "bookable" || c.kind === "preorder" ? "brand"
+            : c.kind === "punch" ? "chip"
+              : c.units === 0 ? "danger" : c.low > 0 ? "warn" : "success";
+        const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+        const chipList = c.tracked && c.active
+          ? [].concat(c.out > 0 ? [{ label: plural(c.out, "sold out", "sold out"), tone: "danger" }] : [],
+              c.low > 0 ? [{ label: plural(c.low, "low", "low"), tone: "warn" }] : [],
+              c.out === 0 && c.low === 0 ? [{ label: plural(c.variants.length, "variant", "variants") }] : [])
+          : (c.active
+              ? (c.chipList || []).concat((() => {
+                  const n = Component.BOOKINGS.filter((b) => b.pid === c.id && b.status === "pending").length;
+                  return n > 0 ? [{ label: n + " pending", tone: "warn" }] : [];
+                })())
+              : [{ label: "Hidden from store" }]);
+        return {
+          name: c.name,
+          type: c.kind === "gear" ? "Gear · " + c.variants.length + " variants"
+            : c.kind === "bookable" ? (c.id === "party" ? "Bookable · 3 tiers" : "Bookable · hourly")
+              : c.kind === "punch" ? "Punch card"
+                : c.kind === "concession" ? "Concessions"
+                  : "Pre-order · 4 variants",
+          price: c.priceLabel || this.money2(c.price),
+          sold: c.soldLabel || c.soldTotal + " sold",
+          coverLabel: c.coverLabel,
+          primary: c.primary,
+          stockLabel,
+          cover: "position:relative;height:104px;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 6px,#EDEDF1 6px,#EDEDF1 12px);display:flex;align-items:center;justify-content:center;border-bottom:1px solid #E5E7EB",
+          stockPill: "position:absolute;bottom:7px;left:7px;" + pillBase + tones[tone],
+          chips: chipList.map((x) => ({ label: x.label, style: pillBase + tones[x.tone || "chip"] })),
+        };
+      }),
+      ...this.moreVals(pillBase, tones),
+    };
+  }
+
+  moreVals(pillBase, tones) {
+    const s = this.state;
+    const sel = s.selTier == null ? 1 : s.selTier;
+    const selTier = s.tiers[sel] || s.tiers[0] || { name: "Package", length: "60 min", price: 0 };
+    const addOns = s.addOns || Component.ADDONS;
+    const guests = Math.min(18, s.maxGuests == null ? 20 : s.maxGuests);
+    const addOnCost = (a) => Number(a.price || 0) * (a.perGuest ? guests : 1);
+    const orderTotal = Number(selTier.price || 0) + addOns.filter((a) => a.on).reduce((a, x) => a + addOnCost(x), 0);
+    const dueNow = s.payMode === "DEPOSIT" ? Math.min(s.deposit, orderTotal) : s.payMode === "FULL" ? orderTotal : 0;
+    const products = this.ledger();
+    const inv = [];
+    products.forEach((p) => p.variants.forEach((v) => inv.push({
+      p: p.name, v: v.label, sku: v.sku, on: v.stock || 0, low: p.lowAt,
+      sold: v.sold || 0, price: v.price != null ? v.price : p.price || 0,
+    })));
+    inv.sort((a, b) => a.on - b.on || a.p.localeCompare(b.p));
+    const invTotal = inv.reduce((a, r) => a + r.on * r.price, 0);
+    const invUnits = inv.reduce((a, r) => a + r.on, 0);
+    const invLow = inv.filter((r) => r.on > 0 && r.on <= r.low).length;
+    const invOut = inv.filter((r) => r.on === 0).length;
+    const prodCount = products.length;
+    const attention = products.filter((p) => p.needsAttention).length;
+
+    const slots = ["4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM"];
+    const days = ["Mon 17", "Tue 18", "Wed 19", "Thu 20", "Fri 21", "Sat 22"];
+    const booked = {
+      "Mon 17|5:00 PM": { label: "Mat rental", sub: "Ramirez · paid", tone: "brand" },
+      "Tue 18|6:00 PM": { label: "Mat rental", sub: "Tang · paid", tone: "brand" },
+      "Wed 19|4:00 PM": { label: "Mat rental", sub: "Decker · deposit", tone: "warn" },
+      "Thu 20|7:00 PM": { label: "Mat rental", sub: "Novak · paid", tone: "brand" },
+      "Fri 21|5:00 PM": { label: "Birthday party", sub: "Gage · waiting", tone: "warn" },
+      "Fri 21|6:00 PM": { label: "Birthday party", sub: "Gage · waiting", tone: "warn" },
+      "Sat 22|4:00 PM": { label: "Closed", sub: "Blackout", tone: "off" },
+    };
+    const cellTone = {
+      brand: "background:rgba(109,93,246,.12);border:1px solid rgba(109,93,246,.35);color:#4338CA",
+      warn: "background:#FFF7ED;border:1px solid rgba(180,83,9,.3);color:#B45309",
+      off: "background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 5px,#EAEAEE 5px,#EAEAEE 10px);border:1px solid #E5E7EB;color:#9CA3AF",
+    };
+
+    const sizes = ["Youth M", "Adult S", "Adult L"];
+    const colors = ["Black", "White"];
+    const stockOf = (size, color) => { const n = s.stock[size + "|" + color]; return n == null ? 0 : n; };
+    const selStock = stockOf(s.selSize || "Youth M", s.selColor || "Black");
+
+    return {
+      listSubtitle: prodCount + " products · " + this.money2(invTotal) + " inventory at retail · " + attention + " need attention",
+      invHeaderLine: "All " + inv.length + " tracked variants, worst first — this is the answer to “how many Youth M are left?”",
+      invTiles: [
+        { label: "Units on hand", value: String(invUnits), sub: "across " + inv.length + " tracked variants", card: "border:1px solid #E5E7EB;background:#fff;border-radius:12px;padding:11px 13px" },
+        { label: "Retail value", value: this.money2(invTotal), sub: "if everything sells", card: "border:1px solid #E5E7EB;background:#fff;border-radius:12px;padding:11px 13px" },
+        { label: "Low stock", value: String(invLow), sub: "at or below alert", card: "border:1px solid rgba(180,83,9,.22);background:#FFF7ED;border-radius:12px;padding:11px 13px" },
+        { label: "Sold out", value: String(invOut), sub: "still listed, marked out", card: "border:1px solid rgba(185,28,28,.22);background:#FEF2F2;border-radius:12px;padding:11px 13px" },
+      ],
+      invHead: [this.head(""), this.head("Product / variant"), this.head("SKU"), this.head("On hand", "center"), this.head("Alert at", "right"), this.head("Sold 30d", "right"), this.head("Value", "right"), this.head("")],
+      invRows: inv.map((r, i) => {
+        const tone = r.on === 0 ? "danger" : r.on <= r.low ? "warn" : "success";
+        return {
+          product: r.p, variant: r.v, sku: r.sku, on: String(r.on), low: String(r.low), sold: String(r.sold),
+          value: this.money2(r.on * r.price),
+          status: r.on === 0 ? "Out" : r.on <= r.low ? "Low" : "OK",
+          pill: pillBase + tones[tone],
+          thumb: "width:32px;height:32px;border-radius:8px;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 4px,#EDEDF1 4px,#EDEDF1 8px);border:1px solid #E5E7EB",
+          row: "display:grid;grid-template-columns:32px 1.6fr 1fr .9fr .6fr .6fr .7fr .6fr;gap:10px;align-items:center;padding:9px 12px;background:#fff" + (i < inv.length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+          action: r.on <= r.low ? "Receive" : "Adjust",
+        };
+      }),
+
+      calHead: days.map((d) => ({ label: d, style: "font-size:11px;font-weight:600;color:#4B5563;text-align:center;padding:8px 0" })),
+      calRows: slots.map((slot) => ({
+        time: slot,
+        cells: days.map((d) => {
+          const b = booked[d + "|" + slot];
+          return b
+            ? { label: b.label, sub: b.sub, style: "border-radius:8px;padding:6px 7px;min-height:44px;font-size:10.5px;line-height:1.3;font-weight:600;" + cellTone[b.tone] }
+            : { label: "", sub: "Open", style: "border-radius:8px;padding:6px 7px;min-height:44px;font-size:10.5px;line-height:1.3;background:#fff;border:1px dashed #E9E9ED;color:#C9CBD1" };
+        }),
+      })),
+      bookingReqs: Component.BOOKINGS.map((b) => {
+        const price = b.pid === "party"
+          ? Number((s.tiers.find((t) => t.name === b.tier) || {}).price || 0)
+          : Number((s.durations.find((d) => d.mins === b.mins) || {}).price || 0);
+        const what = b.pid === "party" ? "Birthday party · " + b.tier : "Mat rental · " + b.mins + " min";
+        const pending = b.status === "pending";
+        return {
+          name: b.name, what, when: b.when,
+          money: pending
+            ? this.money2(b.deposit || 0) + " deposit paid · " + this.money2(Math.max(0, price - (b.deposit || 0))) + " due"
+            : this.money2(price) + " paid in full",
+          status: pending ? "Waiting on you" : "Confirmed",
+          actions: pending ? "Approve · Decline" : "Message · Cancel",
+          pill: pillBase + tones[pending ? "warn" : "success"],
+          row: "display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid #E5E7EB;border-radius:12px;background:#fff",
+        };
+      }),
+      durationHead: [this.head("Length"), this.head("Price", "right"), this.head("")],
+      durationRows: s.durations.map((d, i) => ({
+        mins: d.mins, price: d.price,
+        minsLabel: d.mins + " minutes",
+        row: "display:grid;grid-template-columns:1.4fr .8fr 28px;gap:10px;align-items:center;padding:9px 12px;background:#fff" + (i < s.durations.length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+        onMins: (e) => this.patchDuration(i, { mins: Number(e.target.value || 0) }),
+        onPrice: (e) => this.patchDuration(i, { price: Number(e.target.value || 0) }),
+        onRemove: () => this.setState((st) => ({ durations: st.durations.filter((_, idx) => idx !== i) })),
+      })),
+      addDuration: () => this.setState((st) => ({ durations: [...st.durations, { mins: 150, price: 0 }] })),
+      durationNote: "Families pick a length and pay that rate — the card's “" + (s.durations.length ? "$" + s.durations[1].price + " / hr" : "hourly") + "” headline and every booking's total read from this table.",
+
+      sizeOpts: sizes.map((z) => {
+        const total = colors.reduce((a, c) => a + stockOf(z, c), 0);
+        const sel = (s.selSize || "Youth M") === z;
+        return {
+          label: z, note: total === 0 ? "sold out" : total + " left",
+          chip: this.memberChip(sel, total === 0),
+          onClick: () => this.set({ selSize: z }),
+        };
+      }),
+      colorOpts: colors.map((c) => {
+        const n = stockOf(s.selSize || "Youth M", c);
+        const sel = (s.selColor || "Black") === c;
+        return {
+          label: c, note: n === 0 ? "sold out" : n + " left",
+          chip: this.memberChip(sel, n === 0),
+          onClick: () => this.set({ selColor: c }),
+        };
+      }),
+      selLabel: (s.selSize || "Youth M") + " · " + (s.selColor || "Black"),
+      selStockLine: selStock === 0
+        ? "Sold out — ask the front desk to reorder"
+        : selStock <= s.lowAt
+          ? "Only " + selStock + " left in this size and color"
+          : selStock + " in stock",
+      selStockStyle: "font-size:12px;font-weight:600;padding:9px 11px;border-radius:12px;" + (selStock === 0
+        ? "background:#FEF2F2;color:#B91C1C;border:1px solid rgba(185,28,28,.22)"
+        : selStock <= s.lowAt
+          ? "background:#FFFBEB;color:#92400E;border:1px solid rgba(146,64,14,.2)"
+          : "background:#F5F5F4;color:#44403C;border:1px solid #E7E5E4"),
+      buyStyle: selStock === 0
+        ? "width:100%;padding:14px;border:none;border-radius:14px;background:#F0EEEC;color:#A8A29E;font-size:15px;font-weight:600;cursor:not-allowed"
+        : "width:100%;padding:14px;border:none;border-radius:14px;background:#1C1917;color:#fff;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(28,25,23,.16)",
+      buyLabel: selStock === 0 ? "Sold out" : "Checkout · " + this.money2(s.memberPrice),
+
+      bookSteps: [1, 2, 3].map((n) => ({
+        label: String(n),
+        style: "width:26px;height:26px;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;" +
+          (n === 1 ? "background:#1C1917;color:#fff" : "background:#F0EEEC;color:#A8A29E"),
+      })),
+      tierCards: s.tiers.map((t, i) => ({
+        name: t.name, includes: t.includes, length: t.length, price: this.money(t.price),
+        card: "text-align:left;width:100%;padding:13px 14px;border-radius:16px;cursor:pointer;box-shadow:0 1px 2px rgba(28,25,23,.04),0 1px 3px rgba(28,25,23,.03);border:1px solid " + (sel === i ? "#1C1917" : "#ECEAE7") + ";background:" + (sel === i ? "rgba(28,25,23,.04)" : "#fff"),
+        onClick: () => this.set({ selTier: i }),
+      })),
+      addOnRows: addOns.map((a, i) => ({
+        label: a.label,
+        price: a.perGuest ? "+" + this.money(a.price) + " × " + guests : "+" + this.money(a.price),
+        row: "display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;border-radius:12px;font-size:13.5px;color:#1C1917;cursor:pointer;border:1px solid " + (a.on ? "#1C1917" : "#D6D3D1") + ";background:" + (a.on ? "rgba(28,25,23,.04)" : "#fff"),
+        box: "flex-shrink:0;width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;color:#fff;border:1.5px solid " + (a.on ? "#1C1917" : "#A8A29E") + ";background:" + (a.on ? "#1C1917" : "#fff"),
+        mark: a.on ? "✓" : "",
+        onClick: () => this.setState((st) => {
+          const next = (st.addOns || Component.ADDONS).map((x, idx) => (idx === i ? { ...x, on: !x.on } : x));
+          return { addOns: next };
+        }),
+      })),
+      orderRows: [{ label: selTier.name + " package · " + selTier.length, value: this.money2(selTier.price) }]
+        .concat(addOns.filter((a) => a.on).map((a) => ({
+          label: a.perGuest ? a.label + " · " + this.money(a.price) + " × " + guests + " guests" : a.label,
+          value: this.money2(addOnCost(a)),
+        })))
+        .map((r) => ({ ...r, row: "display:flex;justify-content:space-between;font-size:12.5px;color:#57534E" })),
+      orderTotal: this.money2(orderTotal),
+      orderDueNow: this.money2(dueNow),
+      orderDueLabel: s.payMode === "DEPOSIT" ? "Due now (deposit)" : s.payMode === "FULL" ? "Due now" : "Due now",
+      confirmLine: s.approval
+        ? (s.payMode === "DEPOSIT"
+            ? "A coach confirms parties within a day. Your " + this.money2(dueNow) + " deposit is only charged once it's confirmed — the remaining " + this.money2(orderTotal - dueNow) + " is due at the party."
+            : s.payMode === "FULL"
+              ? "A coach confirms parties within a day. Your " + this.money2(orderTotal) + " is charged once it's confirmed — nothing before that."
+              : "A coach confirms parties within a day. Nothing is charged until then; you'll get a payment link after it's approved.")
+        : (s.payMode === "DEPOSIT"
+            ? "Your slot is held now. " + this.money2(dueNow) + " is charged today and the remaining " + this.money2(orderTotal - dueNow) + " is due at the party."
+            : "Your slot is held as soon as the " + this.money2(orderTotal) + " goes through."),
+      bookCta: s.approval ? "Request this party" : "Book & pay " + this.money2(dueNow),
+      stepTwoHeader: "Saturday, Aug 22 · " + selTier.name + " package",
+      stepTwoSlotLabel: "Start time · " + selTier.length,
+      slotChips: ["9:00 AM", "10:30 AM", "12:00 PM", "1:30 PM", "3:00 PM", "4:30 PM"].map((t, i) => ({
+        label: t,
+        style: "padding:11px 8px;border-radius:12px;text-align:center;font-size:12.5px;font-weight:600;border:1px solid " + (i === 2 ? "#1C1917" : i === 4 ? "#F0EEEC" : "#D6D3D1") + ";background:" + (i === 2 ? "rgba(28,25,23,.05)" : i === 4 ? "#FAFAF9" : "#fff") + ";color:" + (i === 4 ? "#A8A29E" : "#1C1917"),
+      })),
+      posItems: (() => {
+        const picks = [];
+        const grab = (pid, vlabel) => {
+          const p = products.find((x) => x.id === pid);
+          if (!p) return;
+          if (!p.tracked) { picks.push({ name: p.name, meta: p.kind === "punch" ? "10 punches" : "Bookable", price: this.money2(p.price || 0), stock: "Unlimited", tone: "ok" }); return; }
+          const v = p.variants.find((x) => x.label === vlabel) || p.variants[0];
+          const n = v.stock || 0;
+          picks.push({
+            name: p.name, meta: v.label,
+            price: this.money2(v.price != null ? v.price : p.price),
+            stock: n === 0 ? "Sold out" : n + " left",
+            tone: n === 0 ? "out" : n <= p.lowAt ? "low" : "ok",
+          });
+        };
+        grab("rash", "Youth M · Black");
+        grab("rash", "Adult L · Black");
+        grab("gatorade", "Lemon-lime");
+        grab("singlet", "Adult L · Red");
+        grab("pack");
+        grab("shoes", "Adult 9 · Black");
+        return picks.map((it) => ({
+          ...it,
+          card: "text-align:left;padding:10px 11px;border-radius:12px;border:1px solid " + (it.tone === "out" ? "#EFEFF2" : "#E5E7EB") + ";background:" + (it.tone === "out" ? "#FAFAFB" : "#fff") + ";cursor:" + (it.tone === "out" ? "not-allowed" : "pointer"),
+          stockStyle: "font-size:10.5px;font-weight:600;" + (it.tone === "out" ? "color:#B91C1C" : it.tone === "low" ? "color:#B45309" : "color:#6B7280"),
+        }));
+      })(),
+      cartLines: (() => {
+        const rash = products.find((p) => p.id === "rash");
+        const gat = products.find((p) => p.id === "gatorade");
+        const rashV = rash.variants.find((v) => v.label === "Youth M · Black") || rash.variants[0];
+        return [
+          { name: rash.name, meta: rashV.label, qty: "1", amount: this.money2(s.memberPrice), note: "member price · " + (rashV.stock || 0) + " in stock" },
+          { name: gat.name, meta: gat.variants[0].label, qty: "2", amount: this.money2(gat.price * 2), note: gat.variants[0].stock + " in stock" },
+        ];
+      })(),
+      posDiscounts: [
+        { code: "TEAM10", name: "Team gear discount", amountLabel: "10% off", eligible: true, reason: null },
+        { code: "SUMMER25", name: "Summer sale", amountLabel: "$25.00 off", eligible: false, reason: "Expired Aug 1" },
+        { code: "STAFFHALF", name: "Staff 50%", amountLabel: "50% off", eligible: false, reason: "Not valid for products" },
+      ].map((d) => ({
+        ...d,
+        row: "display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:9px;border:1px solid " + (s.posDiscount === d.code ? "#1C1917" : "#E5E7EB") + ";background:" + (s.posDiscount === d.code ? "rgba(28,25,23,.04)" : d.eligible ? "#fff" : "#FAFAFB") + ";cursor:" + (d.eligible ? "pointer" : "not-allowed"),
+        nameStyle: "font-size:12.5px;font-weight:600;color:" + (d.eligible ? "#111" : "#9CA3AF"),
+        metaStyle: "font-size:11px;color:" + (d.eligible ? "#6B7280" : "#9CA3AF"),
+        meta: d.eligible ? d.amountLabel : d.amountLabel + " · " + d.reason,
+        onClick: d.eligible ? () => this.set({ posDiscount: s.posDiscount === d.code ? null : d.code }) : () => {},
+      })),
+      posLines: (() => {
+        const sub = s.memberPrice + (products.find((p) => p.id === "gatorade").price * 2);
+        const off = s.posDiscount === "TEAM10" ? Math.round(sub * 10) / 100 : 0;
+        return {
+          subtotal: this.money2(sub),
+          discountLabel: s.posDiscount ? s.posDiscount + " — 10% off" : "No discount",
+          discountAmount: off ? "−" + this.money2(off) : "$0.00",
+          total: this.money2(sub - off),
+          totalRaw: sub - off,
+        };
+      })(),
+      posManual: s.posManual !== false,
+      setManualTrue: () => this.set({ posManual: true }),
+      setManualFalse: () => this.set({ posManual: false }),
+      manualStyle: "flex:1;padding:10px;border-radius:10px;text-align:center;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid " + (s.posManual !== false ? "#6D5DF6" : "#E5E7EB") + ";background:" + (s.posManual !== false ? "#6D5DF6" : "#fff") + ";color:" + (s.posManual !== false ? "#fff" : "#111"),
+      stripeStyle: "flex:1;padding:10px;border-radius:10px;text-align:center;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid " + (s.posManual === false ? "#6D5DF6" : "#E5E7EB") + ";background:" + (s.posManual === false ? "#6D5DF6" : "#fff") + ";color:" + (s.posManual === false ? "#fff" : "#111"),
+      payHint: s.posManual !== false
+        ? "Records the sale immediately without Stripe."
+        : "Opens a Stripe payment link for the customer.",
+      posCta: s.posManual !== false ? "Record sale" : "Generate link",
+    };
+  }
+
+  patchTier(i, patch) {
+    this.setState((st) => {
+      const next = st.tiers.slice();
+      next[i] = { ...next[i], ...patch };
+      return { tiers: next };
+    });
+  }
+
+  // One variant ledger. Every screen — the editor matrix, the product cards,
+  // the inventory table, the member store and the Sell tiles — reads these
+  // numbers, so a count can only be stated once.
+  static BOOKINGS = [
+    { pid: "party", name: "Carter Gage", tier: "Premium", when: "Fri Aug 21 · 5:00–7:00 PM", status: "pending", deposit: 75 },
+    { pid: "matrental", name: "Blake Decker", mins: 60, when: "Wed Aug 19 · 4:00 PM", status: "pending", deposit: 40 },
+    { pid: "matrental", name: "James Tang", mins: 60, when: "Tue Aug 18 · 6:00 PM", status: "confirmed", deposit: null },
+    { pid: "matrental", name: "Aiden Novak", mins: 90, when: "Thu Aug 20 · 7:00 PM", status: "confirmed", deposit: null },
+  ];
+
+  static ADDONS = [
+    { label: "Extra 30 minutes", price: 75, on: true, perGuest: false },
+    { label: "Second coach", price: 50, on: false, perGuest: false },
+    { label: "T-shirt package", price: 100, on: false, perGuest: false },
+  ];
+
+  static QUESTIONS = [
+    { label: "Guest of honour", kind: "Short text", hint: "Name & age", required: true },
+    { label: "How many guests?", kind: "Number", required: true },
+    { label: "Allergies or notes", kind: "Long text", hint: "Anything we should know", required: false },
+  ];
+
+  patchAddOn(i, patch) {
+    this.setState((st) => {
+      const list = (st.addOns || Component.ADDONS).slice();
+      list[i] = { ...list[i], ...patch };
+      return { addOns: list };
+    });
+  }
+
+  patchDuration(i, patch) {
+    this.setState((st) => {
+      const list = st.durations.slice();
+      list[i] = { ...list[i], ...patch };
+      return { durations: list };
+    });
+  }
+
+  patchQuestion(i, patch) {
+    this.setState((st) => {
+      const list = (st.questions || Component.QUESTIONS).slice();
+      list[i] = { ...list[i], ...patch };
+      return { questions: list };
+    });
+  }
+
+  static CATALOG = [
+    { id: "rash", name: "Club rashguard", kind: "gear", bucket: "gear", active: true, price: 34, coverLabel: "RASHGUARD", primary: "Sell", editable: true, lowAt: 3 },
+    { id: "singlet", name: "Team singlet", kind: "gear", bucket: "gear", active: true, price: 52, coverLabel: "SINGLET", primary: "Sell", lowAt: 3, variants: [
+      { label: "Youth S · Red", sku: "TS-YS-RED", stock: 5, sold: 3 },
+      { label: "Youth M · Red", sku: "TS-YM-RED", stock: 1, sold: 6 },
+      { label: "Youth L · Red", sku: "TS-YL-RED", stock: 4, sold: 2 },
+      { label: "Adult S · Red", sku: "TS-AS-RED", stock: 6, sold: 1 },
+      { label: "Adult M · Red", sku: "TS-AM-RED", stock: 3, sold: 4 },
+      { label: "Adult L · Red", sku: "TS-AL-RED", stock: 3, sold: 2 },
+      { label: "Adult XL · Red", sku: "TS-AX-RED", stock: 2, sold: 0 },
+      { label: "Adult S · Blue", sku: "TS-AS-BLU", stock: 0, sold: 5 },
+    ] },
+    { id: "shoes", name: "Mat shoes", kind: "gear", bucket: "gear", active: true, price: 44, coverLabel: "SHOES", primary: "Restock", lowAt: 2, variants: [
+      { label: "Adult 8 · Black", sku: "MS-A8-BLK", stock: 0, sold: 2 },
+      { label: "Adult 9 · Black", sku: "MS-A9-BLK", stock: 0, sold: 4 },
+      { label: "Adult 10 · Black", sku: "MS-A10-BLK", stock: 0, sold: 3 },
+      { label: "Adult 11 · Black", sku: "MS-A11-BLK", stock: 0, sold: 1 },
+      { label: "Adult 12 · Black", sku: "MS-A12-BLK", stock: 0, sold: 0 },
+    ] },
+    { id: "camptee", name: "Summer camp shirt", kind: "gear", bucket: "gear", active: false, price: 22, coverLabel: "CAMP TEE", primary: "Activate", lowAt: 3, variants: [
+      { label: "Youth M · Lime", sku: "CT-YM-LIM", stock: 12, sold: 22 },
+      { label: "Youth L · Lime", sku: "CT-YL-LIM", stock: 8, sold: 18 },
+      { label: "Adult S · Lime", sku: "CT-AS-LIM", stock: 6, sold: 14 },
+      { label: "Adult L · Lime", sku: "CT-AL-LIM", stock: 4, sold: 10 },
+    ] },
+    { id: "party", name: "Birthday party", kind: "bookable", bucket: "bookable", active: true, priceLabel: "$150–300", coverLabel: "PARTY ROOM", primary: "Bookings", soldLabel: "4 booked", chipList: [{ label: "$75 deposit" }, { label: "Staff approves" }] },
+    { id: "matrental", name: "Mat rental", kind: "bookable", bucket: "bookable", active: true, priceLabel: "$75 / hr", coverLabel: "MAT SPACE", primary: "Bookings", soldLabel: "11 booked", chipList: [{ label: "Mon–Sat" }] },
+    { id: "pack", name: "10-class pack", kind: "punch", bucket: "other", active: true, price: 180, coverLabel: "CLASS PACK", primary: "Sell", soldLabel: "23 sold", chipList: [{ label: "10 punches" }, { label: "6 mo expiry" }] },
+    { id: "gatorade", name: "Gatorade", kind: "concession", bucket: "other", active: true, price: 3, coverLabel: "DRINKS", primary: "Sell", lowAt: 12, chipList: [{ label: "Front desk only" }], variants: [
+      { label: "Lemon-lime", sku: "CN-GAT-LL", stock: 28, sold: 146 },
+    ] },
+    { id: "hoodie", name: "Fundraiser hoodie", kind: "preorder", bucket: "other", active: true, price: 55, coverLabel: "HOODIE", primary: "Orders", soldLabel: "31 ordered", chipList: [{ label: "31 to deliver", tone: "warn" }] },
+  ];
+
+  // The rashguard's variants are what 2a's matrix edits, so they are built from
+  // state; every other product's come straight from the catalog.
+  ledger() {
+    const s = this.state;
+    return Component.CATALOG.map((p) => {
+      let variants = p.variants || [];
+      if (p.editable) {
+        variants = [];
+        s.sizes.forEach((size) => s.colors.forEach((color) => {
+          const key = size + "|" + color;
+          variants.push({
+            label: size + " · " + color,
+            sku: s.skus[key] != null ? s.skus[key] : "RG-" + size.split(" ").map((w) => w[0]).join("") + "-" + color.slice(0, 3).toUpperCase(),
+            stock: s.stock[key] == null ? 0 : s.stock[key],
+            price: s.prices[key] != null ? s.prices[key] : s.price,
+            sold: 3,
+            key,
+          });
+        }));
+      }
+      const lowAt = p.editable ? s.lowAt : (p.lowAt || 0);
+      const tracked = variants.length > 0;
+      const units = variants.reduce((a, v) => a + (v.stock || 0), 0);
+      const out = variants.filter((v) => (v.stock || 0) === 0).length;
+      const low = variants.filter((v) => (v.stock || 0) > 0 && (v.stock || 0) <= lowAt).length;
+      const retail = variants.reduce((a, v) => a + (v.stock || 0) * (v.price != null ? v.price : p.price || 0), 0);
+      const sold = variants.reduce((a, v) => a + (v.sold || 0), 0);
+      return {
+        ...p, variants, lowAt, tracked, units, out, low, retail,
+        soldTotal: sold,
+        needsAttention: tracked && p.active && (out > 0 || low > 0),
+      };
+    });
+  }
+
+  matchesFilter(f, p) {
+    if (f === "all") return true;
+    if (f === "off") return !p.active;
+    if (f === "low") return p.needsAttention;
+    return p.bucket === f;
+  }
+
+  listData() {
+    return this.ledger().filter((p) => this.matchesFilter(this.state.listFilter, p));
+  }
+}
+</script>
+</body>
+</html>

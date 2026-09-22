@@ -9,7 +9,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 ## Next up
 
 - **Julian, do first:** A1 Colton Waite (overdue since Sep 8) · then A2 Wyatt Eastman by Oct 2
-- **Next Claude Code session:** B4 is on disk awaiting Julian's build + push → then B3 Phase 9 (needs a clear run — say when) or B8 branch review (small); B2 blocked by A3
+- **Next Claude Code session:** B3 Phase 9 (needs a clear run — say when); B2 blocked by A3; B8 waiting on Julian's `git branch -D`. Julian still owes two calls: the UPCOMING_RENEWAL_LARGE link (see B4) and where B9 slots
 - **Julian, to unblock code:** A3 four minors → guardians (blocks B2 COPPA)
 
 ---
@@ -72,9 +72,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Spec merged, all §4.6.12 decisions settled, nothing built. Biggest remaining job — don't
   start it in a gap between other items.
 
-- [ ] **B4 · Four dead Action Item links** · CODE ON DISK 2026-09-14 — Julian: run
-  `cd ~/Desktop/clubos/web && npx tsx scripts/reports-tests.ts && npx tsc --noEmit && npm run build`,
-  then commit + push; tick when live
+- [x] **B4 · Four dead Action Item links** · SHIPPED 2026-09-14, commit c3dea2a on main
   Done: Financials reads `?tab=` + `?show=` and writes tab back to the URL; Stripe/Offline/Bank got
   the matching toggles; three cards + the Alert now deep-link correctly; guard test added.
   OPEN (Julian decides): UPCOMING_RENEWAL_LARGE still opens the bare roster — no 7-day renewal
@@ -90,8 +88,12 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Memberships" must become option-aware first
   Maximus, Chase and Blake need repointing once merged.
 
-- [ ] **B8 · Review `claude/elated-noether-46e7d6`** · ready
-  5 commits never merged, nobody has looked at them. Decide: merge, cherry-pick, or delete.
+- [ ] **B8 · Review `claude/elated-noether-46e7d6`** · REVIEWED 2026-09-14 — verdict: DELETE. Julian runs:
+  `cd ~/Desktop/clubos && git worktree remove --force web/.claude/worktrees/nifty-pasteur-1ecb47 && git branch -D claude/elated-noether-46e7d6 && git worktree prune`
+  then tick. 3 of 5 commits already on main (cherry-picked, byte-identical); the other 2 are a
+  duplicate coverage-resolver implementation that main's `8ece3b1`/`b2b94e0` supersede (main is
+  further along: loader, QuickAdd chip, charge-route DAY_NOT_INCLUDED, more tests). Write-up in
+  docs/improvement/PROGRESS.md (2026-09-14, third entry).
 
 - [ ] **B9 · Owner-added membership never went through** · BLOCKED by A1 · placement TBD
   Colton's dad asked for a membership, Julian added it in the dashboard, and it never took
@@ -105,4 +107,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-14 (B1 shipped, B4 built)_
+_Last reviewed: 2026-09-14 (B1 + B4 shipped, B8 reviewed)_

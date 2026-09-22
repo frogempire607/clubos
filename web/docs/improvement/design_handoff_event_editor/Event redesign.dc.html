@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#EFEEF2;font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}*{box-sizing:border-box}a{color:#6D5DF6}a:hover{color:#5948E8}input,select,textarea,button{font-family:inherit}</style></helmet>
+
+<section style="padding:40px 44px 36px;border-bottom:1px solid rgba(0,0,0,.08)">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<a href="#t1" style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">1</a>
+<span style="font:600 13px/1.2 Inter,system-ui,sans-serif;color:#1a1a1a">Event editor — one scroll, collapsible, nothing asked twice</span>
+</div>
+<p style="margin:0 0 24px;font:400 12px/1.6 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55);max-width:900px"><strong>Both editors below share one state</strong> — flip a control in <a href="#1a" style="text-decoration:none">1a</a> and watch <a href="#1b" style="text-decoration:none">1b</a> follow, so you can judge the same event in phone and desktop form. Every section is universal now: participant category, approval, split cost, public link, payment methods, policies and capacity exist for a clinic exactly as they do for a tournament. Removed as duplicates: <em>“Which price does the public link charge?”</em>, <em>“How registrants pay if approved”</em>, Bookings' own payment-method dropdown, and the <em>Drop-in fee</em> field (it is now the per-session price).</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start">
+
+<div id="1a" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#1a" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">1a</a>Phone — collapsed cards carry their own answer, so scrolling is reading</div>
+
+<div style="width:393px;height:800px;background:#F7F7F9;border-radius:28px;border:1px solid #E5E7EB;box-shadow:0 12px 32px rgba(17,17,17,.14);overflow:hidden;display:flex;flex-direction:column">
+
+<div style="flex-shrink:0;background:#fff;border-bottom:1px solid #E5E7EB;padding:8px 18px 12px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#111;padding:4px 0 8px"><span>9:41</span><span style="letter-spacing:1px;color:#6B7280">▮▮▮ ◗</span></div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+<span style="font-size:14px;color:#6D5DF6">Cancel</span>
+<span style="font-size:16px;font-weight:600;color:#111">Edit event</span>
+<span style="font-size:14px;font-weight:600;color:#6D5DF6">Save</span>
+</div>
+<p style="margin:6px 0 0;font-size:11.5px;color:#6B7280;text-align:center">Intensive Camp · {{ eventDateLabel }} · {{ attendeeCount }} signed up</p>
+</div>
+
+<div style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;flex:none">
+<div onClick="{{ toggleBasics }}" style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111;line-height:20px">Basics</div>
+<div style="font-size:12px;line-height:16px;color:#6B7280;margin-top:2px">{{ basicsSummary }}</div>
+</div>
+<span style="font-size:11px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretBasics }}</span>
+</div>
+<sc-if value="{{ openBasics }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Event name</label>
+<input type="text" value="Intensive Camp" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:15px;line-height:20px;color:#111;background:#fff">
+</div>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Type</label>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ typeOpts }}" as="t" hint-placeholder-count="5">
+<button type="button" onClick="{{ t.onClick }}" style="{{ t.chip }}">{{ t.label }}</button>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.45;color:#6B7280">Every type gets the same options below. Recurring classes still live on <a href="#1a" style="text-decoration:none">Classes</a>.</p>
+</div>
+<sc-if value="{{ isTournament }}" hint-placeholder-val="{{ false }}">
+<div style="background:rgba(109,93,246,.06);border:1px solid rgba(109,93,246,.25);border-radius:12px;padding:12px">
+<div style="font-size:12px;font-weight:600;color:#111;margin-bottom:8px">Who is running it?</div>
+<div style="display:flex;gap:6px">
+<sc-for list="{{ hostOpts }}" as="h" hint-placeholder-count="2">
+<button type="button" onClick="{{ h.onClick }}" style="{{ h.chip }}">{{ h.label }}</button>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.45;color:#4B5563">{{ hostNote }}</p>
+</div>
+</sc-if>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Cover photo</label>
+<div style="display:flex;align-items:center;gap:12px">
+<div style="width:64px;height:64px;border-radius:10px;flex-shrink:0;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 6px,#EDEDF1 6px,#EDEDF1 12px);border:1px solid #E5E7EB;display:flex;align-items:center;justify-content:center;font:500 8px ui-monospace,Menlo,monospace;color:#9CA3AF;text-align:center;padding:4px">EVENT COVER</div>
+<button type="button" style="font-size:14px;padding:8px 14px;border-radius:10px;border:1px solid #E5E7EB;background:#fff;color:#111;cursor:pointer">Choose photo</button>
+</div>
+</div>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Description <span style="font-weight:400;color:#9CA3AF">optional</span></label>
+<textarea rows="3" placeholder="What families should know before they sign up." style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:15px;line-height:20px;color:#111;background:#fff;resize:none"></textarea>
+</div>
+</div>
+</sc-if>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;flex:none">
+<div onClick="{{ toggleWhen }}" style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111;line-height:20px">Schedule &amp; sessions</div>
+<div style="font-size:12px;line-height:16px;color:#6B7280;margin-top:2px">{{ whenSummary }}</div>
+</div>
+<span style="font-size:11px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretWhen }}</span>
+</div>
+<sc-if value="{{ openWhen }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Starts</label><input type="datetime-local" value="{{ startsAt }}" onChange="{{ setStarts }}" style="width:100%;min-width:0;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff"></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Ends</label><input type="datetime-local" value="{{ endsAt }}" onChange="{{ setEnds }}" style="{{ endsStyle }}"></div>
+<sc-if value="{{ dateBad }}" hint-placeholder-val="{{ false }}">
+<div style="background:#FEF2F2;border:1px solid rgba(185,28,28,.22);border-radius:10px;padding:9px 11px;font-size:11.5px;line-height:1.45;color:#B91C1C;font-weight:500">{{ dateBadMsg }}</div>
+</sc-if>
+</div>
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+<span style="font-size:12px;font-weight:600;color:#374151">Sessions</span>
+<span style="font-size:12px;color:#6D5DF6">+ Add session</span>
+</div>
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<sc-for list="{{ sessionRows }}" as="s" hint-placeholder-count="6">
+<sc-if value="{{ s.collapsed }}" hint-placeholder-val="{{ true }}">
+<div style="{{ s.row }}">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:500;color:#111;line-height:18px">{{ s.name }}</div>
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font-size:11.5px;color:#6B7280;font-variant-numeric:tabular-nums">{{ s.time }}</span>
+<button type="button" onClick="{{ s.onEdit }}" style="border:none;background:none;padding:0;font-size:11.5px;font-weight:500;color:#6D5DF6;cursor:pointer">{{ s.editLabel }}</button>
+</div>
+</div>
+<sc-if value="{{ perSession }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+<span style="font-size:13px;color:#6B7280">$</span>
+<input type="number" value="{{ s.price }}" onChange="{{ s.onPrice }}" style="width:58px;padding:7px 8px;border:1px solid #E5E7EB;border-radius:8px;font-size:13.5px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ s.editing }}" hint-placeholder-val="{{ false }}">
+<div style="{{ s.editRow }}">
+<div style="display:flex;align-items:center;gap:8px">
+<input type="text" value="{{ s.name }}" onChange="{{ s.onName }}" placeholder="Session name" style="flex:1;min-width:0;padding:9px 11px;border:1px solid #E5E7EB;border-radius:9px;font-size:13.5px;font-weight:500;color:#111;background:#fff">
+<button type="button" onClick="{{ s.onEdit }}" style="border:none;background:none;padding:0 2px;font-size:12.5px;font-weight:600;color:#6D5DF6;cursor:pointer;flex-shrink:0">{{ s.editLabel }}</button>
+</div>
+<div>
+<label style="display:block;font-size:11px;font-weight:600;color:#6B7280;margin-bottom:4px">Session starts</label>
+<input type="datetime-local" value="{{ s.sStart }}" onChange="{{ s.onStart }}" style="width:100%;min-width:0;padding:9px 11px;border:1px solid #E5E7EB;border-radius:9px;font-size:13.5px;color:#111;background:#fff">
+</div>
+<div>
+<label style="display:block;font-size:11px;font-weight:600;color:#6B7280;margin-bottom:4px">Session ends</label>
+<input type="datetime-local" value="{{ s.sEnd }}" onChange="{{ s.onEnd }}" style="{{ s.endStyle }}">
+</div>
+<sc-if value="{{ s.bad }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:11.5px;line-height:1.45;color:#B91C1C;font-weight:500">This session ends before it starts.</div>
+</sc-if>
+<sc-if value="{{ perSession }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+<span style="font-size:11.5px;color:#6B7280">Price for this session</span>
+<div style="display:flex;align-items:center;gap:4px">
+<span style="font-size:13px;color:#6B7280">$</span>
+<input type="number" value="{{ s.price }}" onChange="{{ s.onPrice }}" style="width:62px;padding:7px 8px;border:1px solid #E5E7EB;border-radius:8px;font-size:13.5px;color:#111;background:#fff;text-align:right;font-variant-numeric:tabular-nums">
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</sc-for>
+</div>
+<sc-if value="{{ perSession }}" hint-placeholder-val="{{ true }}">
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.5;color:#4B5563;background:rgba(163,230,53,.18);border:1px solid rgba(63,98,18,.2);border-radius:10px;padding:9px 11px">{{ bundleLine }}</p>
+</sc-if>
+<sc-if value="{{ sessionsBad }}" hint-placeholder-val="{{ false }}">
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.45;color:#B91C1C;font-weight:500;background:#FEF2F2;border:1px solid rgba(185,28,28,.22);border-radius:10px;padding:9px 11px">{{ sessionsBadMsg }}</p>
+</sc-if>
+</div>
+</div>
+</sc-if>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;flex:none">
+<div onClick="{{ toggleMoney }}" style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111;line-height:20px">Money</div>
+<div style="font-size:12px;line-height:16px;color:#6B7280;margin-top:2px">{{ moneySummary }}</div>
+</div>
+<span style="font-size:11px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretMoney }}</span>
+</div>
+<sc-if value="{{ openMoney }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">How this event is priced</label>
+<div style="display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{ modelOpts }}" as="m" hint-placeholder-count="3">
+<button type="button" onClick="{{ m.onClick }}" style="{{ m.card }}">
+<span style="display:block;font-size:14px;font-weight:600;line-height:18px">{{ m.label }}</span>
+<span style="display:block;font-size:11.5px;line-height:1.4;color:#6B7280;margin-top:2px">{{ m.sub }}</span>
+</button>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.45;color:#6B7280">One choice, not three overlapping ones — picking a model retires the fields that don't apply.</p>
+</div>
+
+<sc-if value="{{ isFixed }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Member price</label>
+<input type="number" value="{{ member }}" onChange="{{ setMember }}" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:15px;color:#111;background:#fff;font-variant-numeric:tabular-nums">
+</div>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Non-member</label>
+<input type="number" value="{{ nonMember }}" onChange="{{ setNonMember }}" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:15px;color:#111;background:#fff;font-variant-numeric:tabular-nums">
+</div>
+</div>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border:1px solid #E5E7EB;border-radius:12px;padding:12px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111">Sell individual sessions</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">Families can take the whole event or pick days. Replaces the old “Drop-in fee”.</div>
+</div>
+<button type="button" onClick="{{ togglePerSession }}" style="{{ perSessionSwitch }}"><span style="{{ perSessionKnob }}"></span></button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSplit }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Total cost</label><input type="number" value="{{ splitTotal }}" onChange="{{ setSplitTotal }}" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:15px;color:#111;background:#fff;font-variant-numeric:tabular-nums"></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Expected signups</label><input type="number" value="{{ splitSignups }}" onChange="{{ setSplitSignups }}" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:15px;color:#111;background:#fff;font-variant-numeric:tabular-nums"></div>
+</div>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#4B5563;background:rgba(109,93,246,.06);border:1px solid rgba(109,93,246,.25);border-radius:10px;padding:10px 12px">{{ splitLine }}</p>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">When does everyone get invoiced?</label>
+<div style="display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{ invoiceOpts }}" as="o" hint-placeholder-count="2">
+<button type="button" onClick="{{ o.onClick }}" style="{{ o.card }}">
+<span style="display:block;font-size:14px;font-weight:600;line-height:18px">{{ o.label }}</span>
+<span style="display:block;font-size:11.5px;line-height:1.4;color:#6B7280;margin-top:2px">{{ o.sub }}</span>
+</button>
+</sc-for>
+</div>
+<sc-if value="{{ invoiceCustom }}" hint-placeholder-val="{{ false }}">
+<input type="date" value="{{ invoiceDate }}" onChange="{{ setInvoiceDate }}" style="width:100%;min-width:0;margin-top:8px;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff">
+</sc-if>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.5;color:#4B5563">{{ invoiceNote }}</p>
+</div>
+<div style="background:#F4F4F6;border:1px dashed #D7D7DC;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.5;color:#6B7280">Member &amp; non-member prices are off while the cost is split — everyone owes the same share. Switch to <strong>Fixed price</strong> to set them.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isFree }}" hint-placeholder-val="{{ false }}">
+<div style="background:#F4F4F6;border:1px dashed #D7D7DC;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.5;color:#6B7280">Nobody is charged, so prices, payment methods and invoicing are all off for this event.</div>
+</sc-if>
+
+<sc-if value="{{ paid }}" hint-placeholder-val="{{ true }}">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Memberships that already cover it</label>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ planOpts }}" as="p" hint-placeholder-count="4">
+<button type="button" onClick="{{ p.onClick }}" style="{{ p.chip }}">{{ p.label }}</button>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.5;color:#4B5563">{{ coverLine }}</p>
+</div>
+</sc-if>
+
+</div>
+</sc-if>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;flex:none">
+<div onClick="{{ togglePay }}" style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111;line-height:20px">How people pay</div>
+<div style="font-size:12px;line-height:16px;color:#6B7280;margin-top:2px">{{ paySummary }}</div>
+</div>
+<span style="font-size:11px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretPay }}</span>
+</div>
+<sc-if value="{{ openPay }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:12px">
+<sc-if value="{{ payLocked }}" hint-placeholder-val="{{ false }}">
+<div style="background:#F4F4F6;border:1px dashed #D7D7DC;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.5;color:#6B7280">{{ payLockReason }}</div>
+</sc-if>
+<sc-if value="{{ payOpen }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ payOpts }}" as="p" hint-placeholder-count="4">
+<div style="{{ p.row }}">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111;line-height:18px">{{ p.label }}</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">{{ p.hint }}</div>
+</div>
+<button type="button" onClick="{{ p.onClick }}" style="{{ p.box }}">{{ p.mark }}</button>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ paySaved }}" hint-placeholder-val="{{ true }}">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Run saved-card charges on</label>
+<input type="date" value="2026-08-19" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff">
+<p style="margin:6px 0 0;font-size:11.5px;color:#6B7280">Blank charges on the event date.</p>
+</div>
+</sc-if>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border:1px solid #E5E7EB;border-radius:12px;padding:12px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111">Block check-in until paid</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">Scheduled card charges count as paid.</div>
+</div>
+<button type="button" onClick="{{ toggleRequirePay }}" style="{{ requirePaySwitch }}"><span style="{{ requirePayKnob }}"></span></button>
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;color:#4B5563;background:rgba(109,93,246,.06);border:1px solid rgba(109,93,246,.25);border-radius:10px;padding:10px 12px">{{ payPreview }}</p>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;flex:none">
+<div onClick="{{ toggleSignup }}" style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111;line-height:20px">Who signs up, and how</div>
+<div style="font-size:12px;line-height:16px;color:#6B7280;margin-top:2px">{{ signupSummary }}</div>
+</div>
+<span style="font-size:11px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretSignup }}</span>
+</div>
+<sc-if value="{{ openSignup }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Who can sign up</label>
+<div style="display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{ whoOpts }}" as="w" hint-placeholder-count="3">
+<button type="button" onClick="{{ w.onClick }}" style="{{ w.card }}">
+<span style="display:block;font-size:14px;font-weight:600;line-height:18px">{{ w.label }}</span>
+<span style="display:block;font-size:11.5px;line-height:1.4;color:#6B7280;margin-top:2px">{{ w.sub }}</span>
+</button>
+</sc-for>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.45;color:#6B7280">This one control replaces “Who can see this event?”, “Who can book/purchase?” and the public-link switch.</p>
+</div>
+
+<sc-if value="{{ isPublicLink }}" hint-placeholder-val="{{ true }}">
+<div style="border:1px solid #E5E7EB;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#FAFAFB;border:1px solid #E5E7EB;border-radius:10px;padding:9px 11px">
+<code style="font-size:12px;color:#111;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">athletix-os.com/e/intensive-camp</code>
+<span style="font-size:12px;font-weight:600;color:#6D5DF6;flex-shrink:0">Copy</span>
+</div>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Intro above the form <span style="font-weight:400;color:#9CA3AF">optional</span></label>
+<textarea rows="2" placeholder="e.g. Register your athlete for the Spring Open." style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;line-height:19px;color:#111;background:#fff;resize:none"></textarea>
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;color:#4B5563">{{ publicPriceLine }}</p>
+</div>
+</sc-if>
+<sc-if value="{{ isStaffOnly }}" hint-placeholder-val="{{ false }}">
+<div style="background:#F4F4F6;border:1px dashed #D7D7DC;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.5;color:#6B7280">No public link and no self-booking while staff-only is on — you add people from the Attendees list.</div>
+</sc-if>
+
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+<label style="font-size:12px;font-weight:600;color:#374151">Signup questions</label>
+<span style="font-size:12px;color:#6D5DF6">+ Add question</span>
+</div>
+<p style="margin:0 0 8px;font-size:11.5px;line-height:1.45;color:#6B7280">Name, email and phone are always collected.</p>
+<div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<div style="padding:11px 12px;border-bottom:1px solid #F1F1F3;display:flex;align-items:center;gap:10px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:500;color:#111">Weight class</div>
+<div style="font-size:11px;color:#6B7280">Dropdown · 14 options · required</div>
+</div>
+<span style="font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#4B5563;background:#F1F1F3;padding:3px 7px;border-radius:5px">Category</span>
+</div>
+<div style="padding:11px 12px;display:flex;align-items:center;gap:10px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:500;color:#111">T-shirt size</div>
+<div style="font-size:11px;color:#6B7280">Dropdown · 4 options</div>
+</div>
+<span style="font-size:12px;color:#6B7280">Edit</span>
+</div>
+</div>
+<p style="margin:8px 0 0;font-size:11.5px;line-height:1.45;color:#6B7280">The “participant category” is just the first question now — and it works for a clinic too.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:10px;border-top:1px solid #F1F1F3;padding-top:14px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111">A coach approves each signup</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">Nothing is charged and no spot is held until they do.</div>
+</div>
+<button type="button" onClick="{{ toggleApproval }}" style="{{ approvalSwitch }}"><span style="{{ approvalKnob }}"></span></button>
+</div>
+<sc-if value="{{ approval }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Responsible coach</label>
+<select style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff"><option>Julian Ramirez</option><option>Any staff member who can edit events</option><option>Sal Jones</option></select>
+</div>
+<sc-for list="{{ approvalOpts }}" as="a" hint-placeholder-count="3">
+<div style="{{ a.row }}">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111;line-height:18px">{{ a.label }}</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">{{ a.hint }}</div>
+</div>
+<button type="button" onClick="{{ a.onClick }}" style="{{ a.box }}">{{ a.mark }}</button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</div>
+
+</div>
+</sc-if>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;flex:none">
+<div onClick="{{ toggleLimits }}" style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111;line-height:20px">Capacity, dates &amp; policy</div>
+<div style="font-size:12px;line-height:16px;color:#6B7280;margin-top:2px">{{ limitsSummary }}</div>
+</div>
+<span style="font-size:11px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretLimits }}</span>
+</div>
+<sc-if value="{{ openLimits }}" hint-placeholder-val="{{ false }}">
+<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:14px">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Capacity</label><input type="number" value="50" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:15px;color:#111;background:#fff"></div>
+<div><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Payment due</label><input type="date" value="2026-08-20" style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;color:#111;background:#fff"></div>
+</div>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border:1px solid #E5E7EB;border-radius:12px;padding:12px">
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px;font-weight:600;color:#111">Waitlist when full</div>
+<div style="font-size:11.5px;line-height:1.45;color:#6B7280;margin-top:2px">Extra signups queue instead of being turned away.</div>
+</div>
+<button type="button" onClick="{{ toggleWaitlist }}" style="{{ waitlistSwitch }}"><span style="{{ waitlistKnob }}"></span></button>
+</div>
+<div>
+<label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Cancellation policy</label>
+<textarea rows="3" placeholder="e.g. Entry fees are non-refundable within 7 days of the event." style="width:100%;padding:11px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:14px;line-height:19px;color:#111;background:#fff;resize:none"></textarea>
+<p style="margin:6px 0 0;font-size:11.5px;color:#6B7280">Blank uses the event type's policy.</p>
+</div>
+</div>
+</sc-if>
+</div>
+
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;flex:none">
+<div onClick="{{ toggleStaff }}" style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer">
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111;line-height:20px">Staff on this event</div>
+<div style="font-size:12px;line-height:16px;color:#6B7280;margin-top:2px">Julian Ramirez, Sal Jones · payroll follows the roster</div>
+</div>
+<span style="font-size:11px;color:#6D5DF6;flex-shrink:0;padding-top:3px">{{ caretStaff }}</span>
+</div>
+<sc-if value="{{ openStaff }}" hint-placeholder-val="{{ false }}">
+<div style="padding:0 16px 16px;display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ staffOpts }}" as="s" hint-placeholder-count="6">
+<button type="button" onClick="{{ s.onClick }}" style="{{ s.chip }}">{{ s.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+
+<div style="height:8px"></div>
+</div>
+
+<div style="flex-shrink:0;border-top:1px solid #E5E7EB;background:#fff;padding:12px 16px 20px;display:flex;gap:10px;align-items:center">
+<button type="button" style="flex:1;padding:13px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:12px;font-size:15px;font-weight:500;cursor:pointer">Cancel</button>
+<button type="button" style="flex:2;padding:13px;background:#6D5DF6;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">Save changes</button>
+</div>
+
+</div>
+</div>
+
+<div id="1b" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#1b" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">1b</a>Desktop — same cards, plus a live “what a family sees” panel</div>
+<div style="width:900px;background:#fff;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden">
+<div style="padding:18px 24px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;gap:16px">
+<div>
+<h2 style="margin:0;font-size:20px;font-weight:600;color:#111">Intensive Camp</h2>
+<p style="margin:2px 0 0;font-size:12.5px;color:#6B7280">Camp · {{ eventDateLabelYear }} · {{ attendeeCount }} signed up · {{ spotsLeft }}</p>
+</div>
+<div style="display:flex;gap:8px">
+<button type="button" style="padding:9px 14px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:10px;font-size:13.5px;cursor:pointer">Cancel</button>
+<button type="button" style="padding:9px 18px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer">Save changes</button>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 316px">
+<div style="padding:20px 24px;display:flex;flex-direction:column;gap:10px;border-right:1px solid #E5E7EB">
+<sc-for list="{{ sentenceCards }}" as="c" hint-placeholder-count="7">
+<div style="{{ c.row }}">
+<div style="flex:1;min-width:0">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">{{ c.kicker }}</div>
+<div style="font-size:14.5px;line-height:1.5;color:#111;margin-top:3px">{{ c.sentence }}</div>
+</div>
+<span style="font-size:12.5px;color:#6D5DF6;flex-shrink:0;font-weight:500">Edit</span>
+</div>
+</sc-for>
+<div style="margin-top:6px;background:#FFF7ED;border:1px solid rgba(180,83,9,.22);border-radius:12px;padding:12px 14px">
+<div style="font-size:12.5px;font-weight:600;color:#111">{{ conflictTitle }}</div>
+<div style="font-size:12px;line-height:1.5;color:#B45309;margin-top:3px">{{ conflictBody }}</div>
+</div>
+</div>
+<div style="padding:20px;background:#FAFAFB;display:flex;flex-direction:column;gap:12px">
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">What a family sees</div>
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+<div style="height:76px;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 6px,#EDEDF1 6px,#EDEDF1 12px);display:flex;align-items:center;justify-content:center;font:500 8px ui-monospace,Menlo,monospace;color:#9CA3AF">EVENT COVER</div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+<div>
+<div style="font-size:14.5px;font-weight:600;color:#111">Intensive Camp</div>
+<div style="font-size:11.5px;color:#6B7280">{{ eventDateLongSessions }}</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<sc-for list="{{ previewLines }}" as="l" hint-placeholder-count="3">
+<div style="{{ l.row }}"><span>{{ l.label }}</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{{ l.value }}</span></div>
+</sc-for>
+</div>
+<div style="font-size:11.5px;line-height:1.5;color:#4B5563;background:rgba(109,93,246,.06);border:1px solid rgba(109,93,246,.25);border-radius:9px;padding:8px 10px">{{ previewNote }}</div>
+<button type="button" style="width:100%;padding:10px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer">{{ previewCta }}</button>
+</div>
+</div>
+<p style="margin:0;font:400 11.5px/1.5 Inter,system-ui,sans-serif;color:#6B7280">The panel is the answer to “does this event make sense?” — it is the only place a price appears twice, and on purpose.</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="1c" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#1c" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">1c</a>Attendees — bookings + registrations become one list, keeping the table you liked</div>
+<div style="width:1120px;background:#fff;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden">
+
+<div style="padding:18px 24px;border-bottom:1px solid #E5E7EB;display:flex;align-items:flex-start;justify-content:space-between;gap:20px">
+<div>
+<h2 style="margin:0;font-size:20px;font-weight:600;color:#111">Attendees · {{ attendeeCount }}</h2>
+<p style="margin:3px 0 0;font-size:12.5px;color:#6B7280">Intensive Camp · {{ eventDateLabel }} · {{ spotsLeft }} · <span style="color:#6D5DF6">/e/intensive-camp</span></p>
+</div>
+<div style="display:flex;align-items:center;gap:8px">
+<button type="button" style="padding:9px 14px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:10px;font-size:13px;cursor:pointer">Export</button>
+<button type="button" style="padding:9px 14px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:10px;font-size:13px;cursor:pointer">Check-in mode</button>
+<button type="button" onClick="{{ toggleAdd }}" style="padding:9px 16px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">{{ addLabel }}</button>
+</div>
+</div>
+
+<div style="padding:14px 24px;background:#FAFAFB;border-bottom:1px solid #E5E7EB;display:flex;flex-direction:column;gap:12px">
+<p style="margin:0;font-size:12px;line-height:1.5;color:#4B5563;max-width:900px">One list, one truth: adding someone books their spot <em>and</em> puts them on the bill; removing them does both. The old “Bookings” sheet is gone — this is the roster.</p>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+<sc-for list="{{ moneyTiles }}" as="t" hint-placeholder-count="4">
+<div style="{{ t.card }}">
+<div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#6B7280">{{ t.label }}</div>
+<div style="font-size:20px;font-weight:700;color:#111;margin-top:3px;font-variant-numeric:tabular-nums">{{ t.value }}</div>
+<div style="font-size:11.5px;color:#6B7280;margin-top:1px">{{ t.sub }}</div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<sc-if value="{{ addOpen }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px 24px;border-bottom:1px solid #E5E7EB;background:rgba(109,93,246,.05);display:flex;flex-direction:column;gap:10px">
+<div style="font-size:13px;font-weight:600;color:#111">Add an attendee</div>
+<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:10px;align-items:end">
+<div>
+<label style="display:block;font-size:11.5px;font-weight:600;color:#374151;margin-bottom:5px">Who</label>
+<select style="width:100%;padding:9px 11px;border:1px solid #E5E7EB;border-radius:9px;font-size:13.5px;color:#111;background:#fff"><option>Search members or type a new name…</option><option>Delos Stone</option><option>Grady Loureiro</option></select>
+</div>
+<div>
+<label style="display:block;font-size:11.5px;font-weight:600;color:#374151;margin-bottom:5px">Taking</label>
+<select style="width:100%;padding:9px 11px;border:1px solid #E5E7EB;border-radius:9px;font-size:13.5px;color:#111;background:#fff"><option>Whole camp — $200.00</option><option>Sat only (2 sessions) — $65.00</option><option>Pick sessions…</option></select>
+</div>
+<div>
+<label style="display:block;font-size:11.5px;font-weight:600;color:#374151;margin-bottom:5px">Paying by</label>
+<select style="width:100%;padding:9px 11px;border:1px solid #E5E7EB;border-radius:9px;font-size:13.5px;color:#111;background:#fff"><option>Card link (emailed)</option><option>Saved card on Aug 19</option></select>
+</div>
+<button type="button" style="padding:10px 18px;background:#6D5DF6;color:#fff;border:none;border-radius:9px;font-size:13.5px;font-weight:600;cursor:pointer">Add attendee</button>
+</div>
+<p style="margin:0;font-size:11.5px;line-height:1.5;color:#6B7280">Payment options come from the event — no separate payment settings here, so what staff picks can never contradict what the event allows.</p>
+</div>
+</sc-if>
+
+<div style="padding:14px 24px 0;display:flex;align-items:center;justify-content:space-between;gap:16px">
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ filterChips }}" as="f" hint-placeholder-count="5">
+<button type="button" onClick="{{ f.onClick }}" style="{{ f.chip }}">{{ f.label }}</button>
+</sc-for>
+</div>
+<span style="font-size:12px;color:#6B7280">Sorted by signup date</span>
+</div>
+
+<sc-if value="{{ collectOpen }}" hint-placeholder-val="{{ true }}">
+<div style="margin:14px 24px 0;border:1px solid #E5E7EB;background:#FAFAFB;border-radius:12px;padding:16px 18px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+<div>
+<div style="font-size:15px;font-weight:600;color:#111">Collect payment</div>
+<p style="margin:4px 0 0;font-size:12.5px;line-height:1.5;color:#6B7280;max-width:620px">Public signups are recorded before checkout, so anyone who closed the payment page is still on the roster and still owes. Email them a fresh link for exactly what they owe.</p>
+</div>
+<div style="text-align:right;flex-shrink:0">
+<div style="font-size:12px;color:#6B7280">{{ unpaidCount }} unpaid</div>
+<div style="font-size:16px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ unpaidTotal }}</div>
+</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px">
+<button type="button" style="padding:11px 18px;background:#6D5DF6;color:#fff;border:none;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer">{{ emailAllLabel }}</button>
+<button type="button" style="{{ emailSelectedStyle }}">{{ emailSelectedLabel }}</button>
+<button type="button" style="padding:11px 16px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:10px;font-size:13.5px;cursor:pointer">Record cash for selected</button>
+</div>
+</div>
+</sc-if>
+
+<div style="padding:14px 24px 20px">
+<div style="display:grid;grid-template-columns:26px 1.5fr 1.6fr .7fr 1.2fr .8fr 1.5fr;gap:12px;padding:0 4px 8px;border-bottom:1px solid #E5E7EB">
+<span></span>
+<span style="font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9CA3AF">Name</span>
+<span style="font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9CA3AF">Contact</span>
+<span style="font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9CA3AF">Weight</span>
+<span style="font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9CA3AF">Attending</span>
+<span style="font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9CA3AF;text-align:right">Owes</span>
+<span style="font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9CA3AF">Status</span>
+</div>
+<sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+<div style="{{ r.row }}">
+<button type="button" onClick="{{ r.onSelect }}" style="{{ r.box }}">{{ r.mark }}</button>
+<div style="min-width:0">
+<div style="font-size:14px;font-weight:600;color:#111;line-height:18px">{{ r.name }}</div>
+<div style="display:flex;align-items:center;gap:6px;margin-top:3px"><span style="{{ r.srcChip }}">{{ r.src }}</span><span style="font-size:11px;color:#9CA3AF">{{ r.srcNote }}</span></div>
+</div>
+<div style="min-width:0;font-size:12px;line-height:1.45;color:#6B7280">
+<div style="color:#4B5563;overflow:hidden;text-overflow:ellipsis">{{ r.email }}</div>
+<div style="font-variant-numeric:tabular-nums">{{ r.phone }}</div>
+</div>
+<div style="font-size:13px;color:#111;font-variant-numeric:tabular-nums">{{ r.cat }}</div>
+<div style="font-size:12.5px;color:#111;line-height:1.4">{{ r.attending }}<div style="font-size:11px;color:#9CA3AF">{{ r.attendingNote }}</div></div>
+<div style="font-size:14px;font-weight:600;color:#111;text-align:right;font-variant-numeric:tabular-nums">{{ r.owes }}</div>
+<div>
+<span style="{{ r.pill }}">{{ r.status }}</span>
+<div style="margin-top:5px;font-size:11.5px;color:#6D5DF6">{{ r.actions }}</div>
+</div>
+</div>
+</sc-for>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 4px 0">
+<span style="font-size:12px;color:#6B7280">{{ showingLine }} · <span style="color:#6D5DF6">Show 1 removed attendee</span></span>
+<span style="font-size:12px;color:#6B7280">Outstanding <strong style="color:#111;font-variant-numeric:tabular-nums">{{ unpaidTotal }}</strong> of {{ grandTotal }}</span>
+</div>
+</div>
+
+</div>
+</div>
+
+<div id="1d" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#1d" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">1d</a>Attendees on phone — same list, money still legible</div>
+<div style="width:393px;height:800px;background:#F7F7F9;border-radius:28px;border:1px solid #E5E7EB;box-shadow:0 12px 32px rgba(17,17,17,.14);overflow:hidden;display:flex;flex-direction:column">
+<div style="flex-shrink:0;background:#fff;border-bottom:1px solid #E5E7EB;padding:8px 18px 12px">
+<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#111;padding:4px 0 8px"><span>9:41</span><span style="letter-spacing:1px;color:#6B7280">▮▮▮ ◗</span></div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+<span style="font-size:14px;color:#6D5DF6">Back</span>
+<span style="font-size:16px;font-weight:600;color:#111">Attendees · {{ attendeeCount }}</span>
+<span style="font-size:14px;font-weight:600;color:#6D5DF6">Add</span>
+</div>
+<p style="margin:6px 0 0;font-size:11.5px;color:#6B7280;text-align:center">Intensive Camp · {{ spotsLeft }}</p>
+</div>
+<div style="flex-shrink:0;padding:12px 14px;background:#fff;border-bottom:1px solid #E5E7EB;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;gap:8px">
+<div style="flex:1;border:1px solid #E5E7EB;border-radius:12px;padding:9px 11px"><div style="font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#6B7280">Collected</div><div style="font-size:17px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ collectedLabel }}</div></div>
+<div style="flex:1;border:1px solid rgba(180,83,9,.22);background:#FFF7ED;border-radius:12px;padding:9px 11px"><div style="font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#B45309">Outstanding</div><div style="font-size:17px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ unpaidTotal }}</div></div>
+</div>
+<button type="button" style="width:100%;padding:12px;background:#6D5DF6;color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer">{{ emailAllLabel }}</button>
+<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px">
+<sc-for list="{{ filterChips }}" as="f" hint-placeholder-count="5">
+<button type="button" onClick="{{ f.onClick }}" style="{{ f.chipSm }}">{{ f.label }}</button>
+</sc-for>
+</div>
+</div>
+<div style="flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;padding:12px 13px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:flex-start;gap:10px">
+<div style="{{ r.avatar }}">{{ r.initials }}</div>
+<div style="flex:1;min-width:0">
+<div style="font-size:14.5px;font-weight:600;color:#111;line-height:18px">{{ r.name }}</div>
+<div style="display:flex;align-items:center;gap:6px;margin-top:3px"><span style="{{ r.srcChip }}">{{ r.src }}</span><span style="font-size:11px;color:#9CA3AF">{{ r.cat }} · {{ r.attending }}</span></div>
+</div>
+<div style="text-align:right;flex-shrink:0">
+<div style="font-size:15px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ r.owes }}</div>
+<div style="font-size:10.5px;color:#9CA3AF">{{ r.owesNote }}</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+<span style="{{ r.pill }}">{{ r.status }}</span>
+<span style="font-size:12px;font-weight:500;color:#6D5DF6">{{ r.actions }}</span>
+</div>
+</div>
+</sc-for>
+<div style="height:8px"></div>
+</div>
+</div>
+</div>
+
+<div id="1e" style="display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#1e" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">1e</a>Event row — three treatments of the same event</div>
+<div style="display:flex;flex-direction:column;gap:16px">
+
+<div style="width:820px;background:#fff;border:1px solid #E5E7EB;border-left:4px solid #FF6A00;border-radius:14px;padding:16px;display:flex;gap:16px;align-items:flex-start">
+<div style="width:58px;text-align:center;background:#F7F7F9;border-radius:10px;padding:8px 0;flex-shrink:0">
+<div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#6B7280;letter-spacing:.06em">{{ pillMonth }}</div>
+<div style="font-size:24px;font-weight:700;color:#111;line-height:1.15;font-variant-numeric:tabular-nums">{{ pillDay }}</div>
+<div style="font-size:10px;text-transform:uppercase;font-weight:500;color:#6B7280;letter-spacing:.06em">{{ pillWeekday }}</div>
+</div>
+<div style="flex:1;min-width:0">
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+<h3 style="margin:0;font-size:17px;font-weight:600;color:#111">Intensive Camp</h3>
+<span style="font-size:10px;font-weight:600;letter-spacing:.03em;padding:3px 8px;border-radius:9999px;background:#F1F1F3;color:#4B5563">Camp</span>
+<span style="font-size:10px;font-weight:600;letter-spacing:.03em;padding:3px 8px;border-radius:9999px;background:#FFF7ED;color:#B45309;border:1px solid rgba(180,83,9,.22)">{{ unpaidTotal }} to collect</span>
+</div>
+<div style="font-size:12.5px;color:#6B7280;margin-top:5px">{{ eventTimeRange }} · {{ rowMoneyLong }} · {{ staffLine }}</div>
+<div style="margin-top:10px">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:11px;color:#6B7280;margin-bottom:5px"><span>{{ capacityLabel }}</span><span style="font-variant-numeric:tabular-nums">{{ unpaidTotal }} outstanding</span></div>
+<div style="height:7px;border-radius:9999px;background:#F1F1F3;overflow:hidden;display:flex">
+<div style="{{ barSettled }}"></div><div style="{{ barOwes }}"></div><div style="{{ barScheduled }}"></div><div style="{{ barReview }}"></div>
+</div>
+<div style="margin-top:5px;font-size:11px;color:#6B7280;font-variant-numeric:tabular-nums">{{ mixLabel }}</div>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:stretch;width:150px">
+<button type="button" style="padding:9px 12px;background:#6D5DF6;color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer">Attendees · {{ attendeeCount }}</button>
+<div style="display:flex;gap:6px">
+<button type="button" style="flex:1;padding:8px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:9px;font-size:12.5px;cursor:pointer">Edit</button>
+<button type="button" style="width:38px;padding:8px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;border-radius:9px;font-size:12.5px;cursor:pointer">⋯</button>
+</div>
+</div>
+</div>
+
+<div style="width:820px;background:#fff;border:1px solid #E5E7EB;border-radius:14px;padding:13px 16px;display:flex;align-items:center;gap:16px">
+<div style="width:64px;flex-shrink:0;text-align:center">
+<div style="font-size:9.5px;text-transform:uppercase;font-weight:600;color:#6B7280;letter-spacing:.06em">{{ pillShort }}</div>
+<div style="font-size:13px;font-weight:600;color:#111;font-variant-numeric:tabular-nums">5:00p</div>
+</div>
+<div style="width:3px;height:34px;border-radius:9999px;background:#FF6A00;flex-shrink:0"></div>
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;font-weight:600;color:#111">Intensive Camp <span style="font-size:11.5px;font-weight:500;color:#9CA3AF">Camp · {{ sessionCountLabel }}</span></div>
+<div style="font-size:12px;color:#6B7280;margin-top:2px">{{ rowMoneyShort }} · {{ staffShort }}</div>
+</div>
+<div style="text-align:right;flex-shrink:0;width:110px">
+<div style="font-size:13px;font-weight:600;color:#111;font-variant-numeric:tabular-nums">{{ countBig }}{{ countSmall }}</div>
+<div style="font-size:11.5px;color:#B45309;font-variant-numeric:tabular-nums">{{ unpaidTotal }} to collect</div>
+</div>
+<div style="display:flex;gap:6px;flex-shrink:0">
+<button type="button" style="padding:8px 12px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:9px;font-size:12.5px;cursor:pointer">Attendees</button>
+<button type="button" style="padding:8px 10px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;border-radius:9px;font-size:12.5px;cursor:pointer">⋯</button>
+</div>
+</div>
+
+<div style="width:820px;background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;display:flex">
+<div style="width:190px;flex-shrink:0;background:repeating-linear-gradient(135deg,#F4F4F6,#F4F4F6 7px,#EDEDF1 7px,#EDEDF1 14px);display:flex;align-items:flex-end;padding:12px">
+<span style="font:500 8px ui-monospace,Menlo,monospace;color:#9CA3AF">EVENT COVER 4:3</span>
+</div>
+<div style="flex:1;min-width:0;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+<div>
+<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF">{{ eventDateLong }} · Camp</div>
+<h3 style="margin:3px 0 0;font-size:19px;font-weight:600;color:#111">Intensive Camp</h3>
+<div style="font-size:12.5px;color:#6B7280;margin-top:3px">{{ rowMoneyCard }}</div>
+</div>
+<div style="text-align:right;flex-shrink:0">
+<div style="font-size:19px;font-weight:700;color:#111;font-variant-numeric:tabular-nums">{{ countBig }}<span style="font-size:13px;font-weight:500;color:#9CA3AF">{{ countSmall }}</span></div>
+<div style="font-size:11.5px;color:#B45309">{{ unpaidTotal }} to collect</div>
+</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:9999px;background:rgba(163,230,53,.25);color:#3F6212">{{ settledPill }}</span>
+<span style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:9999px;background:#FFF7ED;color:#B45309;border:1px solid rgba(180,83,9,.22)">{{ owesPill }}</span>
+<span style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:9999px;background:#EDEBFF;color:#4F46E5">{{ reviewPill }}</span>
+<span style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:9999px;background:#F1F1F3;color:#4B5563">Public link on</span>
+</div>
+<div style="display:flex;gap:8px;margin-top:2px">
+<button type="button" style="padding:9px 16px;background:#6D5DF6;color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer">Attendees · {{ attendeeCount }}</button>
+<button type="button" style="padding:9px 14px;border:1px solid #E5E7EB;background:#fff;color:#111;border-radius:9px;font-size:13px;cursor:pointer">Edit</button>
+<button type="button" style="padding:9px 12px;border:1px solid #E5E7EB;background:#fff;color:#6B7280;border-radius:9px;font-size:13px;cursor:pointer">⋯</button>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+
+</div>
+
+<p style="margin:26px 0 0;font:400 12px/1.5 Inter,system-ui,sans-serif;color:rgba(0,0,0,.5)">Try next: “merge <a href="#1a" style="text-decoration:none">1a</a>'s cards with <a href="#1b" style="text-decoration:none">1b</a>'s preview panel” · “show the Attendees list on phone too” · “make the money card the first thing you see”</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = {
+    open: { basics: false, when: true, money: true, pay: true, signup: true, limits: false, staff: false },
+    type: "Camp",
+    host: "HOST",
+    model: "fixed",
+    perSession: true,
+    member: 200,
+    nonMember: 225,
+    splitTotal: 500,
+    splitSignups: 12,
+    invoiceWhen: "after",
+    invoiceDate: "2026-08-26",
+    startsAt: "2026-08-21T17:00",
+    endsAt: "2026-08-23T13:00",
+    editingSession: null,
+    sessions: [
+      { name: "Session 1", startsAt: "2026-08-21T17:00", endsAt: "2026-08-21T19:00", price: 45 },
+      { name: "Morning run", startsAt: "2026-08-22T07:00", endsAt: "2026-08-22T08:00", price: 20 },
+      { name: "Session 2", startsAt: "2026-08-22T09:00", endsAt: "2026-08-22T10:30", price: 45 },
+      { name: "Session 3", startsAt: "2026-08-22T12:00", endsAt: "2026-08-22T13:30", price: 45 },
+      { name: "Mindset", startsAt: "2026-08-23T09:00", endsAt: "2026-08-23T10:00", price: 20 },
+      { name: "Session 4", startsAt: "2026-08-23T11:00", endsAt: "2026-08-23T13:00", price: 45 },
+    ],
+    pay: { card: true, saved: true, cash: false, check: false },
+    requirePay: true,
+    who: "public",
+    approval: true,
+    approvalCharge: false,
+    propose: true,
+    hold: false,
+    plans: ["Tadpoles"],
+    staff: ["Julian Ramirez", "Sal Jones"],
+    waitlist: true,
+    filter: "all",
+    selected: [],
+    addOpen: false,
+  };
+
+  static PEOPLE = [
+    { n: "Matthew Barlow", src: "Public", srcNote: "signed up Aug 4", email: "jordanlefeve@yahoo.com", phone: "315 250 7774", cat: "89.4", attending: "Whole camp", attendingNote: "6 sessions", owes: 200, owesNote: "at the door", status: "Awaiting cash", tone: "warn", actions: "Record: cash · check", bucket: "owes" },
+    { n: "Carter Gage", src: "Public", srcNote: "signed up Aug 4", email: "catherinegage18@gmail.com", phone: "607 427 3548", cat: "62", attending: "Whole camp", attendingNote: "6 sessions", owes: 200, owesNote: "at the door", status: "Awaiting cash", tone: "warn", actions: "Record: cash · check", bucket: "owes" },
+    { n: "Blake Decker", src: "Public", srcNote: "signed up Aug 5", email: "zakk.rolfe@gmail.com", phone: "607 742 0502", cat: "100", attending: "Saturday only", attendingNote: "2 of 6 sessions", owes: 65, owesNote: "at the door", status: "Awaiting cash", tone: "warn", actions: "Record: cash · check", bucket: "owes" },
+    { n: "James Tang", src: "Public", srcNote: "signed up Aug 6", email: "david.m.tang@gmail.com", phone: "315 263 5963", cat: "150", attending: "Whole camp", attendingNote: "6 sessions", owes: 0, owesNote: "paid Aug 6", status: "Paid $205.80", tone: "success", actions: "Resend receipt", bucket: "paid" },
+    { n: "Logan Matthews", src: "Public", srcNote: "signed up Aug 6", email: "loganmatthewswrestling@gmail.com", phone: "585 626 8176", cat: "138", attending: "Whole camp", attendingNote: "6 sessions", owes: 0, owesNote: "paid Aug 6", status: "Paid $205.80", tone: "success", actions: "Resend receipt", bucket: "paid" },
+    { n: "Delos Stone", src: "Member", srcNote: "Tadpoles plan", email: "Sends to parent · k.stone@gmail.com", phone: "315 555 0142", cat: "74", attending: "Whole camp", attendingNote: "6 sessions", owes: 0, owesNote: "covered", status: "Covered by Tadpoles", tone: "chip", actions: "Open member", bucket: "paid" },
+    { n: "Grady Loureiro", src: "Member", srcNote: "card on file", email: "Sends to parent · m.loureiro@gmail.com", phone: "607 555 0198", cat: "96", attending: "Whole camp", attendingNote: "6 sessions", owes: 200, owesNote: "auto Aug 19", status: "Card charge Aug 19", tone: "pending", actions: "Charge now", bucket: "scheduled" },
+    { n: "Aiden Novak", src: "Member", srcNote: "requested Aug 9", email: "Sends to parent · novak.fam@gmail.com", phone: "585 555 0117", cat: "112", attending: "Sunday only", attendingNote: "2 of 6 sessions", owes: 65, owesNote: "not charged", status: "Waiting on you", tone: "info", actions: "Approve · Propose · Decline", bucket: "review" },
+  ];
+
+  attendeeVals() {
+    const s = this.state;
+    const all = Component.PEOPLE;
+    const pillBase = "display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:9999px;white-space:nowrap;";
+    const tones = {
+      warn: "background:#FFF7ED;color:#B45309;border:1px solid rgba(180,83,9,.22)",
+      success: "background:rgba(163,230,53,.25);color:#3F6212;border:1px solid rgba(63,98,18,.25)",
+      pending: "background:#EDEBFF;color:#4F46E5",
+      chip: "background:#F1F1F3;color:#4B5563",
+      info: "background:rgba(109,93,246,.10);color:#5948E8;border:1px solid rgba(109,93,246,.25)",
+    };
+    const money2 = (n) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const count = (b) => all.filter((p) => p.bucket === b).length;
+    const sum = (b) => all.filter((p) => p.bucket === b).reduce((a, p) => a + p.owes, 0);
+    const outstanding = sum("owes");
+    const unpaidCount = count("owes");
+    const settledCount = count("paid");
+    const reviewCount = count("review");
+    const scheduledCount = count("scheduled");
+    const scheduledTotal = sum("scheduled");
+    const reviewTotal = sum("review");
+    const collected = 205.8 * 2;
+    const capacity = 50;
+    const total = all.length;
+    const visible = s.filter === "all" ? all : all.filter((p) => p.bucket === s.filter);
+
+    const filters = [
+      { k: "all", label: "All " + total },
+      { k: "owes", label: "Owes money " + unpaidCount },
+      { k: "review", label: "Waiting on you " + reviewCount },
+      { k: "scheduled", label: "Card scheduled " + scheduledCount },
+      { k: "paid", label: "Settled " + settledCount },
+    ];
+    const pct = (n) => (n / capacity) * 100 + "%";
+    const seg = (n, color) => ({ bar: "width:" + pct(n) + ";background:" + color });
+
+    return {
+      moneyTiles: [
+        { label: "Collected", value: money2(collected), sub: "2 paid online · 1 covered by a plan", card: "border:1px solid #E5E7EB;background:#fff;border-radius:12px;padding:11px 13px" },
+        { label: "Outstanding", value: money2(outstanding), sub: unpaidCount + " to collect at the door", card: "border:1px solid rgba(180,83,9,.22);background:#FFF7ED;border-radius:12px;padding:11px 13px" },
+        { label: "Scheduled", value: money2(scheduledTotal), sub: scheduledCount + " saved card on Aug 19", card: "border:1px solid #E5E7EB;background:#fff;border-radius:12px;padding:11px 13px" },
+        { label: "Waiting on you", value: String(reviewCount), sub: "coach review · " + money2(reviewTotal) + " not charged", card: "border:1px solid rgba(109,93,246,.25);background:rgba(109,93,246,.06);border-radius:12px;padding:11px 13px" },
+      ],
+      attendeeCount: total,
+      capacityLabel: total + " of " + capacity + " spots",
+      spotsLeft: capacity - total + " spots left",
+      collectedLabel: money2(collected),
+      mixLabel: settledCount + " settled · " + unpaidCount + " owe · " + scheduledCount + " scheduled · " + reviewCount + " review",
+      barSettled: seg(settledCount, "#A3E635").bar,
+      barOwes: seg(unpaidCount, "#FF6A00").bar,
+      barScheduled: seg(scheduledCount, "#EDEBFF").bar,
+      barReview: seg(reviewCount, "#6D5DF6").bar,
+      settledPill: settledCount + " settled",
+      owesPill: unpaidCount + " owe at the door",
+      reviewPill: reviewCount + " waiting on you",
+      countBig: String(total),
+      countSmall: "/" + capacity,
+      showingLine: "Showing all " + total,
+      filterChips: filters.map((f) => ({
+        label: f.label,
+        chip: this.chip(s.filter === f.k),
+        chipSm: (s.filter === f.k
+          ? "padding:7px 11px;border-radius:9999px;border:1px solid #6D5DF6;background:rgba(109,93,246,.1);color:#5948E8;"
+          : "padding:7px 11px;border-radius:9999px;border:1px solid #E5E7EB;background:#fff;color:#4B5563;") + "font-size:12.5px;font-weight:600;white-space:nowrap;flex-shrink:0;cursor:pointer",
+        onClick: () => this.setState({ filter: f.k }),
+      })),
+      rows: visible.map((p) => {
+        const on = s.selected.includes(p.n);
+        return {
+          name: p.n, src: p.src, srcNote: p.srcNote, email: p.email, phone: p.phone,
+          cat: p.cat, attending: p.attending, attendingNote: p.attendingNote,
+          owes: p.owes > 0 ? money2(p.owes) : "—", owesNote: p.owesNote,
+          status: p.status, actions: p.actions,
+          pill: pillBase + tones[p.tone],
+          srcChip: "font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:5px;" +
+            (p.src === "Member" ? "background:rgba(109,93,246,.10);color:#5948E8" : "background:#F1F1F3;color:#4B5563"),
+          initials: p.n.split(" ").map((x) => x[0]).join(""),
+          avatar: "width:36px;height:36px;border-radius:9999px;background:#F1F1F3;color:#4B5563;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0",
+          row: "display:grid;grid-template-columns:26px 1.5fr 1.6fr .7fr 1.2fr .8fr 1.5fr;gap:12px;align-items:flex-start;padding:12px 4px;border-bottom:1px solid #F1F1F3",
+          box: this.checkBox(on, false).replace("width:24px;height:24px", "width:20px;height:20px").replace("font-size:14px", "font-size:12px"),
+          mark: on ? "✓" : "",
+          onSelect: () => this.setState((st) => ({ selected: st.selected.includes(p.n) ? st.selected.filter((x) => x !== p.n) : [...st.selected, p.n] })),
+        };
+      }),
+      unpaidCount, unpaidTotal: money2(outstanding), grandTotal: money2(1141.6),
+      emailAllLabel: "Email payment link to all unpaid (" + unpaidCount + ")",
+      emailSelectedLabel: "Email selected (" + s.selected.length + ")",
+      emailSelectedStyle: s.selected.length
+        ? "padding:11px 16px;border:1px solid #6D5DF6;background:#fff;color:#5948E8;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer"
+        : "padding:11px 16px;border:1px solid #E5E7EB;background:#F4F4F6;color:#9CA3AF;border-radius:10px;font-size:13.5px;cursor:not-allowed",
+      collectOpen: unpaidCount > 0,
+      addOpen: s.addOpen,
+      addLabel: s.addOpen ? "Close" : "+ Add attendee",
+      toggleAdd: () => this.setState({ addOpen: !s.addOpen }),
+    };
+  }
+
+  set(patch) { this.setState(patch); }
+  toggleOpen(k) { this.setState((s) => ({ open: { ...s.open, [k]: !s.open[k] } })); }
+  money(n) { return "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+
+  clock(d) { return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
+  rangeLabel(a, b) {
+    const d = new Date(a), e = new Date(b);
+    if (isNaN(d) || isNaN(e)) return "Set a time";
+    const wd = d.toLocaleDateString("en-US", { weekday: "short" });
+    let t1 = this.clock(d);
+    const t2 = this.clock(e);
+    const sameDay = d.toDateString() === e.toDateString();
+    const sameHalf = t1.slice(-2) === t2.slice(-2);
+    if (sameDay && sameHalf) t1 = t1.replace(/ [AP]M$/, "");
+    const wd2 = sameDay ? "" : e.toLocaleDateString("en-US", { weekday: "short" }) + " ";
+    return wd + " " + t1 + " – " + wd2 + t2;
+  }
+  patchSession(i, patch) {
+    this.setState((st) => {
+      const next = st.sessions.slice();
+      next[i] = { ...next[i], ...patch };
+      return { sessions: next };
+    });
+  }
+
+  chip(active) {
+    return active
+      ? "padding:8px 12px;border-radius:9999px;border:1px solid #6D5DF6;background:rgba(109,93,246,.1);color:#5948E8;font-size:13px;font-weight:600;cursor:pointer"
+      : "padding:8px 12px;border-radius:9999px;border:1px solid #E5E7EB;background:#fff;color:#4B5563;font-size:13px;font-weight:500;cursor:pointer";
+  }
+  bigCard(active) {
+    return active
+      ? "text-align:left;padding:12px 14px;border-radius:12px;border:1px solid #6D5DF6;background:rgba(109,93,246,.07);color:#5948E8;cursor:pointer"
+      : "text-align:left;padding:12px 14px;border-radius:12px;border:1px solid #E5E7EB;background:#fff;color:#111;cursor:pointer";
+  }
+  switchStyle(on, blocked) {
+    const bg = blocked ? "#EFEFF2" : on ? "#6D5DF6" : "#D7D7DC";
+    return "position:relative;display:inline-flex;height:26px;width:44px;border-radius:9999px;border:none;flex-shrink:0;padding:0;background:" + bg + ";cursor:" + (blocked ? "not-allowed" : "pointer");
+  }
+  knobStyle(on) {
+    return "display:block;height:22px;width:22px;border-radius:9999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);margin:2px 0 0 " + (on ? "20px" : "2px") + ";transition:margin .16s ease";
+  }
+  checkBox(on, blocked) {
+    const border = blocked ? "#E5E7EB" : on ? "#6D5DF6" : "#C9CBD1";
+    const bg = blocked ? "#F4F4F6" : on ? "#6D5DF6" : "#fff";
+    const color = blocked ? "#B6B8BE" : "#fff";
+    return "flex-shrink:0;width:24px;height:24px;border-radius:7px;border:1.5px solid " + border + ";background:" + bg + ";color:" + color + ";font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:" + (blocked ? "not-allowed" : "pointer");
+  }
+  optRow(blocked) {
+    return "display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:12px;border:1px solid " + (blocked ? "#EFEFF2" : "#E5E7EB") + ";background:" + (blocked ? "#FAFAFB" : "#fff");
+  }
+
+  renderVals() {
+    const s = this.state;
+    const paid = s.model !== "free";
+    const isFixed = s.model === "fixed";
+    const isSplit = s.model === "split";
+    const perSession = isFixed && s.perSession;
+    const sessionSum = s.sessions.reduce((a, x) => a + Number(x.price || 0), 0);
+    const perHead = s.splitSignups > 0 ? s.splitTotal / s.splitSignups : 0;
+    const cheapest = s.sessions.reduce((a, x) => Math.min(a, Number(x.price || 0)), Infinity);
+    const cardBlocked = s.approval && s.approvalCharge;
+    const payLocked = !paid || isSplit;
+    const covered = s.plans.length > 0;
+    const dateBad = new Date(s.endsAt) <= new Date(s.startsAt);
+    const badSessions = s.sessions.filter((x) => new Date(x.endsAt) <= new Date(x.startsAt)).length;
+    const evStart = new Date(s.startsAt);
+    const evEnd = new Date(s.endsAt);
+    const md = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const wmd = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).replace(",", "");
+    const valid = !isNaN(evStart) && !isNaN(evEnd);
+    const sameMonth = valid && evStart.getMonth() === evEnd.getMonth();
+    const eventDateLabel = !valid
+      ? "Dates not set"
+      : evStart.toDateString() === evEnd.toDateString()
+        ? md(evStart)
+        : sameMonth
+          ? md(evStart) + "–" + evEnd.getDate()
+          : md(evStart) + " – " + md(evEnd);
+    const eventDateLong = !valid ? "Dates not set" : wmd(evStart) + " – " + wmd(evEnd);
+    const dayAfter = new Date(evEnd.getTime() + 86400000);
+    const dayAfterLabel = valid ? md(dayAfter) : "the day after it ends";
+    const invoiceDay = isNaN(new Date(s.invoiceDate + "T12:00:00"))
+      ? "a date you pick"
+      : new Date(s.invoiceDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const invoiceWhenLabel = s.invoiceWhen === "after" ? "After the event" : "On " + invoiceDay;
+    const invoiceWhenPhrase = s.invoiceWhen === "after" ? "after the event" : "on " + invoiceDay;
+
+    const sentence = (k, v) => ({ kicker: k, sentence: v, row: "display:flex;align-items:flex-start;gap:14px;padding:13px 15px;border:1px solid #E5E7EB;border-radius:12px;background:#fff;cursor:pointer" });
+
+    const moneySummary = !paid
+      ? "Free — nobody is charged"
+      : isSplit
+        ? "Split " + this.money(s.splitTotal) + " ≈ " + this.money(perHead.toFixed(2)) + " each · invoiced " + invoiceWhenPhrase
+        : "Member " + this.money(s.member) + " · Non-member " + this.money(s.nonMember) + (perSession ? " · sessions from " + this.money(cheapest) : " · whole event only");
+
+    const payNames = [];
+    if (s.pay.card && !cardBlocked) payNames.push("card now");
+    if (s.pay.saved) payNames.push("saved card Aug 19");
+    if (s.pay.cash) payNames.push("cash");
+    if (s.pay.check) payNames.push("check");
+    const paySummary = payLocked
+      ? (isSplit ? "Invoiced after the event — no charge at signup" : "Nothing to collect")
+      : (payNames.length ? payNames.join(" · ") : "No method chosen yet") + (s.requirePay ? " · check-in blocked until paid" : "");
+
+    const whoLabel = { members: "Members only", public: "Members + public link", staff: "Staff adds people" }[s.who];
+    const signupSummary = whoLabel + " · " + (s.approval ? "coach approves" : "confirms instantly") + " · 2 questions";
+
+    const payOpts = [
+      { key: "card", label: "Card at signup", hint: cardBlocked ? "Off — a coach approval can't charge a card up front too. Uncheck “charge on approve” to re-enable." : "Charged immediately; the spot is reserved once it clears.", blocked: cardBlocked, on: s.pay.card && !cardBlocked },
+      { key: "saved", label: "Saved card, charged later", hint: "Members with a card on file authorize it at signup.", blocked: false, on: s.pay.saved },
+      { key: "cash", label: "Cash at the event", hint: "Registered now; staff records it at check-in.", blocked: false, on: s.pay.cash },
+      { key: "check", label: "Check at the event", hint: "Registered now; staff records it at check-in.", blocked: false, on: s.pay.check },
+    ].map((o) => ({
+      label: o.label,
+      hint: o.hint,
+      mark: o.on ? "✓" : "",
+      box: this.checkBox(o.on, o.blocked),
+      row: this.optRow(o.blocked),
+      onClick: o.blocked ? () => {} : () => this.setState((st) => ({ pay: { ...st.pay, [o.key]: !st.pay[o.key] } })),
+    }));
+
+    const approvalOpts = [
+      { key: "approvalCharge", label: "Charge their saved card the moment I approve", hint: "Members with a card on file only. Turning this on switches “card at signup” off — nothing can be charged before you decide.", on: s.approvalCharge },
+      { key: "propose", label: "Let coaches propose a change", hint: "A different weight class or session. The family accepts or declines.", on: s.propose },
+      { key: "hold", label: "Hold a spot while reviewing", hint: "Off means everyone may request and you pick who competes.", on: s.hold },
+    ].map((o) => ({
+      label: o.label,
+      hint: o.hint,
+      mark: o.on ? "✓" : "",
+      box: this.checkBox(o.on, false),
+      row: this.optRow(false),
+      onClick: () => this.setState({ [o.key]: !s[o.key] }),
+    }));
+
+    return {
+      openBasics: s.open.basics, openWhen: s.open.when, openMoney: s.open.money,
+      openPay: s.open.pay, openSignup: s.open.signup, openLimits: s.open.limits, openStaff: s.open.staff,
+      caretBasics: s.open.basics ? "Hide" : "Edit", caretWhen: s.open.when ? "Hide" : "Edit",
+      caretMoney: s.open.money ? "Hide" : "Edit", caretPay: s.open.pay ? "Hide" : "Edit",
+      caretSignup: s.open.signup ? "Hide" : "Edit", caretLimits: s.open.limits ? "Hide" : "Edit",
+      caretStaff: s.open.staff ? "Hide" : "Edit",
+      toggleBasics: () => this.toggleOpen("basics"), toggleWhen: () => this.toggleOpen("when"),
+      toggleMoney: () => this.toggleOpen("money"), togglePay: () => this.toggleOpen("pay"),
+      toggleSignup: () => this.toggleOpen("signup"), toggleLimits: () => this.toggleOpen("limits"),
+      toggleStaff: () => this.toggleOpen("staff"),
+
+      basicsSummary: s.type + " · Intensive Camp · cover photo set",
+      whenSummary: dateBad || badSessions > 0
+        ? "Needs a fix — check the dates"
+        : eventDateLabel + " · " + s.sessions.length + " sessions" + (perSession ? " · priced individually" : ""),
+      eventDateLabel,
+      eventDateLabelYear: eventDateLabel + (valid ? ", " + evStart.getFullYear() : ""),
+      eventDateLong,
+      eventDateLongSessions: eventDateLong + " · " + s.sessions.length + " sessions",
+      pillShort: valid ? md(evStart) : "—",
+      sessionCountLabel: s.sessions.length + " sessions",
+      eventTimeRange: valid
+        ? evStart.toLocaleDateString("en-US", { weekday: "short" }) + " " + this.clock(evStart) + " – " + evEnd.toLocaleDateString("en-US", { weekday: "short" }) + " " + this.clock(evEnd)
+        : "Times not set",
+      staffLine: s.staff.length ? s.staff.join(", ") : "No staff assigned",
+      staffShort: s.staff.length ? s.staff.map((n) => n.split(" ")[0]).join(", ") : "No staff",
+      rowMoneyLong: !paid
+        ? s.sessions.length + " sessions · free"
+        : isSplit
+          ? s.sessions.length + " sessions · " + this.money(perHead.toFixed(2)) + " each, invoiced " + invoiceWhenPhrase
+          : s.sessions.length + " sessions" + (perSession ? ", from " + this.money(cheapest) : ""),
+      rowMoneyShort: !paid
+        ? "Free"
+        : isSplit
+          ? this.money(perHead.toFixed(2)) + " each · invoiced " + invoiceWhenPhrase
+          : this.money(s.member) + " whole event" + (perSession ? " · from " + this.money(cheapest) + " a session" : ""),
+      rowMoneyCard: !paid
+        ? s.sessions.length + " sessions · free to attend"
+        : isSplit
+          ? s.sessions.length + " sessions · shared cost, about " + this.money(perHead.toFixed(2)) + " each"
+          : s.sessions.length + " sessions · whole event " + this.money(s.member) + (perSession ? ", single session from " + this.money(cheapest) : ""),
+      pillMonth: valid ? evStart.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "—",
+      pillDay: valid ? String(evStart.getDate()) : "—",
+      pillWeekday: valid ? evStart.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase() : "—",
+      moneySummary, paySummary, signupSummary,
+      limitsSummary: "50 spots · " + (s.waitlist ? "waitlist on" : "no waitlist") + " · payment due Aug 20",
+
+      typeOpts: ["Clinic", "Camp", "Tournament", "Other", "Open mat"].map((t) => ({
+        label: t, chip: this.chip(s.type === t), onClick: () => this.set({ type: t }),
+      })),
+      isTournament: s.type === "Tournament",
+      hostOpts: [
+        { k: "HOST", label: "We're hosting" },
+        { k: "ATTEND", label: "We're attending" },
+      ].map((h) => ({
+        label: h.label, chip: this.chip(s.host === h.k),
+        onClick: () => this.set({ host: h.k, model: h.k === "ATTEND" ? "split" : "fixed" }),
+      })),
+      hostNote: s.host === "ATTEND"
+        ? "Attending switched Money to “split a shared cost” — entry fees, hotel and travel divide across whoever signs up."
+        : "Hosting keeps a fixed price per entrant and opens registrations to other clubs through the public link.",
+
+      modelOpts: [
+        { k: "free", label: "Free", sub: "No money changes hands." },
+        { k: "fixed", label: "Fixed price", sub: "A set price per person, optionally per session." },
+        { k: "split", label: "Split a shared cost", sub: "One bill divided across everyone who signs up." },
+      ].map((m) => ({
+        label: m.label, sub: m.sub, card: this.bigCard(s.model === m.k), onClick: () => this.set({ model: m.k }),
+      })),
+      isFree: !paid, isFixed, isSplit, paid,
+      member: s.member, nonMember: s.nonMember,
+      setMember: (e) => this.set({ member: Number(e.target.value || 0) }),
+      setNonMember: (e) => this.set({ nonMember: Number(e.target.value || 0) }),
+      splitTotal: s.splitTotal, splitSignups: s.splitSignups,
+      setSplitTotal: (e) => this.set({ splitTotal: Number(e.target.value || 0) }),
+      setSplitSignups: (e) => this.set({ splitSignups: Number(e.target.value || 0) }),
+      splitLine: "Each attendee owes about " + this.money(perHead.toFixed(2)) + ". Nobody is charged at signup — invoices go out " + invoiceWhenPhrase + ", split across whoever actually signed up by then.",
+      invoiceOpts: [
+        { k: "after", label: "After the event", sub: "Default — the day after it ends" },
+        { k: "date", label: "On a date I pick", sub: "Before or after, your call" },
+      ].map((o) => ({
+        label: o.label, sub: o.sub, card: this.bigCard(s.invoiceWhen === o.k),
+        onClick: () => this.set({ invoiceWhen: o.k }),
+      })),
+      invoiceCustom: s.invoiceWhen === "date",
+      invoiceDate: s.invoiceDate,
+      setInvoiceDate: (e) => this.set({ invoiceDate: e.target.value }),
+      invoiceWhenLabel,
+      invoiceNote: s.invoiceWhen === "after"
+        ? "On " + dayAfterLabel + " — the day after this event ends — everyone on the Attendees list gets a payment link for their share. Nothing sends automatically before you review the total."
+        : "A reminder appears in your Action Center on " + invoiceDay + " so you can review the split before the links go out.",
+
+      perSession,
+      togglePerSession: () => this.set({ perSession: !s.perSession }),
+      perSessionSwitch: this.switchStyle(perSession, !isFixed),
+      perSessionKnob: this.knobStyle(perSession),
+      startsAt: s.startsAt, endsAt: s.endsAt,
+      setStarts: (e) => this.set({ startsAt: e.target.value }),
+      setEnds: (e) => this.set({ endsAt: e.target.value }),
+      endsStyle: "width:100%;min-width:0;padding:11px 12px;border-radius:10px;font-size:14px;color:#111;background:#fff;border:1px solid "
+        + (dateBad ? "#B91C1C" : "#E5E7EB") + (dateBad ? ";box-shadow:0 0 0 3px rgba(185,28,28,.12)" : ""),
+      dateBad,
+      dateBadMsg: "Ends before it starts. Pick an end after " + (isNaN(new Date(s.startsAt))
+        ? "the start"
+        : new Date(s.startsAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })) + ".",
+      sessionsBadMsg: badSessions === 1 ? "1 session ends before it starts." : badSessions + " sessions end before they start.",
+      sessionsBad: badSessions > 0,
+
+      sessionRows: s.sessions.map((x, i) => {
+        const bad = new Date(x.endsAt) <= new Date(x.startsAt);
+        const editing = s.editingSession === i;
+        return {
+          name: x.name, price: x.price, sStart: x.startsAt, sEnd: x.endsAt,
+          time: this.rangeLabel(x.startsAt, x.endsAt),
+          editing, collapsed: !editing, bad,
+          editLabel: editing ? "Done" : "Edit time",
+          row: "display:flex;align-items:center;gap:10px;padding:10px 12px;background:" + (editing ? "#FAFAFB" : "#fff") + (i < s.sessions.length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+          editRow: "padding:12px;background:#FAFAFB;display:flex;flex-direction:column;gap:9px" + (i < s.sessions.length - 1 ? ";border-bottom:1px solid #F1F1F3" : ""),
+          endStyle: "width:100%;min-width:0;padding:9px 11px;border-radius:9px;font-size:13.5px;color:#111;background:#fff;border:1px solid " + (bad ? "#B91C1C" : "#E5E7EB"),
+          onEdit: () => this.setState({ editingSession: editing ? null : i }),
+          onName: (e) => this.patchSession(i, { name: e.target.value }),
+          onStart: (e) => this.patchSession(i, { startsAt: e.target.value }),
+          onEnd: (e) => this.patchSession(i, { endsAt: e.target.value }),
+          onPrice: (e) => this.patchSession(i, { price: Number(e.target.value || 0) }),
+        };
+      }),
+      bundleLine: sessionSum > s.member
+        ? "Whole event " + this.money(s.member) + " · all sessions à la carte " + this.money(sessionSum) + " — families save " + this.money(sessionSum - s.member) + " by taking everything."
+        : sessionSum < s.member
+          ? "Heads up: à la carte totals " + this.money(sessionSum) + ", which is " + this.money(s.member - sessionSum) + " cheaper than the " + this.money(s.member) + " whole-event price — nobody has a reason to buy the bundle."
+          : "Whole event and à la carte both come to " + this.money(sessionSum) + " — the bundle saves nothing yet.",
+
+      planOpts: ["Tadpoles", "MS/HS 3 months", "Girls Only", "Sunday Funday"].map((p) => ({
+        label: p, chip: this.chip(s.plans.includes(p)),
+        onClick: () => this.setState((st) => ({ plans: st.plans.includes(p) ? st.plans.filter((x) => x !== p) : [...st.plans, p] })),
+      })),
+      coverLine: covered
+        ? "Members on " + s.plans.join(" or ") + " pay $0 and skip payment entirely — the prices above never apply to them."
+        : "No plan covers this event, so every member pays the member price.",
+
+      payOpts, payLocked, payOpen: !payLocked,
+      payLockReason: isSplit
+        ? "Payment methods are off because the cost is split — everyone is invoiced after the event, from the Attendees list."
+        : "This event is free, so there is nothing to collect.",
+      paySaved: s.pay.saved && !payLocked,
+      requirePay: s.requirePay,
+      toggleRequirePay: () => this.set({ requirePay: !s.requirePay }),
+      requirePaySwitch: this.switchStyle(s.requirePay, false),
+      requirePayKnob: this.knobStyle(s.requirePay),
+      payPreview: (s.approval ? "A signup waits for " + (s.approvalCharge ? "your approval, then their saved card is charged " : "your approval, then they pay ") : "A non-member pays ")
+        + this.money(s.nonMember) + (perSession ? " for the whole camp, or from " + this.money(cheapest) + " for one session" : "")
+        + (s.requirePay ? ". Unpaid athletes can't check in." : "."),
+
+      whoOpts: [
+        { k: "members", label: "Members only", sub: "Signed-in members self-book. No public link." },
+        { k: "public", label: "Members + public link", sub: "Anyone with the link can sign up and pay." },
+        { k: "staff", label: "Staff adds people", sub: "Nobody self-books; you add attendees yourself." },
+      ].map((w) => ({
+        label: w.label, sub: w.sub, card: this.bigCard(s.who === w.k), onClick: () => this.set({ who: w.k }),
+      })),
+      isPublicLink: s.who === "public", isStaffOnly: s.who === "staff",
+      publicPriceLine: isSplit
+        ? "Public signups join the split at about " + this.money(perHead.toFixed(2)) + " each — invoiced later, like everyone else."
+        : "Public signups pay the non-member price, " + this.money(s.nonMember) + (perSession ? ", or a single session at its own price" : "") + ". No second price setting to keep in sync.",
+
+      approval: s.approval,
+      toggleApproval: () => this.set({ approval: !s.approval }),
+      approvalSwitch: this.switchStyle(s.approval, false),
+      approvalKnob: this.knobStyle(s.approval),
+      approvalOpts,
+
+      waitlist: s.waitlist,
+      toggleWaitlist: () => this.set({ waitlist: !s.waitlist }),
+      waitlistSwitch: this.switchStyle(s.waitlist, false),
+      waitlistKnob: this.knobStyle(s.waitlist),
+
+      staffOpts: ["Julian Ramirez", "Sal Jones", "Kate Zavuholnik", "Diego Jaramillo", "Elijah Cortez", "Josh Antoine"].map((n) => ({
+        label: n, chip: this.chip(s.staff.includes(n)),
+        onClick: () => this.setState((st) => ({ staff: st.staff.includes(n) ? st.staff.filter((x) => x !== n) : [...st.staff, n] })),
+      })),
+
+      sentenceCards: [
+        sentence("Basics", "A " + s.type.toLowerCase() + " called Intensive Camp, " + eventDateLabel + "."),
+        sentence("Sessions", s.sessions.length + " sessions" + (perSession ? ", each priced separately from " + this.money(cheapest) : ", covered by one price") + (dateBad || badSessions > 0 ? " — one of them needs a fix." : ".")),
+        sentence("Money", moneySummary + "."),
+        sentence("Payment", paySummary + "."),
+        sentence("Signup", whoLabel + (s.approval ? ", each signup waiting on " + (s.staff[0] || "a coach") : ", confirmed instantly") + "."),
+        sentence("Limits", "50 spots, " + (s.waitlist ? "waitlist on" : "no waitlist") + ", payment due Aug 20."),
+        sentence("Staff", s.staff.length ? s.staff.join(", ") + " are assigned." : "No staff assigned yet."),
+      ],
+      conflictTitle: cardBlocked
+        ? "One rule is doing the work of two"
+        : isSplit && s.pay.card
+          ? "Split cost ignores payment methods"
+          : "Nothing conflicts right now",
+      conflictBody: cardBlocked
+        ? "“Charge on approve” turned off “card at signup”. Families see one instruction instead of two contradictory ones."
+        : isSplit && s.pay.card
+          ? "You're invoicing after the event, so card-at-signup is disabled rather than silently ignored."
+          : "Every setting below is compatible. This box only speaks up when two answers would fight.",
+
+      previewLines: (isSplit
+        ? [{ label: "Estimated share", value: this.money(perHead.toFixed(2)) }, { label: "Invoiced", value: invoiceWhenLabel }]
+        : !paid
+          ? [{ label: "Price", value: "Free" }]
+          : [
+              { label: "Whole camp (non-member)", value: this.money(s.nonMember) },
+              { label: "Whole camp (member)", value: this.money(s.member) },
+            ].concat(perSession ? [{ label: "Single session", value: "from " + this.money(cheapest) }] : [])
+      ).map((l) => ({ ...l, row: "display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:#4B5563" })),
+      previewNote: s.approval
+        ? "Your request goes to " + (s.staff[0] || "a coach") + ". Nothing is charged until it's approved."
+        : covered
+          ? "Members on " + s.plans.join(" or ") + " register at no cost."
+          : "You'll pay at signup and your spot is held immediately.",
+      previewCta: s.approval ? "Request a spot" : paid ? "Sign up & pay" : "Sign up",
+
+      ...this.attendeeVals(),
+    };
+  }
+}
+</script>
+</body>
+</html>

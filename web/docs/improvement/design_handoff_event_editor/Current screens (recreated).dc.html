@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#EFEEF2;font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}a{color:#6D5DF6}a:hover{color:#5948E8}input,select,textarea,button{font-family:inherit}</style></helmet>
+<section style="padding:40px 44px 48px">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<span style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px">0</span>
+<span style="font:600 13px/1.2 Inter,system-ui,sans-serif;color:#1a1a1a">Today, recreated from <code style="font-size:12px">app/dashboard/events/page.tsx</code></span>
+</div>
+<p style="margin:0 0 26px;font:400 12px/1.5 Inter,system-ui,sans-serif;color:rgba(0,0,0,.5);max-width:760px">Baseline for the redesign — the live Edit event modal (Tournament / Attending, public link on, coach approval on), the event row, and the Bookings sheet. Tokens from <code style="font-size:11px">globals.css</code>: brand #6D5DF6, lime #A3E635, orange #FF6A00, border #E5E7EB, muted #6B7280.</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px">0a</span>Edit event — every section open, 576px (max-w-xl)</div>
+<div style="width:576px;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.10);overflow:hidden">
+
+<div style="padding:16px 24px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between">
+<h2 style="margin:0;font-size:18px;line-height:28px;font-weight:600;color:#111">Edit event</h2>
+<span style="color:#6B7280;font-size:20px;line-height:1">×</span>
+</div>
+
+<div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+
+<div>
+<span style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:8px">Event image (optional)</span>
+<div style="display:flex;align-items:center;gap:16px">
+<div style="width:72px;height:72px;border-radius:10px;flex-shrink:0;background:#F7F7F9;border:1px solid #E5E7EB;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#6B7280;font-size:13px;line-height:1.25;padding:6px;box-sizing:border-box">Upload a cover photo for this event</div>
+<div>
+<button type="button" style="font-size:14px;line-height:20px;padding:6px 12px;border-radius:8px;border:1px solid #E5E7EB;background:#fff;color:#111;cursor:pointer">Choose photo</button>
+<p style="margin:6px 0 0;font-size:12px;line-height:16px;color:#6B7280">JPG, PNG, WebP — max 10 MB</p>
+</div>
+</div>
+</div>
+
+<div>
+<label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Event type</label>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Tournament</option><option>Clinic</option><option>Camp</option><option>Other</option></select>
+<p style="margin:4px 0 0;font-size:11px;color:#6B7280">Recurring classes live on their own <a href="#0a" style="color:#6D5DF6;text-decoration:none">Classes</a> page — they aren't an event type.</p>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:8px;padding:16px;background:#FDFDFE;display:flex;flex-direction:column;gap:16px">
+<p style="margin:0;font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;font-weight:500">Tournament setup</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<button type="button" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #E5E7EB;background:#fff;cursor:pointer"><span style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111">Host a tournament</span><span style="font-size:11px;color:#6B7280">We're running it — collect registrations</span></button>
+<button type="button" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #6D5DF6;background:rgba(109,93,246,.1);cursor:pointer"><span style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#6D5DF6">Attending a tournament</span><span style="font-size:11px;color:#6B7280">Gather signups for a trip &amp; split costs</span></button>
+</div>
+<div style="border-top:1px solid #E5E7EB;padding-top:12px;display:flex;flex-direction:column;gap:8px">
+<div>
+<p style="margin:0;font-size:14px;line-height:20px;font-weight:500;color:#111">Participant category</p>
+<p style="margin:0;font-size:11px;line-height:1.45;color:#6B7280">What does each entrant choose at signup? Use your sport's term — e.g. <span style="font-weight:500">Weight Class</span> (wrestling, judo, MMA), <span style="font-weight:500">Position</span> (team sports), <span style="font-weight:500">Division</span>, <span style="font-weight:500">Age Group</span>, or <span style="font-weight:500">Belt Level</span>. Leave blank to skip.</p>
+</div>
+<input type="text" placeholder="e.g. Weight Class, Position, Division" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box">
+</div>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:8px;padding:16px;background:#FDFDFE;display:flex;flex-direction:column;gap:12px">
+<p style="margin:0;font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;font-weight:500">Shared cost &amp; invoicing</p>
+<div style="display:flex;align-items:center;justify-content:space-between">
+<span style="font-size:14px;line-height:20px;color:#111">Split a shared cost across attendees</span>
+<span style="position:relative;display:inline-flex;height:20px;width:36px;border-radius:9999px;background:#E5E7EB;flex-shrink:0"><span style="display:inline-block;height:16px;width:16px;border-radius:9999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);margin:2px 0 0 2px"></span></span>
+</div>
+</div>
+
+<div style="border:1px solid #E5E7EB;border-radius:8px;padding:16px;background:#FDFDFE;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+<div>
+<span style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111">Public registration link</span>
+<span style="font-size:11px;color:#6B7280">Let non-members sign up via a shareable link</span>
+</div>
+<span style="position:relative;display:inline-flex;height:20px;width:36px;border-radius:9999px;background:#6D5DF6;flex-shrink:0"><span style="display:inline-block;height:16px;width:16px;border-radius:9999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);margin:2px 0 0 18px"></span></span>
+</div>
+<div style="font-size:12px;line-height:16px;background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+<code style="color:#111;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">https://athletix-os.com/e/test</code>
+<span style="color:#6D5DF6;flex-shrink:0">Copy</span>
+</div>
+<div>
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Intro shown above the form (optional)</label>
+<textarea rows="2" placeholder="e.g. Register your athlete for the Spring Open. Questions? Email us." style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;resize:none;box-sizing:border-box"></textarea>
+</div>
+<div>
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Which price does the public link charge?</label>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Auto — Non-member price (default)</option><option>Non-member price</option><option>Member price</option><option>Drop-in (single session) price</option></select>
+<p style="margin:4px 0 0;font-size:11px;line-height:1.45;color:#6B7280">Walk-ins from /e/test get charged this rate. Default is the non-member / full event price.</p>
+</div>
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+<label style="font-size:12px;line-height:16px;font-weight:500;color:#111">Registration form fields</label>
+<span style="font-size:12px;color:#6D5DF6">+ Add field</span>
+</div>
+<p style="margin:0 0 8px;font-size:11px;color:#6B7280">Name, email, and phone are always collected. Add anything else you need.</p>
+<p style="margin:0;font-size:11px;color:#6B7280">No extra fields yet.</p>
+</div>
+</div>
+
+<div>
+<label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Name</label>
+<input type="text" value="Test" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box">
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div>
+<label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Starts</label>
+<input type="datetime-local" value="2026-08-21T21:00" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box">
+</div>
+<div>
+<label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Ends</label>
+<input type="datetime-local" value="2026-08-22T22:00" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box">
+</div>
+</div>
+
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+<label style="font-size:14px;line-height:20px;font-weight:500;color:#111">Sessions (optional)</label>
+<span style="font-size:12px;color:#6B7280">+ Add session</span>
+</div>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#6B7280">Add sessions for multi-part events (clinics with breaks, tournaments with multiple rounds, etc.)</p>
+</div>
+
+<div>
+<label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Capacity</label>
+<input type="number" placeholder="Leave blank for unlimited" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box">
+</div>
+
+<div style="border-top:1px solid #E5E7EB;padding-top:16px">
+<p style="margin:0 0 12px;font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;font-weight:500">Pricing</p>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+<div><label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Member price</label><input type="number" value="1" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"></div>
+<div><label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Non-member</label><input type="number" placeholder="0" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"></div>
+<div><label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Drop-in fee</label><input type="number" placeholder="0" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"></div>
+</div>
+</div>
+
+<div style="border-top:1px solid #E5E7EB;padding-top:16px">
+<p style="margin:0 0 4px;font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;font-weight:500">How registrants may pay</p>
+<p style="margin:0 0 12px;font-size:11px;line-height:1.45;color:#6B7280">Registrants pick one of these when they sign up. Free and membership-covered registrations skip this entirely.</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;cursor:pointer"><input type="checkbox" checked style="margin-top:2px"><span><span style="display:block;font-size:14px;line-height:20px;color:#111;font-weight:500">Pay now by card</span><span style="display:block;font-size:11px;line-height:1.45;color:#6B7280">Charged at registration. The spot is reserved once payment goes through.</span></span></label>
+<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;cursor:pointer"><input type="checkbox" checked style="margin-top:2px"><span><span style="display:block;font-size:14px;line-height:20px;color:#111;font-weight:500">Charge saved card on the event date</span><span style="display:block;font-size:11px;line-height:1.45;color:#6B7280">Members only, and only with a card already on file. They authorize the charge when they register.</span></span></label>
+<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;cursor:pointer"><input type="checkbox" style="margin-top:2px"><span><span style="display:block;font-size:14px;line-height:20px;color:#111;font-weight:500">Pay cash at the event</span><span style="display:block;font-size:11px;line-height:1.45;color:#6B7280">Registered now; staff records the cash at check-in.</span></span></label>
+<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;cursor:pointer"><input type="checkbox" style="margin-top:2px"><span><span style="display:block;font-size:14px;line-height:20px;color:#111;font-weight:500">Pay by check at the event</span><span style="display:block;font-size:11px;line-height:1.45;color:#6B7280">Registered now; staff records the check at check-in.</span></span></label>
+</div>
+<div style="margin-top:12px">
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Charge saved cards on</label>
+<input type="date" value="2026-08-19" style="width:224px;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box">
+<p style="margin:4px 0 0;font-size:11px;color:#6B7280">Leave blank to charge on the event date.</p>
+</div>
+<label style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;cursor:pointer"><input type="checkbox" checked style="margin-top:2px"><span><span style="display:block;font-size:14px;line-height:20px;color:#111;font-weight:500">Require payment before check-in</span><span style="display:block;font-size:11px;line-height:1.45;color:#6B7280">Anyone who still owes money can't check in until staff records their payment. Scheduled card charges count as paid.</span></span></label>
+</div>
+
+<div style="border-top:1px solid #E5E7EB;padding-top:16px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+<span><span style="display:block;font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;font-weight:500">Coach approval + payment</span><span style="display:block;font-size:11px;color:#6B7280;margin-top:2px">Registrations wait for a coach before the spot is confirmed.</span></span>
+<span style="font-size:12px;color:#6B7280;flex-shrink:0">Hide</span>
+</div>
+<div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
+<div>
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Require coach approval before the spot is confirmed</label>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Yes — a coach reviews every registration</option><option>Use the type default (off)</option><option>No — confirm registrations immediately</option></select>
+<p style="margin:4px 0 0;font-size:11px;line-height:1.45;color:#6B7280">Nobody holds a spot until a coach approves, and nothing is charged until then either.</p>
+</div>
+<div>
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">How registrants pay if approved</label>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Charge their saved card when you approve</option><option>Let the registrant choose</option><option>Bill later — no card at registration</option><option>Cash or check at the event</option><option>Require payment up front</option></select>
+<p style="margin:4px 0 0;font-size:11px;line-height:1.45;color:#6B7280">Members only — it needs a card already on file, and it is charged the moment you approve. Not offered on the public link.</p>
+</div>
+<div>
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Responsible coach</label>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Any staff member who can edit events</option><option>Julian Ramirez</option><option>Sal Jones</option></select>
+<p style="margin:4px 0 0;font-size:11px;line-height:1.45;color:#6B7280">They can approve this event's registrations even without event-editing rights, and the daily reminder goes to them.</p>
+</div>
+<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;cursor:pointer"><input type="checkbox" checked style="margin-top:2px"><span><span style="display:block;font-size:14px;line-height:20px;color:#111;font-weight:500">Let coaches propose a different registration</span><span style="display:block;font-size:11px;line-height:1.45;color:#6B7280">Weight class, division, session, or adding another dual. The parent accepts or declines — you never change it for them.</span></span></label>
+<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;cursor:pointer"><input type="checkbox" style="margin-top:2px"><span><span style="display:block;font-size:14px;line-height:20px;color:#111;font-weight:500">Hold a spot while you review</span><span style="display:block;font-size:11px;line-height:1.45;color:#6B7280">Off by default: everyone can request, and you pick who competes. Turn it on for first-come events — then requests fill the capacity as they arrive.</span></span></label>
+<div>
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Payment due by</label>
+<input type="date" value="2026-08-20" style="width:224px;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box">
+<p style="margin:4px 0 0;font-size:11px;line-height:1.45;color:#6B7280">Shown to families on their confirmation. Blank uses the registration deadline.</p>
+</div>
+<div>
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Cancellation policy</label>
+<textarea rows="3" placeholder="e.g. Entry fees are non-refundable within 7 days of the event." style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"></textarea>
+<p style="margin:4px 0 0;font-size:11px;line-height:1.45;color:#6B7280">Appears on every confirmation for this event. Blank uses the event type's policy.</p>
+</div>
+</div>
+</div>
+
+<div style="border-top:1px solid #E5E7EB;padding-top:16px">
+<label style="display:block;font-size:12px;line-height:16px;font-weight:500;color:#111;margin-bottom:4px">Accepted Memberships / Purchase Options</label>
+<p style="margin:0 0 8px;font-size:11px;line-height:1.45;color:#6B7280">Members on any selected plan can register at no extra cost. Others pay the prices above.</p>
+<div style="border:1px solid #E5E7EB;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto">
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111"><input type="checkbox">MS/HS 3 months Commitment</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111"><input type="checkbox">Sunday Funday</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111"><input type="checkbox">Tadpoles</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111"><input type="checkbox">Girls Only</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111"><input type="checkbox">Girls MS/HS</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111"><input type="checkbox">Elementary</label>
+</div>
+</div>
+
+<div style="border-top:1px solid #E5E7EB;padding-top:16px">
+<p style="margin:0 0 12px;font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;font-weight:500">Assigned staff / coaches</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:144px;overflow-y:auto">
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111;border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px"><input type="checkbox">Kate Zavuholnik</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111;border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px"><input type="checkbox">Diego Jaramillo</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111;border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px"><input type="checkbox">Elijah Cortez</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111;border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px"><input type="checkbox">Isaiah Cortez</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111;border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px"><input type="checkbox">Adrian De Jesus</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:#111;border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px"><input type="checkbox">Josh Antoine</label>
+</div>
+</div>
+
+<div style="border-top:1px solid #E5E7EB;padding-top:16px">
+<p style="margin:0 0 12px;font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.05em;color:#6B7280;font-weight:500">Visibility &amp; Access</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div><label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Who can see this event?</label><select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Everyone (public)</option><option>Active members only</option><option>Staff &amp; owner only</option></select></div>
+<div><label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Who can book/purchase?</label><select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Members can self-book</option><option>Staff &amp; owner only</option></select></div>
+</div>
+</div>
+
+<div>
+<label style="display:block;font-size:14px;line-height:20px;font-weight:500;color:#111;margin-bottom:4px">Description</label>
+<textarea rows="3" style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;resize:none;box-sizing:border-box"></textarea>
+</div>
+
+<span style="font-size:12px;color:#6B7280">+ Show advanced options</span>
+
+<div style="display:flex;gap:8px;padding-top:8px">
+<button type="button" style="flex:1;padding:8px 16px;border:1px solid #E5E7EB;color:#111;background:#fff;border-radius:8px;font-size:14px;cursor:pointer">Cancel</button>
+<button type="button" style="flex:1;padding:8px 16px;background:#6D5DF6;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer">Save changes</button>
+</div>
+
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:24px">
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px">0b</span>Event row — Intensive Camp</div>
+<div style="width:760px;background:#fff;border-radius:12px;border:1px solid #E5E7EB;border-left:4px solid #FF6A00;overflow:hidden">
+<div style="display:flex;align-items:flex-start;gap:16px;padding:16px">
+<div style="width:64px;text-align:center;background:#F7F7F9;border-radius:8px;padding:8px 0;flex-shrink:0">
+<div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#6B7280;letter-spacing:.05em">Aug</div>
+<div style="font-size:24px;font-weight:700;color:#111;line-height:1.25;font-variant-numeric:tabular-nums">21</div>
+<div style="font-size:10px;text-transform:uppercase;font-weight:500;color:#6B7280;letter-spacing:.05em;margin-top:2px">Fri</div>
+</div>
+<div style="flex:1;min-width:0">
+<h3 style="margin:0 0 6px;font-size:18px;line-height:1.35;font-weight:600;color:#111">Intensive Camp</h3>
+<div style="font-size:13px;color:#6B7280;display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:8px">
+<span>◷ 5:00 PM – 1:00 PM</span><span>Julian Ramirez, Sal Jones</span><span>6 sessions</span>
+</div>
+<div style="font-size:11px;color:#6B7280;display:flex;flex-wrap:wrap;gap:4px 8px;margin-bottom:8px"><span>Member $200.00</span><span>· Non-mem $200.00</span></div>
+<div style="margin-bottom:8px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:11px;color:#6B7280"><span>Capacity</span><span style="font-variant-numeric:tabular-nums;font-weight:500">2/50</span></div>
+<div style="height:6px;border-radius:9999px;background:#F7F7F9;overflow:hidden"><div style="height:100%;width:4%;border-radius:9999px;background:#A3E635"></div></div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span style="font-size:10px;padding:2px 8px;border-radius:9999px;font-weight:600;letter-spacing:.02em;background:#0F766E;color:#fff">Camp</span>
+<span style="font-size:10px;padding:2px 8px;border-radius:9999px;font-weight:600;letter-spacing:.02em;background:#FF6A00;color:#fff">Requires payment</span>
+</div>
+<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#F7F7F9;border:1px solid #E5E7EB;color:#6B7280;font-variant-numeric:tabular-nums">Session 1: 5:00 PM–7:00 PM</span>
+<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#F7F7F9;border:1px solid #E5E7EB;color:#6B7280;font-variant-numeric:tabular-nums">Run: 7:00 AM–8:00 AM</span>
+<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#F7F7F9;border:1px solid #E5E7EB;color:#6B7280;font-variant-numeric:tabular-nums">Session 2: 9:00 AM–10:30 AM</span>
+<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#F7F7F9;border:1px solid #E5E7EB;color:#6B7280;font-variant-numeric:tabular-nums">Session 3: 12:00 PM–1:30 PM</span>
+<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#F7F7F9;border:1px solid #E5E7EB;color:#6B7280;font-variant-numeric:tabular-nums">Mindset: 9:00 AM–10:00 AM</span>
+<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#F7F7F9;border:1px solid #E5E7EB;color:#6B7280;font-variant-numeric:tabular-nums">Session 4: 11:00 AM–1:00 PM</span>
+</div>
+</div>
+<div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;max-width:230px">
+<span style="font-size:12px;color:#6B7280;padding:4px 8px;border-radius:4px">Registrations (13)</span>
+<span style="font-size:12px;color:#6B7280;padding:4px 8px;border-radius:4px">Payroll</span>
+<span style="font-size:12px;color:#6B7280;padding:4px 8px;border-radius:4px">Documents</span>
+<span style="font-size:12px;color:#6B7280;padding:4px 8px;border-radius:4px">Bookings</span>
+<span style="font-size:12px;color:#6B7280;padding:4px 8px;border-radius:4px">Group chat</span>
+<span style="font-size:12px;color:#6B7280;padding:4px 8px;border-radius:4px">Edit</span>
+<span style="font-size:12px;color:#6B7280;padding:4px 8px;border-radius:4px">Duplicate</span>
+<span style="font-size:12px;color:#DC2626;padding:4px 8px;border-radius:4px">Delete</span>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(0,0,0,.55)"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px">0c</span>Bookings sheet — 448px (max-w-md)</div>
+<div style="width:448px;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.10);overflow:hidden">
+<div style="padding:16px 24px;border-bottom:1px solid #E5E7EB;display:flex;align-items:flex-start;justify-content:space-between">
+<div>
+<h2 style="margin:0;font-size:18px;line-height:28px;font-weight:600;color:#111">Bookings · 2/50</h2>
+<p style="margin:0;font-size:12px;line-height:16px;color:#6B7280">Intensive Camp</p>
+</div>
+<span style="color:#6B7280;font-size:20px;line-height:1">×</span>
+</div>
+<div style="padding:24px">
+<div style="border:1px solid rgba(255,106,0,.35);background:#FFF7ED;border-radius:8px;padding:12px;margin-bottom:16px">
+<p style="margin:0;font-size:14px;line-height:20px;font-weight:600;color:#111">This event requires payment</p>
+<p style="margin:2px 0 0;font-size:13px;line-height:1.45;color:#6B7280">Adding a member sends them a checkout link (unless a selected membership covers it).</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+<label style="font-size:14px;line-height:20px;font-weight:500;color:#111">Add member</label>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Select a member…</option></select>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Member price — $200.00</option><option>Non-member — $200.00</option></select>
+<label style="font-size:12px;line-height:16px;font-weight:500;color:#6B7280">Payment method</label>
+<select style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;line-height:20px;color:#111;background:#fff;box-sizing:border-box"><option>Online checkout link (Stripe)</option><option>Cash — paid at the door</option><option>Card terminal / in person</option></select>
+<button type="button" style="width:100%;padding:8px 12px;background:#A99DF9;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:not-allowed">Send checkout link</button>
+</div>
+<div style="display:flex;flex-direction:column;gap:4px">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:4px">
+<div style="display:flex;align-items:center;gap:8px">
+<div style="width:28px;height:28px;border-radius:9999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:#111">DS</div>
+<div><div style="font-size:14px;line-height:20px;font-weight:500;color:#111">Delos Stone</div><div style="font-size:10px;color:#111">Confirmed</div></div>
+</div>
+<span style="font-size:12px;color:#DC2626;padding:4px 8px;border-radius:4px">Cancel</span>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:4px">
+<div style="display:flex;align-items:center;gap:8px">
+<div style="width:28px;height:28px;border-radius:9999px;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:#111">GL</div>
+<div><div style="font-size:14px;line-height:20px;font-weight:500;color:#111">Grady Loureiro</div><div style="font-size:10px;color:#111">Confirmed</div></div>
+</div>
+<span style="font-size:12px;color:#DC2626;padding:4px 8px;border-radius:4px">Cancel</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="width:448px;background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:18px 20px">
+<p style="margin:0 0 10px;font:600 12px/1.3 Inter,system-ui,sans-serif;color:#111">What's wrong today (from the source)</p>
+<ul style="margin:0;padding-left:18px;font:400 12px/1.6 Inter,system-ui,sans-serif;color:#4B5563">
+<li>Payment is asked <strong>three separate times</strong>: “How registrants may pay”, “How registrants pay if approved”, and Bookings’ own “Payment method”.</li>
+<li>Price is asked twice — the Pricing grid, then “Which price does the public link charge?”</li>
+<li>Nothing is mutually exclusive: shared-cost split can be on while fixed prices are set; “charge on approve” can co-exist with “pay now by card”.</li>
+<li>Participant category + coach approval only exist for Tournament; clinics and camps can’t have them.</li>
+<li>Sessions carry no price — a 6-session camp is one $200 line.</li>
+<li><code style="font-size:11px">Booking</code> and <code style="font-size:11px">EventRegistration</code> are separate tables with separate screens: cancelling a booking leaves the invoice alive, and “Bookings” is never defined.</li>
+</ul>
+</div>
+
+</div>
+
+</div>
+</section>
+</x-dc>
+</body>
+</html>
