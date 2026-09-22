@@ -8,24 +8,22 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** A1 Colton Waite (overdue since Sep 8) · then A2 Wyatt Eastman by Oct 2
-- **Next Claude Code session:** Julian's pick between B3 Phase 9 (clear run) and B10 Products slice 1 (unblocked, no migration). B11 Events waits. B2 blocked by A3; B8 waiting on Julian's `git branch -D`. Julian still owes: UPCOMING_RENEWAL_LARGE link (B4), where B9 slots
-- **Julian, to unblock code:** A3 four minors → guardians (blocks B2 COPPA)
+- **Julian, do first:** A9 Stripe check (3 trialing subs) + A3 (four minors → guardians). A1/A2 are blocked on B9 — don't touch those records yet. Orson: change his Stripe price by hand before Sep 24 or accept $175
+- **Next Claude Code session:** B9 (activate from billing centre) — Julian's call, ahead of everything. Then B14 renewing queue (small), then B11 Events slice 2 on go, B12, B10 slice 2. B2 = flip the flag after A3. Both open decisions settled 2026-09-22 (b → B14; i → B9 first).
+- **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
 
 ## A — Only Julian can do (billing centre, calls, account work — no code)
 
-- [ ] **A1 · Colton Waite — fix the overdue term** · due Sep 8 (overdue) · unblocks B9
-  Three steps in the billing centre, correcting in place (never cancel-and-recreate):
-  1. Edit → re-freeze the right option and clear the $0 override
-  2. Bulk price change → "Move to" the right option
-  3. Record the offline payment with `coversPeriods`
-  The membership his dad asked for was added but never went through — B9 investigates why.
+- [ ] **A1 · Colton Waite — put him on 3 months Upfront ($450)** · overdue since Sep 8 · BLOCKED by B9
+  CORRECTED 2026-09-22: the old three-step recipe was wrong — his $530 row has EXPIRED, so there is nothing
+  to "Move to", and the billing-centre Edit writes only a draft. Once B9 ships: billing centre → Activate
+  this setup now (final period already paid) → record the $450 offline payment with coversPeriods.
 
-- [ ] **A2 · Wyatt Eastman — same three-step fix** · due Oct 2
-  Term ends Oct 2. Same Edit → Move to → record offline payment. His amount is not in the
-  system — take it from your own records.
+- [ ] **A2 · Wyatt Eastman — put him on 1 Year** · his $0 MANUAL row ends Oct 2 · BLOCKED by B9
+  Draft already says "1 Year". Once B9 ships: Activate this setup now with start Oct 3, then record the
+  offline payment (amount from Julian's own records — none is in the system).
 
 - [ ] **A3 · Give the four paying minors a guardian with portal access** · blocks B2 COPPA
   André Serra, Jacob Vann, Aylen Grubusic, Clint Dwyer. Verify Jacob's email before sending
@@ -56,6 +54,27 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
+- [ ] **B9 · Activate a membership from the billing centre (owner action)** · NEXT — Julian's call 2026-09-22: ahead of A1/A2
+  DIAGNOSED 2026-09-22 (PROGRESS.md): not a crash — the billing centre Edit only writes the migration DRAFT on
+  Member; nothing owner-side turns it into a MemberSubscription, and nothing owner-side can change a live
+  Stripe plan. Colton: draft saved Sep 11, his only sub is the imported $530 row, now EXPIRED. Orson: draft
+  says 12mo, live Stripe sub still Monthly $175 (bills Sep 24). Build: "Activate this setup now" in the
+  billing centre (no live Stripe row) → creates the sub via /api/members/subscribe logic, audit, recompute;
+  "Assign membership" on the profile card; readiness COMPLETED+final-paid → READY. No migration. A1/A2 run
+  through this once it ships — DO NOT touch Colton/Wyatt records before then.
+
+- [ ] **B12 · Change a live Stripe membership (subscription replacement)** · own item, after B9
+  cancel_at_period_end on the old sub + new sub anchored trial_end = old period end; local mirror; audit.
+  Orson is the first case. Stopgap: change his price in the Stripe dashboard before Sep 24.
+
+- [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · DESIGN FIRST
+  "Too hard to change or cancel" = design problem: actions spread over roster menu, profile card, billing
+  centre and bulk tool. Write a handoff like events/products, then build. Not started.
+
+- [ ] **B14 · "Renewing this week" roster queue** · Julian chose (b) 2026-09-22
+  New `renewingSoon` queue in lib/membersQuery (currentPeriodEnd or endDate within 7 days), roster chip,
+  and UPCOMING_RENEWAL_LARGE card href → `/dashboard/members?queue=renewingSoon`. ~1 hour, no migration.
+
 - [x] **B1 · Member.status is a label, not an authority** · SHIPPED 2026-09-14, commit 7efbe0e on main
   Done: portal label + profile-switcher derived from subscription rows; `|| member.status`
   removed from both event pricing routes; profile-page fallback pill derived; 12-month
@@ -64,9 +83,13 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Definitions: **Active** = has a membership. **Prospect** = trialed or attended, no
   membership. **Inactive** = was active and isn't, or a prospect with no return in 12 months.
 
-- [ ] **B2 · COPPA — merge branch `claude/laughing-golick-2b9c76`** · BLOCKED by A3
-  Written in July, never merged (migration 20260705010000_parental_consent,
-  lib/parentalConsent.ts, guardian-consent routes, ParentalConsentGate).
+- [ ] **B2 · COPPA — turn it ON** · BLOCKED by A3 (the four minors need guardians first)
+  CORRECTION 2026-09-22: COPPA was merged to main on 2026-07-05 as PR #4 (`add3322`) and the
+  migration `20260705010000_parental_consent` has been applied in production since 2026-07-05.
+  It is flag-gated: `FEATURE_PARENTAL_CONSENT` (lib/parentalConsent.ts) — gates are off until the
+  env var is true; recording consent always works. The branch `claude/laughing-golick-2b9c76` is
+  an obsolete pre-squash copy (main has rewritten signup since — MINOR_SELF, Aug 16). DELETE IT.
+  Remaining work = A3, then set `FEATURE_PARENTAL_CONSENT=true` in Netlify and redeploy.
 
 - [ ] **B3 · Phase 9 — Family & Group Discounts** · ready, needs a clear run
   Spec merged, all §4.6.12 decisions settled, nothing built. Biggest remaining job — don't
@@ -88,14 +111,18 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Memberships" must become option-aware first
   Maximus, Chase and Blake need repointing once merged.
 
-- [ ] **B8 · Review `claude/elated-noether-46e7d6`** · REVIEWED 2026-09-14 — verdict: DELETE. Julian runs:
+- [x] **B8 · Review `claude/elated-noether-46e7d6`** · DONE — branch deleted (confirmed gone 2026-09-22). Was:
   `cd ~/Desktop/clubos && git worktree remove --force web/.claude/worktrees/nifty-pasteur-1ecb47 && git branch -D claude/elated-noether-46e7d6 && git worktree prune`
   then tick. 3 of 5 commits already on main (cherry-picked, byte-identical); the other 2 are a
   duplicate coverage-resolver implementation that main's `8ece3b1`/`b2b94e0` supersede (main is
   further along: loader, QuickAdd chip, charge-route DAY_NOT_INCLUDED, more tests). Write-up in
   docs/improvement/PROGRESS.md (2026-09-14, third entry).
 
-- [ ] **B10 · Products redesign (design handoff)** · ready — can start now
+- [ ] **B10 · Products redesign (design handoff)** · SLICE 1 BUILT 2026-09-22, on disk (uncommitted) —
+  Julian: `git checkout -b claude/products-slice-1`, then `cd web && npm run test:product-settings &&
+  npx tsc --noEmit && npm run build`, commit, push. Slice 1 = typed v2 settings + parser
+  (lib/productSettings.ts), editor 2a (variant matrix, tiers, durations, add-ons, questions, photos ×4,
+  storefronts), cards 2b, 51 tests. No migration, no API change, buy route untouched.
   Spec: docs/improvement/design_handoff_products/README.md. Slice 1 (no migration): 2a editor with
   structured variants/tiers/durations/add-ons/questions stored as typed JSON in `Product.settings`
   + a parser for today's free-text, and 2b product cards reading the same variant ledger. Then
@@ -103,20 +130,27 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   `api/member/products/[id]/buy`), then 2c inventory, then 2d/2f bookings (new model), then
   /p/[slug] + QR. No Phase 9 overlap. Scoping in PROGRESS.md 2026-09-22.
 
-- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 ON BRANCH
-  `claude/events-attendees-slice-1` @ 1e75b60 (pushed 2026-09-22, tests 42/42 + build green, NOT
-  merged — Julian's call when). PR: github.com/frogempire607/clubos/pull/new/claude/events-attendees-slice-1
-  Slice 1 = 1e rows (Money/Compact/Cards toggle) + read-only Attendees screen + endpoint; no schema,
-  member routes untouched. Slice 2 (editor, per-session prices, migration) waits on COPPA.
+- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 SHIPPED 2026-09-22
+  (merged 0c38253, Netlify live, Julian verified: rows render, Attendees matches Registrations).
+  SLICE 2 = collapsible editor (1a/1b) + per-session prices + pricingModel/signupAccess/splitInvoiceWhen
+  — carries ONE migration and edits the member register route. Planned, NOT started — Julian says go.
+  No longer waits on COPPA (see B2: COPPA is already on main).
+  SLICE 2 PLAN: (1) migration `event_pricing_model`: EventSession.price Decimal?, Event.pricingModel
+  (FREE|FIXED|SPLIT, backfilled from variableCostEnabled/prices), Event.signupAccess
+  (MEMBERS|PUBLIC_LINK|STAFF_ONLY, backfilled from visibility/purchaseAccess/publicRegistration),
+  Event.splitInvoiceWhen + sellIndividualSessions — all additive/backfilled, old columns kept as
+  history, `migrate deploy` BEFORE push; (2) lib/eventPricingModel.ts PURE: derive pricingModel /
+  signupAccess from old columns and back, exclusion rules (chargeOnApproval ⇒ no CARD, SPLIT/FREE ⇒
+  no methods, STAFF_ONLY ⇒ no link), bundle-sanity check, tests; (3) editor 1a/1b as
+  components/events/EventEditor.tsx replacing EventModal (4,614-line page shrinks); (4) events API
+  create/update accept the new fields, keep writing the old ones; (5) register route: DROP_IN branch
+  → per-session purchase (sessionIds[] on the registration's formResponses or a new column),
+  isActiveMember unchanged; (6) public /e/[slug] reads signupAccess. ~2 sessions.
   Spec: docs/improvement/design_handoff_event_editor/README.md. First slice when unblocked (no
   migration): 1e event-row money treatments + 1c/1d read-only Attendees list via a new
   `GET /api/events/[id]/attendees` joining Booking + EventRegistration (tables stay separate —
   registration is the money spine). Editor rewrite 1a/1b is slice 2 and needs a migration
   (EventSession.price, pricingModel, signupAccess, splitInvoiceWhen). Scoping in PROGRESS.md.
-
-- [ ] **B9 · Owner-added membership never went through** · BLOCKED by A1 · placement TBD
-  Colton's dad asked for a membership, Julian added it in the dashboard, and it never took
-  effect. Root-cause the owner add-membership path. Julian decides where this slots in.
 
 ## C — Done, don't resurrect
 
@@ -126,4 +160,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-22 (B11 slice 1 on branch 1e75b60)_
+_Last reviewed: 2026-09-22 (B9 diagnosed; decisions b + i filed; B12/B13/B14 added)_
