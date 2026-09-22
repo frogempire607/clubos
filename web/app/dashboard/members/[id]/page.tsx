@@ -793,7 +793,19 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
               <SubRow sub={pendingSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(pendingSub)} onTransfer={canTransfer ? () => setTransferringSubId(pendingSub.id) : undefined} />
             </div>
           ) : (
-            <p className="text-sm text-text-muted">No active membership.</p>
+            <div className="space-y-2">
+              <p className="text-sm text-text-muted">No active membership.</p>
+              {/* The door that was missing: "put this athlete on a membership"
+                  used to live only in the roster row menu, and the billing
+                  centre's Edit only saves a setup. This lands on the form
+                  that records the payment and starts the membership. */}
+              <Link
+                href={`/dashboard/members/${id}/billing?enrol=1`}
+                className="inline-flex min-h-[44px] md:min-h-0 items-center text-sm px-3 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
+              >
+                Assign membership
+              </Link>
+            </div>
           )}
         </Card>
         )}

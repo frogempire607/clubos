@@ -159,12 +159,27 @@ export async function enrollAlreadyPaid(input: EnrollPaidInput): Promise<EnrollP
     stripePriceId: null,
     canceledAt: null,
     expiredAt: null,
+    // A re-enrolled row must not carry its OLD term end. The expiry sweep
+    // (expireEndedManualSubscriptions) keys on `endDate < now`, so reviving
+    // Colton Waite's row — expired 2026-09-08 — while leaving that date in
+    // place would have set it back to `expired` on the very next roster load,
+    // with the cash already recorded against it. The money now defines the
+    // period: paidThroughDate/currentPeriodEnd above. A non-renewing manual
+    // row has no separate end date, exactly as the create path below.
+    endDate: null,
+    autoRenew: false,
   };
 
   const sub = existing
     ? await prisma.memberSubscription.update({
         where: { id: existing.id },
-        data: { ...subData, notes: `Re-enrolled ${day(new Date())} — ${input.method.toLowerCase()} received, paid through ${day(input.coversUntil)}.` },
+        data: {
+          ...subData,
+          // The new period starts today; the old start belongs to the old term
+          // (kept in the events log, not on the live row).
+          startDate: new Date(),
+          notes: `Re-enrolled ${day(new Date())} — ${input.method.toLowerCase()} received, paid through ${day(input.coversUntil)}.`,
+        },
         select: { id: true },
       })
     : await prisma.memberSubscription.create({

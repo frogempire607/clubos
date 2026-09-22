@@ -8,22 +8,25 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** A9 Stripe check (3 trialing subs) + A3 (four minors → guardians). A1/A2 are blocked on B9 — don't touch those records yet. Orson: change his Stripe price by hand before Sep 24 or accept $175
-- **Next Claude Code session:** B9 (activate from billing centre) — Julian's call, ahead of everything. Then B14 renewing queue (small), then B11 Events slice 2 on go, B12, B10 slice 2. B2 = flip the flag after A3. Both open decisions settled 2026-09-22 (b → B14; i → B9 first).
+- **Julian, do first:** merge B9 (branch/test/build/push steps in chat 2026-09-22), then A1 Colton and A2 Wyatt through the new **Activate this setup now** button. Orson: fix his local price on the profile (Current membership → Edit → Price) so the record matches what you set in Stripe. Then A9 + A3.
+- **Next Claude Code session:** B14 renewing queue (small), then B11 Events slice 2 on go, B12 (Orson is the worked example; must work from inside AthletixOS), B10 slice 2. B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
 
 ## A — Only Julian can do (billing centre, calls, account work — no code)
 
-- [ ] **A1 · Colton Waite — put him on 3 months Upfront ($450)** · overdue since Sep 8 · BLOCKED by B9
-  CORRECTED 2026-09-22: the old three-step recipe was wrong — his $530 row has EXPIRED, so there is nothing
-  to "Move to", and the billing-centre Edit writes only a draft. Once B9 ships: billing centre → Activate
-  this setup now (final period already paid) → record the $450 offline payment with coversPeriods.
+- [ ] **A1 · Colton Waite — put him on 3 months Upfront ($450)** · overdue since Sep 8 · UNBLOCKED once B9 is merged
+  Billing centre → Membership & pricing → **Activate this setup now**. The form opens on MS/HS · 3 months
+  Upfront, $450, paid through Dec 10 (his saved commitment date). Cash/check → Record payment & enrol.
+  His expired $530 row is revived in place (B9 fixed the bug where a revived row kept its old end date
+  and re-expired on the next roster load).
 
-- [ ] **A2 · Wyatt Eastman — put him on 1 Year** · his $0 MANUAL row ends Oct 2 · BLOCKED by B9
-  Draft already says "1 Year". Once B9 ships: Activate this setup now with start Oct 3, then record the
-  offline payment (amount from Julian's own records — none is in the system).
+- [ ] **A2 · Wyatt Eastman — renew him for a year** · his $0 MANUAL row ends Oct 2 · UNBLOCKED once B9 is merged
+  Billing centre → **Record payment & renew on this setup**. His draft says "1 Year $2,000", which MS/HS no
+  longer sells — the form will say so and ask you to pick the real option (1 year Upfront $1,500, or
+  whatever he actually paid via "Record $X anyway"). Set "covers them until" = Oct 2, 2027. Do this any day
+  before or after Oct 2 — if his row expires first, the same button revives it. Nothing is lost either way.
 
 - [ ] **A3 · Give the four paying minors a guardian with portal access** · blocks B2 COPPA
   André Serra, Jacob Vann, Aylen Grubusic, Clint Dwyer. Verify Jacob's email before sending
@@ -54,18 +57,32 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
-- [ ] **B9 · Activate a membership from the billing centre (owner action)** · NEXT — Julian's call 2026-09-22: ahead of A1/A2
-  DIAGNOSED 2026-09-22 (PROGRESS.md): not a crash — the billing centre Edit only writes the migration DRAFT on
-  Member; nothing owner-side turns it into a MemberSubscription, and nothing owner-side can change a live
-  Stripe plan. Colton: draft saved Sep 11, his only sub is the imported $530 row, now EXPIRED. Orson: draft
-  says 12mo, live Stripe sub still Monthly $175 (bills Sep 24). Build: "Activate this setup now" in the
-  billing centre (no live Stripe row) → creates the sub via /api/members/subscribe logic, audit, recompute;
-  "Assign membership" on the profile card; readiness COMPLETED+final-paid → READY. No migration. A1/A2 run
-  through this once it ships — DO NOT touch Colton/Wyatt records before then.
+- [ ] **B9 · Activate a membership from the billing centre (owner action)** · BUILT 2026-09-22, on disk — needs Julian's branch/test/build/push
+  CORRECTED DIAGNOSIS: an owner-side activation DID exist — the "Already paid?" card (lib/enrollPaid.ts,
+  since Aug 26) records the cash and creates/revives the MANUAL row. Two real problems: (1) it was
+  unfindable — the prominent action, Edit, saves a draft nothing consumes, and the card sat two sections
+  down, unconnected to that draft; (2) a genuine bug — reviving an existing row kept its OLD endDate, so
+  Colton's revived row (end Sep 8) would have been re-expired by the sweep on the next roster load.
+  Built: enrollPaid revive resets endDate/startDate; **Activate this setup now** / **Record payment &
+  renew** button on the pricing card, pre-filled from the saved setup (plan, option, amount, commitment
+  date; says so when the draft names an option the plan no longer sells); **Assign membership** on the
+  profile card (→ billing?enrol=1); readiness no longer says "leave alone" for a COMPLETED migration
+  with no active row; "Next billing" comes only from the subscription (Orson's stale Jul 24 gone);
+  honest copy under Edit. Tests: scripts/billing-admin-tests.ts (+7, 151 pass), `npm run test:billing-admin`.
+  Not in B9: Stripe plan changes (B12), collect-later / pending rows, the single panel (B13).
 
-- [ ] **B12 · Change a live Stripe membership (subscription replacement)** · own item, after B9
-  cancel_at_period_end on the old sub + new sub anchored trial_end = old period end; local mirror; audit.
-  Orson is the first case. Stopgap: change his price in the Stripe dashboard before Sep 24.
+- [ ] **B12 · Change a live Stripe membership (plan change + commitment) from inside AthletixOS** · own item, after B14
+  WORKED EXAMPLE — Orson Chorba: wanted 12-month commitment at $150. On 2026-09-22 Julian changed the price by
+  hand in Stripe (sub_1TsknzEIplcCMoSozcu32ldG). Everything that left open is B12's scope:
+  1. Local record didn't follow: row still says Monthly $175. The webhook skips CONNECT subscription.updated
+     and lib/stripeSync refreshes stripePriceId/status/snapshot but never `price`/`optionLabel`/`optionId`;
+     nothing in the UI even runs that sync. Fix: reconciler mirrors price + option; a "Sync from Stripe" action.
+  2. The commitment isn't recorded anywhere (minimumTermEndsAt null) — Stripe only knows amount + interval.
+  3. Julian could NOT reach the connected account's customers from the platform dashboard (Express has no
+     Customers tab) → B12 must do the whole change from AthletixOS: pick option → preview (what changes, when,
+     proration) → confirm → Stripe update (price swap at period end, or cancel_at_period_end + new sub anchored
+     trial_end = old period end) → local mirror + minimumTermEndsAt + audit.
+  Until then: fix the local price on the profile (Current membership → Edit → Price; local-only PATCH).
 
 - [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · DESIGN FIRST
   "Too hard to change or cancel" = design problem: actions spread over roster menu, profile card, billing
@@ -160,4 +177,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-22 (B9 diagnosed; decisions b + i filed; B12/B13/B14 added)_
+_Last reviewed: 2026-09-22 (B9 built, diagnosis corrected; Orson handled in Stripe by hand → B12 worked example)_

@@ -77,6 +77,11 @@ type Data = {
     lastPayment: { amount: number; at: string } | null;
     notes: string | null; autoRenew: boolean; deliberateFree: boolean; createdAt: string;
   }[];
+  // The one owner-side action that turns the saved setup into a membership.
+  activation: {
+    available: boolean; reason: string | null;
+    optionId: string | null; amount: number | null; coversUntil: string | null; draftLabel: string | null;
+  };
   paymentMethods: PaymentMethod[];
   stripeReadError: boolean;
   hasSetupCustomer: boolean;
@@ -194,6 +199,7 @@ export default function MemberBillingPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
+  const [enrolSignal, setEnrolSignal] = useState(0);
 
   const load = useCallback(() => {
     fetch(`/api/members/${id}/billing-admin`)
@@ -216,6 +222,10 @@ export default function MemberBillingPage() {
     }
     if (search.get("card_canceled")) setMsg("Card entry was canceled — nothing was saved.");
   }, [search]);
+  // /billing?enrol=1 — "Assign membership" on the profile lands on the open form.
+  useEffect(() => {
+    if (search.get("enrol") && data) setEnrolSignal((n) => (n === 0 ? 1 : n));
+  }, [search, data]);
 
   if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
   if (forbidden)
@@ -336,10 +346,31 @@ export default function MemberBillingPage() {
                 : <>would first charge on <strong className="text-text-primary">{fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}</strong></>}.
             </p>
           )}
+          {data.activation.available && (() => {
+            // An active offline row means this is a renewal or a plan change
+            // on the same row; none means the setup has never been activated.
+            const hasActiveRow = data.subscriptions.some((s) => s.status === "active");
+            return (
+              <div className="mt-3 pt-3 border-t border-app-border">
+                <button
+                  onClick={() => setEnrolSignal((n) => n + 1)}
+                  className="w-full sm:w-auto text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
+                >
+                  {hasActiveRow ? "Record payment & renew on this setup" : "Activate this setup now"}
+                </button>
+                <p className="text-xs text-text-muted mt-1.5">
+                  {hasActiveRow
+                    ? "Records the payment and moves the current membership onto the plan above, paid through the date you enter."
+                    : "Records the payment and starts the membership on the plan above. Nothing above is a membership until this is done."}
+                </p>
+              </div>
+            );
+          })()}
           <p className="text-xs mt-2 text-text-muted">
-            Saving changes here does <strong className="text-text-primary">not</strong> charge the client.
-            They take effect only when the client confirms the reactivation offer or an authorized user
-            explicitly activates the membership.
+            <strong className="text-text-primary">Edit only saves a setup — it does not start a membership.</strong>{" "}
+            The setup becomes a membership when the client confirms a reactivation offer, or when you
+            {data.activation.available ? " activate it above" : " use “Already paid?” below"}.
+            {data.activation.reason && !data.activation.available && ` ${data.activation.reason}`}
           </p>
         </Card>
 
@@ -406,9 +437,18 @@ export default function MemberBillingPage() {
             handles the opposite case — money in hand and nothing to settle it
             against. Drew Telesky's month went missing in the gap between them. */}
         <EnrollAlreadyPaidCard
+          id="enrol"
           memberId={id}
           memberName={`${m.firstName} ${m.lastName}`.trim()}
           className="lg:col-span-2"
+          openSignal={enrolSignal}
+          prefill={{
+            planId: b.planId,
+            optionId: data.activation.optionId,
+            amount: data.activation.amount,
+            coversUntil: data.activation.coversUntil,
+            draftLabel: data.activation.draftLabel,
+          }}
           onChanged={() => { setMsg(null); load(); }}
         />
 

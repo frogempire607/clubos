@@ -71,6 +71,24 @@ check("sent reactivation → waiting on client",
 check("completed migration → leave alone",
   deriveReadiness({ ...base, migrationStatus: "COMPLETED" }).state === "LEAVE_ALONE");
 
+// B9 — completed is history, not a membership. Colton Waite: migration
+// COMPLETED in June, the row it produced expired 2026-09-08, chip still said
+// "Already active / leave alone" while the page showed no active row.
+check("completed migration with NO active row is not leave-alone (Colton W.)",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", hasActiveSub: false, finalPeriodPaid: true }).state === "READY");
+check("…and says why",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", hasActiveSub: false, finalPeriodPaid: true }).reasons[0].includes("no active membership"));
+check("completed migration WITH an active row stays leave-alone",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", hasActiveSub: true }).state === "LEAVE_ALONE");
+check("callers that don't say keep the old answer",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED" }).state === "LEAVE_ALONE");
+check("lapsed + priced + card + date → READY (nothing missing)",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", hasActiveSub: false }).state === "READY");
+check("lapsed + no plan → waiting on owner, not leave-alone",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", hasActiveSub: false, price: null, hasPlan: false }).state === "WAITING_OWNER");
+check("live Stripe sub still wins over lapsed",
+  deriveReadiness({ ...base, migrationStatus: "COMPLETED", hasActiveSub: false, hasLiveStripeSub: true }).state === "LEAVE_ALONE");
+
 check("SENT offer outranks completed migration (John Doe demo case)",
   deriveReadiness({ ...base, migrationStatus: "COMPLETED", reactivationStatus: "SENT" }).state === "WAITING_CLIENT");
 check("DRAFT offer waits on owner to send",

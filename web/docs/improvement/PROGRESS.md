@@ -4611,3 +4611,46 @@ Reproduced on two members from Julian's screenshots + production reads. **Verdic
 **B12 (new, own item): change a live Stripe membership.** The safe mechanism the bulk tool's comment already names: `cancel_at_period_end` on the old subscription + a new subscription anchored with `trial_end` = the old period end (or immediate with proration when the owner says so), local rows mirrored, one audit entry. Touches Stripe money; needs its own tests against the connected account. Orson waits on this — or Julian changes his price in the Stripe dashboard by hand before Sep 24 as a stopgap.
 
 **B13 (new, design): one Membership panel.** "Changing and cancelling a membership is too hard" is a design problem, not a bug: the actions exist but are spread over four screens with different vocabularies, and the screen that looks like the control panel is a draft editor. Proposed: the profile's Current membership card becomes the one place — Assign / Change plan / Change dates / Record payment / Pause / Cancel — each a one-question dialog that says what it will do to Stripe before it does it, in the collapsible-card language of the events/products handoffs. Design first (a handoff like the other two), then build. Not started.
+
+## 2026-09-22 — B9 built: activate a membership from the billing centre
+
+**Correction to this morning's diagnosis.** "No owner-side action turns a saved setup into a
+subscription" was wrong. `lib/enrollPaid.ts` + the "Already paid?" card have done exactly that since
+2026-08-26 (`2eff699`, `0e9919c`): record the cash, create or revive the MANUAL row, stamp paidThrough,
+recompute status, optionally arm card billing. I missed it because the billing centre never points at it.
+What was actually broken:
+
+1. **Findability, not capability.** The prominent action on the pricing card, Edit, writes only the
+   migration draft, and its copy promised an activation that no button performed. The card that does the
+   job sat two sections down, blank, unconnected to the draft Julian had just saved. Colton was saved into a
+   draft on Sep 11 and the working door was never opened.
+2. **A real bug in the working door.** `enrollAlreadyPaid` reuses an existing row for the same plan but
+   left `endDate` untouched. `expireEndedManualSubscriptions` keys on `endDate < now`, so reviving
+   Colton's row (end 2026-09-08) would have been re-expired on the next roster load — with the cash already
+   recorded against it. Wyatt re-enrolled before Oct 2 would have kept an end date of Oct 2 and expired on
+   schedule regardless of a year's payment.
+
+**Built (no migration):**
+- `lib/enrollPaid.ts` — revive path resets `endDate: null`, `autoRenew: false`, `startDate: now`.
+- `lib/billingAdmin.ts deriveReadiness` — new optional `hasActiveSub`; a COMPLETED migration with no active
+  row falls through instead of "Already active / leave alone", with a reason that says so.
+- `billing-admin` GET — passes `hasActiveSub`; `nextBillingDate` comes only from the active subscription
+  (currentPeriodEnd, else paidThroughDate) or a future final date — never the imported anchor (Orson's stale
+  "Jul 24"); new `activation` block: available?, reason, draft resolved to a sellable option id (id → label+
+  period → price+period), amount, commitment end as covers-until, and the draft label when unsellable.
+- `components/EnrollAlreadyPaidCard.tsx` — `prefill`, `openSignal`, `id`; opens filled in and scrolls into
+  view; says when the draft names an option the plan no longer sells (Wyatt: "1 Year $2,000" vs "1 year
+  Upfront $1,500").
+- Billing page — **Activate this setup now** (no active row) / **Record payment & renew on this setup**
+  (active offline row) on the pricing card; honest copy under Edit; `?enrol=1` opens the form.
+- Profile — **Assign membership** on the empty Current membership card → `billing?enrol=1`.
+- Tests: +7 readiness cases in `scripts/billing-admin-tests.ts` (151 pass); `npm run test:billing-admin`.
+  `tsc --noEmit` clean.
+
+**Orson (B12's worked example).** Julian changed his price by hand in Stripe on Sep 22. The local row
+still reads Monthly $175 and will NOT self-correct: the webhook skips CONNECT `customer.subscription.updated`,
+and `lib/stripeSync.reconcileClubBilling` refreshes stripePriceId/status/period/snapshot but never `price`,
+`optionLabel` or `optionId` — and nothing in the UI POSTs `/api/stripe/reconcile` anyway. Interim: profile →
+Current membership → Edit → Price (local-only PATCH, the right tool here). The 12-month commitment is recorded
+nowhere (`minimumTermEndsAt` null). Express gives Julian no Customers tab on the connected account, so B12
+has to do the whole change from inside AthletixOS. All three folded into B12 in BACKLOG.md.

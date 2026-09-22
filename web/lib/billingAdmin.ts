@@ -96,6 +96,14 @@ export type ReadinessInput = {
   finalBillingDate: Date | null;
   /** A live (active/trialing/past_due) Stripe subscription already exists. */
   hasLiveStripeSub: boolean;
+  /**
+   * Any ACTIVE subscription row at all (Stripe or manual). Optional so every
+   * caller keeps compiling; when a caller says `false`, a COMPLETED migration
+   * no longer reads "already active" — completed is history, and history is
+   * not a membership. Colton Waite: migration completed in June, the row it
+   * produced expired 2026-09-08, and the chip still said "leave alone".
+   */
+  hasActiveSub?: boolean;
   /** Latest reactivation offer status, if any. */
   reactivationStatus?: string | null;
   now?: Date;
@@ -132,19 +140,22 @@ export function deriveReadiness(input: ReadinessInput): { state: Readiness; reas
   if (input.reactivationStatus === "DRAFT") {
     return { state: "WAITING_OWNER", reasons: ["Reactivation offer drafted — preview and send it"] };
   }
-  if (input.migrationStatus === "COMPLETED") {
+  if (input.migrationStatus === "COMPLETED" && input.hasActiveSub !== false) {
     return { state: "LEAVE_ALONE", reasons: ["Migration already completed"] };
   }
+  // COMPLETED with no active row: the membership the migration produced has
+  // ended. Fall through — the setup below is what would bring them back.
+  const lapsed = input.migrationStatus === "COMPLETED" ? ["Migration completed but no active membership — activate the current setup"] : [];
 
   // Free / final-period-paid members have nothing to charge.
   if (input.finalPeriodPaid) {
-    return { state: "READY", reasons: ["Final period already paid — no charge to set up"] };
+    return { state: "READY", reasons: [...lapsed, "Final period already paid — no charge to set up"] };
   }
   if (input.hasPlan && input.price === 0) {
-    return { state: "READY", reasons: ["Free membership — no recurring charge"] };
+    return { state: "READY", reasons: [...lapsed, "Free membership — no recurring charge"] };
   }
 
-  const reasons: string[] = [];
+  const reasons: string[] = [...lapsed];
   if (!input.hasPlan || input.price == null) reasons.push("No membership plan configured");
   const dateOk = !!input.finalBillingDate && input.finalBillingDate.getTime() > now.getTime();
   if (!dateOk) {
@@ -154,7 +165,7 @@ export function deriveReadiness(input: ReadinessInput): { state: Readiness; reas
         : "No owner-approved billing date",
     );
   }
-  if (reasons.length) return { state: "WAITING_OWNER", reasons };
+  if (reasons.length > lapsed.length) return { state: "WAITING_OWNER", reasons };
 
   // Owner decisions are in place; is the client side ready?
   const needsCard = !input.offlineIntended && !input.hasCapturedCard;

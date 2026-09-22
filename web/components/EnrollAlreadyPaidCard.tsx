@@ -44,13 +44,32 @@ const fmtDay = (iso: string) =>
     month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
   });
 
+/**
+ * What the billing centre already knows about this member, so the form opens
+ * filled in rather than blank. Every field is optional; a draft the plan can
+ * no longer sell arrives with `optionId: null` and its `draftLabel`, and the
+ * form says so instead of guessing.
+ */
+export type EnrollPrefill = {
+  planId: string | null;
+  optionId: string | null;
+  amount: number | null;
+  /** YYYY-MM-DD or ISO — the commitment end the owner already set, if future. */
+  coversUntil: string | null;
+  draftLabel: string | null;
+};
+
 export default function EnrollAlreadyPaidCard({
-  memberId, memberName, onChanged, className,
+  memberId, memberName, onChanged, className, prefill, openSignal = 0, id,
 }: {
   memberId: string;
   memberName: string;
   onChanged?: () => void;
   className?: string;
+  prefill?: EnrollPrefill | null;
+  /** Bump this number to open the form from elsewhere on the page. */
+  openSignal?: number;
+  id?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [plans, setPlans] = useState<Plan[] | null>(null);
@@ -87,8 +106,34 @@ export default function EnrollAlreadyPaidCard({
   }, []);
   useEffect(() => { if (open && !plans) load(); }, [open, plans, load]);
 
+  // "Activate this setup" on the pricing card lands here: open, scroll into
+  // view, and apply the saved setup once the plans have loaded.
+  const [applied, setApplied] = useState(0);
+  useEffect(() => {
+    if (openSignal > 0) { setOpen(true); setError(""); setApplied(0); }
+  }, [openSignal]);
+  useEffect(() => {
+    if (!open || !plans || !prefill || applied === openSignal) return;
+    setApplied(openSignal);
+    const p = plans.find((x) => x.id === prefill.planId) ?? null;
+    if (!p) return;
+    setPlanId(p.id);
+    const o = p.options.find((x) => x.id === prefill.optionId) ?? null;
+    if (o) {
+      setOptionId(o.id ?? "");
+      setAmount(prefill.amount != null ? String(prefill.amount) : String(o.price));
+      setCoversUntil(prefill.coversUntil ? prefill.coversUntil.slice(0, 10) : defaultCoversUntil(o.billingPeriod));
+    } else {
+      setOptionId(""); setAmount(""); setCoversUntil("");
+    }
+    if (openSignal > 0 && id) {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [open, plans, prefill, applied, openSignal, id]);
+
   const plan = plans?.find((p) => p.id === planId) ?? null;
   const option = plan?.options.find((o) => o.id === optionId) ?? null;
+  const draftNotSellable = !!prefill?.draftLabel && !prefill.optionId && !!plan && plan.id === prefill.planId && !option;
 
   // Picking an option fills in the two fields staff would otherwise type
   // wrong: the price, and a period-length default for the covered-until date.
@@ -134,7 +179,7 @@ export default function EnrollAlreadyPaidCard({
   }
 
   return (
-    <div className={`rounded-xl border border-app-border bg-surface p-4 ${className ?? ""}`}>
+    <div id={id} className={`rounded-xl border border-app-border bg-surface p-4 scroll-mt-4 ${className ?? ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
@@ -176,6 +221,14 @@ export default function EnrollAlreadyPaidCard({
               {(plans ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
+
+          {draftNotSellable && (
+            <p className="text-xs text-orange-accent bg-orange-accent/10 rounded-lg px-2.5 py-2">
+              The saved setup says <strong>{prefill?.draftLabel}</strong>, but {plan?.name} no longer offers an
+              option by that name. Pick the option below that matches what they actually bought — the amount can
+              be corrected before you record it.
+            </p>
+          )}
 
           {plan && (
             <div>

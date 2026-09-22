@@ -25,6 +25,7 @@ import { feeBreakdown, describeProcessingFee } from "@/lib/fees";
 import { resolveStaffDiscount } from "@/lib/staffPayments";
 import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { parseOptions as parseOptionsShared } from "@/lib/membershipOptions";
 
 export const dynamic = "force-dynamic";
 
@@ -191,6 +192,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       endDate: s.endDate,
       billingAnchorDate: s.billingAnchorDate,
       currentPeriodEnd: s.currentPeriodEnd,
+      paidThroughDate: s.paidThroughDate,
       cancelAt: snap?.cancelAt ?? null,
       card: snap?.defaultPaymentMethod ?? null,
       lastPayment: snap?.latestInvoice?.paidAt
@@ -321,8 +323,56 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     finalPeriodPaid: member.migrationFinalPeriodPaid,
     finalBillingDate,
     hasLiveStripeSub,
+    hasActiveSub: !!activeSub && activeSub.status === "active",
     reactivationStatus: offerOpen ? reactivation!.status : null,
   });
+  // "Next billing" is a fact about the SUBSCRIPTION, so it comes from the
+  // subscription or it is unknown. Falling back to the imported anchor put
+  // "Jul 24, 2026" on Orson Chorba's page two months after that date passed,
+  // under a live Stripe row billing on the 24th of September. The anchor is
+  // shown on its own row already; it is not a next charge.
+  const nextBillingDate = activeSub
+    ? (activeSub.currentPeriodEnd ?? activeSub.paidThroughDate ?? null)
+    : finalBillingDate && finalBillingDate.getTime() > Date.now()
+      ? finalBillingDate
+      : null;
+  // The one owner-side action that turns a saved setup into a membership.
+  // Offered only when it would not stack on live card billing (enrollAlreadyPaid
+  // refuses that itself; this is so the page never advertises a refused action).
+  const activation = {
+    available: !hasLiveStripeSub && pricing.configured && !!plan,
+    reason: hasLiveStripeSub
+      ? "Card billing is live in Stripe — change the plan there, or turn autopay off first."
+      : !pricing.configured || !plan
+        ? "Pick a plan and option in Edit first."
+        : null,
+    // Resolve the draft to a sellable option id — the enrol form works on ids,
+    // never labels. Match on id, then label+period, then price+period.
+    optionId: (() => {
+      if (!plan) return null;
+      const opts = parseOptionsShared(plan.options);
+      const sel = (member.migrationSelectedOption ?? null) as { id?: unknown; label?: unknown; price?: unknown; billingPeriod?: unknown } | null;
+      const byId = sel && typeof sel.id === "string" ? opts.find((o) => o.id === sel.id) : null;
+      const byLabel = sel && typeof sel.label === "string"
+        ? opts.find((o) => o.label === sel.label && (!sel.billingPeriod || o.billingPeriod === sel.billingPeriod))
+        : null;
+      const byPrice = sel && typeof sel.price === "number"
+        ? opts.find((o) => o.price === sel.price && o.billingPeriod === sel.billingPeriod)
+        : null;
+      return (byId ?? byLabel ?? byPrice)?.id ?? null;
+    })(),
+    amount: pricing.configured ? pricing.price : null,
+    coversUntil: member.commitmentEndDate && member.commitmentEndDate.getTime() > Date.now()
+      ? member.commitmentEndDate
+      : null,
+    // A draft the plan can no longer sell (Wyatt Eastman: "1 Year" at $2,000;
+    // the plan offers "1 year Upfront" at $1,500). The form opens on the plan
+    // with no option picked, and says why.
+    draftLabel: (() => {
+      const sel = (member.migrationSelectedOption ?? null) as { label?: unknown } | null;
+      return sel && typeof sel.label === "string" ? sel.label : null;
+    })(),
+  };
   const timing = chargeTiming(finalBillingDate);
   // The two owner date fields can disagree (imported anchor vs the approved
   // final date). The final date always wins when billing starts — surface the
@@ -440,7 +490,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       startDate: member.membershipStartDate,
       billingAnchorDate: member.billingAnchorDate,
       finalBillingDate: member.migrationFinalBillingDate,
-      nextBillingDate: activeSub?.currentPeriodEnd ?? finalBillingDate,
+      nextBillingDate,
       commitmentEndDate: member.commitmentEndDate,
       requestedPaymentMethod: member.requestedPaymentMethod,
       finalPeriodPaid: member.migrationFinalPeriodPaid,
@@ -455,6 +505,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       },
     },
     subscriptions: subs,
+    activation,
     paymentMethods,
     stripeReadError,
     hasSetupCustomer: !!member.stripeSetupCustomerId,
