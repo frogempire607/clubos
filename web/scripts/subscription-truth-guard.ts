@@ -198,7 +198,13 @@ const MEMBER_FIELD_READ =
   /\b(?:member|m|mem|athlete|child|row|rec)\s*(?:\?)?\.\s*(commitmentEndDate|billingAnchorDate|nextBillingDate|membershipStartDate)\b/;
 ratchet(
   "a member-level date is being read as a subscription fact",
-  44,
+  // 44 → 46 (B9, 2026-09-22): billing-admin GET's `activation` block reads
+  // `member.commitmentEndDate` twice — once to test it is in the future, once
+  // to hand it over. It is used as a PRE-FILL for the "covers them until" field
+  // on the enrol form, which the owner sees and confirms before anything is
+  // written; the subscription's own paidThroughDate/endDate are what get
+  // stored. That is the draft being read as a draft, not as the answer.
+  46,
   0,
   scan(MEMBER_FIELD_READ),
   [
