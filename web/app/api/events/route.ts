@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { loadEventMoneySummaries } from "@/lib/eventAttendeesServer";
 import { requirePermission } from "@/lib/apiGuard";
 
 export async function GET(req: Request) {
@@ -30,7 +31,13 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json(events);
+  // Per-event money summary for the list's row treatments — settled / owe /
+  // scheduled / waiting counts and the outstanding total, derived from the
+  // same ledger the Attendees screen renders (lib/eventAttendees). Two queries
+  // for the whole list; read-only. Attached as `money` so older callers that
+  // ignore it are unaffected.
+  const money = await loadEventMoneySummaries(session.user.clubId, events);
+  return NextResponse.json(events.map((e) => ({ ...e, money: money.get(e.id) ?? null })));
 }
 
 const sessionSchema = z.object({

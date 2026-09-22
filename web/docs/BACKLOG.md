@@ -9,7 +9,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 ## Next up
 
 - **Julian, do first:** A1 Colton Waite (overdue since Sep 8) · then A2 Wyatt Eastman by Oct 2
-- **Next Claude Code session:** B3 Phase 9 (needs a clear run — say when); B2 blocked by A3; B8 waiting on Julian's `git branch -D`. Julian still owes two calls: the UPCOMING_RENEWAL_LARGE link (see B4) and where B9 slots
+- **Next Claude Code session:** Julian's pick between B3 Phase 9 (clear run) and B10 Products slice 1 (unblocked, no migration). B11 Events waits. B2 blocked by A3; B8 waiting on Julian's `git branch -D`. Julian still owes: UPCOMING_RENEWAL_LARGE link (B4), where B9 slots
 - **Julian, to unblock code:** A3 four minors → guardians (blocks B2 COPPA)
 
 ---
@@ -95,6 +95,25 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   further along: loader, QuickAdd chip, charge-route DAY_NOT_INCLUDED, more tests). Write-up in
   docs/improvement/PROGRESS.md (2026-09-14, third entry).
 
+- [ ] **B10 · Products redesign (design handoff)** · ready — can start now
+  Spec: docs/improvement/design_handoff_products/README.md. Slice 1 (no migration): 2a editor with
+  structured variants/tiers/durations/add-ons/questions stored as typed JSON in `Product.settings`
+  + a parser for today's free-text, and 2b product cards reading the same variant ledger. Then
+  2g Sell-by-variant + 2e store detail (one additive migration; merge COPPA first — it gates
+  `api/member/products/[id]/buy`), then 2c inventory, then 2d/2f bookings (new model), then
+  /p/[slug] + QR. No Phase 9 overlap. Scoping in PROGRESS.md 2026-09-22.
+
+- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 BUILT 2026-09-22, on disk
+  (not committed, not merged) — Julian: `git checkout -b claude/events-attendees-slice-1`, then
+  `cd web && npm run test:event-attendees && npx tsc --noEmit && npm run build`, commit, push the
+  branch. Slice 1 = 1e rows (Money/Compact/Cards toggle) + read-only Attendees screen + endpoint;
+  no schema, member routes untouched. Slice 2 (editor, per-session prices) still waits on COPPA.
+  Spec: docs/improvement/design_handoff_event_editor/README.md. First slice when unblocked (no
+  migration): 1e event-row money treatments + 1c/1d read-only Attendees list via a new
+  `GET /api/events/[id]/attendees` joining Booking + EventRegistration (tables stay separate —
+  registration is the money spine). Editor rewrite 1a/1b is slice 2 and needs a migration
+  (EventSession.price, pricingModel, signupAccess, splitInvoiceWhen). Scoping in PROGRESS.md.
+
 - [ ] **B9 · Owner-added membership never went through** · BLOCKED by A1 · placement TBD
   Colton's dad asked for a membership, Julian added it in the dashboard, and it never took
   effect. Root-cause the owner add-membership path. Julian decides where this slots in.
@@ -107,4 +126,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-14 (B1 + B4 shipped, B8 reviewed)_
+_Last reviewed: 2026-09-22 (B11 slice 1 built, awaiting Julian's branch + build)_
