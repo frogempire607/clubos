@@ -103,11 +103,11 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   `api/member/products/[id]/buy`), then 2c inventory, then 2d/2f bookings (new model), then
   /p/[slug] + QR. No Phase 9 overlap. Scoping in PROGRESS.md 2026-09-22.
 
-- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 BUILT 2026-09-22, on disk
-  (not committed, not merged) — Julian: `git checkout -b claude/events-attendees-slice-1`, then
-  `cd web && npm run test:event-attendees && npx tsc --noEmit && npm run build`, commit, push the
-  branch. Slice 1 = 1e rows (Money/Compact/Cards toggle) + read-only Attendees screen + endpoint;
-  no schema, member routes untouched. Slice 2 (editor, per-session prices) still waits on COPPA.
+- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 ON BRANCH
+  `claude/events-attendees-slice-1` @ 1e75b60 (pushed 2026-09-22, tests 42/42 + build green, NOT
+  merged — Julian's call when). PR: github.com/frogempire607/clubos/pull/new/claude/events-attendees-slice-1
+  Slice 1 = 1e rows (Money/Compact/Cards toggle) + read-only Attendees screen + endpoint; no schema,
+  member routes untouched. Slice 2 (editor, per-session prices, migration) waits on COPPA.
   Spec: docs/improvement/design_handoff_event_editor/README.md. First slice when unblocked (no
   migration): 1e event-row money treatments + 1c/1d read-only Attendees list via a new
   `GET /api/events/[id]/attendees` joining Booking + EventRegistration (tables stay separate —
@@ -126,4 +126,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-22 (B11 slice 1 built, awaiting Julian's branch + build)_
+_Last reviewed: 2026-09-22 (B11 slice 1 on branch 1e75b60)_
