@@ -4718,3 +4718,15 @@ the desktop preview reads the same values, and the conflict panel names the firs
 Member portal gains "Pick sessions" (checklist, preview total, server re-quotes); Attendees rows read
 "2 of 6 sessions" when a registration carries `sessionIds` (+4 ledger tests, 46 pass). tsc clean, guards
 green. Not in 2b: nothing touches existing registrations; "add a session to my registration" is slice 3.
+
+## 2026-09-23 — B14: "Renewing this week" and "Paused" on the roster strip
+
+Two new queue predicates in `lib/membersQuery.queueClauses`, defined once and read by both the card count
+and the filter, exactly like the D-3 four. `renewingSoon` is the queue the UPCOMING_RENEWAL_LARGE Action
+Item has needed since 2.5.1a — an active row whose next money moment (Stripe period end, cash paid-through,
+or the row's own end date) falls inside seven days, with Paused members excluded because a break is not a
+renewal conversation. `paused` is Julian's decision (a): no date, no migration, just a card that keeps the
+people on a break in view (`pausedUntil` waits for B13). The strip goes 4 → 6 cards; the Financials card
+finally deep-links. While adding tests I found `scripts/renewal-surfacing-tests.ts` had been failing since
+B4 (it asserted no Financials deep links exist; B4 made them real) — the script is not in the build chain,
+so nobody saw it. Assertion updated to pin the parameter set instead. tsc clean.

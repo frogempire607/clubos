@@ -353,13 +353,10 @@ export async function buildActionItems(
       detail: `Total incoming: $${total.toFixed(2)}. Confirm payment methods are on file.`,
       count: upcomingRenewals.length,
       amount: total,
-      // No query string: there is no roster queue for "large renewals billing
-      // within 7 days", and this used to link to `?filter=upcoming_renewals`,
-      // which the roster has never parsed — the same dead-link bug as
-      // EXPIRING_MEMBERSHIP's `?filter=expiring`. A bare link that opens the
-      // real roster is honest; a parameter that silently does nothing is not.
-      // Giving this card its own queue is a product decision, not a bug fix.
-      href: "/dashboard/members",
+      // B14 — the roster now has the queue this card describes (decision b,
+      // 2026-09-22): active memberships whose period end, paid-through or end
+      // date lands within 7 days. Same 7-day window as the count above.
+      href: "/dashboard/members?queue=renewingSoon",
       action: { label: "Review", kind: "OPEN", permission: "billing:view" },
     });
   }

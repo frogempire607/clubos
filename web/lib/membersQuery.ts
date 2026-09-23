@@ -70,6 +70,8 @@ export async function loadSourceLabels(
  * lib/reportsActionItems.ts imports this rather than restating 90.
  */
 export const ENDING_SOON_WINDOW_DAYS = 120;
+/** B14 — "Renewing this week": the next charge or paid-through date within 7 days. */
+export const RENEWING_SOON_WINDOW_DAYS = 7;
 
 export const COUNT_CAP = 20_000;
 export const DEFAULT_PAGE_SIZE = 50;
@@ -103,6 +105,8 @@ export type MemberListFilters = {
     | "stalledCheckout"
     | "trainingUnbilled"
     | "endingSoon"
+    | "renewingSoon"
+    | "paused"
     | null;
   sort: "lastSeen" | "name" | "joined" | "balance";
   page: number;
@@ -344,6 +348,31 @@ export function queueClauses(now: Date = new Date()): Record<
         },
       },
     },
+    // B14 (Julian, 2026-09-22, decision b) — the queue the UPCOMING_RENEWAL_LARGE
+    // card had nowhere to point at. A live membership whose next money moment
+    // lands inside 7 days: the Stripe period end (card charge), the cash
+    // paid-through date (collect the next one), or the row's own end date (a
+    // renewal to sell). One `some`, so it is the same row that is active AND due.
+    // Nothing here is a Paused member: a break is not a renewal conversation —
+    // that is the `paused` card beside this one.
+    renewingSoon: {
+      status: { not: "PAUSED" },
+      subscriptions: {
+        some: {
+          status: "active",
+          OR: [
+            { currentPeriodEnd: { gte: now, lte: new Date(now.getTime() + RENEWING_SOON_WINDOW_DAYS * 86400_000) } },
+            { paidThroughDate: { gte: now, lte: new Date(now.getTime() + RENEWING_SOON_WINDOW_DAYS * 86400_000) } },
+            { endDate: { gte: now, lte: new Date(now.getTime() + RENEWING_SOON_WINDOW_DAYS * 86400_000) } },
+          ],
+        },
+      },
+    },
+    // B14 (decision a) — owner-controlled PAUSED is sticky and otherwise
+    // invisible; Wyatt Eastman would sit as an expired row nobody looks at.
+    // No date field yet (that is B13's `pausedUntil`); the card keeps them in
+    // view every time the roster loads.
+    paused: { status: "PAUSED" },
     trainingUnbilled: {
       attendanceRecords: { some: { createdAt: { gte: new Date(now.getTime() - 30 * 86400_000) } } },
       OR: [
@@ -444,7 +473,7 @@ export type MemberListResult = {
    * COUNT_CAP, matching `counts`. A wrong number here sends staff to chase work
    * that isn't there; no number at all is the honest answer at that scale.
    */
-  queueCounts: { neverInvited: number; blocked: number; missingContact: number; duplicates: number } | null;
+  queueCounts: { neverInvited: number; blocked: number; missingContact: number; duplicates: number; renewingSoon: number; paused: number } | null;
 };
 
 /**
@@ -659,7 +688,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
 }
 
 /**
- * The four work-queue numbers.
+ * The work-queue numbers (four cards since D-3, six since B14).
  *
  * Search and the other chips are deliberately excluded from the base: the strip
  * answers "what needs doing in this club", and having it shrink as someone
@@ -668,13 +697,16 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
  */
 async function countQueues(clubId: string, f: MemberListFilters) {
   const base = memberWhere(clubId, { ...f, queue: null, search: "", tag: "", gender: "" });
-  const [neverInvited, blocked, missingContact, duplicates] = await Promise.all([
-    prisma.member.count({ where: { AND: [base, queueClauses().neverInvited] } }),
-    prisma.member.count({ where: { AND: [base, queueClauses().blocked] } }),
-    prisma.member.count({ where: { AND: [base, queueClauses().missingContact] } }),
+  const q = queueClauses();
+  const [neverInvited, blocked, missingContact, duplicates, renewingSoon, paused] = await Promise.all([
+    prisma.member.count({ where: { AND: [base, q.neverInvited] } }),
+    prisma.member.count({ where: { AND: [base, q.blocked] } }),
+    prisma.member.count({ where: { AND: [base, q.missingContact] } }),
     countDuplicateGroups(clubId),
+    prisma.member.count({ where: { AND: [base, q.renewingSoon] } }),
+    prisma.member.count({ where: { AND: [base, q.paused] } }),
   ]);
-  return { neverInvited, blocked, missingContact, duplicates };
+  return { neverInvited, blocked, missingContact, duplicates, renewingSoon, paused };
 }
 
 /**
