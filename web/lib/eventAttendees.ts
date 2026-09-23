@@ -80,6 +80,8 @@ export type LedgerRegistration = {
   scheduledChargeAt?: Date | string | null;
   paidAt?: Date | string | null;
   createdAt?: Date | string | null;
+  /** Slice 2 — sessions a per-session purchase bought. Empty/absent = whole event. */
+  sessionIds?: string[] | null;
   formResponses?: Record<string, unknown> | null;
   /** Resolved through the family model; null = undeliverable. */
   recipientEmail?: string | null;
@@ -118,8 +120,7 @@ export type AttendeeRow = {
   emailNote: string | null;
   phone: string | null;
   categoryValue: string | null;
-  /** "Whole event" / "Whole camp · 6 sessions" — sessions carry no price yet
-   *  (that is slice 2), so today every attendee is on the whole event. */
+  /** "Whole event" / "Whole event · 6 sessions" / "2 of 6 sessions" (slice 2). */
   attending: string;
   owes: number;
   paid: number;
@@ -183,7 +184,12 @@ function categoryValueOf(responses: Record<string, unknown> | null | undefined, 
   return typeof v === "string" ? v : String(v);
 }
 
-function attendingLabel(ev: LedgerEvent): string {
+function attendingLabel(ev: LedgerEvent, sessionIds?: string[] | null): string {
+  // Slice 2: a per-session purchase says which sessions it bought. Nothing
+  // else about the row changes — owes/paid still come from the snapshot.
+  if (sessionIds && sessionIds.length > 0) {
+    return sessionIds.length === 1 ? "1 session" : `${sessionIds.length} of ${ev.sessionCount} sessions`;
+  }
   if (ev.sessionCount > 1) return `Whole event · ${ev.sessionCount} sessions`;
   return "Whole event";
 }
@@ -260,7 +266,7 @@ export function buildAttendeeLedger(
       emailNote: r.recipientName ?? null,
       phone: r.phone ?? booking?.member.phone ?? null,
       categoryValue: categoryValueOf(r.formResponses, ev.categoryKey),
-      attending: attendingLabel(ev),
+      attending: attendingLabel(ev, r.sessionIds),
       owes,
       paid: r.status === "PAID" ? money(paid > 0 ? paid : due) : money(paid),
       scheduledAmount: r.status === "SCHEDULED" ? money(due) : 0,

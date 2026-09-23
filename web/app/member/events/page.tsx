@@ -22,7 +22,10 @@ type EventCard = {
   pricingOptions: { type: string; membershipId?: string }[] | null;
   location: { name: string } | null;
   customEventType: { name: string; color: string; textColor: string } | null;
-  sessions: { id: string; name: string | null; startsAt: string; endsAt: string }[];
+  sessions: { id: string; name: string | null; startsAt: string; endsAt: string; price?: number | string | null }[];
+  // slice 2 — FIXED events can sell sessions one by one
+  sellIndividualSessions?: boolean;
+  pricingModel?: string | null;
   _count: { bookings: number };
   autoChargeDate?: string | null;
 };
@@ -82,6 +85,7 @@ export default function MemberEventsPage() {
     eventId?: string;
     bundleId?: string;
     pricingType?: "MEMBER" | "NON_MEMBER" | "DROP_IN";
+    sessionIds?: string[];
     // §5.3.3 — set by the server when this event is approval-gated.
     requiresCoachApproval?: boolean;
     options: string[];
@@ -134,11 +138,17 @@ export default function MemberEventsPage() {
     router.push(`/member/messages/group/${d.groupId}`);
   }
 
+  // Per-session picks, per event (slice 2). Only shown when the event sells
+  // sessions individually; the server prices the pick from the sessions' own
+  // prices, so this holds ids and nothing about money.
+  const [picking, setPicking] = useState<Record<string, string[]>>({});
+
   async function register(
     eventId: string,
     pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN" = "MEMBER",
     payment?: { method: string; consentLabel?: string },
     acknowledgeDocuments?: boolean,
+    sessionIds?: string[],
   ) {
     setBusy(eventId);
     setError("");
@@ -148,6 +158,7 @@ export default function MemberEventsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pricingType,
+        ...(sessionIds && sessionIds.length ? { sessionIds } : {}),
         memberId: selectedMemberId,
         discountCode: discountCode.trim() || null,
         ...(payment ? { paymentMethod: payment.method } : {}),
@@ -170,6 +181,7 @@ export default function MemberEventsPage() {
         kind: "event",
         eventId,
         pricingType,
+        sessionIds,
         options: d.options ?? [],
         quote: d.quote ?? null,
         savedCard: d.savedCard ?? null,
@@ -183,7 +195,7 @@ export default function MemberEventsPage() {
     if (res.status === 400 && d.error === "DOCUMENTS_ACKNOWLEDGE_REQUIRED") {
       const titles = (d.documents ?? []).map((x: { title: string }) => x.title).join(", ");
       if (window.confirm(`This event requires acknowledging: ${titles}. Acknowledge and continue?`)) {
-        register(eventId, pricingType, payment, true);
+        register(eventId, pricingType, payment, true, sessionIds);
       }
       return;
     }
@@ -400,7 +412,13 @@ export default function MemberEventsPage() {
               : nonMemberPrice
                 ? "Non-member price (full event)"
                 : "Price";
-            const showDropIn = isMultiSession && !!dropInFee;
+            const pricedSessions = (e.sessions ?? []).filter((x) => x.price != null && Number(x.price) > 0 && new Date(x.startsAt).getTime() > Date.now());
+            const sellsSessions = !!e.sellIndividualSessions && pricedSessions.length > 0;
+            // The old single drop-in button stays only for events that never
+            // moved to per-session prices.
+            const showDropIn = !sellsSessions && isMultiSession && !!dropInFee;
+            const picked = picking[e.id] ?? null;
+            const pickedTotal = picked ? pricedSessions.filter((x) => picked.includes(x.id)).reduce((a, x) => a + Number(x.price), 0) : 0;
 
             return (
               <div key={e.id} className="bg-white rounded-xl border border-stone-200 p-4">
@@ -486,7 +504,16 @@ export default function MemberEventsPage() {
                               ? "Register"
                               : `Register · $${yourPrice ?? 0}`}
                         </button>
-                        {showDropIn && !coveredByActiveSub && (
+                        {sellsSessions && !coveredByActiveSub ? (
+                          <button
+                            type="button"
+                            disabled={!hasMemberProfile || busy === e.id}
+                            onClick={() => setPicking((p) => ({ ...p, [e.id]: p[e.id] ? undefined as unknown as string[] : [] }))}
+                            className="px-3 py-1.5 bg-white border border-stone-300 text-stone-700 rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50"
+                          >
+                            {picking[e.id] ? "Hide sessions" : `Pick sessions · from $${fmtPrice(Math.min(...pricedSessions.map((x) => Number(x.price))))}`}
+                          </button>
+                        ) : showDropIn && !coveredByActiveSub ? (
                           <button
                             disabled={!hasMemberProfile || busy === e.id}
                             onClick={() => register(e.id, "DROP_IN")}
@@ -494,11 +521,45 @@ export default function MemberEventsPage() {
                           >
                             Drop-in · ${dropInFee}
                           </button>
-                        )}
+                        ) : null}
                       </>
                     )}
                   </div>
                 </div>
+                {/* Per-session picker (slice 2). Prices come from each session;
+                    the server re-quotes the pick, so the total here is a
+                    preview, never the charge. */}
+                {picked && !booked && sellsSessions && (
+                  <div className="mt-3 border-t border-stone-200 pt-3">
+                    <p className="text-xs font-medium text-stone-700 mb-1.5">Which sessions?</p>
+                    <div className="space-y-1">
+                      {pricedSessions.map((x) => {
+                        const on = picked.includes(x.id);
+                        const when = `${new Date(x.startsAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · ${new Date(x.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+                        return (
+                          <label key={x.id} className="flex items-center justify-between gap-3 text-xs text-stone-700 py-1.5 min-h-[44px]">
+                            <span className="flex items-center gap-2 min-w-0">
+                              <input type="checkbox" checked={on} onChange={() => setPicking((p) => ({ ...p, [e.id]: on ? (p[e.id] ?? []).filter((id) => id !== x.id) : [...(p[e.id] ?? []), x.id] }))} />
+                              <span className="truncate">{x.name || "Session"} <span className="text-stone-500">· {when}</span></span>
+                            </span>
+                            <span className="font-semibold shrink-0">${fmtPrice(x.price ?? 0)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between gap-3 mt-2">
+                      <span className="text-xs text-stone-500">{picked.length} session{picked.length === 1 ? "" : "s"} · <strong className="text-stone-800">${fmtPrice(pickedTotal)}</strong></span>
+                      <button
+                        type="button"
+                        disabled={!hasMemberProfile || busy === e.id || picked.length === 0}
+                        onClick={() => register(e.id, "DROP_IN", undefined, undefined, picked)}
+                        className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50 min-h-[36px]"
+                      >
+                        {busy === e.id ? "…" : `Register ${picked.length || ""} · $${fmtPrice(pickedTotal)}`}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -516,7 +577,7 @@ export default function MemberEventsPage() {
             if (p.kind === "bundle" && p.bundleId) {
               registerBundle(p.bundleId, method);
             } else if (p.eventId) {
-              register(p.eventId, p.pricingType ?? "MEMBER", { method, consentLabel }, acknowledged);
+              register(p.eventId, p.pricingType ?? "MEMBER", { method, consentLabel }, acknowledged, p.sessionIds);
             }
           }}
         />

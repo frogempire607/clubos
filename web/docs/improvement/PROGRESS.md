@@ -202,9 +202,14 @@ Status legend: `⬜ pending · 🟡 in progress · 🟢 done · 🔵 blocked · 
 | [2.5](#phase-25--reports-full-design-handoff) | Reports — full design handoff (8-tab hub, drill, imports, alerts, forecasts, PDF/CSV export) | 🟢 done (2026-07-30) · except 2.5.12, held back by owner |
 | [3](#phase-3--communications--email) | Communications & Email | 🟢 done (2026-08-02) |
 | [4](#phase-4--client--family-accounts) | Client & Family Accounts | 🟢 done (2026-08-03) · merged `be0bfe0` |
-| [4.5](#phase-45--members-full-design-handoff) | Members — full design handoff (3 tracks, list, profile, Family & access, migration redesign, mobile, source label) | ⬜ pending |
+| [4.5](#phase-45--members-full-design-handoff) | Members — full design handoff (3 tracks, list, profile, Family & access, migration redesign, mobile, source label) | 🟢 merged `28261c0` 2026-08-11 · 13 partial / 16 missing are the mobile-native layer (BACKLOG B6) |
 | [5](#phase-5--event-registration-confirmation) | Event Registration Confirmation | 🟢 complete 2026-08-12 — see [PHASE-5-DELIVERABLE.md](PHASE-5-DELIVERABLE.md) |
-| [6](#phase-6--safety-data-integrity-testing) | Safety, Testing, Deployment & Final Handoff | ⬜ pending |
+| [6](#phase-6--safety-data-integrity-testing) | Safety, Testing, Deployment & Final Handoff | 🟢 closed 2026-09-09 — the guards run in every build |
+| 7 | Signup intent, self-signed waivers, `createdVia` (2026-08-16) | 🟢 done |
+| 8 | Membership structure & entitlements (options, terms, day entitlements, autopay, D9) | 🟡 built; Steps 6–7 plan collapse pending (BACKLOG B7) |
+| 9 | Family & group discounts | ⬜ spec merged, nothing built (BACKLOG B3) |
+| 10 | Class-time duplicate fix + unique constraint | 🟢 done 2026-09-10 |
+| B-list | Backlog since 2026-09-14 — see docs/BACKLOG.md | B1 B4 B8 B9 B15 shipped · B11 slices 1–2b · B10 slice 1 |
 
 ## Full migration inventory (M1–M28)
 
@@ -4702,3 +4707,14 @@ Slice 2b: the editor itself (1a/1b), the member-portal session picker, Attendees
 Also today: B15 shipped; found that Jacob Vann's father already holds a portal login
 (vannjudson@gmail.com) vouched against a placeholder "Judson Vann" athlete record — link that account to
 Jacob and archive the placeholder; B15 would have minted a second account at jvann@tessy.com.
+
+## 2026-09-23 — Events slice 2b: the editor
+
+`components/events/EventEditor.tsx` (891 lines) replaces `EventModal`; the events page drops from 4,458 to
+~3,000 lines and `EventImageFocalPicker` moves to its own file. Same payload as before plus the slice-2
+fields; sessions post their ids so per-session purchases survive edits. Every summary line is derived from
+the one state it describes (`moneySummary`, `applyExclusions`, `bundleSanity` from lib/eventPricingModel),
+the desktop preview reads the same values, and the conflict panel names the first live conflict.
+Member portal gains "Pick sessions" (checklist, preview total, server re-quotes); Attendees rows read
+"2 of 6 sessions" when a registration carries `sessionIds` (+4 ledger tests, 46 pass). tsc clean, guards
+green. Not in 2b: nothing touches existing registrations; "add a session to my registration" is slice 3.

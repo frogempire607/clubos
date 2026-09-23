@@ -127,5 +127,18 @@ console.log("\nCategory + contact:");
   eq("contact note names the guardian", l.rows[0].emailNote, "Dana Smith (guardian)");
 }
 
+// slice 2 — a per-session purchase says which sessions it bought
+console.log("\nSessions bought (slice 2):");
+{
+  const EV6 = { ...EV, sessionCount: 6 };
+  const whole = buildAttendeeLedger(EV6, [reg({ id: "r1", memberId: "m1", name: "Ava", status: "PAID", amountDue: 200, amountPaid: 200 })], [booking({ id: "b1", memberId: "m1" })], { now: NOW });
+  check("no sessionIds → whole event", whole.rows[0].attending === "Whole event · 6 sessions", whole.rows[0].attending);
+  const two = buildAttendeeLedger(EV6, [reg({ id: "r2", memberId: "m2", name: "Bo", status: "PAID", amountDue: 40, amountPaid: 40, sessionIds: ["s1", "s4"] })], [booking({ id: "b2", memberId: "m2" })], { now: NOW });
+  check("two sessions bought → '2 of 6 sessions'", two.rows[0].attending === "2 of 6 sessions", two.rows[0].attending);
+  check("…and owes/paid still come from the snapshot", two.rows[0].paid === 40 && two.rows[0].owes === 0);
+  const one = buildAttendeeLedger(EV6, [reg({ id: "r3", memberId: "m3", name: "Cy", status: "AWAITING_CASH", amountDue: 20, sessionIds: ["s1"] })], [booking({ id: "b3", memberId: "m3" })], { now: NOW });
+  check("one session → '1 session'", one.rows[0].attending === "1 session", one.rows[0].attending);
+}
+
 console.log(`\n${fail === 0 ? "✓" : "✗"} ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);

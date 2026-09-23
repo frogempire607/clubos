@@ -25,6 +25,7 @@ const REG_SELECT = {
   status: true,
   amountDue: true,
   amountPaid: true,
+  sessionIds: true,
   approvalStatus: true,
   proposedChange: true,
   proposedChangeRespondedAt: true,

@@ -53,7 +53,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [ ] **A8 · ~17 members training unbilled**
   Decide each one: bill, comp, or trial/drop-in.
 
-- [ ] **A9 · Stripe check — the three still "trialing" locally (Orson done)** · what to check per person in chat 2026-09-23
+- [ ] **A9 · Stripe check** · 2026-09-23: Kellan is $450 in Stripe (overcharge reimbursed in cash by Julian); Jacob paid, year runs; Levi renewing soon. Remaining: the local "trialing" labels are stale until B12's sync; the five status↔subscription mismatches below.
   Kellan Lister `sub_1TqMhGEIplcCMoSoBDwCp2xq` (Stripe last synced Jul 7 at $545.37/qtr = $530 base; row
   says $450 "Upfront"); Jacob Vann `sub_1U4INfEIplcCMoSoPkZNCC8i` (1 year $1,500, first charge was due
   Aug 16, row still "trialing", endDate Aug 13 2027 but autoRenew true); Levi Schanzenbach
@@ -174,8 +174,13 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   BOTH vocabularies + exclusion rules + sessions keep their ids (409 if a removed session has paid
   registrations), register route DROP_IN + sessionIds[] = per-session purchase via quoteSessions, public
   route/register read signupAccess. Money rule honoured: no existing registration is touched.
-  SLICE 2b NEXT: EventEditor 1a/1b replacing EventModal, member-portal session picker, Attendees showing
-  sessions bought. Old modal keeps working meanwhile (legacy fields derived both ways).
+  SLICE 2b BUILT 2026-09-23 (on disk, same branch): components/events/EventEditor.tsx replaces EventModal
+  (events page 4,458 → ~3,000 lines): seven collapsible cards with derived summaries, phone sheet /
+  desktop 1fr+316px with "What a family sees" preview + conflict panel, pricing-model cards, per-session
+  prices on session rows, exclusion rules live, bundle sanity, tournament host/attend sets the model.
+  Member portal: "Pick sessions" checklist → per-session registration. Attendees: "2 of 6 sessions".
+  Approvals for events are the EXISTING Phase 5 coach-approval settings, now edited in the "Who signs up"
+  card — not new. Classes/waitlist are separate (Classes page); not in this handoff.
   No longer waits on COPPA (see B2: COPPA is already on main).
   SLICE 2 PLAN: (1) migration `event_pricing_model`: EventSession.price Decimal?, Event.pricingModel
   (FREE|FIXED|SPLIT, backfilled from variableCostEnabled/prices), Event.signupAccess
@@ -202,4 +207,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-23 (B9+B15 shipped; events slice 2a built; Jacob's dad already has a login)_
+_Last reviewed: 2026-09-23 (B9+B15 shipped; events slice 2a merged, 2b built; A9 mostly clear)_
