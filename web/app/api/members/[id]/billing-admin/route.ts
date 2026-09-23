@@ -19,6 +19,7 @@ import {
   READINESS_LABELS,
   MIGRATION_GROUPS,
   FINAL_ACTIONS,
+  resolveDraftOptionId,
 } from "@/lib/billingAdmin";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { feeBreakdown, describeProcessingFee } from "@/lib/fees";
@@ -339,8 +340,15 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   // The one owner-side action that turns a saved setup into a membership.
   // Offered only when it would not stack on live card billing (enrollAlreadyPaid
   // refuses that itself; this is so the page never advertises a refused action).
+  // CARD: the member pays by saved card ⇒ a Stripe subscription off it.
+  // OFFLINE: cash/check (or no online payments) ⇒ the enrol form records the
+  // money. Mirrors approve's offlineIntended so a cash member with a card on
+  // file is never card-charged from here either (Adelynn Bergen near-miss).
+  const activationMode: "CARD" | "OFFLINE" = offlineIntended ? "OFFLINE" : "CARD";
   const activation = {
     available: !hasLiveStripeSub && pricing.configured && !!plan,
+    mode: activationMode,
+    hasCard: !!member.stripeSetupCustomerId && !!member.stripeSetupPaymentMethodId,
     reason: hasLiveStripeSub
       ? "Card billing is live in Stripe — change the plan there, or turn autopay off first."
       : !pricing.configured || !plan
@@ -348,19 +356,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
         : null,
     // Resolve the draft to a sellable option id — the enrol form works on ids,
     // never labels. Match on id, then label+period, then price+period.
-    optionId: (() => {
-      if (!plan) return null;
-      const opts = parseOptionsShared(plan.options);
-      const sel = (member.migrationSelectedOption ?? null) as { id?: unknown; label?: unknown; price?: unknown; billingPeriod?: unknown } | null;
-      const byId = sel && typeof sel.id === "string" ? opts.find((o) => o.id === sel.id) : null;
-      const byLabel = sel && typeof sel.label === "string"
-        ? opts.find((o) => o.label === sel.label && (!sel.billingPeriod || o.billingPeriod === sel.billingPeriod))
-        : null;
-      const byPrice = sel && typeof sel.price === "number"
-        ? opts.find((o) => o.price === sel.price && o.billingPeriod === sel.billingPeriod)
-        : null;
-      return (byId ?? byLabel ?? byPrice)?.id ?? null;
-    })(),
+    optionId: plan ? resolveDraftOptionId(parseOptionsShared(plan.options), member.migrationSelectedOption) : null,
     amount: pricing.configured ? pricing.price : null,
     coversUntil: member.commitmentEndDate && member.commitmentEndDate.getTime() > Date.now()
       ? member.commitmentEndDate

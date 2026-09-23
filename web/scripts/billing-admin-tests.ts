@@ -15,6 +15,7 @@ import {
   pmRef,
   prettyPeriod,
   addBillingPeriod,
+  resolveDraftOptionId,
 } from "../lib/billingAdmin";
 import { resolveBillingAnchor } from "../lib/migration";
 import { diffOffer, type ReactivationOffer } from "../lib/reactivation";
@@ -490,6 +491,30 @@ console.log("\nD9 — live subscription beats the frozen snapshot:");
   check("a subscription with no readable price falls back", nullPrice.price === 190);
   const genuinelyFree = resolveOfferPricing({}, MSHS, live(0));
   check("a genuine $0 live subscription is honoured as $0", genuinelyFree.price === 0);
+}
+
+console.log("\nresolveDraftOptionId — the saved setup against the plan's current options:");
+{
+  const MSHS_OPTS = [
+    { id: "opt_a", label: "Monthly Full Membership", price: 175, billingPeriod: "MONTHLY" },
+    { id: "opt_b", label: "3 months Upfront", price: 450, billingPeriod: "QUARTERLY" },
+    { id: "opt_c", label: "1 year Upfront", price: 1500, billingPeriod: "ANNUAL" },
+    { id: "opt_d", label: "12 months", price: 150, billingPeriod: "MONTHLY" },
+  ];
+  check("Colton's draft (label+price+period) resolves to the option id",
+    resolveDraftOptionId(MSHS_OPTS, { label: "3 months Upfront", price: 450, billingPeriod: "QUARTERLY" }) === "opt_b");
+  check("an id in the draft wins outright",
+    resolveDraftOptionId(MSHS_OPTS, { id: "opt_d", label: "renamed", price: 1 }) === "opt_d");
+  check("a renamed label still matches on price + period",
+    resolveDraftOptionId(MSHS_OPTS, { label: "Quarter", price: 450, billingPeriod: "QUARTERLY" }) === "opt_b");
+  check("Wyatt's draft ('1 Year' $2,000 ANNUAL) resolves to NOTHING — never guess",
+    resolveDraftOptionId(MSHS_OPTS, { label: "1 Year", price: 2000, billingPeriod: "ANNUAL" }) === null);
+  check("same label, different period does not match",
+    resolveDraftOptionId(MSHS_OPTS, { label: "12 months", price: 150, billingPeriod: "ANNUAL" }) === null);
+  check("$175 MONTHLY vs $150 MONTHLY are told apart by price",
+    resolveDraftOptionId(MSHS_OPTS, { label: "x", price: 150, billingPeriod: "MONTHLY" }) === "opt_d");
+  check("no draft → null", resolveDraftOptionId(MSHS_OPTS, null) === null);
+  check("garbage draft → null", resolveDraftOptionId(MSHS_OPTS, "monthly") === null);
 }
 
 console.log(`\n=== FINAL: ${pass} passed, ${fail} failed ===`);

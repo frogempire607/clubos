@@ -170,7 +170,7 @@ export default function EnrollAlreadyPaidCard({
     const d = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      setError(typeof d.error === "string" ? d.error : "Could not enrol this member.");
+      setError(typeof d.error === "string" ? d.error : "Could not enroll this member.");
       return;
     }
     setDone(typeof d.message === "string" ? d.message : "Enrolled.");
@@ -195,7 +195,7 @@ export default function EnrollAlreadyPaidCard({
             onClick={() => setOpen(true)}
             className="shrink-0 text-sm px-3 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
           >
-            Enrol
+            Enroll
           </button>
         )}
       </div>
@@ -359,7 +359,7 @@ export default function EnrollAlreadyPaidCard({
               disabled={busy || !option?.id || !coversUntil || !amount}
               className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
             >
-              {busy ? "Working…" : "Record payment & enrol"}
+              {busy ? "Working…" : "Record payment & enroll"}
             </button>
             {amountMismatch && (
               <button

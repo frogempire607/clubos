@@ -204,7 +204,13 @@ ratchet(
   // on the enrol form, which the owner sees and confirms before anything is
   // written; the subscription's own paidThroughDate/endDate are what get
   // stored. That is the draft being read as a draft, not as the answer.
-  46,
+  // 46 → 48 (B9 card path, 2026-09-23): billing-admin/actions `activate_card`
+  // reads `member.billingAnchorDate` (the first-charge date the owner set, as
+  // input to the Stripe trial_end) and `member.commitmentEndDate` (the cancel
+  // date). Both are the owner's setup being TURNED INTO a subscription — the
+  // subscription row then carries its own billingAnchorDate/endDate, which is
+  // what everything reads afterwards. Same shape as migration approve.
+  48,
   0,
   scan(MEMBER_FIELD_READ),
   [

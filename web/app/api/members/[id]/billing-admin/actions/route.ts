@@ -9,7 +9,20 @@ import { writeBillingAudit } from "@/lib/billingAudit";
 import { MIGRATION_STATUS } from "@/lib/migration";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { turnAutopayOff, turnAutopayOn, setAutoRenew, previewAutopayChange } from "@/lib/autopay";
-import { SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
+import {
+  recordSubscriptionCreated,
+  recordSubscriptionEvent,
+  SUBSCRIPTION_EVENT_KIND,
+  SUBSCRIPTION_EVENT_SOURCE,
+} from "@/lib/subscriptionEvents";
+import { stripe } from "@/lib/stripe";
+import { createSavedCardSubscription } from "@/lib/cardActivation";
+import { resolveDraftOptionId, addUTCMonths } from "@/lib/billingAdmin";
+import { minimumTermEndForOptionId, parseOptions, resolveTerms } from "@/lib/membershipOptions";
+import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
+import { recordDiscountUse } from "@/lib/discounts";
+import { sendMembershipActivatedEmail } from "@/lib/email";
+import { getAppBaseUrl } from "@/lib/baseUrl";
 
 // Discrete, confirmation-gated billing actions (billing:full). Each action is
 // explicit, audited, and preserves history — nothing here deletes rows or
@@ -22,6 +35,7 @@ const schema = z.object({
     "set_deliberate_free",
     "set_autopay",
     "set_auto_renew",
+    "activate_card",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -33,6 +47,9 @@ const schema = z.object({
   autopay: z.boolean().optional(),
   autoRenew: z.boolean().optional(),
   reason: z.string().max(200).optional().nullable(),
+  // activate_card: a first charge dated today/past runs NOW. Never silently —
+  // the caller acknowledges it explicitly (the UI shows the amount and date).
+  confirmImmediateCharge: z.boolean().optional().default(false),
 });
 
 // GET ?subscriptionId=…&direction=on|off — the exact sentence the confirm
@@ -81,6 +98,201 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     where: { id, clubId: session.user.clubId, deletedAt: null },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // activate_card — B9. Turn the saved setup into a REAL membership for a
+  // member who pays by saved card: a Stripe subscription off that card,
+  // first charge on the owner-approved date (or now, confirmed), ending on
+  // the commitment date when the option doesn't renew. This is the
+  // "authorized user explicitly activates the membership" the Edit modal has
+  // promised since July; until now only migration approval could do it, and
+  // only for members still mid-migration. Colton Waite was COMPLETED.
+  if (data.action === "activate_card") {
+    const club = await prisma.club.findUnique({
+      where: { id: session.user.clubId },
+      select: { id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true },
+    });
+    if (!club?.stripeAccountId || !club.stripeChargesEnabled) {
+      return NextResponse.json({ error: "Online payments aren't connected for this club — use “Already paid?” to bill offline." }, { status: 409 });
+    }
+    if (member.requestedPaymentMethod === "CASH" || member.requestedPaymentMethod === "CHECK") {
+      return NextResponse.json(
+        { error: "This member's payment method is cash/check. Record the payment with “Already paid?” instead — a card is never charged for an offline member.", code: "OFFLINE_INTENDED" },
+        { status: 409 },
+      );
+    }
+    if (!member.migrationMembershipId) {
+      return NextResponse.json({ error: "Pick a plan and option in Edit first.", code: "PLAN_REQUIRED" }, { status: 409 });
+    }
+    const plan = await prisma.membership.findFirst({
+      where: { id: member.migrationMembershipId, clubId: club.id, deletedAt: null },
+      select: { id: true, name: true, options: true, autoRenewDefault: true, contractMonths: true },
+    });
+    if (!plan) return NextResponse.json({ error: "The plan on this setup no longer exists — pick another in Edit.", code: "PLAN_REQUIRED" }, { status: 409 });
+    const options = parseOptions(plan.options);
+    const optionId = resolveDraftOptionId(options, member.migrationSelectedOption);
+    const option = optionId ? options.find((o) => o.id === optionId) ?? null : null;
+    if (!option) {
+      return NextResponse.json(
+        { error: `The setup names an option ${plan.name} no longer sells. Re-pick the option in Edit, then activate.`, code: "OPTION_NOT_SELLABLE" },
+        { status: 409 },
+      );
+    }
+    // Price: option, then the owner's override (the reason the override exists).
+    let price = option.price;
+    if (member.migrationPriceOverride != null) price = Number(member.migrationPriceOverride);
+    const period = option.billingPeriod;
+    if (price <= 0) {
+      return NextResponse.json({ error: "This setup is $0 — there is nothing to charge. Use “Already paid?” to record a free membership.", code: "FREE" }, { status: 409 });
+    }
+    let discount: { id: string; code: string; amountOff: number } | null = null;
+    if (member.migrationDiscountCode) {
+      const resolved = await resolveStaffDiscount(club.id, member.migrationDiscountCode, { type: "MEMBERSHIP", membershipId: plan.id });
+      if (!resolved.ok) return NextResponse.json({ error: `The selected discount can't be applied: ${resolved.error}`, code: "DISCOUNT_INVALID" }, { status: 400 });
+      if (resolved.discount) {
+        const q = quotePayment({ originalPrice: price, discount: resolved.discount, method: "CASH", passProcessingFees: false });
+        if (!q.ok) return NextResponse.json({ error: q.error, code: "DISCOUNT_INVALID" }, { status: 400 });
+        discount = { id: resolved.discount.id, code: resolved.discount.code, amountOff: q.quote.discountAmount };
+        price = q.quote.finalPrice;
+      }
+    }
+    if (!member.stripeSetupCustomerId || !member.stripeSetupPaymentMethodId) {
+      return NextResponse.json(
+        { error: "No saved card on file. Use “Add method” to collect one, or switch the payment method to cash/check in Edit and record it with “Already paid?”.", code: "CARD_SETUP_INCOMPLETE" },
+        { status: 409 },
+      );
+    }
+
+    // Never a second live subscription. Local, then live against Stripe on
+    // every customer id we know; the live check fails CLOSED.
+    const localLive = await prisma.memberSubscription.findFirst({
+      where: { memberId: member.id, stripeSubscriptionId: { not: null }, status: { in: ["active", "past_due"] }, canceledAt: null },
+      select: { optionLabel: true },
+    });
+    if (localLive) {
+      return NextResponse.json({ error: `A live card subscription ("${localLive.optionLabel}") already exists — activating again would bill them twice.`, code: "ALREADY_SUBSCRIBED" }, { status: 409 });
+    }
+    for (const custId of [member.stripeSetupCustomerId, member.stripeCustomerId]) {
+      if (!custId) continue;
+      try {
+        const subs = await stripe.subscriptions.list({ customer: custId, status: "all", limit: 20 }, { stripeAccount: club.stripeAccountId });
+        if (subs.data.some((x) => ["active", "trialing", "past_due", "unpaid"].includes(x.status))) {
+          return NextResponse.json({ error: "Stripe shows a live subscription on this member already. Run a billing sync; nothing was created or charged.", code: "ALREADY_SUBSCRIBED" }, { status: 409 });
+        }
+      } catch (e) {
+        console.error("activate_card: live-subscription preflight failed:", e);
+        return NextResponse.json({ error: "Stripe couldn't be reached to verify existing billing. Nothing was charged — try again in a minute." }, { status: 502 });
+      }
+    }
+
+    // First charge: the owner-approved final date, else the imported anchor;
+    // today/past ⇒ charges now, and the caller must have said so.
+    const anchorRaw = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
+    const billsImmediately = !anchorRaw || anchorRaw.getTime() <= Date.now() + 60_000;
+    if (billsImmediately && !data.confirmImmediateCharge) {
+      return NextResponse.json(
+        { error: "This would charge the saved card right now.", code: "IMMEDIATE_CHARGE_CONFIRM_REQUIRED", price },
+        { status: 409 },
+      );
+    }
+    const terms = resolveTerms(option, { contractMonths: plan.contractMonths, autoRenewDefault: plan.autoRenewDefault });
+    const termEnd = minimumTermEndForOptionId(new Date(), options, option.id, { contractMonths: plan.contractMonths }, addUTCMonths);
+
+    const activation = await createSavedCardSubscription({
+      member: {
+        id: member.id,
+        stripeSetupCustomerId: member.stripeSetupCustomerId,
+        stripeSetupPaymentMethodId: member.stripeSetupPaymentMethodId,
+      },
+      startDate: new Date(),
+      club: { id: club.id, stripeAccountId: club.stripeAccountId, passProcessingFees: club.passProcessingFees },
+      membershipId: plan.id,
+      planName: plan.name,
+      optionLabel: option.label,
+      optionId: option.id,
+      price,
+      period,
+      autoRenew: terms.autoRenewDefault,
+      minimumTermEndsAt: termEnd,
+      anchor: billsImmediately ? null : anchorRaw,
+      cancelSource: member.commitmentEndDate ?? null,
+      discount,
+      notes: `Activated from the billing centre by staff on ${new Date().toISOString().slice(0, 10)} — saved card.`,
+      metadata: { memberId: member.id, clubId: club.id, activatedBy: "billing-admin" },
+      idempotencyPrefix: "aox-activate-card",
+    });
+    if (!activation.ok) {
+      return NextResponse.json({ error: activation.error, code: activation.code }, { status: activation.code === "STRIPE_FAILED" ? 502 : 409 });
+    }
+    const memberSub = activation.memberSub;
+
+    // A $0 offline placeholder (Wyatt Eastman's imported year) is superseded,
+    // not stacked: the card row is the membership now. Priced offline rows are
+    // left alone — money was recorded against them.
+    const superseded = await prisma.memberSubscription.updateMany({
+      where: { memberId: member.id, id: { not: memberSub.id }, status: "active", billingType: "MANUAL", stripeSubscriptionId: null, price: 0 },
+      data: { status: "expired", expiredAt: new Date(), notes: `Superseded by card activation ${new Date().toISOString().slice(0, 10)}.` },
+    });
+
+    await recordSubscriptionCreated(memberSub, {
+      clubId: club.id,
+      source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      actorUserId: session.user.id,
+      detail: { route: "billing-admin/actions activate_card", billingType: "RECURRING" },
+    });
+    if (memberSub.status === "active") {
+      await recordSubscriptionEvent({
+        clubId: club.id, memberSubscriptionId: memberSub.id, memberId: member.id,
+        kind: SUBSCRIPTION_EVENT_KIND.ACTIVATED, toPlan: memberSub.optionLabel, toAmount: String(memberSub.price),
+        actorUserId: session.user.id, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+        detail: { route: "billing-admin/actions activate_card" },
+      });
+    }
+    await prisma.member.update({
+      where: { id: member.id },
+      data: {
+        membershipId: plan.id,
+        billingUpdatedAt: new Date(),
+        billingUpdatedById: session.user.id,
+      },
+    });
+    await recomputeMemberStatus(member.id, club.id);
+    if (discount) await recordDiscountUse(discount.id);
+    await writeBillingAudit({
+      clubId: club.id, memberId: member.id, actorUserId: session.user.id,
+      action: "MEMBERSHIP_ACTIVATED_CARD",
+      before: { supersededOfflineRows: superseded.count },
+      after: {
+        subscriptionId: memberSub.id, stripeSubscriptionId: activation.stripeSubscriptionId,
+        plan: plan.name, option: option.label, price, period,
+        firstChargeAt: activation.firstChargeAt.toISOString(), chargedImmediately: activation.chargedImmediately,
+        endsAt: activation.endsAt?.toISOString() ?? null, autoRenew: terms.autoRenewDefault,
+      },
+      note: activation.chargedImmediately
+        ? `"${option.label}" activated on the saved card — $${price.toFixed(2)} charged now${activation.endsAt ? `, ends ${activation.endsAt.toISOString().slice(0, 10)}` : ""}.`
+        : `"${option.label}" activated on the saved card — first charge $${price.toFixed(2)} on ${activation.firstChargeAt.toISOString().slice(0, 10)}${activation.endsAt ? `, ends ${activation.endsAt.toISOString().slice(0, 10)}` : ""}.`,
+    });
+    const toPaid = member.isMinor ? member.guardianEmail || member.email : member.email || member.guardianEmail;
+    if (toPaid) {
+      sendMembershipActivatedEmail({
+        to: toPaid, firstName: member.firstName, clubName: club.name, membershipName: `${plan.name} — ${option.label}`,
+        amountPaid: activation.chargedImmediately ? `$${price.toFixed(2)}` : undefined,
+        nextBillingDate: activation.chargedImmediately ? null : activation.firstChargeAt,
+        portalUrl: `${getAppBaseUrl()}/member`,
+      }).catch((e) => console.error("Activation email failed:", e));
+    }
+    return NextResponse.json({
+      ok: true,
+      subscriptionId: memberSub.id,
+      stripeSubscriptionId: activation.stripeSubscriptionId,
+      stripeStatus: activation.stripeStatus,
+      chargedImmediately: activation.chargedImmediately,
+      firstChargeAt: activation.firstChargeAt,
+      endsAt: activation.endsAt,
+      message: activation.chargedImmediately
+        ? `${member.firstName} is on "${option.label}" — $${price.toFixed(2)} charged to the saved card${activation.endsAt ? `, through ${activation.endsAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}.`
+        : `${member.firstName} is on "${option.label}" — first charge $${price.toFixed(2)} on ${activation.firstChargeAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}.`,
+    });
+  }
 
   if (data.action === "cancel_pending_activation") {
     // Cancel an incomplete pending activation WITHOUT deleting history: the

@@ -661,3 +661,30 @@ export function canRemovePaymentMethod(input: RemovalCheckInput): { allowed: boo
   }
   return { allowed: true, reason: null };
 }
+
+// ── Draft → sellable option ───────────────────────────────────────────────
+
+/**
+ * Resolve the option a saved setup (migrationSelectedOption) points at, on a
+ * plan's CURRENT options. The draft stores a label+price+period snapshot, not
+ * an id, and labels get renamed — so match on id, then label+period, then
+ * price+period. Null means the plan no longer sells what the draft names
+ * (Wyatt Eastman: "1 Year" at $2,000 against a plan offering "1 year Upfront"
+ * at $1,500), and the caller must ask instead of guessing.
+ */
+export function resolveDraftOptionId(
+  options: { id: string | null; label: string; price: number; billingPeriod: string }[],
+  selected: unknown,
+): string | null {
+  const sel = (selected ?? null) as { id?: unknown; label?: unknown; price?: unknown; billingPeriod?: unknown } | null;
+  if (!sel || typeof sel !== "object") return null;
+  const period = typeof sel.billingPeriod === "string" ? sel.billingPeriod : null;
+  const byId = typeof sel.id === "string" ? options.find((o) => o.id === sel.id) : null;
+  const byLabel = typeof sel.label === "string"
+    ? options.find((o) => o.label === sel.label && (!period || o.billingPeriod === period))
+    : null;
+  const byPrice = typeof sel.price === "number" && period
+    ? options.find((o) => o.price === sel.price && o.billingPeriod === period)
+    : null;
+  return (byId ?? byLabel ?? byPrice)?.id ?? null;
+}

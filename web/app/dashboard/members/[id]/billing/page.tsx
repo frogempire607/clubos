@@ -80,6 +80,8 @@ type Data = {
   // The one owner-side action that turns the saved setup into a membership.
   activation: {
     available: boolean; reason: string | null;
+    // CARD ⇒ charge the saved card (Stripe subscription); OFFLINE ⇒ record cash/check.
+    mode: "CARD" | "OFFLINE"; hasCard: boolean;
     optionId: string | null; amount: number | null; coversUntil: string | null; draftLabel: string | null;
   };
   paymentMethods: PaymentMethod[];
@@ -200,6 +202,7 @@ export default function MemberBillingPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
   const [enrolSignal, setEnrolSignal] = useState(0);
+  const [cardActivateOpen, setCardActivateOpen] = useState(false);
 
   const load = useCallback(() => {
     fetch(`/api/members/${id}/billing-admin`)
@@ -350,19 +353,39 @@ export default function MemberBillingPage() {
             // An active offline row means this is a renewal or a plan change
             // on the same row; none means the setup has never been activated.
             const hasActiveRow = data.subscriptions.some((s) => s.status === "active");
+            const card = data.activation.mode === "CARD";
             return (
               <div className="mt-3 pt-3 border-t border-app-border">
-                <button
-                  onClick={() => setEnrolSignal((n) => n + 1)}
-                  className="w-full sm:w-auto text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
-                >
-                  {hasActiveRow ? "Record payment & renew on this setup" : "Activate this setup now"}
-                </button>
-                <p className="text-xs text-text-muted mt-1.5">
-                  {hasActiveRow
-                    ? "Records the payment and moves the current membership onto the plan above, paid through the date you enter."
-                    : "Records the payment and starts the membership on the plan above. Nothing above is a membership until this is done."}
-                </p>
+                {card ? (
+                  <>
+                    <button
+                      onClick={() => setCardActivateOpen(true)}
+                      disabled={!data.activation.hasCard}
+                      className="w-full sm:w-auto text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                    >
+                      Activate this setup now
+                    </button>
+                    <p className="text-xs text-text-muted mt-1.5">
+                      {data.activation.hasCard
+                        ? `Starts the membership above on the saved card — ${b.chargeTiming.immediate ? "charged today" : `first charge ${fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}`}. You confirm the amount and date first.`
+                        : "No saved card on file. Use “Add method” below to collect one, or set the payment method to cash/check in Edit and record it with “Already paid?”."}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setEnrolSignal((n) => n + 1)}
+                      className="w-full sm:w-auto text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
+                    >
+                      {hasActiveRow ? "Record payment & renew on this setup" : "Activate this setup now"}
+                    </button>
+                    <p className="text-xs text-text-muted mt-1.5">
+                      {hasActiveRow
+                        ? "Records the cash/check payment and moves the current membership onto the plan above, paid through the date you enter."
+                        : "Records the cash/check payment and starts the membership on the plan above. Nothing above is a membership until this is done."}
+                    </p>
+                  </>
+                )}
               </div>
             );
           })()}
@@ -659,6 +682,14 @@ export default function MemberBillingPage() {
         </Card>
       </div>
 
+      {cardActivateOpen && (
+        <CardActivateModal
+          data={data}
+          memberId={id}
+          onClose={() => setCardActivateOpen(false)}
+          onDone={(m) => { setCardActivateOpen(false); setMsg(m); load(); }}
+        />
+      )}
       {editOpen && <EditBillingModal data={data} memberId={id} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load(); }} />}
       {reactOpen && <ReactivationModal data={data} memberId={id} onClose={() => setReactOpen(false)} onChanged={() => load()} />}
     </div>
@@ -953,6 +984,71 @@ function DangerCard({ data, memberId, onDone, onMsg }: { data: Data; memberId: s
 }
 
 // ── Edit modal (preview-diff → confirm) ────────────────────────────────────
+
+// "Activate this setup now" for a saved-card payer. One screen that states
+// the exact charge in the words the audit log will use, then runs
+// activate_card. An immediate charge is a second, explicit acknowledgement.
+function CardActivateModal({ data, memberId, onClose, onDone }: { data: Data; memberId: string; onClose: () => void; onDone: (msg: string) => void }) {
+  const b = data.billing;
+  const immediate = b.chargeTiming.immediate;
+  const [ack, setAck] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const fee = data.feeBreakdown;
+  const total = fee?.passFees ? fee.totalCharged : (b.price ?? 0);
+  const firstCharge = immediate ? "today" : fmtDateUTC(b.finalBillingDate || b.billingAnchorDate);
+  const ends = b.commitmentEndDate ? fmtDateUTC(b.commitmentEndDate) : null;
+
+  async function run() {
+    setBusy(true); setError("");
+    const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "activate_card", confirm: true, confirmImmediateCharge: immediate && ack }),
+    });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { setError(typeof d.error === "string" ? d.error : "Could not activate."); return; }
+    onDone(typeof d.message === "string" ? d.message : "Membership activated.");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-text-primary">Activate on the saved card</h3>
+        {error && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2">{error}</p>}
+        <div className="text-sm text-text-primary bg-app-bg rounded-lg px-3 py-2.5 space-y-1">
+          <p><strong>{data.member.firstName} {data.member.lastName}</strong> goes on <strong>{b.planName}{b.optionLabel ? ` · ${b.optionLabel}` : ""}</strong>.</p>
+          <p>
+            <strong>{fmtMoney(total)}</strong> {b.periodLabel}
+            {fee?.passFees && (b.price ?? 0) > 0 ? <span className="text-text-muted"> ({fmtMoney(b.price ?? 0)} + {fmtMoney(fee.fee)} processing fee)</span> : null}
+            {" "}— first charge <strong className={immediate ? "text-orange-accent" : ""}>{firstCharge}</strong>.
+          </p>
+          <p className="text-text-muted">
+            {ends ? `Ends ${ends} (the commitment date) — no charge after that.` : "Renews each period until it is turned off."}
+          </p>
+          <p className="text-text-muted">Card: {pmPrefLabel(b.requestedPaymentMethod)}. Nothing else changes.</p>
+        </div>
+        {immediate && (
+          <label className="flex items-start gap-2 text-sm text-text-primary">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
+            <span>I understand the saved card is charged <strong>{fmtMoney(total)} right now</strong>.</span>
+          </label>
+        )}
+        <div className="flex gap-2 justify-end pt-1">
+          <button onClick={onClose} disabled={busy} className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Cancel</button>
+          <button
+            onClick={run}
+            disabled={busy || (immediate && !ack)}
+            className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+          >
+            {busy ? "Working…" : immediate ? `Charge ${fmtMoney(total)} & activate` : "Activate"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; memberId: string; onClose: () => void; onSaved: () => void }) {
   const b = data.billing;

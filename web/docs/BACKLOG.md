@@ -17,10 +17,9 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 ## A — Only Julian can do (billing centre, calls, account work — no code)
 
 - [ ] **A1 · Colton Waite — put him on 3 months Upfront ($450)** · overdue since Sep 8 · UNBLOCKED once B9 is merged
-  Billing centre → Membership & pricing → **Activate this setup now**. The form opens on MS/HS · 3 months
-  Upfront, $450, paid through Dec 10 (his saved commitment date). Cash/check → Record payment & enrol.
-  His expired $530 row is revived in place (B9 fixed the bug where a revived row kept its old end date
-  and re-expired on the next roster load).
+  He pays by saved card. Billing centre → **Activate this setup now** → confirm screen shows $450 + fee,
+  charged today (anchor Sep 23 has passed), ends Dec 10 → tick the immediate-charge box → Charge & activate.
+  Creates the Stripe subscription off the saved card; his expired $530 row stays as history.
 
 - [ ] **A2 · Wyatt Eastman — renew him for a year** · his $0 MANUAL row ends Oct 2 · UNBLOCKED once B9 is merged
   Billing centre → **Record payment & renew on this setup**. His draft says "1 Year $2,000", which MS/HS no
@@ -69,6 +68,12 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   profile card (→ billing?enrol=1); readiness no longer says "leave alone" for a COMPLETED migration
   with no active row; "Next billing" comes only from the subscription (Orson's stale Jul 24 gone);
   honest copy under Edit. Tests: scripts/billing-admin-tests.ts (+7, 151 pass), `npm run test:billing-admin`.
+  ADDED 2026-09-23 (Julian: "Colton is paying by saved card"): the first cut only handled cash/check. Now
+  the button follows the member's payment method — **saved card** → confirm screen (amount incl. fee, first
+  charge date, end date) → `activate_card` creates the Stripe subscription off the saved card via
+  `lib/cardActivation.ts` (extracted from migration approve, which now calls the same helper); **cash/check**
+  → the pre-filled enroll form. Card path refuses: offline members, live Stripe subs (local + live check),
+  no saved card, unsellable draft option, $0. Supersedes a $0 offline placeholder row. Spelling: enroll.
   Not in B9: Stripe plan changes (B12), collect-later / pending rows, the single panel (B13).
 
 - [ ] **B12 · Change a live Stripe membership (plan change + commitment) from inside AthletixOS** · own item, after B14
@@ -177,4 +182,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-22 (B9 built, diagnosis corrected; Orson handled in Stripe by hand → B12 worked example)_
+_Last reviewed: 2026-09-23 (B9 card path added; awaiting Julian's build/push/merge)_

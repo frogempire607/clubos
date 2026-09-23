@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
-import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -16,15 +15,13 @@ import {
   withMintedIds,
 } from "@/lib/membershipOptions";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
-import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
-import { ensureMembershipProduct } from "@/lib/stripeCatalog";
-import { recurringUnitWithFee } from "@/lib/fees";
+import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, resolveBillingAnchor } from "@/lib/migration";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
-import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
+import { createSavedCardSubscription } from "@/lib/cardActivation";
 import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
 import {
@@ -563,138 +560,50 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ ok: true, noPayment: true });
   }
 
-  // Create the recurring subscription off the saved card. trial_end anchors
-  // the FIRST charge to the agreed date so nobody is billed on approval day.
-  const trialEnd =
-    anchor && anchor.getTime() > Date.now() + 60_000 ? Math.floor(anchor.getTime() / 1000) : undefined;
-  // #5: if the member requested a cancellation/end date, schedule the Stripe
-  // subscription to auto-cancel then. Must be in the future and after any
-  // trial_end, or Stripe rejects it.
-  let cancelSource = member.requestedCancellationDate ?? member.commitmentEndDate ?? null;
-  // Plan-level Auto Renew OFF with no explicit end date: the subscription
-  // ends after its FIRST billing period, measured from the first charge.
-  if (!cancelSource && !planAutoRenew) {
-    cancelSource = addBillingPeriod(anchor ?? new Date(), period);
-  }
-  let cancelAtUnix: number | undefined;
-  if (cancelSource && cancelSource.getTime() > Date.now() + 60_000) {
-    const ts = Math.floor(cancelSource.getTime() / 1000);
-    if (!trialEnd || ts > trialEnd) cancelAtUnix = ts;
-  }
-  const amountCents = recurringUnitWithFee(Math.round(price * 100), club.passProcessingFees);
-  const interval = billingPeriodToStripeInterval(period) || { interval: "month" as const, interval_count: 1 };
-
-  // VERIFY the saved payment method is still attached before charging — a
-  // family that replaced their card leaves a stale pointer, and Stripe then
-  // errors "payment method must be attached to the customer" (Mack Munroe,
-  // 2026-07-15). Falls back to the customer's default / only method (card OR
-  // Link wallet) and persists the correction.
-  const chargePmId = await resolveChargeablePaymentMethodId(
-    member.stripeSetupCustomerId,
-    club.stripeAccountId,
-    member.stripeSetupPaymentMethodId,
-  );
-  if (!chargePmId) {
-    return NextResponse.json(
-      {
-        error:
-          "The saved payment method is no longer attached to this member's billing account (it was likely replaced or removed). Send the card-setup link again, or approve with forceManual to bill offline. Nothing was charged.",
-        code: "CARD_SETUP_INCOMPLETE",
-      },
-      { status: 409 },
-    );
-  }
-  if (chargePmId !== member.stripeSetupPaymentMethodId) {
-    await prisma.member.update({
-      where: { id: member.id },
-      data: { stripeSetupPaymentMethodId: chargePmId },
-    });
-  }
-
-  let memberSub;
-  try {
-    // Subscription price_data needs an existing Product (no inline product_data
-    // like Checkout). Reuse the plan's reusable catalog Product so every
-    // migrated member on a plan shares ONE Stripe product, instead of minting a
-    // throwaway "continued from…" product per member (which littered the
-    // catalog). Fall back to a plan-scoped product only if catalog sync hiccups
-    // — never block activation.
-    const catalogMembership = await prisma.membership.findFirst({
-      where: { id: membershipId!, clubId: club.id },
-      select: { id: true, clubId: true, name: true, description: true, stripeProductId: true, stripePriceIds: true },
-    });
-    let productId = catalogMembership ? await ensureMembershipProduct(catalogMembership, club) : null;
-    if (!productId) {
-      const product = await stripe.products.create(
+  // Create the recurring subscription off the saved card. The Stripe call and
+  // the local row live in lib/cardActivation (B9) so the billing centre's
+  // "Activate this setup" shares them; what stays here is what only approval
+  // decides — which date, which end, and what gets written afterwards.
+  const activation = await createSavedCardSubscription({
+    member: {
+      id: member.id,
+      stripeSetupCustomerId: member.stripeSetupCustomerId!,
+      stripeSetupPaymentMethodId: member.stripeSetupPaymentMethodId,
+    },
+    startDate: member.membershipStartDate ?? new Date(),
+    club: { id: club.id, stripeAccountId: club.stripeAccountId!, passProcessingFees: club.passProcessingFees },
+    membershipId: membershipId!,
+    planName,
+    // The label this path writes is the PLAN name (unchanged behaviour).
+    optionLabel: planName,
+    optionId: soldOptionId,
+    price,
+    period,
+    autoRenew: planAutoRenew,
+    minimumTermEndsAt: approveTermEnd,
+    anchor: billsImmediately ? null : anchor,
+    // #5: if the member requested a cancellation/end date, schedule the Stripe
+    // subscription to auto-cancel then.
+    cancelSource: member.requestedCancellationDate ?? member.commitmentEndDate ?? null,
+    discount: appliedDiscount,
+    notes: `Migrated from ${member.legacySource || "previous software"} — approved by club`,
+    metadata: { migrationMemberId: member.id, clubId: club.id },
+    idempotencyPrefix: "aox-migration-approve",
+  });
+  if (!activation.ok) {
+    if (activation.code === "CARD_SETUP_INCOMPLETE") {
+      return NextResponse.json(
         {
-          name: planName,
-          metadata: { athletixMembershipId: membershipId!, clubId: club.id, kind: "membership" },
+          error:
+            "The saved payment method is no longer attached to this member's billing account (it was likely replaced or removed). Send the card-setup link again, or approve with forceManual to bill offline. Nothing was charged.",
+          code: "CARD_SETUP_INCOMPLETE",
         },
-        { stripeAccount: club.stripeAccountId! },
+        { status: 409 },
       );
-      productId = product.id;
     }
-    const sub = await stripe.subscriptions.create(
-      {
-        customer: member.stripeSetupCustomerId!,
-        default_payment_method: chargePmId,
-        items: [
-          {
-            price_data: {
-              currency: "usd",
-              product: productId,
-              unit_amount: amountCents,
-              recurring: interval,
-            },
-          },
-        ],
-        ...(trialEnd ? { trial_end: trialEnd } : {}),
-        ...(cancelAtUnix ? { cancel_at: cancelAtUnix } : {}),
-        application_fee_percent: 0,
-        metadata: { migrationMemberId: member.id, clubId: club.id },
-      },
-      {
-        stripeAccount: club.stripeAccountId!,
-        // A double-submit (double click, retry after a network blip) must not
-        // fork a second subscription — Stripe returns the first one instead.
-        // Param-sensitive: double-clicks with IDENTICAL params dedupe to one
-        // subscription, but a corrected retry (fixed payment method, new
-        // discount/price/date) gets a fresh key. A static per-member key gets
-        // permanently "burned" by any failed attempt — Stripe then rejects
-        // every retry with "keys can only be used with the same parameters"
-        // (Mack Munroe, 2026-07-15).
-        idempotencyKey: `aox-migration-approve-${member.id}-${crypto
-          .createHash("sha256")
-          .update(JSON.stringify({ amountCents, trialEnd: trialEnd ?? null, cancelAtUnix: cancelAtUnix ?? null, pm: chargePmId, product: productId }))
-          .digest("hex")
-          .slice(0, 12)}`,
-      },
-    );
-
-    memberSub = await prisma.memberSubscription.create({
-      data: {
-        memberId: member.id,
-        membershipId: membershipId!,
-        optionId: soldOptionId,
-        minimumTermEndsAt: approveTermEnd,
-        optionLabel: planName,
-        price,
-        billingPeriod: period,
-        billingType: "RECURRING",
-        autoRenew: planAutoRenew,
-        status: sub.status === "active" || sub.status === "trialing" ? "active" : "pending",
-        startDate: member.membershipStartDate ?? new Date(),
-        billingAnchorDate: anchor,
-        ...(cancelAtUnix ? { endDate: new Date(cancelAtUnix * 1000) } : {}),
-        stripeSubscriptionId: sub.id,
-        stripePriceId: sub.items?.data?.[0]?.price?.id ?? null,
-        ...(appliedDiscount ? { discountCode: appliedDiscount.code, discountAmount: appliedDiscount.amountOff } : {}),
-        notes: `Migrated from ${member.legacySource || "previous software"} — approved by club`,
-      },
-    });
-  } catch (e) {
-    return NextResponse.json({ error: `Could not start the subscription: ${String(e)}` }, { status: 502 });
+    return NextResponse.json({ error: activation.error }, { status: 502 });
   }
+  const memberSub = activation.memberSub;
 
   // 4.5.10 — the real Stripe subscription exists now. ACTIVATED is recorded
   // only when Stripe says active/trialing; a `pending` row is a created

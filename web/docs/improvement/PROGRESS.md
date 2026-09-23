@@ -4654,3 +4654,28 @@ and `lib/stripeSync.reconcileClubBilling` refreshes stripePriceId/status/period/
 Current membership → Edit → Price (local-only PATCH, the right tool here). The 12-month commitment is recorded
 nowhere (`minimumTermEndsAt` null). Express gives Julian no Customers tab on the connected account, so B12
 has to do the whole change from inside AthletixOS. All three folded into B12 in BACKLOG.md.
+
+## 2026-09-23 — B9, second cut: the card path
+
+Julian tried the first cut on Colton: "Colton is paying by saved card though and every time I try and
+activate this setup it sends me to the cash/check option." Right — the first cut only wired the offline
+door. The card door existed too, but only inside `migration/[id]/approve` (409 "already complete" for
+Colton), so I extracted it:
+
+- `lib/cardActivation.ts createSavedCardSubscription` — the Stripe call + local row, verbatim from approve
+  (PM re-resolution, catalog product, trial_end anchor, cancel_at, param-sensitive idempotency key).
+  Approve now calls it; behaviour unchanged except the row also stores `stripeStatus`.
+- `billing-admin/actions activate_card` — preflights (Stripe connected, not CASH/CHECK, plan + sellable
+  option via `resolveDraftOptionId`, price > 0, saved card, no live sub locally or in Stripe, immediate
+  charge explicitly confirmed), then the helper, then: supersede a $0 offline placeholder, events, member
+  membershipId, recompute, audit `MEMBERSHIP_ACTIVATED_CARD`, activation email.
+- GET `activation.mode` (CARD | OFFLINE, from the same `offlineIntended` approve uses) + `hasCard`.
+- Billing page: card mode opens `CardActivateModal` — plan, total incl. fee, first-charge date, end date,
+  and a checkbox that must be ticked when the charge is today. Offline mode keeps the enroll form.
+- `resolveDraftOptionId` moved to lib/billingAdmin, 8 tests (159 pass). Guard baseline 46 → 48.
+- "enrol" → "enroll" in every user-facing string.
+
+Orson, for the record: his billing-centre Edit says "No changes" because the draft already holds 12 months /
+$150 from Sep 21; the summary shows Monthly $175 because a live Stripe row outranks the draft (D9). The page
+also still says "Scheduled for activation / trialing / nothing charged" while Stripe shows two payments —
+the local mirror is stale because nothing runs the reconciler. All B12.

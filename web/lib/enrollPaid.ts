@@ -1,4 +1,4 @@
-// Enrol a member who has ALREADY paid, cash or check.
+// Enroll a member who has ALREADY paid, cash or check.
 //
 // ── The gap this fills ──────────────────────────────────────────────────────
 //
@@ -25,7 +25,7 @@
 // A card payment already has a Transaction, a Stripe object and a period Stripe
 // itself is tracking. Routing it through here would create a second, manual
 // record of money that is already recorded — the duplicate-ledger problem, by
-// hand. Card enrolment stays where it is.
+// hand. Card enrollment stays where it is.
 
 import { prisma } from "@/lib/prisma";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
@@ -91,7 +91,7 @@ export async function enrollAlreadyPaid(input: EnrollPaidInput): Promise<EnrollP
     return { ok: false, code: "NO_OPTION", error: "That option is no longer on the plan. Re-pick it." };
   }
 
-  // ── Never enrol over live card billing ───────────────────────────────────
+  // ── Never enroll over live card billing ───────────────────────────────────
   //
   // If Stripe is actively charging them, adding a cash period on top is how a
   // family gets billed twice for the same month. Adjust the live subscription
@@ -269,7 +269,7 @@ export async function enrollAlreadyPaid(input: EnrollPaidInput): Promise<EnrollP
     });
     cardBilling = r.ok
       ? { started: true, message: r.message }
-      // Soft-fail on purpose: the enrolment and the money are already recorded
+      // Soft-fail on purpose: the enrollment and the money are already recorded
       // and correct. Failing the whole operation because a card could not be
       // armed would throw away the part that worked.
       : { started: false, message: `Enrolled, but card billing could not start: ${r.error}` };
