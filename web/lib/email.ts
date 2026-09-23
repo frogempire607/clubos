@@ -901,6 +901,7 @@ export async function sendClubJoinInviteEmail({
   registrationUrl,
   fromName,
   replyTo,
+  athleteName,
 }: {
   to: string;
   firstName: string;
@@ -910,11 +911,49 @@ export async function sendClubJoinInviteEmail({
   registrationUrl: string;
   fromName?: string | null;
   replyTo?: string | null;
+  /**
+   * Set when the recipient is a GUARDIAN of an athlete who is already a member
+   * (B15). The wording changes from "join the club" — which reads as a sales
+   * pitch to a family already paying — to "set up your parent account".
+   */
+  athleteName?: string | null;
 }) {
   const brand =
     clubPrimaryColor && /^#[0-9a-fA-F]{6}$/.test(clubPrimaryColor) ? clubPrimaryColor : "#534AB7";
   const safeName = escapeHtml(clubName);
   const safeFirst = escapeHtml(firstName || "there");
+  if (athleteName) {
+    const safeAthlete = escapeHtml(athleteName);
+    await sendEmail({
+      to,
+      subject: `${clubName} — set up your parent account for ${athleteName}`,
+      fromName,
+      replyTo,
+      html: clubBrandedLayout({
+        clubName,
+        clubLogoUrl,
+        clubPrimaryColor,
+        content: `
+        <h2 style="color:#1c1917;margin:0 0 6px;font-size:20px;font-weight:700">
+          Your parent account for ${safeAthlete}
+        </h2>
+        <p style="color:#57534e;line-height:1.6;margin:0 0 18px;font-size:14px">
+          Hi ${safeFirst}, ${safeAthlete} is a member of ${safeName}. Set up your free parent
+          account to see their schedule and membership, sign documents, and message the coaches.
+          There is nothing to pay here — this only creates your login.
+        </p>
+        <a href="${registrationUrl}" style="display:inline-block;background:${brand};color:#ffffff;padding:13px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;letter-spacing:0.01em">
+          Set up my parent account
+        </a>
+        <p style="color:#a8a29e;font-size:12px;margin:18px 0 0;line-height:1.5">
+          We never ask for card details by email; the button above opens your secure
+          ${safeName} page.
+        </p>
+      `,
+      }),
+    });
+    return;
+  }
   await sendEmail({
     to,
     subject: `Join ${clubName} — set up your free account`,

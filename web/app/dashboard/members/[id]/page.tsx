@@ -817,6 +817,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           family={m.family}
           onChanged={load}
           onAssignMembership={(subId) => setTransferringSubId(subId)}
+          guardian={{ name: m.guardianName, email: m.guardianEmail, isMinor: m.isMinor }}
         />
         )}
 

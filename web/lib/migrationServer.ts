@@ -221,19 +221,43 @@ export async function sendJoinInvite(
   memberId: string,
   clubId: string,
   actorUserId: string | null,
-): Promise<{ ok: boolean; reason?: string }> {
+  opts: {
+    /**
+     * B15 — "Invite guardian to the portal". The athlete is ALREADY a member;
+     * this creates the guardian's login and the guardian link (the JOIN branch
+     * of activation does exactly that: account + link, no membership, no
+     * billing). Without this flag a member with an active subscription is
+     * refused, which left André Serra's and Jacob Vann's parents with no way
+     * to get an account — and COPPA consent nowhere to land.
+     */
+    guardianLogin?: boolean;
+  } = {},
+): Promise<{ ok: boolean; reason?: string; sentTo?: string }> {
   const member = await prisma.member.findFirst({
     where: { id: memberId, clubId, deletedAt: null },
   });
   if (!member) return { ok: false, reason: "not found" };
 
-  const activeSub = await prisma.memberSubscription.findFirst({
-    where: { memberId: member.id, status: "active" },
-    select: { id: true },
-  });
-  if (activeSub) return { ok: false, reason: "already a member" };
+  if (opts.guardianLogin) {
+    if (!member.isMinor || !member.guardianEmail) {
+      return { ok: false, reason: "not a minor with a guardian email on file" };
+    }
+    const existingLogin = await prisma.user.findFirst({
+      where: { email: { equals: member.guardianEmail, mode: "insensitive" }, deletedAt: null },
+      select: { id: true },
+    });
+    if (existingLogin) {
+      return { ok: false, reason: "guardian already has an account — link it from Family & access" };
+    }
+  } else {
+    const activeSub = await prisma.memberSubscription.findFirst({
+      where: { memberId: member.id, status: "active" },
+      select: { id: true },
+    });
+    if (activeSub) return { ok: false, reason: "already a member" };
+  }
 
-  const to = recipientFor(member);
+  const to = opts.guardianLogin ? member.guardianEmail!.toLowerCase() : recipientFor(member);
   if (!to) return { ok: false, reason: "no email on file" };
 
   const club = await prisma.club.findUnique({
@@ -259,9 +283,11 @@ export async function sendJoinInvite(
   const registrationUrl = `${getAppBaseUrl()}/activate/${token}`;
 
   try {
+    const guardianFirst = (member.guardianName?.trim() || "").split(/\s+/)[0] || "";
     await sendClubJoinInviteEmail({
       to,
-      firstName: member.firstName,
+      firstName: opts.guardianLogin ? guardianFirst || "there" : member.firstName,
+      athleteName: opts.guardianLogin ? `${member.firstName} ${member.lastName}`.trim() : null,
       clubName: club.name,
       clubLogoUrl: publicClubLogoUrl(clubId, club.logoUrl),
       clubPrimaryColor: club.primaryColor,
@@ -289,7 +315,9 @@ export async function sendJoinInvite(
       clubId,
       memberId: member.id,
       type: "REGISTRATION_LINK_SENT",
-      message: `Registration link sent to ${to}`,
+      message: opts.guardianLogin
+        ? `Parent-account invite sent to ${to} (guardian login only — no billing)`
+        : `Registration link sent to ${to}`,
       actorUserId,
     },
   });
@@ -303,5 +331,5 @@ export async function sendJoinInvite(
     trigger: actorUserId ? "STAFF" : "SYSTEM",
   });
 
-  return { ok: true };
+  return { ok: true, sentTo: to };
 }

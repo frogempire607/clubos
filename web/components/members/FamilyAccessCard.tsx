@@ -284,6 +284,7 @@ export default function FamilyAccessCard({
   family,
   onChanged,
   onAssignMembership,
+  guardian,
 }: {
   memberId: string;
   memberName: string;
@@ -291,8 +292,24 @@ export default function FamilyAccessCard({
   onChanged: () => void;
   /** Opens the 4A transfer modal. Undefined hides "Assign Membership". */
   onAssignMembership?: (subscriptionId: string) => void;
+  /**
+   * B15 — when the athlete is a minor with a guardian email on file, staff can
+   * invite that guardian to create a parent account (no billing, no membership
+   * change). Shown only while no guardian holds access.
+   */
+  guardian?: { name: string | null; email: string | null; isMinor: boolean } | null;
 }) {
   const [caps, setCaps] = useState<FamilyCapabilities | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+  async function inviteGuardian() {
+    setInviteBusy(true); setInviteMsg(null);
+    const res = await fetch(`/api/members/${memberId}/invite-guardian`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setInviteBusy(false);
+    if (!res.ok) { setInviteMsg(typeof d.error === "string" ? d.error : "Could not send the invite."); return; }
+    setInviteMsg(`Invite sent to ${d.sentTo}. When they finish setting up, they appear here with access.`);
+  }
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -394,6 +411,30 @@ export default function FamilyAccessCard({
           </button>
         )}
       </div>
+
+      {/* B15 — the door that was missing for a paying minor whose parent has no login. */}
+      {guardian?.isMinor && guardian.email && confirmedGuardians.length === 0 && (
+        <div className="mb-3 rounded-lg border border-app-border bg-app-bg px-3 py-2.5">
+          <p className="text-xs text-text-primary">
+            No parent account yet. Guardian on file: <strong>{guardian.name || "—"}</strong> · {guardian.email}
+          </p>
+          <p className="text-[11px] text-text-muted mt-0.5">
+            Sends a “set up your parent account” link to that address. It creates their login and links them
+            here — no membership change, nothing charged. Check the email is right before sending.
+          </p>
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <button
+              onClick={inviteGuardian}
+              disabled={inviteBusy}
+              className="inline-flex min-h-[44px] md:min-h-0 items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+            >
+              <UserPlus className="h-3.5 w-3.5" strokeWidth={2} />
+              {inviteBusy ? "Sending…" : `Invite ${(guardian.name || "guardian").split(" ")[0]} to create a parent account`}
+            </button>
+            {inviteMsg && <span className="text-xs text-text-muted">{inviteMsg}</span>}
+          </div>
+        </div>
+      )}
 
       {notice && (
         <p className="mt-2 text-xs text-text-primary bg-lime-accent/15 rounded-lg px-3 py-2">{notice}</p>

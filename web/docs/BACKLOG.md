@@ -8,28 +8,30 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** merge B9 (branch/test/build/push steps in chat 2026-09-22), then A1 Colton and A2 Wyatt through the new **Activate this setup now** button. Orson: fix his local price on the profile (Current membership → Edit → Price) so the record matches what you set in Stripe. Then A9 + A3.
-- **Next Claude Code session:** B14 renewing queue (small), then B11 Events slice 2 on go, B12 (Orson is the worked example; must work from inside AthletixOS), B10 slice 2. B2 = flip the flag after A3.
+- **Julian, do first:** ship B15 (branch/build/push in chat), then A3 (four minors), A2 Wyatt → Paused, Orson profile price 150 + Nov 22 cancel decision, A9 three Stripe checks.
+- **Next Claude Code session:** B11 Events slice 2 (go given 2026-09-23; money answer in chat first), then B14, B12 (Orson worked example; inside AthletixOS only), B10 slice 2. B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
 
 ## A — Only Julian can do (billing centre, calls, account work — no code)
 
-- [ ] **A1 · Colton Waite — put him on 3 months Upfront ($450)** · overdue since Sep 8 · UNBLOCKED once B9 is merged
-  He pays by saved card. Billing centre → **Activate this setup now** → confirm screen shows $450 + fee,
-  charged today (anchor Sep 23 has passed), ends Dec 10 → tick the immediate-charge box → Charge & activate.
-  Creates the Stripe subscription off the saved card; his expired $530 row stays as history.
+- [x] **A1 · Colton Waite** · DONE 2026-09-23 via B9 — Stripe sub `sub_1UIrbnEIplcCMoSoCit2bU6q`, 3 months
+  Upfront $450 quarterly, charged Sep 23, ends Dec 10, non-renewing. Member ACTIVE. Verified in DB.
+  Small follow-up (not urgent): row's minimumTermEndsAt is Dec 23 (3 contract months from today) while
+  endDate is Dec 10 — the term floor should never exceed the end. Cap it at endDate in activate_card.
 
-- [ ] **A2 · Wyatt Eastman — renew him for a year** · his $0 MANUAL row ends Oct 2 · UNBLOCKED once B9 is merged
-  Billing centre → **Record payment & renew on this setup**. His draft says "1 Year $2,000", which MS/HS no
-  longer sells — the form will say so and ask you to pick the real option (1 year Upfront $1,500, or
-  whatever he actually paid via "Record $X anyway"). Set "covers them until" = Oct 2, 2027. Do this any day
-  before or after Oct 2 — if his row expires first, the same button revives it. Nothing is lost either way.
+- [ ] **A2 · Wyatt Eastman — mark him PAUSED (taking a break, will renew on return)** · not a payment task
+  Profile → Edit → Status → **Paused** → Save. PAUSED is owner-controlled and sticky: when his $0 row
+  expires on Oct 2 the recompute leaves him Paused, not Inactive. He shows under the roster's Paused
+  filter. A return DATE has nowhere to live yet — see B14 decision.
 
-- [ ] **A3 · Give the four paying minors a guardian with portal access** · blocks B2 COPPA
-  André Serra, Jacob Vann, Aylen Grubusic, Clint Dwyer. Verify Jacob's email before sending
-  anything. COPPA can't merge until these four have a guardian link.
+- [ ] **A3 · Give the four paying minors a guardian with portal access** · blocks B2 COPPA · steps in chat 2026-09-23
+  None of the four guardians has a portal account (checked users table). Clint Dwyer + Aylen Grubusic:
+  INVITED, links expired → roster row menu → Resend invitation → parent completes → approve PROFILE ONLY.
+  André Serra + Jacob Vann: migration COMPLETED → no owner path existed → **B15** adds "Invite … to create a
+  parent account" on Family & access. Jacob's guardian on file: "Judson" <jvann@tessy.com>; a separate
+  member record "Judson Vann" (marked minor, NEEDS_REVIEW) also exists — likely the dad; review/archive.
 
 - [ ] **A4 · Call the Lawell family**
   Get the parent's actual name and confirm the email on file is theirs. The account fix
@@ -48,15 +50,17 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [ ] **A8 · ~17 members training unbilled**
   Decide each one: bill, comp, or trial/drop-in.
 
-- [ ] **A9 · Three Stripe subscriptions with no recorded payment** (was "five mismatches")
-  Jeffrey Clark + Kelly Merrill are soft-deleted (Jul 13/15) — nothing to fix. AJ Dorn ($175),
-  Weston Knowlton ($110), Parker Strickland ($75): active Stripe-linked rows with ZERO succeeded
-  transactions in AthletixOS. Check each in Stripe: if invoices were paid, the webhook missed
-  them (code bug → tell Claude); if unpaid/trialing, the PROSPECT roster label is correct.
+- [ ] **A9 · Stripe check — the three still "trialing" locally (Orson done)** · what to check per person in chat 2026-09-23
+  Kellan Lister `sub_1TqMhGEIplcCMoSoBDwCp2xq` (Stripe last synced Jul 7 at $545.37/qtr = $530 base; row
+  says $450 "Upfront"); Jacob Vann `sub_1U4INfEIplcCMoSoPkZNCC8i` (1 year $1,500, first charge was due
+  Aug 16, row still "trialing", endDate Aug 13 2027 but autoRenew true); Levi Schanzenbach
+  `sub_1TvhawEIplcCMoSo3NnrLnhG` (row canceled Sep 18 — confirm Stripe agrees and is not still billing).
+  Also the older five status↔subscription mismatches (Jeffrey Clark, Kelly Merrill, AJ Dorn, Weston
+  Knowlton, Parker Strickland) — re-check after B1.
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
-- [ ] **B9 · Activate a membership from the billing centre (owner action)** · BUILT 2026-09-22, on disk — needs Julian's branch/test/build/push
+- [x] **B9 · Activate a membership from the billing centre (owner action)** · SHIPPED 2026-09-23 on main (2f30dfb, 4959b70, 37386f8); Colton activated through it
   CORRECTED DIAGNOSIS: an owner-side activation DID exist — the "Already paid?" card (lib/enrollPaid.ts,
   since Aug 26) records the cash and creates/revives the MANUAL row. Two real problems: (1) it was
   unfindable — the prominent action, Edit, saves a draft nothing consumes, and the card sat two sections
@@ -93,9 +97,18 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   "Too hard to change or cancel" = design problem: actions spread over roster menu, profile card, billing
   centre and bulk tool. Write a handoff like events/products, then build. Not started.
 
-- [ ] **B14 · "Renewing this week" roster queue** · Julian chose (b) 2026-09-22
+- [ ] **B14 · "Renewing this week" roster queue** · Julian chose (b) 2026-09-22 · waits for events slice 2
   New `renewingSoon` queue in lib/membersQuery (currentPeriodEnd or endDate within 7 days), roster chip,
   and UPCOMING_RENEWAL_LARGE card href → `/dashboard/members?queue=renewingSoon`. ~1 hour, no migration.
+  NOT for Wyatt: a paused member would appear the week his row ends and then vanish. DECISION for Julian:
+  (a) add a "Paused" card to the same strip (no date, no migration) or (b) a `pausedUntil` date on Member
+  + "back this week" queue (one migration, own item). Recommend (a) now, (b) when B13 lands.
+
+- [ ] **B15 · Invite a guardian to create a parent account (owner action)** · BUILT 2026-09-23, on disk — tiny, ship before events slice 2
+  `POST /api/members/[id]/invite-guardian` → sendJoinInvite(guardianLogin) → parent-account email variant →
+  activation JOIN branch creates the guardian login + CONFIRMED link, no billing. Button on Family & access
+  when a minor has a guardian email and no account holder. Refuses if that email already has a login.
+  Also in this batch: Colton follow-up (term floor capped at the subscription end in lib/cardActivation).
 
 - [x] **B1 · Member.status is a label, not an authority** · SHIPPED 2026-09-14, commit 7efbe0e on main
   Done: portal label + profile-switcher derived from subscription rows; `|| member.status`
@@ -182,4 +195,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-23 (B9 card path added; awaiting Julian's build/push/merge)_
+_Last reviewed: 2026-09-23 (B9 shipped, A1 done; B15 built; A2 re-scoped to Paused; A3/A9 detailed)_
