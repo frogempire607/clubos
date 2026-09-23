@@ -246,8 +246,15 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
     }
   }
 
+  // A JOIN link is about the ACCOUNT, not the membership. B15 sends it to
+  // guardians of athletes whose migration is long COMPLETED (André Serra:
+  // billing set up in July, parent never had a login). Reporting `completed`
+  // there made the page render "You're all set" before the parent typed a
+  // thing, and the invite created nothing (2026-09-23). Completed means done
+  // only for the membership-activation kinds.
+  const isJoin = m.activationKind === "JOIN";
   return NextResponse.json({
-    completed: m.migrationStatus === MIGRATION_STATUS.COMPLETED,
+    completed: !isJoin && m.migrationStatus === MIGRATION_STATUS.COMPLETED,
     hasAccount,
     staffAccountConflict,
     accountEmail: checkEmail,
@@ -347,13 +354,20 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // COMPLETED), so we must reject BOTH — otherwise the link could be
   // re-POSTed after activation to reset the member's portal password
   // (account takeover). The atomic claim below closes the concurrent race.
+  //
+  // A JOIN link (free join, or B15's parent-account invite) creates a login and
+  // a guardian link and touches no billing, so the membership's migration state
+  // is not its replay guard — `activatedAt` is (next check). Without this
+  // exemption a parent of an already-migrated athlete could never get an
+  // account: the page said "all set" and the POST 409'd (André Serra, 2026-09-23).
   if (
-    member.migrationStatus === MIGRATION_STATUS.COMPLETED ||
-    member.migrationStatus === MIGRATION_STATUS.ACTIVATED
+    member.activationKind !== "JOIN" &&
+    (member.migrationStatus === MIGRATION_STATUS.COMPLETED ||
+      member.migrationStatus === MIGRATION_STATUS.ACTIVATED)
   ) {
     return NextResponse.json({ error: "This membership is already active." }, { status: 409 });
   }
-  // #7: a non-member JOIN link that's already been used.
+  // #7: a JOIN link that's already been used.
   if (member.activationKind === "JOIN" && member.activatedAt) {
     return NextResponse.json({ error: "Your account is already set up — just sign in." }, { status: 409 });
   }
