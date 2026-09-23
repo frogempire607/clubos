@@ -4730,3 +4730,17 @@ people on a break in view (`pausedUntil` waits for B13). The strip goes 4 → 6 
 finally deep-links. While adding tests I found `scripts/renewal-surfacing-tests.ts` had been failing since
 B4 (it asserted no Financials deep links exist; B4 made them real) — the script is not in the build chain,
 so nobody saw it. Assertion updated to pin the parameter set instead. tsc clean.
+
+## 2026-09-23 — B15 hotfix: the parent-account invite said "all set" and created nothing
+
+Luis Serra opened André's invite, saw "You're all set — your membership is active", was sent to sign in,
+and had no account. Database: no User, no guardian link, no activation event, André's `activatedAt` null,
+token still valid. Cause: the activation page's GET reported `completed: true` because André's
+*membership* migration was COMPLETED in July, so the page rendered the finished state before the parent
+typed anything; had the form posted, the replay guard would have 409'd on the same status. B15 sends
+JOIN-kind links to exactly this population and I did not check that the activation page treated them as
+"done". Fix: `completed` is false for JOIN links, and the COMPLETED/ACTIVATED replay guard is skipped for
+JOIN (its own guard is `activatedAt`). A JOIN link creates a login and a guardian link and touches no
+billing, so the membership state was never the right replay key. André's record was not changed by the
+attempt (only `activationKind: JOIN` and a token, both from the send). Luis reopens the same link after
+deploy — nothing to redo. Do not send Clint/Aylen/Jacob until this is on main.

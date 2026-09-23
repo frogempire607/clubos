@@ -8,7 +8,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** merge events 2b + three production checks; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
+- **Julian, do first:** ship the B15 hotfix (steps in chat), then Luis reopens his link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
 - **Next Claude Code session:** B12 (Orson worked example; sync + plan change inside AthletixOS), then B10 slice 2, B13. B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
@@ -101,7 +101,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   7 days; Paused excluded) and `paused` (status PAUSED); both counted in the roster strip, which grows from
   4 cards to 6. Financials UPCOMING_RENEWAL_LARGE card → `?queue=renewingSoon`. renewal-surfacing tests +8
   (45 pass; also fixed a stale B4-era assertion there). `pausedUntil` → B13.
-- [x] **B15 · Invite a guardian to create a parent account (owner action)** · SHIPPED 2026-09-23 on main (d09e7e4)
+- [ ] **B15 · Invite a guardian to create a parent account** · shipped d09e7e4, HOTFIX on disk 2026-09-23: JOIN links to COMPLETED members showed "all set" and created nothing (André/Luis). Fix in activate GET + POST. Ship before any more invites.
   `POST /api/members/[id]/invite-guardian` → sendJoinInvite(guardianLogin) → parent-account email variant →
   activation JOIN branch creates the guardian login + CONFIRMED link, no billing. Button on Family & access
   when a minor has a guardian email and no account holder. Refuses if that email already has a login.
