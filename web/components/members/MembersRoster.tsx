@@ -116,6 +116,8 @@ type QueueCounts = {
   blocked: number;
   missingContact: number;
   duplicates: number;
+  renewingSoon: number;
+  paused: number;
 };
 
 type Payload = {
@@ -1196,6 +1198,9 @@ const QUEUE_LABELS: Record<string, string> = {
   neverInvited: "Never invited",
   blocked: "Blocked",
   missingContact: "Missing contact",
+  renewingSoon: "Renewing this week",
+  paused: "Paused",
+  endingSoon: "Membership ending soon",
 };
 
 function Th({
@@ -1268,10 +1273,15 @@ function WorkQueueStrip({
     { key: "blocked", label: "blocked", accent: "#DC2626", action: "Fix contact details" },
     { key: "missingContact", label: "missing contact", accent: "var(--color-warn-text)", action: "Add an address" },
     { key: "duplicates", label: "possible duplicates", accent: "var(--color-brand)", action: "Review duplicates" },
+    // B14 — the two cards Julian asked for on 2026-09-22/23: the renewal
+    // conversation for this week, and the people on a break who would otherwise
+    // vanish into an expired row.
+    { key: "renewingSoon", label: "renewing this week", accent: "#15803D", action: "Confirm payment is set" },
+    { key: "paused", label: "paused", accent: "var(--color-warn-text)", action: "Check in when they're back" },
   ] as const;
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {cards.map((c) => {
         const isActive = active === c.key;
         const href = c.key === "duplicates" ? "/dashboard/members/duplicates" : null;

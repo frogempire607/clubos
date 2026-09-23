@@ -252,10 +252,15 @@ console.log("\ncard ↔ queue agreement:");
     "no href in the probe file uses the dead ?filter= parameter",
     !/href:\s*["'`][^"'`]*[?&]filter=/.test(src),
   );
-  check(
-    "no href in the probe file deep-links Financials, which parses no query params",
-    !/href:\s*["'`]\/dashboard\/financials\?/.test(src),
-  );
+  // B4 (2026-09-14) taught /dashboard/financials to read ?tab= and ?show=, so
+  // deep links there are real now. The pin moves: every Financials link may use
+  // ONLY those two parameters. (This assertion was stale from B4 until B14 —
+  // the script is not in the build chain.)
+  {
+    const finLinks = [...src.matchAll(/href:\s*["'`](\/dashboard\/financials\?[^"'`]*)/g)].map((m) => m[1]);
+    const bad = finLinks.filter((h) => [...new URL(`http://x${h}`).searchParams.keys()].some((k) => k !== "tab" && k !== "show"));
+    check("every Financials deep link uses only ?tab= / ?show=", bad.length === 0, bad.join(", "));
+  }
   check(
     "items are keyed per member so they can be snoozed individually",
     src.includes('itemId("EXPIRING_MEMBERSHIP", sub.member.id)'),
@@ -303,6 +308,29 @@ console.log("\ncannotChargeOutsidePlanDays:");
   );
   check("null pricingOptions never throws", cannot(null) === false);
   check("a non-array never throws", cannot({ type: "dropin" }) === false);
+}
+
+// ── B14. renewingSoon + paused ─────────────────────────────────────────────
+console.log("\nrenewingSoon queue clause (B14):");
+{
+  const now = new Date("2026-09-23T12:00:00.000Z");
+  const clause = queueClauses(now).renewingSoon as {
+    status?: { not?: string };
+    subscriptions?: { some?: { status?: string; OR?: Record<string, { gte?: Date; lte?: Date }>[] } };
+  };
+  const some = clause.subscriptions?.some;
+  check("is a subscriptions.some predicate", !!some);
+  check("the SAME row must be active", some?.status === "active");
+  const keys = (some?.OR ?? []).map((o) => Object.keys(o)[0]);
+  check("three money moments: currentPeriodEnd, paidThroughDate, endDate", keys.join(",") === "currentPeriodEnd,paidThroughDate,endDate", keys.join(","));
+  const win = some?.OR?.[0]?.currentPeriodEnd;
+  check("window starts now", win?.gte?.getTime() === now.getTime());
+  check("window is 7 days (RENEWING_SOON_WINDOW_DAYS)", win?.lte?.getTime() === now.getTime() + 7 * 86400_000);
+  check("a Paused member is never a renewal conversation", clause.status?.not === "PAUSED");
+  const paused = queueClauses(now).paused as { status?: string };
+  check("paused queue is exactly status PAUSED", paused.status === "PAUSED");
+  const src2 = fs.readFileSync(path.join(__dirname, "..", "lib", "reportsActionItems.ts"), "utf8");
+  check("UPCOMING_RENEWAL_LARGE now links to ?queue=renewingSoon", src2.includes("/dashboard/members?queue=renewingSoon"));
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed`);

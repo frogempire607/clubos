@@ -8,8 +8,8 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** ship B15 (branch/build/push in chat), then A3 (four minors), A2 Wyatt → Paused, Orson profile price 150 + Nov 22 cancel decision, A9 three Stripe checks.
-- **Next Claude Code session:** B11 Events slice 2 (go given 2026-09-23; money answer in chat first), then B14, B12 (Orson worked example; inside AthletixOS only), B10 slice 2. B2 = flip the flag after A3.
+- **Julian, do first:** merge events 2b + three production checks; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
+- **Next Claude Code session:** B12 (Orson worked example; sync + plan change inside AthletixOS), then B10 slice 2, B13. B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
@@ -21,10 +21,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Small follow-up (not urgent): row's minimumTermEndsAt is Dec 23 (3 contract months from today) while
   endDate is Dec 10 — the term floor should never exceed the end. Cap it at endDate in activate_card.
 
-- [ ] **A2 · Wyatt Eastman — mark him PAUSED (taking a break, will renew on return)** · not a payment task
-  Profile → Edit → Status → **Paused** → Save. PAUSED is owner-controlled and sticky: when his $0 row
-  expires on Oct 2 the recompute leaves him Paused, not Inactive. He shows under the roster's Paused
-  filter. A return DATE has nowhere to live yet — see B14 decision.
+- [x] **A2 · Wyatt Eastman** · PAUSED 2026-09-23 (taking a break, will renew on return). Row left alone.
 
 - [ ] **A3 · Give the four paying minors a guardian with portal access** · blocks B2 COPPA · steps in chat 2026-09-23
   None of the four guardians has a portal account (checked users table). Clint Dwyer + Aylen Grubusic:
@@ -41,25 +38,24 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (rename User to the parent → create guardian link → then null Member.userId → re-sign docs
   as GUARDIAN) waits on this call.
 
-- [ ] **A5 · Reprice Girls MS/HS and Girls Jr Frogs**
-  Both plans currently have zero subscriptions.
+- [x] **A5 · Girls plans repriced** · done 2026-09-23
 
-- [ ] **A6 · Comps: Barrett David, Paul Ortega; activate then comp Devin Eggleston**
+- [x] **A6 · Comps (Barrett, Paul, Devin)** · done 2026-09-23
 
-- [ ] **A7 · Fix three date problems**
-  Riley Bergen: null end date. Skylor Day: dates disagree with Stripe. Titus Hall: bills past
-  his intended end.
+- [ ] **A7 · Three date problems** · resolved 2026-09-23, two actions left
+  Riley Bergen: cash row, set end date to July 2027 (profile → Current membership → Edit → End date).
+  Skylor Day: not returning — billing centre Triage → Leave alone (+note); Stripe sub already canceled, ends Oct 26.
+  Titus Hall: leave as is.
 
-- [ ] **A8 · ~17 members training unbilled**
-  Decide each one: bill, comp, or trial/drop-in.
+- [ ] **A8 · Training unbilled — worksheet delivered 2026-09-23** (unbilled-worksheet.html in chat)
+  59 people with a check-in in 90 days and no membership: 21 regulars (A), 8 faded (B), 30 one-offs (C).
+  Three choices per person: comp (4 steps today → B13), plan (B9), gone (archive).
 
-- [ ] **A9 · Stripe check** · 2026-09-23: Kellan is $450 in Stripe (overcharge reimbursed in cash by Julian); Jacob paid, year runs; Levi renewing soon. Remaining: the local "trialing" labels are stale until B12's sync; the five status↔subscription mismatches below.
-  Kellan Lister `sub_1TqMhGEIplcCMoSoBDwCp2xq` (Stripe last synced Jul 7 at $545.37/qtr = $530 base; row
-  says $450 "Upfront"); Jacob Vann `sub_1U4INfEIplcCMoSoPkZNCC8i` (1 year $1,500, first charge was due
-  Aug 16, row still "trialing", endDate Aug 13 2027 but autoRenew true); Levi Schanzenbach
-  `sub_1TvhawEIplcCMoSo3NnrLnhG` (row canceled Sep 18 — confirm Stripe agrees and is not still billing).
-  Also the older five status↔subscription mismatches (Jeffrey Clark, Kelly Merrill, AJ Dorn, Weston
-  Knowlton, Parker Strickland) — re-check after B1.
+- [ ] **A9 · Stripe / status check** · 2026-09-23: everyone clear except AJ Dorn
+  AJ Dorn = SELF_GUARDIAN (shape A). Fix = `scripts/fix-family-shapes.ts --only SELF_GUARDIAN` (one member,
+  --parent-email adamjdorn@gmail.com --parent-name "Adam J Dorn Sr"), then CHILD_EMAIL for the same id.
+  Possible duplicate "Adam Dorn" (imported, DOB 2011-09-15, empty record) — same parent email + phone as
+  AJ (DOB 2012-09-15). Confirm the birth year with the dad; if one child → archive the empty record.
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
@@ -100,12 +96,11 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   "Too hard to change or cancel" = design problem: actions spread over roster menu, profile card, billing
   centre and bulk tool. Write a handoff like events/products, then build. Not started.
 
-- [ ] **B14 · "Renewing this week" roster queue** · Julian chose (b) 2026-09-22 · waits for events slice 2
-  New `renewingSoon` queue in lib/membersQuery (currentPeriodEnd or endDate within 7 days), roster chip,
-  and UPCOMING_RENEWAL_LARGE card href → `/dashboard/members?queue=renewingSoon`. ~1 hour, no migration.
-  Julian 2026-09-23: (a) — a "Paused" card in the same strip, no date, no migration. `pausedUntil` goes
-  to B13 when the Membership panel lands.
-
+- [ ] **B14 · "Renewing this week" queue + "Paused" card** · BUILT 2026-09-23, on disk — needs branch/build/push
+  lib/membersQuery: `renewingSoon` (active row whose currentPeriodEnd / paidThroughDate / endDate lands within
+  7 days; Paused excluded) and `paused` (status PAUSED); both counted in the roster strip, which grows from
+  4 cards to 6. Financials UPCOMING_RENEWAL_LARGE card → `?queue=renewingSoon`. renewal-surfacing tests +8
+  (45 pass; also fixed a stale B4-era assertion there). `pausedUntil` → B13.
 - [x] **B15 · Invite a guardian to create a parent account (owner action)** · SHIPPED 2026-09-23 on main (d09e7e4)
   `POST /api/members/[id]/invite-guardian` → sendJoinInvite(guardianLogin) → parent-account email variant →
   activation JOIN branch creates the guardian login + CONFIRMED link, no billing. Button on Family & access
@@ -207,4 +202,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-23 (B9+B15 shipped; events slice 2a merged, 2b built; A9 mostly clear)_
+_Last reviewed: 2026-09-23 evening (A2/A5/A6 done; A7/A8/A9 scoped; AJ Dorn split queued)_
