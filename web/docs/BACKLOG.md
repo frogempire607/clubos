@@ -29,9 +29,12 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [ ] **A3 · Give the four paying minors a guardian with portal access** · blocks B2 COPPA · steps in chat 2026-09-23
   None of the four guardians has a portal account (checked users table). Clint Dwyer + Aylen Grubusic:
   INVITED, links expired → roster row menu → Resend invitation → parent completes → approve PROFILE ONLY.
-  André Serra + Jacob Vann: migration COMPLETED → no owner path existed → **B15** adds "Invite … to create a
-  parent account" on Family & access. Jacob's guardian on file: "Judson" <jvann@tessy.com>; a separate
-  member record "Judson Vann" (marked minor, NEEDS_REVIEW) also exists — likely the dad; review/archive.
+  André Serra: **B15** "Invite Luis to create a parent account" on Family & access (luisfilipeserra@hotmail.com,
+  no account exists). Jacob Vann: DO NOT use B15 — his dad ALREADY has a portal login, vannjudson@gmail.com
+  (last sign-in Aug 18), vouched as guardian of the placeholder record "Judson Vann" instead of Jacob.
+  Fix: Jacob → Family & access → Give someone access → search vannjudson@gmail.com → Give access; change
+  Jacob's guardian email from jvann@tessy.com to vannjudson@gmail.com; then ARCHIVE the "Judson Vann" member
+  record (empty: 0 subs / 0 attendance / 0 payments) — not merge; it is a parent, not a duplicate athlete.
 
 - [ ] **A4 · Call the Lawell family**
   Get the parent's actual name and confirm the email on file is theirs. The account fix
@@ -100,11 +103,10 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [ ] **B14 · "Renewing this week" roster queue** · Julian chose (b) 2026-09-22 · waits for events slice 2
   New `renewingSoon` queue in lib/membersQuery (currentPeriodEnd or endDate within 7 days), roster chip,
   and UPCOMING_RENEWAL_LARGE card href → `/dashboard/members?queue=renewingSoon`. ~1 hour, no migration.
-  NOT for Wyatt: a paused member would appear the week his row ends and then vanish. DECISION for Julian:
-  (a) add a "Paused" card to the same strip (no date, no migration) or (b) a `pausedUntil` date on Member
-  + "back this week" queue (one migration, own item). Recommend (a) now, (b) when B13 lands.
+  Julian 2026-09-23: (a) — a "Paused" card in the same strip, no date, no migration. `pausedUntil` goes
+  to B13 when the Membership panel lands.
 
-- [ ] **B15 · Invite a guardian to create a parent account (owner action)** · BUILT 2026-09-23, on disk — tiny, ship before events slice 2
+- [x] **B15 · Invite a guardian to create a parent account (owner action)** · SHIPPED 2026-09-23 on main (d09e7e4)
   `POST /api/members/[id]/invite-guardian` → sendJoinInvite(guardianLogin) → parent-account email variant →
   activation JOIN branch creates the guardian login + CONFIRMED link, no billing. Button on Family & access
   when a minor has a guardian email and no account holder. Refuses if that email already has a login.
@@ -167,8 +169,13 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 - [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 SHIPPED 2026-09-22
   (merged 0c38253, Netlify live, Julian verified: rows render, Attendees matches Registrations).
-  SLICE 2 = collapsible editor (1a/1b) + per-session prices + pricingModel/signupAccess/splitInvoiceWhen
-  — carries ONE migration and edits the member register route. Planned, NOT started — Julian says go.
+  SLICE 2a BUILT 2026-09-23 (on disk): migration `20260923000000_event_pricing_model` (additive, backfilled),
+  schema, lib/eventPricingModel.ts (55 tests, `npm run test:event-pricing-model`), events create/PATCH write
+  BOTH vocabularies + exclusion rules + sessions keep their ids (409 if a removed session has paid
+  registrations), register route DROP_IN + sessionIds[] = per-session purchase via quoteSessions, public
+  route/register read signupAccess. Money rule honoured: no existing registration is touched.
+  SLICE 2b NEXT: EventEditor 1a/1b replacing EventModal, member-portal session picker, Attendees showing
+  sessions bought. Old modal keeps working meanwhile (legacy fields derived both ways).
   No longer waits on COPPA (see B2: COPPA is already on main).
   SLICE 2 PLAN: (1) migration `event_pricing_model`: EventSession.price Decimal?, Event.pricingModel
   (FREE|FIXED|SPLIT, backfilled from variableCostEnabled/prices), Event.signupAccess
@@ -195,4 +202,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-23 (B9 shipped, A1 done; B15 built; A2 re-scoped to Paused; A3/A9 detailed)_
+_Last reviewed: 2026-09-23 (B9+B15 shipped; events slice 2a built; Jacob's dad already has a login)_

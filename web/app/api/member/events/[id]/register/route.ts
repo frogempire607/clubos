@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { quoteSessions } from "@/lib/eventPricingModel";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import type { Prisma } from "@prisma/client";
@@ -75,6 +76,10 @@ async function emailBookingConfirmation(args: {
 
 const schema = z.object({
   pricingType: z.enum(["MEMBER", "NON_MEMBER", "DROP_IN"]).default("MEMBER"),
+  // B11 slice 2 — DROP_IN with sessionIds = a per-session purchase: the sum of
+  // those sessions' prices, recorded on the registration. DROP_IN without
+  // sessionIds keeps the old meaning (one unnamed session at the drop-in fee).
+  sessionIds: z.array(z.string().min(1)).max(50).optional(),
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
   // The registrant's payment decision, when the event offers a choice.
@@ -132,9 +137,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many registration attempts. Try again in a moment.");
 
   try {
-    const { pricingType, memberId, discountCode, paymentMethod, autoChargeConsent, acknowledgeDocuments } = schema.parse(
-      await req.json().catch(() => ({})),
-    );
+    const body = schema.parse(await req.json().catch(() => ({})));
+    const { pricingType, memberId, discountCode, paymentMethod, autoChargeConsent, acknowledgeDocuments } = body;
 
     // COPPA: block a guardian from registering a minor until consent is on file.
     if (memberId && (await guardianActionBlocked(session.user.id, memberId))) {
@@ -151,7 +155,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
       include: {
         _count: { select: { bookings: true } },
-        sessions: { select: { id: true } },
+        sessions: { select: { id: true, price: true, startsAt: true }, orderBy: { sortOrder: "asc" } },
         // Phase 5 §5.3.1 — half of what resolveEventPolicy walks.
         customEventType: { select: { defaultPolicy: true } },
       },
@@ -447,7 +451,24 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     let priceCents = 0;
     let priceLabel = "";
 
-    if (pricingType === "DROP_IN") {
+    // Slice 2 — which sessions this registration is for. Empty = whole event.
+    let purchasedSessionIds: string[] = [];
+    if (pricingType === "DROP_IN" && body.sessionIds && body.sessionIds.length > 0) {
+      // Per-session purchase: the price is the sum of the chosen sessions'
+      // own prices (lib/eventPricingModel.quoteSessions), never the old
+      // single drop-in fee. The chosen sessions are stored on the registration
+      // so the roster, the receipt and check-in all know what was bought.
+      const quote = quoteSessions({
+        pricingModel: (event.pricingModel as "FREE" | "FIXED" | "SPLIT") ?? "FIXED",
+        sellIndividualSessions: !!event.sellIndividualSessions,
+        sessions: event.sessions,
+        requestedIds: body.sessionIds,
+      });
+      if (!quote.ok) return NextResponse.json({ error: quote.error }, { status: 400 });
+      priceCents = quote.cents;
+      priceLabel = quote.label;
+      purchasedSessionIds = quote.sessionIds;
+    } else if (pricingType === "DROP_IN") {
       // Drop-in = pay for a single session. Only valid on multi-session events.
       if (!isMultiSession) {
         return NextResponse.json(
@@ -605,6 +626,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           discountValue: discount?.value ?? null,
           discountAmount: discount ? Math.round((grossPrice - price) * 100) / 100 : null,
           scheduledChargeAt: data.scheduledChargeAt ?? null,
+          sessionIds: purchasedSessionIds,
           ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
         };
         if (existing) {
