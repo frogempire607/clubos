@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { applyExclusions, resolveEventWrite } from "@/lib/eventPricingModel";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
@@ -18,6 +19,8 @@ const sessionSchema = z.object({
   startsAt: z.string(),
   endsAt: z.string(),
   sortOrder: z.number().int().default(0),
+  // B11 slice 2 — per-session price; null = not sold on its own.
+  price: z.number().min(0).optional().nullable(),
 });
 
 const formFieldSchema = z.object({
@@ -39,6 +42,12 @@ const updateSchema = z.object({
   memberPrice: z.number().min(0).optional().nullable(),
   nonMemberPrice: z.number().min(0).optional().nullable(),
   dropInFee: z.number().min(0).optional().nullable(),
+  // B11 slice 2 — see app/api/events/route.ts. Optional; both vocabularies
+  // are written on every save.
+  pricingModel: z.enum(["FREE", "FIXED", "SPLIT"]).optional().nullable(),
+  signupAccess: z.enum(["MEMBERS", "PUBLIC_LINK", "STAFF_ONLY"]).optional().nullable(),
+  splitInvoiceWhen: z.enum(["AFTER_EVENT", "ON_DATE"]).optional().nullable(),
+  sellIndividualSessions: z.boolean().optional().nullable(),
   travelFee: z.number().min(0).optional().nullable(),
   publishAt: z.string().optional().nullable(),
   unpublishAt: z.string().optional().nullable(),
@@ -98,6 +107,9 @@ function slugify(name: string): string {
 async function requireEvent(id: string, clubId: string) {
   return prisma.event.findFirst({
     where: { id, clubId, deletedAt: null },
+    // Sessions ride along: the PATCH merges the money/access model over the
+    // stored event and keeps session ids stable (slice 2).
+    include: { sessions: { orderBy: { sortOrder: "asc" } } },
   });
 }
 
@@ -150,8 +162,42 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     // Ensure a public slug exists once public registration is turned on (or it
     // becomes a hosted tournament). Never change an existing slug — links shared
     // with non-members must keep working.
+    // ── Money + access, both vocabularies (slice 2) ──────────────────────
+    // A PATCH is partial, so the resolution runs on the MERGED event (what was
+    // sent over what is stored) and only when something money/access-shaped
+    // was sent at all. The new vocabulary, when present, is the source.
+    const MODEL_KEYS = [
+      "pricingModel", "signupAccess", "splitInvoiceWhen", "sellIndividualSessions",
+      "memberPrice", "nonMemberPrice", "dropInFee", "variableCostEnabled",
+      "visibility", "purchaseAccess", "publicRegistration", "invoiceScheduledAt",
+    ] as const;
+    const touchesModel = MODEL_KEYS.some((k) => k in rest) || sessions !== undefined;
+    const model = touchesModel
+      ? resolveEventWrite({
+          pricingModel: rest.pricingModel ?? (rest.pricingModel === undefined && !("variableCostEnabled" in rest) && !("dropInFee" in rest) && !("memberPrice" in rest) && !("nonMemberPrice" in rest) && !("visibility" in rest) && !("purchaseAccess" in rest) && !("publicRegistration" in rest)
+              ? (event.pricingModel as "FREE" | "FIXED" | "SPLIT")
+              : null),
+          signupAccess: rest.signupAccess ?? (rest.pricingModel ? (event.signupAccess as "MEMBERS" | "PUBLIC_LINK" | "STAFF_ONLY") : null),
+          splitInvoiceWhen: rest.splitInvoiceWhen ?? (event.splitInvoiceWhen as "AFTER_EVENT" | "ON_DATE" | null),
+          sellIndividualSessions: rest.sellIndividualSessions ?? event.sellIndividualSessions,
+          sessionPrices: sessions ? sessions.map((x) => x.price ?? null) : event.sessions.map((x) => (x.price == null ? null : Number(x.price))),
+          memberPrice: "memberPrice" in rest ? rest.memberPrice ?? null : event.memberPrice == null ? null : Number(event.memberPrice),
+          nonMemberPrice: "nonMemberPrice" in rest ? rest.nonMemberPrice ?? null : event.nonMemberPrice == null ? null : Number(event.nonMemberPrice),
+          dropInFee: "dropInFee" in rest ? rest.dropInFee ?? null : event.dropInFee == null ? null : Number(event.dropInFee),
+          variableCostEnabled: rest.variableCostEnabled ?? event.variableCostEnabled,
+          visibility: rest.visibility ?? event.visibility,
+          purchaseAccess: rest.purchaseAccess ?? event.purchaseAccess,
+          publicRegistration: rest.publicRegistration ?? event.publicRegistration,
+          invoiceScheduledAt: rest.invoiceScheduledAt
+            ? new Date(rest.invoiceScheduledAt)
+            : rest.invoiceScheduledAt === null
+              ? null
+              : event.invoiceScheduledAt,
+        })
+      : null;
+
     const willBePublic =
-      rest.publicRegistration === true ||
+      (model ? model.publicRegistration : rest.publicRegistration === true) ||
       (isTournament && (rest.tournamentMode ?? event.tournamentMode) === "HOST");
     let publicSlug = event.publicSlug;
     if (willBePublic && !publicSlug) {
@@ -169,16 +215,52 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       publicSlug = candidate;
     }
 
-    const { paymentDueBy, responsibleCoachUserId, escalationCustomDays, registrationForm, variableCostEnabled, variableCostMode, variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, paymentMethods, autoChargeDate, ...flatRest } = rest;
+    const {
+      paymentDueBy, responsibleCoachUserId, escalationCustomDays, registrationForm, variableCostEnabled, variableCostMode,
+      variableCostTotal, variableCostEstimatedSignups, variableCostEstimatedTotal, tournamentMode, paymentMethods, autoChargeDate,
+      // Written from `model` below, never straight from the body.
+      pricingModel: _pm, signupAccess: _sa, splitInvoiceWhen: _siw, sellIndividualSessions: _sis,
+      memberPrice: _mp, nonMemberPrice: _nmp, dropInFee: _dif, visibility: _vis, purchaseAccess: _pa, publicRegistration: _pr,
+      invoiceScheduledAt: _isa,
+      ...flatRest
+    } = rest;
+    void _pm; void _sa; void _siw; void _sis; void _mp; void _nmp; void _dif; void _vis; void _pa; void _pr; void _isa;
+    const modelWrite = model
+      ? {
+          pricingModel: model.pricingModel,
+          signupAccess: model.signupAccess,
+          splitInvoiceWhen: model.splitInvoiceWhen,
+          sellIndividualSessions: model.sellIndividualSessions,
+          memberPrice: model.memberPrice,
+          nonMemberPrice: model.nonMemberPrice,
+          dropInFee: model.dropInFee,
+          variableCostEnabled: model.variableCostEnabled,
+          visibility: model.visibility,
+          purchaseAccess: model.purchaseAccess,
+          publicRegistration: model.publicRegistration,
+          invoiceScheduledAt: model.invoiceScheduledAt,
+        }
+      : {};
+    const effectiveMethods = paymentMethods === undefined ? undefined : paymentMethods;
+    const exclusions = model && effectiveMethods
+      ? applyExclusions({
+          pricingModel: model.pricingModel,
+          signupAccess: model.signupAccess,
+          paymentMethods: effectiveMethods,
+          chargeOnApproval: (rest.approvalPaymentIntent ?? event.approvalPaymentIntent) === "APPROVAL_CHARGE",
+          requiresCoachApproval: !!(rest.requiresCoachApproval ?? event.requiresCoachApproval),
+        }).paymentMethods
+      : effectiveMethods;
 
     const updated = await prisma.event.update({
       where: { id: params.id },
       data: {
         ...flatRest,
+        ...modelWrite,
         ...(baseType ? { type: baseType } : {}),
         ...(registrationForm !== undefined ? { registrationForm: registrationForm ?? undefined } : {}),
         ...(tournamentMode !== undefined ? { tournamentMode: isTournament ? tournamentMode : null } : {}),
-        ...(variableCostEnabled !== undefined ? { variableCostEnabled } : {}),
+        ...(variableCostEnabled !== undefined && !model ? { variableCostEnabled } : {}),
         ...(variableCostMode !== undefined ? { variableCostMode } : {}),
         ...(variableCostTotal !== undefined ? { variableCostTotal } : {}),
         ...(variableCostEstimatedSignups !== undefined ? { variableCostEstimatedSignups } : {}),
@@ -190,15 +272,19 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         endsAt: rest.endsAt ? new Date(rest.endsAt) : undefined,
         publishAt: rest.publishAt ? new Date(rest.publishAt) : rest.publishAt === null ? null : undefined,
         unpublishAt: rest.unpublishAt ? new Date(rest.unpublishAt) : rest.unpublishAt === null ? null : undefined,
-        invoiceScheduledAt: rest.invoiceScheduledAt
-          ? new Date(rest.invoiceScheduledAt)
-          : rest.invoiceScheduledAt === null
-            ? null
-            : undefined,
+        ...(model
+          ? {}
+          : {
+              invoiceScheduledAt: rest.invoiceScheduledAt
+                ? new Date(rest.invoiceScheduledAt)
+                : rest.invoiceScheduledAt === null
+                  ? null
+                  : undefined,
+            }),
         // An explicit null means "revert to the default (card only)" — it must
         // clear the column, not be dropped as a no-op.
-        ...(paymentMethods !== undefined
-          ? { paymentMethods: paymentMethods === null ? Prisma.DbNull : paymentMethods }
+        ...(exclusions !== undefined
+          ? { paymentMethods: exclusions === null ? Prisma.DbNull : exclusions }
           : {}),
         autoChargeDate: autoChargeDate
           ? new Date(autoChargeDate)
@@ -229,17 +315,43 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     });
 
     if (sessions !== undefined) {
-      await prisma.eventSession.deleteMany({ where: { eventId: params.id } });
-      if (sessions.length > 0) {
-        await prisma.eventSession.createMany({
-          data: sessions.map((s, i) => ({
-            eventId: params.id,
-            name: s.name || null,
-            startsAt: new Date(s.startsAt),
-            endsAt: new Date(s.endsAt),
-            sortOrder: s.sortOrder ?? i,
-          })),
-        });
+      // Slice 2: sessions keep their ids. The old delete-and-recreate minted new
+      // ids on every save, which is harmless until a registration points at a
+      // session (sessionIds) — then every edit would orphan every per-session
+      // purchase. Now: update by id, create the new ones, delete the missing
+      // ones — and refuse to delete a session someone has paid for.
+      const keepIds = sessions.map((x) => x.id).filter((x): x is string => !!x);
+      const referenced = await prisma.eventRegistration.findMany({
+        where: { eventId: params.id, status: { not: "CANCELED" }, NOT: { sessionIds: { isEmpty: true } } },
+        select: { sessionIds: true },
+      });
+      const referencedIds = new Set(referenced.flatMap((r) => r.sessionIds));
+      const blocked = event.sessions.filter((x) => !keepIds.includes(x.id) && referencedIds.has(x.id));
+      if (blocked.length > 0) {
+        return NextResponse.json(
+          {
+            error: `${blocked.length === 1 ? "A session" : `${blocked.length} sessions`} you removed ${blocked.length === 1 ? "has" : "have"} paid registrations attached. Cancel or move those registrations first — nothing was saved.`,
+            code: "SESSION_HAS_REGISTRATIONS",
+            sessionIds: blocked.map((x) => x.id),
+          },
+          { status: 409 },
+        );
+      }
+      const sellsSessions = model ? model.sellIndividualSessions : event.sellIndividualSessions;
+      await prisma.eventSession.deleteMany({ where: { eventId: params.id, id: { notIn: keepIds } } });
+      for (const [i, s] of sessions.entries()) {
+        const data = {
+          name: s.name || null,
+          startsAt: new Date(s.startsAt),
+          endsAt: new Date(s.endsAt),
+          sortOrder: s.sortOrder ?? i,
+          price: sellsSessions ? s.price ?? null : null,
+        };
+        if (s.id && event.sessions.some((x) => x.id === s.id)) {
+          await prisma.eventSession.update({ where: { id: s.id }, data });
+        } else {
+          await prisma.eventSession.create({ data: { ...data, eventId: params.id } });
+        }
       }
     }
 

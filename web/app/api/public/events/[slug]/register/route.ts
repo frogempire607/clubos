@@ -88,7 +88,10 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   if (!event || event.deletedAt) {
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
-  if (!event.publicRegistration && event.tournamentMode !== "HOST") {
+  const publicOpen =
+    event.signupAccess !== "STAFF_ONLY" &&
+    (event.signupAccess === "PUBLIC_LINK" || event.publicRegistration || event.tournamentMode === "HOST");
+  if (!publicOpen) {
     return NextResponse.json({ error: "Public registration is not enabled for this event" }, { status: 403 });
   }
 

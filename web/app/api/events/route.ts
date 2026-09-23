@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { applyExclusions, resolveEventWrite } from "@/lib/eventPricingModel";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -46,6 +47,8 @@ const sessionSchema = z.object({
   startsAt: z.string(),
   endsAt: z.string(),
   sortOrder: z.number().int().default(0),
+  // B11 slice 2 — per-session price; null = not sold on its own.
+  price: z.number().min(0).optional().nullable(),
 });
 
 const formFieldSchema = z.object({
@@ -68,6 +71,14 @@ const eventFields = {
   memberPrice: z.number().min(0).optional().nullable(),
   nonMemberPrice: z.number().min(0).optional().nullable(),
   dropInFee: z.number().min(0).optional().nullable(),
+  // ── B11 slice 2 — the editor's vocabulary. Optional: the old modal keeps
+  // posting the legacy columns and lib/eventPricingModel derives these from
+  // them; the new editor posts these and the legacy columns are derived back.
+  // Either way BOTH sets are written on every save (resolveEventWrite).
+  pricingModel: z.enum(["FREE", "FIXED", "SPLIT"]).optional().nullable(),
+  signupAccess: z.enum(["MEMBERS", "PUBLIC_LINK", "STAFF_ONLY"]).optional().nullable(),
+  splitInvoiceWhen: z.enum(["AFTER_EVENT", "ON_DATE"]).optional().nullable(),
+  sellIndividualSessions: z.boolean().optional().nullable(),
   travelFee: z.number().min(0).optional().nullable(),
   publishAt: z.string().optional().nullable(),
   unpublishAt: z.string().optional().nullable(),
@@ -170,10 +181,27 @@ export async function POST(req: Request) {
     const baseType = data.customEventTypeId ? "OTHER" : (data.type || "OTHER");
     const isTournament = baseType === "TOURNAMENT";
 
+    // One resolution of money + access, both vocabularies written (slice 2).
+    const model = resolveEventWrite({
+      pricingModel: data.pricingModel ?? null,
+      signupAccess: data.signupAccess ?? null,
+      splitInvoiceWhen: data.splitInvoiceWhen ?? null,
+      sellIndividualSessions: data.sellIndividualSessions ?? null,
+      sessionPrices: data.sessions?.map((s) => s.price ?? null),
+      memberPrice: data.memberPrice ?? null,
+      nonMemberPrice: data.nonMemberPrice ?? null,
+      dropInFee: data.dropInFee ?? null,
+      variableCostEnabled: data.variableCostEnabled ?? null,
+      visibility: data.visibility,
+      purchaseAccess: data.purchaseAccess,
+      publicRegistration: data.publicRegistration ?? null,
+      invoiceScheduledAt: data.invoiceScheduledAt ? new Date(data.invoiceScheduledAt) : null,
+    });
+
     // Generate a public slug whenever public registration is on (or it's a
     // hosted tournament, which is inherently public-facing).
     const needsSlug =
-      data.publicRegistration || (isTournament && data.tournamentMode === "HOST");
+      model.publicRegistration || (isTournament && data.tournamentMode === "HOST");
     const publicSlug = needsSlug ? await uniqueSlug(data.name) : null;
 
     const event = await prisma.event.create({
@@ -186,15 +214,19 @@ export async function POST(req: Request) {
         startsAt,
         endsAt,
         capacity: data.capacity || null,
-        memberPrice: data.memberPrice ?? null,
-        nonMemberPrice: data.nonMemberPrice ?? null,
-        dropInFee: data.dropInFee ?? null,
+        memberPrice: model.memberPrice,
+        nonMemberPrice: model.nonMemberPrice,
+        dropInFee: model.dropInFee,
+        pricingModel: model.pricingModel,
+        signupAccess: model.signupAccess,
+        splitInvoiceWhen: model.splitInvoiceWhen,
+        sellIndividualSessions: model.sellIndividualSessions,
         travelFee: data.travelFee ?? null,
         publishAt: data.publishAt ? new Date(data.publishAt) : null,
         unpublishAt: data.unpublishAt ? new Date(data.unpublishAt) : null,
         locationId: data.locationId || null,
-        visibility: data.visibility,
-        purchaseAccess: data.purchaseAccess,
+        visibility: model.visibility,
+        purchaseAccess: model.purchaseAccess,
         allowMembershipPayment: data.allowMembershipPayment,
         imageUrl: data.imageUrl ?? null,
         imagePositionX: data.imagePositionX ?? 50,
@@ -203,24 +235,30 @@ export async function POST(req: Request) {
         isTournament,
         tournamentMode: isTournament ? (data.tournamentMode ?? null) : null,
         registrationForm: data.registrationForm ?? undefined,
-        publicRegistration: data.publicRegistration ?? false,
+        publicRegistration: model.publicRegistration,
         publicSlug,
         publicFormIntro: data.publicFormIntro ?? null,
         publicPricingOption: data.publicPricingOption ?? null,
-        variableCostEnabled: data.variableCostEnabled ?? false,
-        variableCostMode: data.variableCostEnabled ? (data.variableCostMode ?? null) : null,
-        variableCostTotal: data.variableCostEnabled ? (data.variableCostTotal ?? null) : null,
-        variableCostEstimatedSignups: data.variableCostEnabled
+        variableCostEnabled: model.variableCostEnabled,
+        variableCostMode: model.variableCostEnabled ? (data.variableCostMode ?? null) : null,
+        variableCostTotal: model.variableCostEnabled ? (data.variableCostTotal ?? null) : null,
+        variableCostEstimatedSignups: model.variableCostEnabled
           ? (data.variableCostEstimatedSignups ?? null)
           : null,
-        variableCostEstimatedTotal: data.variableCostEnabled
+        variableCostEstimatedTotal: model.variableCostEnabled
           ? (data.variableCostEstimatedTotal ?? null)
           : null,
-        invoiceScheduledAt:
-          data.variableCostEnabled && data.invoiceScheduledAt
-            ? new Date(data.invoiceScheduledAt)
-            : null,
-        paymentMethods: data.paymentMethods ?? undefined,
+        invoiceScheduledAt: model.invoiceScheduledAt,
+        // Rule 2/3 — the persisted list is what the exclusions leave.
+        paymentMethods: data.paymentMethods
+          ? applyExclusions({
+              pricingModel: model.pricingModel,
+              signupAccess: model.signupAccess,
+              paymentMethods: data.paymentMethods,
+              chargeOnApproval: data.approvalPaymentIntent === "APPROVAL_CHARGE",
+              requiresCoachApproval: !!data.requiresCoachApproval,
+            }).paymentMethods
+          : undefined,
         autoChargeDate: data.autoChargeDate ? new Date(data.autoChargeDate) : null,
         requirePaymentBeforeCheckin: data.requirePaymentBeforeCheckin ?? false,
         // Phase 5 §5.3.2. Undefined stays undefined (the column keeps its
@@ -243,6 +281,7 @@ export async function POST(req: Request) {
                 startsAt: new Date(s.startsAt),
                 endsAt: new Date(s.endsAt),
                 sortOrder: s.sortOrder ?? i,
+                price: model.sellIndividualSessions ? s.price ?? null : null,
               })),
             }
           : undefined,

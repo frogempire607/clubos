@@ -28,6 +28,9 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       nonMemberPrice: true,
       dropInFee: true,
       publicRegistration: true,
+      signupAccess: true,
+      pricingModel: true,
+      sellIndividualSessions: true,
       publicFormIntro: true,
       publicPricingOption: true,
       registrationForm: true,
@@ -162,7 +165,12 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
         publicPolicy.approvalPaymentIntent === "APPROVAL_CHARGE"),
     cancellationPolicyText: publicPolicy.cancellationPolicyText,
     documents,
+    // Slice 2: signupAccess is the answer; STAFF_ONLY closes the link even on a
+    // hosted tournament, PUBLIC_LINK opens it. The legacy flag is kept in sync
+    // by every write, so this reads the same as before for untouched events.
     registrationOpen:
-      (event.publicRegistration || event.tournamentMode === "HOST") && !capacityReached,
+      event.signupAccess !== "STAFF_ONLY" &&
+      (event.signupAccess === "PUBLIC_LINK" || event.publicRegistration || event.tournamentMode === "HOST") &&
+      !capacityReached,
   });
 }

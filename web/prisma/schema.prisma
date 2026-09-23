@@ -1523,6 +1523,16 @@ model Event {
   memberPrice            Decimal?  @db.Decimal(10, 2)
   nonMemberPrice         Decimal?  @db.Decimal(10, 2)
   dropInFee              Decimal?  @db.Decimal(10, 2)
+  // ── B11 slice 2 — the pricing/access model the editor speaks ────────────
+  // Backfilled from the older columns (which stay, and keep being written):
+  //   pricingModel   FREE | FIXED | SPLIT     (SPLIT ⇔ variableCostEnabled)
+  //   signupAccess   MEMBERS | PUBLIC_LINK | STAFF_ONLY
+  //   splitInvoiceWhen AFTER_EVENT | ON_DATE  (SPLIT only; ON_DATE ⇒ invoiceScheduledAt)
+  //   sellIndividualSessions  FIXED only; sessions carry EventSession.price
+  pricingModel           String    @default("FIXED")
+  signupAccess           String    @default("MEMBERS")
+  splitInvoiceWhen       String?
+  sellIndividualSessions Boolean   @default(false)
   travelFee              Decimal?  @db.Decimal(10, 2)
   publishAt              DateTime?
   unpublishAt            DateTime?
@@ -1679,6 +1689,10 @@ model EventSession {
   startsAt  DateTime
   endsAt    DateTime
   sortOrder Int      @default(0)
+  // B11 slice 2 — per-session price when the event sells sessions individually.
+  // Null = "use the event's whole-event pricing"; the old Event.dropInFee was
+  // backfilled here for every multi-session event that had one.
+  price     Decimal? @db.Decimal(10, 2)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
@@ -1699,6 +1713,10 @@ model EventRegistration {
   email                   String
   phone                   String?
   formResponses           Json      @default("{}")
+  // B11 slice 2 — the sessions a per-session purchase bought. Empty = the
+  // whole event (every registration before slice 2, and every whole-event
+  // purchase after it). amountDue stays the snapshot of what was agreed.
+  sessionIds              String[]  @default([])
   // REGISTERED | PENDING_PAYMENT | SCHEDULED | AWAITING_CASH | AWAITING_CHECK
   // | PAYMENT_FAILED | PAID | CANCELED  (lib/eventPayments.ts)
   status                  String    @default("REGISTERED")

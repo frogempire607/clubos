@@ -4679,3 +4679,26 @@ Orson, for the record: his billing-centre Edit says "No changes" because the dra
 $150 from Sep 21; the summary shows Monthly $175 because a live Stripe row outranks the draft (D9). The page
 also still says "Scheduled for activation / trialing / nothing charged" while Stripe shows two payments —
 the local mirror is stale because nothing runs the reconciler. All B12.
+
+## 2026-09-23 — Events slice 2a: pricing model, per-session purchase, no live money touched
+
+Migration `20260923000000_event_pricing_model` — additive columns, backfilled from the legacy ones, which
+stay and keep being written. `lib/eventPricingModel.ts` is the one translation between the editor's words
+(FREE/FIXED/SPLIT, MEMBERS/PUBLIC_LINK/STAFF_ONLY, AFTER_EVENT/ON_DATE) and the seven legacy columns;
+`resolveEventWrite` runs on every create/PATCH so both sets always agree, `applyExclusions` enforces the
+handoff's rules 2–4 on the persisted payment methods, `bundleSanity` is rule 5, `quoteSessions` prices a
+per-session purchase. Tests mirror the SQL backfill case for case.
+
+Money rule (Julian, before the migration was written): an existing registration is never repriced or
+re-charged. Kept by construction — `amountDue` is a snapshot the register route refuses to duplicate
+("already registered"), repricing stays behind the explicit owner action, and per-session purchase only
+ever creates a NEW registration with `sessionIds`. "Add a session to my existing registration" is slice 3.
+
+Sessions now keep their ids across edits (the old PATCH deleted and recreated them, which would have
+orphaned every `sessionIds` on the first edit); removing a session with paid registrations is a 409.
+
+Slice 2b: the editor itself (1a/1b), the member-portal session picker, Attendees showing sessions bought.
+
+Also today: B15 shipped; found that Jacob Vann's father already holds a portal login
+(vannjudson@gmail.com) vouched against a placeholder "Judson Vann" athlete record — link that account to
+Jacob and archive the placeholder; B15 would have minted a second account at jvann@tessy.com.
