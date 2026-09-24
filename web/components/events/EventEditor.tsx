@@ -22,6 +22,7 @@
 import { useMemo, useState } from "react";
 import ImageUpload from "@/components/ImageUpload";
 import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
+import PublicLinkBox from "@/components/events/PublicLinkBox";
 import { ESCALATION_SCHEDULE_DAYS, type EscalationSchedule } from "@/lib/eventPayments";
 import {
   CATEGORY_PRESETS,
@@ -729,7 +730,10 @@ export default function EventEditor({
         {signupAccess === "PUBLIC_LINK" && (
           <div className="rounded-xl bg-app-bg px-3 py-2.5 space-y-2">
             {ev?.publicSlug ? (
-              <p className="text-[11.5px] text-text-primary break-all">Public page: <span className="font-mono">/e/{ev.publicSlug}</span></p>
+              <div>
+                <p className="text-[11px] font-medium text-text-primary mb-1">Public page — share this link</p>
+                <PublicLinkBox slug={ev.publicSlug} />
+              </div>
             ) : (
               <p className="text-[11.5px] text-text-muted">A link is created when you save.</p>
             )}
