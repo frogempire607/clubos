@@ -11,12 +11,15 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
+import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor } from "@/lib/productSettings";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
   // Which profile this purchase is for (self or a child the viewer guardians).
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
+  // B10 slice 2 — the Size × Color row; required when the product has variants.
+  variantId: z.string().max(200).optional().nullable(),
 });
 
 // POST /api/member/products/[id]/buy
@@ -26,7 +29,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { quantity, memberId, discountCode } = schema.parse(await req.json().catch(() => ({})));
+    const { quantity, memberId, discountCode, variantId } = schema.parse(await req.json().catch(() => ({})));
 
     const product = await prisma.product.findFirst({
       where: {
@@ -46,12 +49,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       );
     }
 
-    if (product.trackInventory && product.inventory !== null && product.inventory < quantity) {
-      return NextResponse.json(
-        { error: product.inventory <= 0 ? "Out of stock." : `Only ${product.inventory} left in stock.` },
-        { status: 400 },
-      );
-    }
+    // Stock: the variant ledger when the product has variants, else the plain count.
+    const settings = normalizeProductSettings(product.settings);
+    const variant = findVariant(settings, variantId);
+    const stock = checkStock(settings, product, variantId, quantity);
+    if (!stock.ok) return NextResponse.json({ error: stockMessage(stock), code: stock.reason }, { status: 400 });
+    const lineName = variant ? `${product.name} — ${variant.label}` : product.name;
 
     // Family-aware: resolve which profile this purchase is for (self or a child
     // the viewer guardians).
@@ -91,9 +94,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
       discount = check.discount;
     }
-    const unitPrice = discount
-      ? discountedPrice(Number(product.price), discount)
-      : Number(product.price);
+    // Member price when the club set one (variant price still wins — see
+    // unitPriceFor), then the discount code on top.
+    const listPrice = unitPriceFor(settings, Number(product.price), variant, "MEMBER_PORTAL");
+    const unitPrice = discount ? discountedPrice(listPrice, discount) : listPrice;
     const totalAmount = unitPrice * quantity;
     const totalCents = Math.round(totalAmount * 100);
     const platformFee = calculatePlatformFee(totalCents, club.tier);
@@ -119,7 +123,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       bookerIsGuardian: resolved?.bookerIsGuardian ?? false,
       kind: "PRODUCT_BUY",
       amount: totalAmount,
-      payload: { productId: product.id, quantity, memberId: member.id },
+      payload: { productId: product.id, quantity, memberId: member.id, variantId: variant?.id ?? null },
     });
     if (gate.kind === "block") {
       return NextResponse.json(gate.body, { status: gate.status });
@@ -135,6 +139,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         memberId:  member.id,
         soldById:  session.user.id,
         quantity,
+        variantId: variant?.id ?? null,
         unitPrice,
         totalAmount,
         status: "PENDING",
@@ -154,7 +159,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
               currency: "usd",
               unit_amount: Math.round(unitPrice * 100),
               product_data: {
-                name: product.name,
+                name: lineName,
                 ...(product.description ? { description: product.description } : {}),
               },
             },

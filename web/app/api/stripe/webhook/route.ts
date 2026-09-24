@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe";
 import { applyNonRenewal, planNonRenewal } from "@/lib/autopay";
 import { invoicePeriodEnd } from "@/lib/stripeTruth";
 import { prisma } from "@/lib/prisma";
+import { releaseStock } from "@/lib/productStock";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import {
   sendBookingConfirmationEmail,
@@ -706,14 +707,10 @@ export async function POST(req: Request) {
             },
           });
 
-          // Decrement inventory
-          const sale = await prisma.productSale.findFirst({ where: { id: saleId, clubId }, include: { product: true } });
-          if (sale?.product.trackInventory && sale.product.inventory !== null) {
-            await prisma.product.update({
-              where: { id: sale.productId },
-              data: { inventory: { decrement: sale.quantity } },
-            });
-          }
+          // Units leave when the payment lands — from the VARIANT ledger when
+          // the sale names one (B10 slice 2), else the plain count.
+          const sale = await prisma.productSale.findFirst({ where: { id: saleId, clubId }, select: { productId: true, variantId: true, quantity: true } });
+          if (sale) await releaseStock({ productId: sale.productId, variantId: sale.variantId, quantity: sale.quantity });
         }
 
         // ── Member-shop private package purchase ────────────────────────────

@@ -4776,3 +4776,28 @@ refunded on the day.
 
 Left out on purpose: a member email on plan change (Julian tells the family), and the new-subscription flow
 for interval changes — the recipe for that is what B9 already ships (end this one, activate the new setup).
+
+## 2026-09-24 — Products handoff, slice 2: sell by variant (2g) + member store detail (2e)
+
+One additive migration (`product_sales.variantId`), then the sale learns WHICH row it took from. The rule from the
+handoff carries: the variant ledger in `Product.settings` is the only place per-variant stock lives, so a sale edits
+the ledger and `derivedInventory` rewrites `Product.inventory` — `lib/productStock.releaseStock` is the single write
+path, used by the cash sale (units leave now) and the Stripe webhook (units leave when the payment lands). Both
+routes used to `inventory: { decrement }` directly; that still works for products without variants and is what the
+helper does for them.
+
+Pricing has one resolver, `unitPriceFor`: a per-variant price wins everywhere (it is how "XXL is $3 more" is said),
+otherwise the member portal charges `settings.memberPrice` when set, otherwise the base price. Stock has one
+checker, `checkStock`: a product with variants refuses a sale without a pick (there is no generic unit to hand
+over); the message names the shortfall.
+
+The store gets a projection (`lib/productStore.storeView`) rather than the settings blob — photos, member price,
+option groups and per-variant label/stock/price/status; SKUs, thresholds and internal notes stay in the dashboard.
+`/member/products/[id]` is screen 2e: pickers show per-value stock and, once one group is picked, grey out the other
+group's values that are sold out in that combination; the banner, price, quantity clamp and the sticky
+`Checkout · $X` all derive from the picked variant. The Sell modal moves to `components/products/SellModal.tsx` as
+screen 2g: tiles are variants, not products.
+
+Not in this slice: a multi-line cart at the desk, inventory across products (2c), bookings (2d/2f), the public
+page + QR (2h). Julian runs `prisma migrate deploy` + `prisma generate` before the build — the five `variantId`
+type errors are the client not knowing the column yet.
