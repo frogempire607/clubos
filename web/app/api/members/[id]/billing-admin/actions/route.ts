@@ -25,6 +25,8 @@ import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { syncOneSubscription } from "@/lib/stripeSync";
 import { commitPlanChange } from "@/lib/stripePlanChangeServer";
+import { pauseMembership, resumeMembership } from "@/lib/membershipPause";
+import { resolveDatesEdit } from "@/lib/membershipPanel";
 
 // Discrete, confirmation-gated billing actions (billing:full). Each action is
 // explicit, audited, and preserves history — nothing here deletes rows. The
@@ -46,6 +48,10 @@ const schema = z.object({
     "cancel_at_period_end",
     "keep_membership",
     "comp_membership",
+    // B13 slice 2
+    "pause_membership",
+    "resume_membership",
+    "set_dates",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -65,6 +71,15 @@ const schema = z.object({
   optionId: z.string().optional(),
   // cancel_at_period_end: the reason chip, optional (Reports' churn breakdown).
   cancelReason: z.string().max(60).optional().nullable(),
+  // pause_membership: resume date (YYYY-MM-DD) or null = until resumed.
+  pausedUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  // set_dates: each key present is applied; null clears. YYYY-MM-DD.
+  dates: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    paidThroughDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    minimumTermEndsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  }).optional(),
 });
 
 // GET ?subscriptionId=…&direction=on|off — the exact sentence the confirm
@@ -392,7 +407,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       where: { id: row.id },
       data: keep
         ? { endDate: null, autoRenew: true, notes: `${row.notes ? row.notes + " " : ""}[Cancel undone ${new Date().toISOString().slice(0, 10)}]` }
-        : { endDate: effective, autoRenew: false, notes: `${row.notes ? row.notes + " " : ""}[Cancels ${effective!.toISOString().slice(0, 10)}${data.cancelReason ? ` — ${data.cancelReason}` : ""}]` },
+        : { endDate: effective, autoRenew: false, cancelReason: data.cancelReason ?? null, notes: `${row.notes ? row.notes + " " : ""}[Cancels ${effective!.toISOString().slice(0, 10)}${data.cancelReason ? ` — ${data.cancelReason}` : ""}]` },
     });
     await recordSubscriptionEvent({
       clubId: session.user.clubId, memberSubscriptionId: row.id, memberId: member.id,
@@ -416,6 +431,67 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       ok: true, effectiveAt: effective,
       message: keep ? `${member.firstName}'s membership keeps renewing.` : `${member.firstName} keeps access until ${eff}; nothing renews after that.`,
     });
+  }
+
+  // pause_membership / resume_membership — B13 slice 2. See lib/membershipPause.
+  if (data.action === "pause_membership" || data.action === "resume_membership") {
+    if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
+    const res = data.action === "pause_membership"
+      ? await pauseMembership({ clubId: session.user.clubId, memberId: member.id, subscriptionId: data.subscriptionId, until: data.pausedUntil ? new Date(data.pausedUntil + "T00:00:00.000Z") : null, actorUserId: session.user.id })
+      : await resumeMembership({ clubId: session.user.clubId, memberId: member.id, subscriptionId: data.subscriptionId, actorUserId: session.user.id });
+    if (!res.ok) return NextResponse.json({ error: res.error, code: res.code }, { status: res.status });
+    return NextResponse.json({ ok: true, message: res.message });
+  }
+
+  // set_dates — B13 slice 2. Stripe owns the cycle, so a Stripe row moves only
+  // its end date (→ cancel_at) and its commitment; offline rows move all four.
+  // The rules (start < end, commitment capped at end, what Stripe hears) are
+  // in lib/membershipPanel.resolveDatesEdit and tested there.
+  if (data.action === "set_dates") {
+    if (!data.subscriptionId || !data.dates) return NextResponse.json({ error: "subscriptionId and dates are required." }, { status: 400 });
+    const row = await prisma.memberSubscription.findFirst({ where: { id: data.subscriptionId, memberId: member.id } });
+    if (!row) return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
+    const toDate = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v + "T00:00:00.000Z"));
+    const resolved = resolveDatesEdit(
+      { startDate: row.startDate, paidThroughDate: row.paidThroughDate, endDate: row.endDate, minimumTermEndsAt: row.minimumTermEndsAt, hasStripe: !!row.stripeSubscriptionId },
+      { startDate: toDate(data.dates.startDate), paidThroughDate: toDate(data.dates.paidThroughDate), endDate: toDate(data.dates.endDate), minimumTermEndsAt: toDate(data.dates.minimumTermEndsAt) },
+    );
+    if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+    if (resolved.changed.length === 0) return NextResponse.json({ ok: true, unchanged: true, message: "No changes." });
+
+    if (row.stripeSubscriptionId && resolved.changed.includes("endDate")) {
+      const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { stripeAccountId: true } });
+      if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
+      try {
+        const end = resolved.next.endDate;
+        await stripe.subscriptions.update(
+          row.stripeSubscriptionId,
+          end && end.getTime() > Date.now() + 60_000
+            ? { cancel_at: Math.floor(end.getTime() / 1000), cancel_at_period_end: false }
+            : { cancel_at: "", cancel_at_period_end: false },
+          { stripeAccount: club.stripeAccountId },
+        );
+      } catch (e) {
+        return NextResponse.json({ error: `Stripe rejected the date — nothing was saved: ${String(e)}` }, { status: 502 });
+      }
+    }
+    await prisma.memberSubscription.update({
+      where: { id: row.id },
+      data: {
+        ...resolved.next,
+        // An end date on a renewing row means "stop then"; clearing it means renew.
+        ...(resolved.changed.includes("endDate") ? { autoRenew: !resolved.next.endDate } : {}),
+      },
+    });
+    await recomputeMemberStatus(member.id, session.user.clubId);
+    const fmtD = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "—");
+    await writeBillingAudit({
+      clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id, action: "MEMBERSHIP_DATES_CHANGED",
+      before: { startDate: row.startDate, paidThroughDate: row.paidThroughDate, endDate: row.endDate, minimumTermEndsAt: row.minimumTermEndsAt },
+      after: resolved.next,
+      note: `"${row.optionLabel}" dates: ${resolved.changed.map((k) => `${k} → ${fmtD(resolved.next[k])}`).join(", ")}. Stripe: ${resolved.consequence}`,
+    });
+    return NextResponse.json({ ok: true, changed: resolved.changed, message: `Dates saved — ${resolved.changed.length} change${resolved.changed.length === 1 ? "" : "s"}.` });
   }
 
   // comp_membership — B13. "Make it free" in one step. Offline rows: the same

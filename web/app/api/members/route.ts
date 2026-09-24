@@ -9,6 +9,7 @@ import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
+import { resumeLapsedPauses } from "@/lib/membershipPause";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { validateMemberContact } from "@/lib/memberValidation";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
@@ -53,6 +54,7 @@ export async function GET(req: Request) {
   // The old prospect-TTL decay was removed: prospects never auto-age to
   // INACTIVE — INACTIVE is reserved for members whose membership ended.
   await expireEndedManualSubscriptions(session.user.clubId);
+  await resumeLapsedPauses(session.user.clubId);
 
   const members = await prisma.member.findMany({
     where: {

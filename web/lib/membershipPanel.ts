@@ -35,6 +35,9 @@ export type PanelSub = {
   cancelAt: Date | null;
   card: { brand: string | null; last4: string | null } | null;
   createdAt: Date;
+  /** B13 slice 2 — set while paused; `pausedUntil` null = open-ended. */
+  pausedAt: Date | null;
+  pausedUntil: Date | null;
 };
 
 export type PanelInput = {
@@ -120,17 +123,24 @@ export function derivePanel(input: PanelInput): PanelView {
 
   const upcomingView = upcoming ? { label: upcoming.price <= 0 ? "Free" : `${subLabel(upcoming)} · ${money(upcoming.price)} ${prettyPeriod(upcoming.billingPeriod)}`, from: upcoming.startDate! } : null;
 
-  // ── PAUSED (owner label) ──
-  if (current && input.memberStatus === "PAUSED") {
+  // ── PAUSED — the row's pause (slice 2), or the owner label from before it ──
+  if (current && (current.pausedAt || input.memberStatus === "PAUSED")) {
+    const since = current.pausedAt;
+    const until = current.pausedUntil;
+    const moneyLine = since
+      ? `Paused since ${fmt(since)} · ${until ? `resumes ${fmt(until)}` : "until you resume it"}${current.hasStripe ? " · card billing paused" : current.paidThroughDate ? ` · paid-through moves out by the paused days` : ""}`
+      : current.hasStripe
+        ? "Paused (roster label) · card billing continues — use Resume, then Pause again to pause billing too"
+        : "Paused (roster label) · until you resume it";
     return {
       state: "PAUSED",
-      pill: { tone: "warn", label: "Paused" },
+      pill: { tone: "warn", label: until ? `Paused · until ${fmt(until)}` : "Paused" },
       headline: subLabel(current),
-      moneyLine: current.hasStripe ? "Paused · card billing continues until you cancel or resume — pause dates arrive in the next release" : "Paused · until you resume it",
+      moneyLine,
       committedThrough: futureOrNull(current.minimumTermEndsAt, now),
       ending: current.endDate,
-      facts: { paysWith: paysWithFor(current), started: current.startDate, renews: "Paused", payer },
-      actions: { primary: "resume", others: ["cancel"], more: ["transfer"] },
+      facts: { paysWith: paysWithFor(current), started: current.startDate, renews: until ? `Resumes ${fmt(until)}` : "Paused", payer },
+      actions: { primary: "resume", others: ["change_dates", "cancel"], more: ["transfer"] },
       currentSubId: current.id,
       upcoming: upcomingView,
       lastMembership,
@@ -265,3 +275,78 @@ export function cancelPreview(sub: PanelSub, now: Date): CancelPreview {
     },
   };
 }
+
+// ── Pause / Resume maths ─────────────────────────────────────────────────────
+
+const DAY = 86400000;
+
+/**
+ * What resuming does to an OFFLINE row's dates: the days it sat paused are
+ * given back. A family who paid for a month gets a month. Stripe rows get
+ * nothing here — Stripe voided the invoices while paused and the cycle runs on.
+ */
+export function resumeShift(
+  row: { pausedAt: Date | null; paidThroughDate: Date | null; endDate: Date | null; hasStripe: boolean },
+  resumeAt: Date,
+): { pausedDays: number; paidThroughDate: Date | null; endDate: Date | null } {
+  if (!row.pausedAt) return { pausedDays: 0, paidThroughDate: row.paidThroughDate, endDate: row.endDate };
+  const pausedDays = Math.max(0, Math.round((resumeAt.getTime() - row.pausedAt.getTime()) / DAY));
+  if (row.hasStripe || pausedDays === 0) return { pausedDays, paidThroughDate: row.paidThroughDate, endDate: row.endDate };
+  const shift = (d: Date | null) => (d ? new Date(d.getTime() + pausedDays * DAY) : null);
+  return { pausedDays, paidThroughDate: shift(row.paidThroughDate), endDate: shift(row.endDate) };
+}
+
+/** The Pause dialog's sentences. */
+export function pausePreview(row: { hasStripe: boolean; paidThroughDate: Date | null; currentPeriodEnd: Date | null }, until: Date | null, now: Date): { sentence: string; consequence: string; days: number | null } {
+  const days = until ? Math.max(0, Math.round((until.getTime() - now.getTime()) / DAY)) : null;
+  const span = until ? `from ${fmt(now)} to ${fmt(until)}${days ? ` (${days} days)` : ""}` : `from ${fmt(now)} until you resume it`;
+  const sentence = `No charges and no class access ${span}. Attendance is still recorded if they show up. You can resume any time.`;
+  const consequence = row.hasStripe
+    ? until
+      ? `collection paused — invoices are voided until ${fmt(until)}, then billing resumes automatically.`
+      : "collection paused — invoices are voided until you resume. No charges while paused."
+    : `nothing. When you resume, paid-through moves out by the paused days${days ? ` (${days})` : ""}.`;
+  return { sentence, consequence, days };
+}
+
+// ── Change dates: which fields, and what Stripe hears ────────────────────────
+
+export type DatesInput = { startDate: Date | null; paidThroughDate: Date | null; endDate: Date | null; minimumTermEndsAt: Date | null };
+
+export function datesEditable(hasStripe: boolean): Record<keyof DatesInput, boolean> {
+  return hasStripe
+    ? { startDate: false, paidThroughDate: false, endDate: true, minimumTermEndsAt: true }
+    : { startDate: true, paidThroughDate: true, endDate: true, minimumTermEndsAt: true };
+}
+
+/**
+ * Validate + normalise a dates edit. A commitment never outlives the end
+ * (§8.8.1); start never after end; Stripe rows only move the end date.
+ */
+export function resolveDatesEdit(
+  row: DatesInput & { hasStripe: boolean },
+  edit: Partial<DatesInput>,
+): { ok: true; next: DatesInput; changed: (keyof DatesInput)[]; consequence: string } | { ok: false; error: string } {
+  const can = datesEditable(row.hasStripe);
+  const next: DatesInput = { ...row };
+  const changed: (keyof DatesInput)[] = [];
+  for (const k of Object.keys(edit) as (keyof DatesInput)[]) {
+    if (edit[k] === undefined) continue;
+    if (!can[k]) return { ok: false, error: `${LABEL[k]} is set by Stripe on this membership and can't be edited here.` };
+    const v = edit[k] ?? null;
+    if ((v?.getTime() ?? null) !== (row[k]?.getTime() ?? null)) { next[k] = v; changed.push(k); }
+  }
+  if (next.startDate && next.endDate && next.startDate.getTime() > next.endDate.getTime()) return { ok: false, error: "Start must be before the end date." };
+  if (next.minimumTermEndsAt && next.endDate && next.minimumTermEndsAt.getTime() > next.endDate.getTime()) {
+    next.minimumTermEndsAt = next.endDate;
+    if (!changed.includes("minimumTermEndsAt")) changed.push("minimumTermEndsAt");
+  }
+  let consequence: string;
+  if (!row.hasStripe) consequence = "nothing — billed offline. Dates change on the record only.";
+  else if (!changed.includes("endDate")) consequence = "nothing — the cancel date is unchanged.";
+  else if (!next.endDate) consequence = "cancel date removed — renews until cancelled.";
+  else consequence = `cancel date moves to ${fmt(next.endDate)}; charges continue until then.`;
+  return { ok: true, next, changed, consequence };
+}
+
+const LABEL: Record<keyof DatesInput, string> = { startDate: "Start", paidThroughDate: "Paid through", endDate: "End date", minimumTermEndsAt: "Commitment" };

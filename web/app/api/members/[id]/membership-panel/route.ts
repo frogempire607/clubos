@@ -6,6 +6,8 @@ import { requirePermissionLive } from "@/lib/apiGuard";
 import { derivePanel, cancelPreview, type PanelSub } from "@/lib/membershipPanel";
 import { parseOptions, resolveTerms } from "@/lib/membershipOptions";
 import { resolveDraftOptionId } from "@/lib/billingAdmin";
+import { resumeLapsedPauses } from "@/lib/membershipPause";
+import { datesEditable } from "@/lib/membershipPanel";
 
 // B13 — GET /api/members/[id]/membership-panel
 //
@@ -22,6 +24,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const denied = await requirePermissionLive(session, "billing", "view");
   if (denied) return denied;
   const clubId = session.user.clubId;
+  // A pause whose date has passed is over — Stripe already resumed; bring the row along.
+  await resumeLapsedPauses(clubId, [id]);
 
   const member = await prisma.member.findFirst({
     where: { id, clubId, deletedAt: null },
@@ -72,6 +76,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       cancelAt: snap?.cancelAt ? new Date(snap.cancelAt) : null,
       card: snap?.defaultPaymentMethod ? { brand: snap.defaultPaymentMethod.brand ?? null, last4: snap.defaultPaymentMethod.last4 ?? null } : null,
       createdAt: s.createdAt,
+      pausedAt: s.pausedAt,
+      pausedUntil: s.pausedUntil,
     };
   });
 
@@ -140,7 +146,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     draft,
     options,
     cancel,
-    current: current ? { id: current.id, hasStripe: current.hasStripe, price: current.price, optionLabel: current.optionLabel, planName: current.planName, billingPeriod: current.billingPeriod, deliberateFree: current.deliberateFree, endDate: current.endDate, paidThroughDate: current.paidThroughDate, currentPeriodEnd: current.currentPeriodEnd } : null,
+    current: current ? {
+      id: current.id, hasStripe: current.hasStripe, price: current.price, optionLabel: current.optionLabel, planName: current.planName, billingPeriod: current.billingPeriod,
+      deliberateFree: current.deliberateFree, startDate: current.startDate, endDate: current.endDate, paidThroughDate: current.paidThroughDate, currentPeriodEnd: current.currentPeriodEnd,
+      minimumTermEndsAt: current.minimumTermEndsAt, pausedAt: current.pausedAt, pausedUntil: current.pausedUntil, editable: datesEditable(current.hasStripe),
+    } : null,
     history: subs.map((s) => ({ id: s.id, label: s.planName && s.planName !== s.optionLabel ? `${s.planName} · ${s.optionLabel}` : s.optionLabel, price: s.price, billingPeriod: s.billingPeriod, status: s.status, startDate: s.startDate, endDate: s.endDate, hasStripe: s.hasStripe })),
   });
 }

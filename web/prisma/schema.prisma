@@ -1111,6 +1111,16 @@ model MemberSubscription {
   // nothing infers it from the price being zero.
   deliberateFree Boolean @default(false)
 
+  // B13 slice 2 — the pause, on the row. `pausedAt` set = paused now;
+  // `pausedUntil` null while paused = open-ended (resumes when the owner says).
+  // Stripe rows mirror this as pause_collection; offline rows get the paused
+  // days added to paidThroughDate on resume. Member.status = PAUSED stays the
+  // roster label the queues read.
+  pausedAt     DateTime?
+  pausedUntil  DateTime?
+  // The chip the owner picked when cancelling (Reports' churn breakdown).
+  cancelReason String?
+
   // Legacy start mode (kept for backward compat)
   startMode          String    @default("IMMEDIATE") // IMMEDIATE | SPECIFIC_DATE
   effectiveStartDate DateTime?

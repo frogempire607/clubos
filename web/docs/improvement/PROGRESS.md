@@ -4850,3 +4850,22 @@ row that day — never a refund, never a double-counted period, never a gap.
 Slice 1 leaves in place, on purpose and labelled: the old edit modal for dates (and for offline plan changes), the
 roster label for Pause, and B12's dialog for Stripe plan changes (the panel deep-links to it). Tests: 31 for the
 derivation and the cancel sentences.
+
+## 2026-09-24 — B13 slice 2: Pause is real, and dates have one dialog
+
+One additive migration (`pausedAt`, `pausedUntil`, `cancelReason`). Before this, "Paused" was `Member.status`
+and nothing else: no date, no effect on the card, no way back except editing the status. Now the pause lives on
+the row. Stripe rows get `pause_collection` with `behavior: "void"` and a `resumes_at` when the owner picked a date —
+invoices during the pause are voided, the cycle runs on, and Stripe resumes billing by itself on the date. Offline
+rows get the paused days handed back on resume (`resumeShift`: paid-through and end move out by exactly the days
+paused), so a family who paid for a month gets a month. A dated pause that has lapsed is closed lazily —
+`resumeLapsedPauses` runs with the roster's expiry sweep and on the panel GET — and `Member.status` is set to PAUSED
+on pause and released on resume so the B14 queue keeps counting the right people.
+
+Change dates is one dialog with one rule set (`resolveDatesEdit`, tested): Stripe rows expose only End (→ `cancel_at`,
+cleared = renews) and Commitment, because Stripe owns the cycle and the panel says so instead of pretending; offline
+rows expose all four; a commitment is capped at the end date; the consequence line says exactly what Stripe hears.
+The panel no longer opens the old edit modal for anything on the current row.
+
+Deferred from the slice, on purpose: the B14 Paused card showing "resumes {date}" (cosmetic; the queue itself is
+right), and a Stripe-side check that `pause_collection` was not already set by hand in the dashboard.
