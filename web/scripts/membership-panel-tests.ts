@@ -4,10 +4,10 @@
  * production (Orson Chorba's Stripe row, Colton's quarterly, a cash row, a
  * comp, a saved setup, nothing).
  */
-import { derivePanel, pickCurrent, cancelPreview, type PanelSub, type PanelInput } from "../lib/membershipPanel";
+import { derivePanel, pickCurrent, cancelPreview, resumeShift, pausePreview, resolveDatesEdit, datesEditable, type PanelSub, type PanelInput } from "../lib/membershipPanel";
 
 let pass = 0, fail = 0;
-function check(name: string, cond: boolean, detail?: unknown) {
+function check(name: string, cond: boolean | undefined | null, detail?: unknown) {
   if (cond) { pass++; console.log(`  ok  ${name}`); }
   else { fail++; console.log(`  FAIL ${name}`, detail === undefined ? "" : JSON.stringify(detail)); }
 }
@@ -19,7 +19,7 @@ function sub(over: Partial<PanelSub>): PanelSub {
     id: "s1", planName: "MS/HS", optionLabel: "Monthly Full Membership", price: 175, billingPeriod: "MONTHLY", billingType: "RECURRING",
     status: "active", stripeStatus: "active", hasStripe: true, startDate: d("2026-07-22"), endDate: null, currentPeriodEnd: d("2026-10-22"),
     paidThroughDate: null, autoRenew: true, minimumTermEndsAt: null, deliberateFree: false, cancelAt: null,
-    card: { brand: "visa", last4: "4242" }, createdAt: d("2026-07-22"), ...over,
+    card: { brand: "visa", last4: "4242" }, createdAt: d("2026-07-22"), pausedAt: null, pausedUntil: null, ...over,
   };
 }
 function input(over: Partial<PanelInput>): PanelInput {
@@ -56,9 +56,42 @@ check("$0 not marked → says so", v2d.moneyLine.startsWith("$0 — not marked a
 
 console.log("Paused:");
 const v3 = derivePanel(input({ memberStatus: "PAUSED", subs: [sub({})] }));
-check("owner label wins → PAUSED, Resume primary", v3.state === "PAUSED" && v3.actions.primary === "resume" && v3.pill.tone === "warn");
-check("…and is honest that card billing isn't paused yet (slice 2)", v3.moneyLine.includes("card billing continues"));
+check("legacy owner label (no row dates) → PAUSED, Resume primary, honest about billing", v3.state === "PAUSED" && v3.actions.primary === "resume" && v3.moneyLine.includes("card billing continues"));
 check("PAUSED with no row is not paused — it's None", derivePanel(input({ memberStatus: "PAUSED" })).state === "NONE");
+const v3b = derivePanel(input({ memberStatus: "PAUSED", subs: [sub({ pausedAt: d("2026-09-23"), pausedUntil: d("2027-01-05") })] }));
+check("row pause with a date → 'Paused since Sep 23 · resumes Jan 5 · card billing paused'", v3b.moneyLine === "Paused since Sep 23 · resumes Jan 5 · card billing paused" && v3b.pill.label === "Paused · until Jan 5" && v3b.facts?.renews === "Resumes Jan 5", v3b);
+const v3c = derivePanel(input({ memberStatus: "PAUSED", subs: [sub({ pausedAt: d("2026-09-23"), hasStripe: false, stripeStatus: null, paidThroughDate: d("2026-11-30") })] }));
+check("offline open-ended pause", v3c.moneyLine === "Paused since Sep 23 · until you resume it · paid-through moves out by the paused days", v3c.moneyLine);
+check("row pause wins even if the label lags", derivePanel(input({ memberStatus: "ACTIVE", subs: [sub({ pausedAt: d("2026-09-23") })] })).state === "PAUSED");
+
+console.log("resumeShift:");
+const rs = resumeShift({ pausedAt: d("2026-09-01"), paidThroughDate: d("2026-11-30"), endDate: d("2026-12-31"), hasStripe: false }, d("2026-09-24"));
+check("offline: 23 paused days pushed onto paid-through and end", rs.pausedDays === 23 && rs.paidThroughDate?.toISOString().startsWith("2026-12-23") && rs.endDate?.toISOString().startsWith("2027-01-23"), rs);
+const rs2 = resumeShift({ pausedAt: d("2026-09-01"), paidThroughDate: null, endDate: d("2026-12-31"), hasStripe: true }, d("2026-09-24"));
+check("Stripe: days counted, dates untouched", rs2.pausedDays === 23 && rs2.endDate?.toISOString().startsWith("2026-12-31"));
+check("not paused → no shift", resumeShift({ pausedAt: null, paidThroughDate: d("2026-11-30"), endDate: null, hasStripe: false }, NOW).pausedDays === 0);
+
+console.log("pausePreview:");
+const pp = pausePreview({ hasStripe: true, paidThroughDate: null, currentPeriodEnd: d("2026-10-22") }, d("2027-01-05"), NOW);
+check("Stripe with a date", pp.days === 103 && pp.consequence === "collection paused — invoices are voided until Jan 5, then billing resumes automatically." && pp.sentence.startsWith("No charges and no class access from Sep 24 to Jan 5 (103 days)."), pp);
+check("offline open-ended", pausePreview({ hasStripe: false, paidThroughDate: d("2026-11-30"), currentPeriodEnd: null }, null, NOW).consequence === "nothing. When you resume, paid-through moves out by the paused days.");
+
+console.log("Change dates:");
+check("Stripe rows expose only end + commitment", JSON.stringify(datesEditable(true)) === JSON.stringify({ startDate: false, paidThroughDate: false, endDate: true, minimumTermEndsAt: true }));
+const base = { startDate: d("2026-07-22"), paidThroughDate: null, endDate: d("2026-12-10"), minimumTermEndsAt: d("2026-12-10"), hasStripe: true };
+const e1 = resolveDatesEdit(base, { endDate: d("2027-01-10") });
+check("move the end → cancel_at moves", e1.ok && e1.changed.join() === "endDate" && e1.consequence === "cancel date moves to Jan 10; charges continue until then.", e1);
+const e2 = resolveDatesEdit(base, { endDate: null });
+check("clear the end → renews", e2.ok && e2.consequence === "cancel date removed — renews until cancelled.");
+const e3 = resolveDatesEdit(base, { startDate: d("2026-08-01") });
+check("Stripe start is refused with the reason", !e3.ok && e3.error.includes("set by Stripe"));
+const e4 = resolveDatesEdit(base, { endDate: d("2026-11-01") });
+check("commitment capped at the new end", e4.ok && e4.next.minimumTermEndsAt?.toISOString().startsWith("2026-11-01") && e4.changed.includes("minimumTermEndsAt"), e4);
+const e5 = resolveDatesEdit({ ...base, hasStripe: false, paidThroughDate: d("2026-11-30") }, { startDate: d("2027-01-01") });
+check("start after end refused", !e5.ok);
+const e6 = resolveDatesEdit({ ...base, hasStripe: false, paidThroughDate: d("2026-11-30") }, { paidThroughDate: d("2026-12-31") });
+check("offline paid-through edit → 'nothing — billed offline'", e6.ok && e6.consequence.startsWith("nothing — billed offline") && e6.changed.join() === "paidThroughDate");
+check("no change → 'unchanged' on Stripe", resolveDatesEdit(base, { minimumTermEndsAt: d("2026-12-10") }).ok && (resolveDatesEdit(base, {}) as { consequence: string }).consequence === "nothing — the cancel date is unchanged.");
 
 console.log("Pending:");
 const v4 = derivePanel(input({ draft: { planName: "MS/HS", optionLabel: "12 months", price: 150, period: "MONTHLY", offerSentAt: null } }));

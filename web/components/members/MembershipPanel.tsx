@@ -10,9 +10,9 @@
 // which route runs and what Stripe does), and money that moves today is
 // behind a checkbox naming the amount.
 //
-// Slice 1 scope: Change plan (Stripe) hands off to B12's dialog in Advanced
-// billing; Change dates keeps the existing edit modal; Pause is still the
-// roster label (real pause dates + Stripe pause_collection are slice 2).
+// Slice 2 added Pause/Resume with real dates (Stripe pause_collection) and
+// Change dates. Change plan (Stripe) still hands off to B12's dialog in
+// Advanced billing; offline plan changes wait for slice 3.
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -34,7 +34,12 @@ type Payload = {
   draft: { planId: string; planName: string; optionId: string | null; optionLabel: string | null; price: number | null; period: string | null; offerSentAt: string | null } | null;
   options: Option[];
   cancel: { periodEnd: string | null; atPeriodEndAvailable: boolean; periodEndAccessUntil: string; nowAccessUntil: string; consequencePeriodEnd: Consequence; consequenceNow: Consequence } | null;
-  current: { id: string; hasStripe: boolean; price: number; optionLabel: string; planName: string | null; billingPeriod: string | null; deliberateFree: boolean; endDate: string | null; paidThroughDate: string | null; currentPeriodEnd: string | null } | null;
+  current: {
+    id: string; hasStripe: boolean; price: number; optionLabel: string; planName: string | null; billingPeriod: string | null; deliberateFree: boolean;
+    startDate: string | null; endDate: string | null; paidThroughDate: string | null; currentPeriodEnd: string | null; minimumTermEndsAt: string | null;
+    pausedAt: string | null; pausedUntil: string | null;
+    editable: { startDate: boolean; paidThroughDate: boolean; endDate: boolean; minimumTermEndsAt: boolean };
+  } | null;
   history: { id: string; label: string; price: number; billingPeriod: string | null; status: string; startDate: string | null; endDate: string | null; hasStripe: boolean }[];
 };
 
@@ -127,7 +132,7 @@ export default function MembershipPanel({
   const router = useRouter();
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dialog, setDialog] = useState<null | "assign" | "cancel" | "comp" | "keep" | "pause" | "resume" | "cancel_setup" | "sync">(null);
+  const [dialog, setDialog] = useState<null | "assign" | "cancel" | "comp" | "keep" | "pause" | "resume" | "dates" | "cancel_setup" | "sync">(null);
   const [assignMode, setAssignMode] = useState<"CARD" | "CASH" | "OFFER" | null>(null);
   const [menu, setMenu] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -163,7 +168,7 @@ export default function MembershipPanel({
         if (data.current?.hasStripe) router.push(`/dashboard/members/${memberId}/billing?changePlan=${data.current.id}`);
         else if (v.currentSubId) onEditSub(v.currentSubId);
         return;
-      case "change_dates": if (v.currentSubId) onEditSub(v.currentSubId); return;
+      case "change_dates": setDialog("dates"); return;
       case "transfer": setMenu(false); if (v.currentSubId) onTransfer?.(v.currentSubId); return;
       case "retry_payment": router.push(`/dashboard/members/${memberId}/billing`); return;
       case "sync_stripe": {
@@ -253,22 +258,16 @@ export default function MembershipPanel({
           onConfirm={async () => { const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "keep_membership", confirm: true, subscriptionId: data.current!.id }); if (!r.ok) throw new Error(r.d.error ?? "Failed"); return r.d.message; }}
           onDone={done} />
       )}
-      {dialog === "pause" && (
-        <ConfirmDialog title="Pause membership" sub={`${first} · ${v.headline}`}
-          body={<p className="text-sm text-text-primary">{first} shows as <b>Paused</b> on the roster and in reports, and is excluded from renewal reminders. Resume any time.</p>}
-          conseq={data.current?.hasStripe ? { text: "<b>not paused yet</b> — the card keeps billing. Pause dates and a real Stripe pause arrive in the next release; cancel at the period end if billing must stop now.", tone: "warn" } : { text: "nothing — billed offline.", tone: "info" }}
-          cta="Pause" onClose={() => setDialog(null)}
-          onConfirm={async () => { const r = await patch(`/api/members/${memberId}`, { status: "PAUSED" }); if (!r.ok) throw new Error(r.d.error ?? "Failed"); return `${first} is paused.`; }}
-          onDone={done} />
-      )}
-      {dialog === "resume" && (
+      {dialog === "pause" && data.current && <PauseDialog data={data} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog === "resume" && data.current && (
         <ConfirmDialog title="Resume membership" sub={`${first} · ${v.headline}`}
-          body={<p className="text-sm text-text-primary">{first} is active again on the roster. The membership row is unchanged.</p>}
-          conseq={{ text: "nothing changes on the subscription.", tone: "info" }}
+          body={<p className="text-sm text-text-primary">{first} is active again from today{data.current.pausedAt && !data.current.hasStripe && data.current.paidThroughDate ? ` — the ${Math.max(0, Math.round((Date.now() - new Date(data.current.pausedAt).getTime()) / 86400000))} paused days are added back to the paid-through date` : ""}.</p>}
+          conseq={data.current.hasStripe && data.current.pausedAt ? { text: "collection resumes now — the next invoice is charged on the normal cycle date.", tone: "info" } : { text: "nothing — billed offline.", tone: "info" }}
           cta="Resume" onClose={() => setDialog(null)}
-          onConfirm={async () => { const r = await patch(`/api/members/${memberId}`, { status: "ACTIVE" }); if (!r.ok) throw new Error(r.d.error ?? "Failed"); return `${first} is active.`; }}
+          onConfirm={async () => { const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "resume_membership", confirm: true, subscriptionId: data.current!.id }); if (!r.ok) throw new Error(r.d.error ?? "Failed"); return r.d.message ?? `${first} is active.`; }}
           onDone={done} />
       )}
+      {dialog === "dates" && data.current && <DatesDialog data={data} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === "cancel_setup" && (
         <ConfirmDialog title="Cancel the setup" sub={`${first} · ${v.headline}`}
           body={<p className="text-sm text-text-primary">The saved setup and any open offer link stop working. {first} goes back to having no membership. The saved card, if any, stays on file.</p>}
@@ -516,6 +515,88 @@ function CancelDialog({ data, onClose, onDone }: { data: Payload; onClose: () =>
         <Ack checked={ack} onChange={setAck}>Cancel {first}&apos;s membership{now ? <b> now</b> : ` on ${fmtS(until)}`}.</Ack>
       </div>
       <Foot><button className={btn} onClick={onClose} disabled={busy}>Keep it</button><button className={`${btnP} !bg-red-700 hover:!bg-red-800`} disabled={busy || !ack} onClick={submit}>{busy ? "Working…" : "Cancel membership"}</button></Foot>
+    </Sheet>
+  );
+}
+
+// ── 3f Pause ─────────────────────────────────────────────────────────────────
+
+function PauseDialog({ data, onClose, onDone }: { data: Payload; onClose: () => void; onDone: (msg: string) => void }) {
+  const cur = data.current!; const first = data.member.firstName; const memberId = data.member.id;
+  const [mode, setMode] = useState<"date" | "open">("date");
+  const [until, setUntil] = useState(iso(addMonthsUTC(new Date(), 1)));
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const untilD = mode === "date" && until ? new Date(until + "T00:00:00Z") : null;
+  const days = untilD ? Math.max(0, Math.round((untilD.getTime() - Date.now()) / 86400000)) : null;
+  const conseq = cur.hasStripe
+    ? untilD ? `collection paused — invoices are voided until ${fmtS(untilD)}, then billing resumes automatically.` : "collection paused — invoices are voided until you resume. No charges while paused."
+    : `nothing. When you resume, paid-through moves out by the paused days${days ? ` (${days})` : ""}.`;
+  return (
+    <Sheet title="Pause membership" sub={`${first} · ${data.view.headline}`} onClose={onClose}>
+      <div className="px-4 py-3">
+        {err && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2 mb-2">{err}</p>}
+        <span className="block text-xs font-medium text-text-primary mb-1.5">Until</span>
+        <div className="flex gap-1.5">
+          {([["date", "A date"], ["open", "Until I resume it"]] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setMode(k)} className={`min-h-[36px] px-3 rounded-full border text-xs ${mode === k ? "border-brand bg-brand/5 text-brand-hover font-semibold" : "border-app-border text-text-primary"}`}>{l}</button>)}
+        </div>
+        {mode === "date" && <input className={`${input} mt-2`} type="date" value={until} min={iso(new Date(Date.now() + 86400000))} onChange={(e) => setUntil(e.target.value)} />}
+        <div className="bg-app-bg rounded-xl px-3 py-2.5 text-sm mt-3">
+          <p>No charges and no class access from <b>{fmt(todayISO())}</b>{untilD ? <> to <b>{fmt(until)}</b>{days ? ` (${days} days)` : ""}</> : " until you resume it"}.</p>
+          <p className="text-text-muted mt-0.5">Attendance is still recorded if {first} shows up. The roster shows {first} as Paused. You can resume any time.</p>
+        </div>
+        <ConseqLine text={conseq} />
+      </div>
+      <Foot><button className={btn} onClick={onClose} disabled={busy}>Cancel</button><button className={btnP} disabled={busy || (mode === "date" && (!until || (days ?? 0) <= 0))} onClick={async () => {
+        setBusy(true); setErr("");
+        const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "pause_membership", confirm: true, subscriptionId: cur.id, pausedUntil: mode === "date" ? until : null });
+        if (!r.ok) { setErr(r.d.error ?? "Failed"); setBusy(false); return; }
+        onDone(r.d.message ?? "Paused.");
+      }}>{busy ? "Working…" : `Pause${untilD ? ` until ${fmtS(untilD)}` : ""}`}</button></Foot>
+    </Sheet>
+  );
+}
+
+// ── 3d Change dates ──────────────────────────────────────────────────────────
+
+function DatesDialog({ data, onClose, onDone }: { data: Payload; onClose: () => void; onDone: (msg: string) => void }) {
+  const cur = data.current!; const first = data.member.firstName; const memberId = data.member.id;
+  const toInput = (s: string | null) => (s ? s.slice(0, 10) : "");
+  const [start, setStart] = useState(toInput(cur.startDate));
+  const [through, setThrough] = useState(toInput(cur.paidThroughDate));
+  const [end, setEnd] = useState(toInput(cur.endDate));
+  const [commit, setCommit] = useState(toInput(cur.minimumTermEndsAt));
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const e = cur.editable;
+  const endChanged = end !== toInput(cur.endDate);
+  const commitCapped = !!end && !!commit && commit > end;
+  const conseq = !cur.hasStripe ? "nothing — billed offline. Dates change on the record only."
+    : !endChanged ? "nothing — the cancel date is unchanged."
+    : !end ? "cancel date removed — renews until cancelled."
+    : `cancel date moves to ${fmt(end)}; charges continue until then.`;
+  const changed = start !== toInput(cur.startDate) || through !== toInput(cur.paidThroughDate) || endChanged || commit !== toInput(cur.minimumTermEndsAt);
+  return (
+    <Sheet title="Change dates" sub={`${first} · ${data.view.headline}`} onClose={onClose}>
+      <div className="px-4 py-3">
+        {err && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2 mb-2">{err}</p>}
+        <Field label="Started" hint={e.startDate ? undefined : "Stripe owns the billing cycle — the start is a fact, not a setting."}><input className={input} type="date" value={start} disabled={!e.startDate} onChange={(ev) => setStart(ev.target.value)} /></Field>
+        <Field label="Paid through" hint={e.paidThroughDate ? "Moves with each recorded payment. Edit only to correct." : `Read from Stripe${cur.currentPeriodEnd ? `: the current period ends ${fmtS(cur.currentPeriodEnd)}` : ""}.`}><input className={input} type="date" value={e.paidThroughDate ? through : toInput(cur.currentPeriodEnd)} disabled={!e.paidThroughDate} onChange={(ev) => setThrough(ev.target.value)} /></Field>
+        <Field label="Ends" hint={end ? `Access${cur.hasStripe ? " and billing" : ""} stop on ${fmt(end)}.` : "No end date — renews until cancelled."}>
+          <div className="flex gap-2"><input className={input} type="date" value={end} onChange={(ev) => setEnd(ev.target.value)} /><button type="button" className={btn} disabled={!end} onClick={() => setEnd("")}>Clear</button></div>
+        </Field>
+        <Field label="Committed through" hint={commitCapped ? "Capped at the end date — a commitment can't outlive the membership." : "The floor for cancellations. Informational for the family."}><input className={input} type="date" value={commit} onChange={(ev) => setCommit(ev.target.value)} /></Field>
+        <ConseqLine text={conseq} />
+      </div>
+      <Foot><button className={btn} onClick={onClose} disabled={busy}>Cancel</button><button className={btnP} disabled={busy || !changed} onClick={async () => {
+        setBusy(true); setErr("");
+        const dates: Record<string, string | null> = {};
+        if (e.startDate && start !== toInput(cur.startDate)) dates.startDate = start || null;
+        if (e.paidThroughDate && through !== toInput(cur.paidThroughDate)) dates.paidThroughDate = through || null;
+        if (endChanged) dates.endDate = end || null;
+        if (commit !== toInput(cur.minimumTermEndsAt)) dates.minimumTermEndsAt = commit || null;
+        const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "set_dates", confirm: true, subscriptionId: cur.id, dates });
+        if (!r.ok) { setErr(r.d.error ?? "Failed"); setBusy(false); return; }
+        onDone(r.d.message ?? "Dates saved.");
+      }}>{busy ? "Saving…" : "Save dates"}</button></Foot>
     </Sheet>
   );
 }
