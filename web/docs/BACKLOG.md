@@ -8,8 +8,10 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** ship B13 slice 2 (branch `claude/b13-membership-panel-2`, `npx prisma migrate deploy && npx prisma generate` first), then check the panel on Colton, Orson (look only), a cash member and a member with nothing. Orson: NOT until his Sep 25 charge has landed; then billing centre → his row → **Sync from Stripe**, then **Change plan → "12 months"**. Luis's second link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
-- **Next Claude Code session:** B13 slice 3 (offline Change plan + cross-cycle Stripe switch), then slice 4 / B10 slice 3. B2 = flip the flag after A3.
+**Start with `docs/HANDOFF.md`** (written 2026-09-24) — the full state: shipped, on disk, Julian's to-do, next session's order.
+
+- **Julian, do first:** ship the on-disk bit (`claude/events-public-link`: full public link + copy, HANDOFF.md), then the production looks (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3 (Luis → Clint/Aylen → Jacob) so B2 can flip. Orson only after his Sep 25 charge.
+- **Next Claude Code session:** B13 slice 3 (offline Change plan + cross-cycle Stripe switch) → slice 4 → B10 slice 3. B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
@@ -121,12 +123,12 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   centre → Advanced billing; B14 Paused card "resumes {date}" (deferred from slice 2). Decision 2026-09-24: MS/HS
   Monthly stays auto-renew OFF (Julian).
 
-- [ ] **B14 · "Renewing this week" queue + "Paused" card** · BUILT 2026-09-23, on disk — needs branch/build/push
+- [x] **B14 · "Renewing this week" queue + "Paused" card** · SHIPPED a417f90
   lib/membersQuery: `renewingSoon` (active row whose currentPeriodEnd / paidThroughDate / endDate lands within
   7 days; Paused excluded) and `paused` (status PAUSED); both counted in the roster strip, which grows from
   4 cards to 6. Financials UPCOMING_RENEWAL_LARGE card → `?queue=renewingSoon`. renewal-surfacing tests +8
   (45 pass; also fixed a stale B4-era assertion there). `pausedUntil` → B13.
-- [ ] **B15 · Invite a guardian to create a parent account** · shipped d09e7e4, HOTFIX on disk 2026-09-23: JOIN links to COMPLETED members showed "all set" and created nothing (André/Luis). Fix in activate GET + POST. Ship before any more invites.
+- [x] **B15 · Invite a guardian to create a parent account** · shipped d09e7e4, HOTFIX shipped 8d6adbe (JOIN links to COMPLETED members showed "all set" and created nothing — André/Luis).
   `POST /api/members/[id]/invite-guardian` → sendJoinInvite(guardianLogin) → parent-account email variant →
   activation JOIN branch creates the guardian login + CONFIRMED link, no billing. Button on Family & access
   when a minor has a guardian email and no account holder. Refuses if that email already has a login.

@@ -11,6 +11,7 @@ import EventExpenseEditor from "@/components/EventExpenseEditor";
 import EventRow, { EVENT_ROW_VIEWS, type EventRowView } from "@/components/events/EventRow";
 import AttendeesModal from "@/components/events/AttendeesModal";
 import EventEditor, { type EditorEvent } from "@/components/events/EventEditor";
+import PublicLinkBox from "@/components/events/PublicLinkBox";
 import type { EventMoneySummary } from "@/lib/eventAttendees";
 import {
   CATEGORY_PRESETS,
@@ -96,6 +97,7 @@ type Event = {
   tournamentMode?: string | null;
   publicSlug?: string | null;
   publicRegistration?: boolean;
+  signupAccess?: string | null;
   variableCostEnabled?: boolean;
   variableCostMode?: string | null;
   variableCostBilledAt?: string | null;
@@ -418,6 +420,12 @@ export default function EventsPage() {
                       >
                         Bookings · add a member
                       </button>
+                      {e.publicSlug && (e.signupAccess === "PUBLIC_LINK" || e.publicRegistration) && (
+                        <div className="px-3 py-2">
+                          <div className="text-[11px] font-medium text-text-muted mb-1">Public page link</div>
+                          <PublicLinkBox slug={e.publicSlug} />
+                        </div>
+                      )}
                       <button
                         onClick={() => { setActionMenuFor(null); setViewingComp(e.id); }}
                         className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
