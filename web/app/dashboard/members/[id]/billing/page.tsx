@@ -69,7 +69,8 @@ type Data = {
     legacy: { name: string | null; price: number | null; frequency: string | null; source: string | null };
   };
   subscriptions: {
-    id: string; optionLabel: string; price: number; billingPeriod: string | null; billingType: string;
+    id: string; optionId: string | null; membershipId: string | null; minimumTermEndsAt: string | null;
+    optionLabel: string; price: number; billingPeriod: string | null; billingType: string;
     status: string; stripeStatus: string | null; hasStripe: boolean;
     startDate: string | null; endDate: string | null; billingAnchorDate: string | null;
     currentPeriodEnd: string | null; cancelAt: string | null;
@@ -113,7 +114,10 @@ type Data = {
   readiness: { state: string; label: string; reasons: string[] };
   lastChangedBy: { name: string; at: string } | null;
   history: { at: string; kind: string; action: string; message: string | null; actorName: string | null; before: unknown; after: unknown }[];
-  plans: { id: string; name: string; options: { label?: string; price?: number; billingPeriod?: string }[] }[];
+  plans: {
+    id: string; name: string; contractMonths: number | null; autoRenewDefault: boolean;
+    options: { id: string | null; label: string; price: number; billingPeriod: string; contractMonths: number | null; autoRenewDefault: boolean | null }[];
+  }[];
 };
 
 const fmtDate = (s: string | null | undefined) =>
@@ -203,6 +207,20 @@ export default function MemberBillingPage() {
   const [reactOpen, setReactOpen] = useState(false);
   const [enrolSignal, setEnrolSignal] = useState(0);
   const [cardActivateOpen, setCardActivateOpen] = useState(false);
+  // B12 — which Stripe-billed row the "Change plan" dialog is open for.
+  const [planChangeSubId, setPlanChangeSubId] = useState<string | null>(null);
+  const [syncingSubId, setSyncingSubId] = useState<string | null>(null);
+  const syncFromStripe = async (subscriptionId: string) => {
+    setSyncingSubId(subscriptionId);
+    const r = await fetch(`/api/members/${id}/billing-admin/actions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "sync_stripe", confirm: true, subscriptionId }),
+    });
+    const d = await r.json().catch(() => ({}));
+    setSyncingSubId(null);
+    setMsg(typeof d.message === "string" ? d.message : typeof d.error === "string" ? d.error : r.ok ? "Synced." : "Sync failed.");
+    if (r.ok) load();
+  };
 
   const load = useCallback(() => {
     fetch(`/api/members/${id}/billing-admin`)
@@ -628,8 +646,34 @@ export default function MemberBillingPage() {
                       {s.currentPeriodEnd ? ` · next billing ${fmtDate(s.currentPeriodEnd)}` : ""}
                       {s.card?.last4 ? ` · ${s.card.brand ?? "card"} ····${s.card.last4}` : ""}
                     </div>
+                    {s.minimumTermEndsAt && (
+                      <div className="text-xs text-text-muted">Committed through {fmtDateUTC(s.minimumTermEndsAt)}{s.autoRenew ? " · renews after" : s.endDate ? "" : " · then ends"}</div>
+                    )}
                     {s.notes && <div className="text-xs text-text-muted italic mt-0.5">{s.notes}</div>}
                   </div>
+                  {/* B12 — a Stripe-billed row is changed HERE, never in the
+                      Stripe dashboard (Express has no Customers tab). Sync
+                      pulls what Stripe charges onto the row; Change plan
+                      pushes a new option to Stripe at the next invoice. */}
+                  {s.hasStripe && ["active", "pending", "past_due"].includes(s.status) && (
+                    <div className="flex gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => syncFromStripe(s.id)}
+                        disabled={syncingSubId === s.id}
+                        className="text-xs px-2.5 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        <RefreshCw size={12} className={syncingSubId === s.id ? "animate-spin" : ""} /> Sync from Stripe
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPlanChangeSubId(s.id)}
+                        className="text-xs px-2.5 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover"
+                      >
+                        Change plan
+                      </button>
+                    </div>
+                  )}
                   {s.price <= 0 && (
                     <CompToggle
                       memberId={id}
@@ -688,6 +732,15 @@ export default function MemberBillingPage() {
           memberId={id}
           onClose={() => setCardActivateOpen(false)}
           onDone={(m) => { setCardActivateOpen(false); setMsg(m); load(); }}
+        />
+      )}
+      {planChangeSubId && (
+        <PlanChangeModal
+          data={data}
+          memberId={id}
+          subscriptionId={planChangeSubId}
+          onClose={() => setPlanChangeSubId(null)}
+          onDone={(m) => { setPlanChangeSubId(null); setMsg(m); load(); }}
         />
       )}
       {editOpen && <EditBillingModal data={data} memberId={id} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load(); }} />}
@@ -1043,6 +1096,137 @@ function CardActivateModal({ data, memberId, onClose, onDone }: { data: Data; me
             className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
           >
             {busy ? "Working…" : immediate ? `Charge ${fmtMoney(total)} & activate` : "Activate"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// B12 — move a live Stripe subscription to another option. The dialog never
+// does its own math: every sentence comes from GET …/plan-change, computed
+// from Stripe's live period end, and the commit recomputes it server-side.
+type PlanChangePreview = {
+  current: { optionLabel: string; price: number; chargedTotal: number; cancelAt: string | null; minimumTermEndsAt: string | null; autoRenew: boolean };
+  target: { planName: string; optionLabel: string; price: number; billingPeriod: string; fee: number; total: number; contractMonths: number | null };
+  effectiveAt: string; autoRenew: boolean; minimumTermEndsAt: string | null; cancelAt: string | null; sameAmount: boolean; lines: string[];
+};
+
+function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { data: Data; memberId: string; subscriptionId: string; onClose: () => void; onDone: (msg: string) => void }) {
+  const sub = data.subscriptions.find((s) => s.id === subscriptionId) ?? null;
+  // Only options on the same billing interval can swap in place; the rest are
+  // listed disabled with the reason, so the owner learns the rule from the
+  // picker instead of from an error.
+  const choices = useMemo(() => {
+    const out: { id: string; label: string; planName: string; price: number; billingPeriod: string; contractMonths: number | null; sameInterval: boolean; isCurrent: boolean }[] = [];
+    for (const p of data.plans) {
+      for (const o of p.options) {
+        if (!o.id || o.billingPeriod === "ONE_TIME" || o.price <= 0) continue;
+        out.push({
+          id: o.id, label: o.label, planName: p.name, price: o.price, billingPeriod: o.billingPeriod,
+          contractMonths: o.contractMonths ?? p.contractMonths ?? null,
+          sameInterval: !!sub && o.billingPeriod === sub.billingPeriod,
+          isCurrent: !!sub && o.id === sub.optionId,
+        });
+      }
+    }
+    return out.sort((a, b) => Number(b.sameInterval) - Number(a.sameInterval) || a.planName.localeCompare(b.planName) || a.price - b.price);
+  }, [data.plans, sub]);
+  const [optionId, setOptionId] = useState<string>("");
+  const [autoRenew, setAutoRenew] = useState<"default" | "on" | "off">("default");
+  const [preview, setPreview] = useState<PlanChangePreview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [ack, setAck] = useState(false);
+
+  useEffect(() => {
+    if (!optionId) { setPreview(null); return; }
+    let alive = true;
+    setLoading(true); setError(""); setPreview(null); setAck(false);
+    const qs = new URLSearchParams({ subscriptionId, optionId });
+    if (autoRenew !== "default") qs.set("autoRenew", autoRenew === "on" ? "true" : "false");
+    fetch(`/api/members/${memberId}/billing-admin/plan-change?${qs.toString()}`)
+      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!alive) return; if (!r.ok) setError(typeof d.error === "string" ? d.error : "Couldn't preview."); else setPreview(d as PlanChangePreview); })
+      .catch(() => alive && setError("Couldn't reach the server."))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [optionId, autoRenew, subscriptionId, memberId]);
+
+  const commit = async () => {
+    if (!optionId) return;
+    setBusy(true); setError("");
+    const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "change_stripe_plan", confirm: true, subscriptionId, optionId, ...(autoRenew === "default" ? {} : { autoRenew: autoRenew === "on" }) }),
+    });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { setError(typeof d.error === "string" ? d.error : "Could not change the plan."); return; }
+    onDone(typeof d.message === "string" ? d.message : "Plan changed.");
+  };
+
+  if (!sub) return null;
+  const periodWord = (p: string | null) => (p ? p.toLowerCase().replace("_", "-") : "");
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg p-5 space-y-3 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <h3 className="text-base font-semibold text-text-primary">Change plan</h3>
+          <p className="text-xs text-text-muted mt-0.5">
+            {data.member.firstName} is on <strong>{sub.optionLabel}</strong> · {fmtMoney(sub.price)} {periodWord(sub.billingPeriod)} in Stripe. The new price starts on the next invoice — nothing is charged or refunded today.
+          </p>
+        </div>
+        {error && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2">{error}</p>}
+
+        <label className="block">
+          <span className="block text-xs font-medium text-text-primary mb-1">Move to</span>
+          <select value={optionId} onChange={(e) => setOptionId(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary min-h-[44px] md:min-h-0">
+            <option value="">Pick an option…</option>
+            {choices.map((c) => (
+              <option key={c.id} value={c.id} disabled={!c.sameInterval || c.isCurrent}>
+                {c.planName} · {c.label} — {fmtMoney(c.price)} {periodWord(c.billingPeriod)}{c.contractMonths ? `, ${c.contractMonths}-mo commitment` : ""}
+                {c.isCurrent ? " (current)" : !c.sameInterval ? " — different billing cycle" : ""}
+              </option>
+            ))}
+          </select>
+          <span className="block text-[11px] text-text-muted mt-1">
+            Only options billed {periodWord(sub.billingPeriod)} can swap in place. A different cycle (e.g. monthly → 3 months upfront) needs this subscription to end and the new setup activated.
+          </span>
+        </label>
+
+        <div>
+          <span className="block text-xs font-medium text-text-primary mb-1">After the commitment</span>
+          <div className="flex gap-1.5 flex-wrap">
+            {([["default", "Option default"], ["off", "Ends — no renewal"], ["on", "Keeps renewing"]] as const).map(([v, l]) => (
+              <button key={v} type="button" onClick={() => setAutoRenew(v)}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border ${autoRenew === v ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary hover:bg-app-bg"}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading && <p className="text-xs text-text-muted">Checking with Stripe…</p>}
+        {preview && (
+          <div className="text-sm text-text-primary bg-app-bg rounded-lg px-3 py-2.5 space-y-1">
+            <p><strong>{preview.target.planName} · {preview.target.optionLabel}</strong> from <strong>{fmtDateUTC(preview.effectiveAt)}</strong>.</p>
+            {preview.lines.map((l, i) => <p key={i} className={i === 0 ? "" : "text-text-muted"}>{l}</p>)}
+            {preview.current.cancelAt && !preview.cancelAt && (
+              <p className="text-text-muted">The old end date ({fmtDateUTC(preview.current.cancelAt)}) is removed.</p>
+            )}
+          </div>
+        )}
+        {preview && (
+          <label className="flex items-start gap-2 text-sm text-text-primary">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
+            <span>Apply this to {data.member.firstName}&apos;s Stripe subscription. {data.member.firstName} isn&apos;t emailed — tell the family yourself.</span>
+          </label>
+        )}
+        <div className="flex gap-2 justify-end pt-1">
+          <button onClick={onClose} disabled={busy} className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Cancel</button>
+          <button onClick={commit} disabled={busy || !preview || !ack} className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+            {busy ? "Applying…" : "Change plan"}
           </button>
         </div>
       </div>

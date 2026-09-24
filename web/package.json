@@ -32,6 +32,7 @@
     "test:product-settings": "tsx scripts/product-settings-tests.ts",
     "test:billing-admin": "tsx scripts/billing-admin-tests.ts",
     "test:event-pricing-model": "tsx scripts/event-pricing-model-tests.ts",
+    "test:stripe-plan-change": "tsx scripts/stripe-plan-change-tests.ts",
     "test:non-renewal": "tsx scripts/non-renewal-tests.ts",
     "test:permission-boundary": "tsx scripts/permission-boundary-guard.ts",
     "test:permission-behaviour": "tsx scripts/permission-behaviour-tests.ts",

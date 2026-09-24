@@ -4744,3 +4744,35 @@ JOIN (its own guard is `activatedAt`). A JOIN link creates a login and a guardia
 billing, so the membership state was never the right replay key. André's record was not changed by the
 attempt (only `activationKind: JOIN` and a token, both from the send). Luis reopens the same link after
 deploy — nothing to redo. Do not send Clint/Aylen/Jacob until this is on main.
+
+## 2026-09-24 — B12: change a live Stripe membership without the Stripe dashboard
+
+Orson Chorba is the case. He asked for a 12-month commitment at $150; Julian changed the price by hand in
+Stripe on Sep 22 and the row kept saying Monthly $175 for two days, because the reconciler mirrored status,
+period end and card but never the amount, and nothing in the UI even ran it. And Julian could only do it by
+hand at all because an Express connected account has no Customers tab — there is no "right" place in Stripe
+for him to do this. So the change has to live here.
+
+Two halves, both pure-tested (`lib/stripePlanChange.ts`, 29 checks):
+
+**Mirror.** Stripe knows one number: unit_amount, with the 2.9% fee already folded in when the club passes
+fees. Inverting that is not division — `base + round(base × 0.029)` rounds — so we search the neighbours of
+unit / 1.029 for the one that round-trips, and when both readings are possible (15000 is $150 flat AND
+$145.77 + fee) the whole-dollar one wins, because club prices are whole dollars and fee-inclusive totals almost
+never are. Period comes from the interval; the option is the unique plan option at that price + period, with
+the row's own option kept when it still matches (a label rename is not a plan change), and cleared — label
+kept — when nothing matches (a bespoke deal has a real price and no catalog name). `applySubscription` now
+writes all four and records an event + audit when anything moved; `syncOneSubscription` runs the same
+function for one row from a button, so the button and the cron can't disagree.
+
+**Change.** Same billing interval only — Stripe cannot swap monthly for quarterly in place without resetting
+the cycle and prorating, so those options are listed disabled with the reason and the recipe. Preview comes
+from live Stripe (current_period_end, or trial_end while trialing): "from Oct 22 the card is charged $154.35
+instead of $180.08; nothing today; 12-month commitment to Oct 22 2027; ends there / keeps renewing". Commit
+re-derives the same preview server-side, then ONE `subscriptions.update` with `proration_behavior: "none"`
+and `cancel_at` set or explicitly cleared, then the row (price, option, plan, minimumTermEndsAt counted from
+the effective date, autoRenew, endDate = cancel_at, price id) and an event + audit. Nothing is charged or
+refunded on the day.
+
+Left out on purpose: a member email on plan change (Julian tells the family), and the new-subscription flow
+for interval changes — the recipe for that is what B9 already ships (end this one, activate the new setup).

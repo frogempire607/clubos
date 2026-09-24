@@ -182,6 +182,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     } | null;
     return {
       id: s.id,
+      optionId: s.optionId,
+      membershipId: s.membershipId,
+      minimumTermEndsAt: s.minimumTermEndsAt,
       optionLabel: s.optionLabel,
       price: Number(s.price),
       billingPeriod: s.billingPeriod,
@@ -436,7 +439,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   // Plans for the edit modal.
   const plans = await prisma.membership.findMany({
     where: { clubId: club.id, deletedAt: null, active: true },
-    select: { id: true, name: true, options: true },
+    select: { id: true, name: true, options: true, contractMonths: true, autoRenewDefault: true },
     orderBy: { name: "asc" },
   });
 
@@ -550,11 +553,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     readiness: { state: readiness.state, label: READINESS_LABELS[readiness.state], reasons: readiness.reasons },
     lastChangedBy,
     history,
-    plans: plans.map((p) => {
-      let options: unknown = [];
-      try { options = typeof p.options === "string" ? JSON.parse(p.options) : p.options; } catch { /* [] */ }
-      return { id: p.id, name: p.name, options };
-    }),
+    // Parsed through the shared parser so every option carries its id, term
+    // and auto-renew default — the plan-change picker (B12) needs all three.
+    plans: plans.map((p) => ({ id: p.id, name: p.name, contractMonths: p.contractMonths, autoRenewDefault: p.autoRenewDefault, options: parseOptionsShared(p.options) })),
   });
 }
 
