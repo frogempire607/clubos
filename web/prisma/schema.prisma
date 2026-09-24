@@ -2872,6 +2872,9 @@ model ProductSale {
   member                  Member?  @relation(fields: [memberId], references: [id])
   soldById                String?
   quantity                Int      @default(1)
+  // B10 slice 2 — the variant row (Product.settings.variants[].id, e.g.
+  // "Youth M / Black") this sale took units from. Null = no variants.
+  variantId               String?
   unitPrice               Decimal  @db.Decimal(10, 2)
   totalAmount             Decimal  @db.Decimal(10, 2)
   discountCode            String?

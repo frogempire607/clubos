@@ -17,6 +17,11 @@ import {
   storefrontsFor,
   tierRange,
   variantLedger,
+  applyVariantSale,
+  checkStock,
+  findVariant,
+  stockMessage,
+  unitPriceFor,
 } from "../lib/productSettings";
 
 let pass = 0, fail = 0;
@@ -114,6 +119,36 @@ eq("public only", storefrontsFor("PUBLIC_ONLY", "PUBLIC_CHECKOUT"), ["PUBLIC_LIN
 eq("round trip members+public", columnsForStorefronts(["MEMBER_PORTAL", "PUBLIC_LINK"]), { visibility: "MEMBERS_AND_PUBLIC", showLocation: "PUBLIC_CHECKOUT" });
 eq("round trip staff only", columnsForStorefronts(["STAFF_ONLY"]), { visibility: "INTERNAL_ONLY", showLocation: "INTERNAL_ONLY" });
 eq("nothing ticked → staff only, never silently public", columnsForStorefronts([]), { visibility: "INTERNAL_ONLY", showLocation: "INTERNAL_ONLY" });
+
+console.log("\nSelling a variant (slice 2):");
+const shop = normalizeProductSettings({
+  v: 2, memberPrice: 25,
+  optionGroups: [{ name: "Size", values: ["S", "M"] }, { name: "Color", values: ["Black"] }],
+  variants: [
+    { id: "S / Black", label: "S / Black", sku: "", price: null, stock: 2, photoUrl: null },
+    { id: "M / Black", label: "M / Black", sku: "", price: 32, stock: 0, photoUrl: null },
+  ],
+});
+const plain = normalizeProductSettings({ v: 2 });
+eq("findVariant hit", findVariant(shop, "S / Black")?.stock, 2);
+eq("findVariant miss", findVariant(shop, "XL / Black"), null);
+eq("unit price: variant price wins everywhere", unitPriceFor(shop, 29, findVariant(shop, "M / Black"), "MEMBER_PORTAL"), 32);
+eq("unit price: member portal uses memberPrice when the variant has none", unitPriceFor(shop, 29, findVariant(shop, "S / Black"), "MEMBER_PORTAL"), 25);
+eq("unit price: staff sells at base", unitPriceFor(shop, 29, findVariant(shop, "S / Black"), "STAFF"), 29);
+eq("unit price: no variants, public → base", unitPriceFor(plain, "29.00", null, "PUBLIC"), 29);
+eq("checkStock: variants require a pick", checkStock(shop, { trackInventory: true, inventory: 2 }, null, 1), { ok: false, reason: "VARIANT_REQUIRED", available: 0 });
+eq("checkStock: unknown variant", checkStock(shop, { trackInventory: true, inventory: 2 }, "XL / Black", 1).ok, false);
+eq("checkStock: sold-out variant", checkStock(shop, { trackInventory: true, inventory: 2 }, "M / Black", 1), { ok: false, reason: "OUT_OF_STOCK", available: 0 });
+eq("checkStock: not enough", checkStock(shop, { trackInventory: true, inventory: 2 }, "S / Black", 3), { ok: false, reason: "NOT_ENOUGH", available: 2 });
+eq("checkStock: ok", checkStock(shop, { trackInventory: true, inventory: 2 }, "S / Black", 2), { ok: true, available: 2 });
+eq("checkStock: no variants, plain count", checkStock(plain, { trackInventory: true, inventory: 1 }, null, 2), { ok: false, reason: "NOT_ENOUGH", available: 1 });
+eq("checkStock: untracked → unlimited", checkStock(plain, { trackInventory: false, inventory: null }, null, 50), { ok: true, available: null });
+eq("stockMessage says how many", stockMessage({ ok: false, reason: "NOT_ENOUGH", available: 2 }), "Only 2 left in stock.");
+const sold = applyVariantSale(shop, "S / Black", 1);
+eq("applyVariantSale decrements only that row", sold.variants.map((v) => v.stock), [1, 0]);
+eq("…and derivedInventory follows", derivedInventory(sold, 99), 1);
+eq("applyVariantSale never goes negative", applyVariantSale(shop, "S / Black", 5).variants[0].stock, 0);
+eq("applyVariantSale on an unknown id is a no-op", applyVariantSale(shop, "nope", 1).variants.map((v) => v.stock), [2, 0]);
 
 console.log(`\n${fail === 0 ? "✓" : "✗"} ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);

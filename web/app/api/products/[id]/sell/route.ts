@@ -9,6 +9,8 @@ import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
+import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor } from "@/lib/productSettings";
+import { releaseStock } from "@/lib/productStock";
 
 const schema = z.object({
   memberId:    z.string().optional().nullable(),
@@ -18,6 +20,9 @@ const schema = z.object({
   // Optional staff-selected discount code (itemType PRODUCT). Validated
   // server-side; an invalid code BLOCKS the sale (400).
   discountCode: z.string().optional().nullable(),
+  // B10 slice 2 — which Size × Color row. Required when the product has
+  // variants (there is no generic unit to hand over), ignored otherwise.
+  variantId:   z.string().max(200).optional().nullable(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -35,8 +40,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   try {
     const body = schema.parse(await req.json());
     const quantity = body.quantity;
-    const unitPrice = Number(product.price);
+    const settings = normalizeProductSettings(product.settings);
+    const variant = findVariant(settings, body.variantId);
+    // Stock is checked against the VARIANT ledger when there is one; the
+    // plain count only for products without variants.
+    const stock = checkStock(settings, product, body.variantId, quantity);
+    if (!stock.ok) return NextResponse.json({ error: stockMessage(stock), code: stock.reason }, { status: 400 });
+    const unitPrice = unitPriceFor(settings, Number(product.price), variant, "STAFF");
     const originalTotal = unitPrice * quantity;
+    const lineName = variant ? `${product.name} — ${variant.label}` : product.name;
 
     // Server-side discount on the server-derived total. quotePayment guards
     // negative totals and sub-$0.50 card charges.
@@ -55,16 +67,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const quote = quoted.quote;
     const totalAmount = quote.finalPrice;
 
-    // Check inventory
-    if (product.trackInventory && product.inventory !== null) {
-      if (product.inventory < quantity) {
-        return NextResponse.json(
-          { error: `Only ${product.inventory} units in stock.` },
-          { status: 400 }
-        );
-      }
-    }
-
     // Manual / cash sale — record directly without Stripe
     if (body.manualSale) {
       const sale = await prisma.productSale.create({
@@ -74,6 +76,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           memberId:    body.memberId || null,
           soldById:    session.user.id,
           quantity,
+          variantId:   variant?.id ?? null,
           unitPrice,
           totalAmount,
           discountCode:   discount?.code ?? null,
@@ -83,12 +86,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         },
       });
 
-      if (product.trackInventory && product.inventory !== null) {
-        await prisma.product.update({
-          where: { id: params.id },
-          data: { inventory: { decrement: quantity } },
-        });
-      }
+      await releaseStock({ productId: params.id, variantId: variant?.id ?? null, quantity });
       if (discount) await recordDiscountUse(discount.id);
 
       return NextResponse.json({ sale, type: "manual" }, { status: 201 });
@@ -121,6 +119,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         memberId:  body.memberId || null,
         soldById:  session.user.id,
         quantity,
+        variantId: variant?.id ?? null,
         unitPrice,
         totalAmount,
         discountCode:   discount?.code ?? null,
@@ -138,7 +137,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           price_data: {
             currency: "usd" as const,
             product_data: {
-              name: `${product.name} (${discount.code})${quantity > 1 ? ` × ${quantity}` : ""}`,
+              name: `${lineName} (${discount.code})${quantity > 1 ? ` × ${quantity}` : ""}`,
               description: product.description || undefined,
             },
             unit_amount: Math.round(totalAmount * 100),
@@ -148,7 +147,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       : {
           price_data: {
             currency: "usd" as const,
-            product_data: { name: product.name, description: product.description || undefined },
+            product_data: { name: lineName, description: product.description || undefined },
             unit_amount: Math.round(unitPrice * 100),
           },
           quantity,

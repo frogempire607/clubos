@@ -415,3 +415,91 @@ export function stockBehaviour(type: ProductType): { holdsStock: boolean; reason
 export function isBookable(type: ProductType): boolean {
   return type === "FACILITY_RENTAL" || type === "BIRTHDAY_PARTY";
 }
+
+// ── selling a variant (slice 2) ──────────────────────────────────────────────
+//
+// The variant ledger is the ONE place per-variant stock lives (the handoff's
+// rule: nothing that appears twice is stored twice). Selling therefore edits
+// the ledger and lets `derivedInventory` rewrite `Product.inventory` — never
+// the other way round. These are pure; lib/productStock.ts wraps them in the
+// transaction.
+
+export function hasVariants(settings: ProductSettings): boolean {
+  return settings.variants.length > 0;
+}
+
+export function findVariant(settings: ProductSettings, variantId: string | null | undefined): Variant | null {
+  if (!variantId) return null;
+  return settings.variants.find((v) => v.id === variantId) ?? null;
+}
+
+/**
+ * What one unit costs.
+ *
+ *   variant price set     → that (a per-variant price is the price, in every
+ *                            storefront — it is how "XXL costs $3 more" is said)
+ *   member portal + memberPrice → the member price
+ *   otherwise             → the product's base price
+ */
+export function unitPriceFor(
+  settings: ProductSettings,
+  base: number | string,
+  variant: Variant | null,
+  storefront: "MEMBER_PORTAL" | "STAFF" | "PUBLIC",
+): number {
+  if (variant && variant.price != null) return variant.price;
+  if (storefront === "MEMBER_PORTAL" && settings.memberPrice != null) return settings.memberPrice;
+  return Number(base) || 0;
+}
+
+export type StockCheck =
+  | { ok: true; available: number | null }
+  | { ok: false; reason: "VARIANT_REQUIRED" | "VARIANT_UNKNOWN" | "OUT_OF_STOCK" | "NOT_ENOUGH"; available: number };
+
+/**
+ * Can `quantity` of this variant be sold? A product with variants REQUIRES one
+ * (there is no "generic" unit to hand over); a product without variants falls
+ * back to the plain `inventory` count when it tracks stock.
+ */
+export function checkStock(
+  settings: ProductSettings,
+  product: { trackInventory: boolean; inventory: number | null },
+  variantId: string | null | undefined,
+  quantity: number,
+): StockCheck {
+  if (hasVariants(settings)) {
+    if (!variantId) return { ok: false, reason: "VARIANT_REQUIRED", available: 0 };
+    const v = findVariant(settings, variantId);
+    if (!v) return { ok: false, reason: "VARIANT_UNKNOWN", available: 0 };
+    if (v.stock <= 0) return { ok: false, reason: "OUT_OF_STOCK", available: 0 };
+    if (v.stock < quantity) return { ok: false, reason: "NOT_ENOUGH", available: v.stock };
+    return { ok: true, available: v.stock };
+  }
+  if (product.trackInventory && product.inventory != null) {
+    if (product.inventory <= 0) return { ok: false, reason: "OUT_OF_STOCK", available: 0 };
+    if (product.inventory < quantity) return { ok: false, reason: "NOT_ENOUGH", available: product.inventory };
+    return { ok: true, available: product.inventory };
+  }
+  return { ok: true, available: null };
+}
+
+export function stockMessage(check: Exclude<StockCheck, { ok: true }>): string {
+  switch (check.reason) {
+    case "VARIANT_REQUIRED": return "Pick a size or color first.";
+    case "VARIANT_UNKNOWN": return "That option isn't sold any more — pick another.";
+    case "OUT_OF_STOCK": return "Out of stock.";
+    case "NOT_ENOUGH": return `Only ${check.available} left in stock.`;
+  }
+}
+
+/**
+ * The ledger after selling `quantity` of a variant. Never below zero — a
+ * webhook that lands twice, or a count fixed by hand between checkout and
+ * payment, must not drive a shelf negative.
+ */
+export function applyVariantSale(settings: ProductSettings, variantId: string, quantity: number): ProductSettings {
+  return {
+    ...settings,
+    variants: settings.variants.map((v) => (v.id === variantId ? { ...v, stock: Math.max(0, v.stock - quantity) } : v)),
+  };
+}

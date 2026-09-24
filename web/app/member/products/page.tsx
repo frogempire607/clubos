@@ -1,21 +1,13 @@
 "use client";
 
+// Member store — list (B10). Cards read the same store projection as the
+// detail screen (lib/productStore); tapping one opens /member/products/[id],
+// where sizes, colours, quantity and checkout live.
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Package, ImageIcon } from "lucide-react";
-import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
-
-type Product = {
-  id: string;
-  name: string;
-  description: string | null;
-  price: string | number;
-  category: string;
-  productType: string;
-  imageUrl: string | null;
-  trackInventory: boolean;
-  inventory: number | null;
-};
+import type { StoreProduct } from "@/lib/productStore";
 
 const categoryLabel: Record<string, string> = {
   GEAR:     "Gear / Merchandise",
@@ -28,20 +20,12 @@ const categoryLabel: Record<string, string> = {
   OTHER:    "Other",
 };
 
-function fmtPrice(p: string | number) {
-  const n = typeof p === "string" ? parseFloat(p) : p;
-  return Number.isNaN(n) ? "—" : n.toFixed(2);
-}
+const money = (n: number) => `$${n.toFixed(2)}`;
 
 export default function MemberProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [products, setProducts] = useState<StoreProduct[]>([]);
   const [hasMemberProfile, setHasMemberProfile] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [discountCode, setDiscountCode] = useState("");
 
   useEffect(() => {
     fetch("/api/member/products")
@@ -49,41 +33,16 @@ export default function MemberProductsPage() {
       .then((d) => {
         if (d) {
           setProducts(d.products || []);
-          setAccessible(d.accessible || []);
-          setSelectedMemberId(d.defaultMemberId ?? d.accessible?.[0]?.id ?? null);
           setHasMemberProfile(d.hasMemberProfile);
         }
         setLoading(false);
       });
   }, []);
 
-  async function buy(productId: string) {
-    setBusy(productId);
-    setError("");
-    const res = await fetch(`/api/member/products/${productId}/buy`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quantity: 1,
-        memberId: selectedMemberId,
-        discountCode: discountCode.trim() || null,
-      }),
-    });
-    const d = await res.json().catch(() => ({}));
-    if (!res.ok || !d.url) {
-      setBusy(null);
-      setError(d.error || "Could not start checkout");
-      return;
-    }
-    window.location.href = d.url;
-  }
-
-  // Group by category
-  const grouped: Record<string, Product[]> = {};
+  const grouped: Record<string, StoreProduct[]> = {};
   for (const p of products) {
     const cat = p.productType || p.category || "OTHER";
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(p);
+    (grouped[cat] ||= []).push(p);
   }
   const orderedCats = ["GEAR", "FACILITY_RENTAL", "BIRTHDAY_PARTY", "DIGITAL", "APPAREL", "FACILITY", "SERVICE", "OTHER"].filter((c) => grouped[c]?.length);
 
@@ -97,34 +56,14 @@ export default function MemberProductsPage() {
         <Link href="/member/shop" className="text-xs text-stone-500 hover:text-stone-900">All purchase options →</Link>
       </div>
 
-      <ProfileSwitcher
-        accessible={accessible}
-        value={selectedMemberId}
-        onChange={setSelectedMemberId}
-        label="Buying for"
-      />
-
       {!hasMemberProfile && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800">
-          Your account isn't linked to a member profile yet. Contact your club to get added before buying.
+          Your account isn&apos;t linked to a member profile yet. Contact your club to get added before buying.
         </div>
       )}
 
-      {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
-
-      <div className="mb-4 flex items-center gap-2">
-        <label className="text-xs text-stone-500 flex-shrink-0">Discount code</label>
-        <input
-          type="text"
-          value={discountCode}
-          onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
-          placeholder="Optional — applied at checkout"
-          className="w-full max-w-xs px-3 py-1.5 border border-stone-300 rounded-lg text-sm font-mono uppercase placeholder:font-sans placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-stone-400"
-        />
-      </div>
-
       {loading ? (
-        <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
+        <div className="grid grid-cols-2 gap-3">{[0, 1, 2, 3].map((i) => <div key={i} className="pskeleton aspect-[4/5] rounded-2xl" />)}</div>
       ) : products.length === 0 ? (
         <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
           <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-lime-accent/20 text-charcoal">
@@ -138,49 +77,40 @@ export default function MemberProductsPage() {
           {orderedCats.map((cat) => (
             <div key={cat}>
               <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">{categoryLabel[cat] || cat}</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {grouped[cat].map((p) => {
-                  const outOfStock = p.trackInventory && p.inventory !== null && p.inventory <= 0;
-                  const lowStock   = p.trackInventory && p.inventory !== null && p.inventory > 0 && p.inventory <= 3;
-                  const needsBookingFlow = p.productType === "FACILITY_RENTAL" || p.productType === "BIRTHDAY_PARTY";
+                  const soldOut = p.available !== null && p.available <= 0;
+                  const low = p.available !== null && p.available > 0 && p.available <= 3;
+                  const soldOutVariants = p.variants.filter((v) => v.stock <= 0).length;
+                  const cover = p.photos[0] ?? null;
+                  const saves = p.memberPrice < p.price ? p.price - p.memberPrice : 0;
                   return (
-                    <div key={p.id} className="bg-white rounded-xl border border-stone-200 overflow-hidden">
-                      {p.imageUrl ? (
-                        <div className="aspect-[4/3] bg-stone-100">
+                    <Link key={p.id} href={`/member/products/${p.id}`} className="pcard pcard-hover overflow-hidden block">
+                      {cover ? (
+                        <div className="aspect-square bg-stone-100 relative">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                          <img src={cover} alt={p.name} className={`w-full h-full object-cover ${soldOut ? "opacity-50" : ""}`} />
+                          {soldOut && <span className="absolute top-2 left-2 text-[11px] font-medium bg-white/90 text-stone-700 rounded-full px-2 py-0.5">Sold out</span>}
                         </div>
                       ) : (
-                        <div className="aspect-[4/3] bg-stone-100 flex items-center justify-center text-stone-300">
-                          <ImageIcon className="h-8 w-8" strokeWidth={1.5} />
-                        </div>
+                        <div className="aspect-square bg-stone-100 flex items-center justify-center text-stone-300"><ImageIcon className="h-8 w-8" strokeWidth={1.5} /></div>
                       )}
-                      <div className="p-4">
-                        <div className="flex items-start justify-between gap-2 mb-1">
-                          <h3 className="text-sm font-semibold text-stone-900">{p.name}</h3>
-                          <span className="text-sm font-semibold text-stone-900 flex-shrink-0">${fmtPrice(p.price)}</span>
+                      <div className="p-3">
+                        <h3 className="text-sm font-semibold text-stone-900 leading-snug line-clamp-2">{p.name}</h3>
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span className="text-sm font-semibold text-stone-900">{money(p.memberPrice)}</span>
+                          {saves > 0 && <span className="text-xs text-stone-400 line-through">{money(p.price)}</span>}
                         </div>
-                        {p.description && (
-                          <p className="text-xs text-stone-500 line-clamp-2 mb-3 whitespace-pre-wrap">{p.description}</p>
-                        )}
-                        <div className="flex items-center justify-between gap-2">
-                          {outOfStock ? (
-                            <span className="text-xs text-stone-400">Out of stock</span>
-                          ) : lowStock ? (
-                            <span className="text-xs text-amber-700">Only {p.inventory} left</span>
-                          ) : (
-                            <span />
-                          )}
-                          <button
-                            disabled={!hasMemberProfile || outOfStock || needsBookingFlow || busy === p.id}
-                            onClick={() => buy(p.id)}
-                            className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50"
-                          >
-                            {busy === p.id ? "…" : needsBookingFlow ? "Request soon" : "Buy"}
-                          </button>
-                        </div>
+                        <p className="mt-1 text-[11px] text-stone-500">
+                          {p.needsBookingFlow
+                            ? "Booking coming soon"
+                            : soldOut ? "Out of stock"
+                            : p.hasVariants
+                              ? `${p.variants.length} options${soldOutVariants ? ` · ${soldOutVariants} sold out` : ""}`
+                              : low ? `Only ${p.available} left` : "In stock"}
+                        </p>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>

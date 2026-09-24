@@ -8,8 +8,8 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** ship B12 (branch `claude/b12-stripe-plan-change`, same loop), then Orson: billing centre → his row → **Sync from Stripe** (row follows the $150), then **Change plan → "12 months"** to record the commitment + end date. Luis's second link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
-- **Next Claude Code session:** B10 slice 2, then B13. B2 = flip the flag after A3.
+- **Julian, do first:** ship B12 (branch `claude/b12-stripe-plan-change`) and B10 slice 2 (branch `claude/products-slice-2`, migrate + generate first) — same loop. Orson: NOT until his Sep 25 charge has landed; then billing centre → his row → **Sync from Stripe**, then **Change plan → "12 months"**. Luis's second link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
+- **Next Claude Code session:** B13 design handoff (or B10 slice 3 — 2c inventory). B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
@@ -160,17 +160,28 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   further along: loader, QuickAdd chip, charge-route DAY_NOT_INCLUDED, more tests). Write-up in
   docs/improvement/PROGRESS.md (2026-09-14, third entry).
 
-- [ ] **B10 · Products redesign (design handoff)** · SLICE 1 BUILT 2026-09-22, on disk (uncommitted) —
-  Julian: `git checkout -b claude/products-slice-1`, then `cd web && npm run test:product-settings &&
-  npx tsc --noEmit && npm run build`, commit, push. Slice 1 = typed v2 settings + parser
-  (lib/productSettings.ts), editor 2a (variant matrix, tiers, durations, add-ons, questions, photos ×4,
-  storefronts), cards 2b, 51 tests. No migration, no API change, buy route untouched.
-  Spec: docs/improvement/design_handoff_products/README.md. Slice 1 (no migration): 2a editor with
-  structured variants/tiers/durations/add-ons/questions stored as typed JSON in `Product.settings`
-  + a parser for today's free-text, and 2b product cards reading the same variant ledger. Then
-  2g Sell-by-variant + 2e store detail (one additive migration; merge COPPA first — it gates
-  `api/member/products/[id]/buy`), then 2c inventory, then 2d/2f bookings (new model), then
-  /p/[slug] + QR. No Phase 9 overlap. Scoping in PROGRESS.md 2026-09-22.
+- [ ] **B10 · Products redesign (design handoff)** · SLICE 1 SHIPPED 1ca6d0c · SLICE 2 BUILT 2026-09-24, on disk — needs
+  migrate + branch/build/push. Slice 2 = **2g Sell by variant + 2e member store detail**, one additive migration
+  `20260924000000_product_sale_variant` (`product_sales.variantId TEXT NULL`). What shipped:
+  - `lib/productSettings`: `checkStock` (a product with variants REQUIRES a pick; else the plain count), `unitPriceFor`
+    (variant price > member price in the portal > base), `applyVariantSale` (never below 0), `findVariant`, `stockMessage`.
+    `lib/productStock.releaseStock` = the ONE write path for units leaving: variant ledger + derived `inventory` in a
+    transaction, or the plain count. Tests 51 → 69 (`npm run test:product-settings`).
+  - Sell route + member buy route accept `variantId`, price the variant, name the Stripe line "{product} — {variant}",
+    store `variantId` on the sale; cash sales release stock at once, Stripe sales when the webhook lands (webhook now
+    calls releaseStock too). Member portal buys at `settings.memberPrice` when set (variant price still wins).
+  - `GET /api/member/products` + new `GET /api/member/products/[id]` return `lib/productStore.storeView` (photos, member
+    price, option groups, per-variant stock/price/status) — no SKUs/thresholds/internal notes leave the dashboard.
+  - `app/member/products/[id]/page.tsx` (2e): carousel, member price with struck list price + "Members save $X",
+    Buying-for switcher, one picker per option group showing per-value stock (a pick in one group greys out the other
+    group's sold-out values), derived banner, quantity stepper clamped to stock, discount code, sticky
+    `Checkout · $X` above the bottom nav ("Sold out" / "Pick your options" when it can't). List page → cards link to it.
+  - `components/products/SellModal.tsx` (2g): variant tiles with stock (sold-out disabled), member, qty, note,
+    discount, Cash/Manual vs Stripe Checkout, Record sale / Generate link. One line per sale; multi-line cart later.
+  Julian: `cd web && npx prisma migrate deploy && npx prisma generate` FIRST (tsc shows 5 `variantId` errors until
+  generate runs), then `npm run test:product-settings && npm run build`.
+  Spec: docs/improvement/design_handoff_products/README.md. Next: 2c inventory, then 2d/2f bookings (new model), then
+  /p/[slug] + QR (2h), the 11-type expansion, structured time windows.
 
 - [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 SHIPPED 2026-09-22
   (merged 0c38253, Netlify live, Julian verified: rows render, Attendees matches Registrations).
