@@ -489,11 +489,11 @@ export default function MembersRoster({
             });
             break;
           }
-          case "assign": {
-            const full = await loadFull(m.id);
-            if (full) setPurchasing(full);
+          case "assign":
+            // B13 — the Membership panel's Assign dialog is the one place
+            // a membership is assigned; the roster hands off to it.
+            router.push(`/dashboard/members/${m.id}?assign=1`);
             break;
-          }
           case "relationship":
             // Family labels and access both live on the profile, under the
             // tabs that own them. Opening a third editor here would be a third

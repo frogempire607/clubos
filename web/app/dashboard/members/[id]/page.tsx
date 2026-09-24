@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
 import TransferMembershipModal from "@/components/members/TransferMembershipModal";
+import MembershipPanel from "@/components/members/MembershipPanel";
 import {
   AccountSecurityCard,
   FamilySwitcher,
@@ -182,6 +183,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   useEffect(() => { mRef.current = m; }, [m]);
   const [loading, setLoading] = useState(true);
   const [editingSub, setEditingSub] = useState<Sub | null>(null);
+  // B13 — the roster menu's "Assign membership" and ?assign=1 open the panel's dialog.
+  const [assignOpen, setAssignOpen] = useState(false);
   const [addingRel, setAddingRel] = useState(false);
 
   // ── Phase 4.5.3/4.5.4/4.5.5 wiring ──────────────────────────────────────
@@ -223,6 +226,19 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     // Only react to the flag itself; `search` churns on every tab change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.get("edit")]);
+
+  // B13 — ?assign=1 (roster menu) opens the panel's Assign dialog on the
+  // memberships tab, then drops the flag so a refresh doesn't reopen it.
+  useEffect(() => {
+    if (search.get("assign") === "1") {
+      setAssignOpen(true);
+      const next = new URLSearchParams(search.toString());
+      next.delete("assign");
+      next.set("tab", "memberships");
+      router.replace(`?${next.toString()}`, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.get("assign")]);
 
   useEffect(() => {
     if (!toast) return;
@@ -396,7 +412,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             await openReset();
             break;
           case "assign":
-            router.push(`/dashboard/members/${mm.id}/billing`);
+            setTab("memberships");
+            setAssignOpen(true);
             break;
           case "relationship":
             setTab("family");
@@ -774,40 +791,17 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         )}
 
         {on("memberships") && (
-        <Card
-          title="Current membership"
-          action={
-            <Link href={`/dashboard/members/${id}/billing`} className="text-xs text-brand hover:underline">
-              Manage billing
-            </Link>
-          }
-        >
-          {activeSub ? (
-            <SubRow sub={activeSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(activeSub)} onTransfer={canTransfer ? () => setTransferringSubId(activeSub.id) : undefined} />
-          ) : pendingSub ? (
-            <div className="space-y-2">
-              <p className="text-xs text-text-muted">
-                Purchase in progress — <strong className="text-text-primary">not charged yet</strong>.
-                Activates when payment completes or staff approves.
-              </p>
-              <SubRow sub={pendingSub} passFees={m.passProcessingFees} onEdit={() => setEditingSub(pendingSub)} onTransfer={canTransfer ? () => setTransferringSubId(pendingSub.id) : undefined} />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-text-muted">No active membership.</p>
-              {/* The door that was missing: "put this athlete on a membership"
-                  used to live only in the roster row menu, and the billing
-                  centre's Edit only saves a setup. This lands on the form
-                  that records the payment and starts the membership. */}
-              <Link
-                href={`/dashboard/members/${id}/billing?enrol=1`}
-                className="inline-flex min-h-[44px] md:min-h-0 items-center text-sm px-3 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
-              >
-                Assign membership
-              </Link>
-            </div>
-          )}
-        </Card>
+          // B13 — the Membership panel: every membership action for this
+          // athlete in one place, with a Stripe consequence line on each.
+          <MembershipPanel
+            memberId={id}
+            canBill={canBill}
+            onChanged={load}
+            onEditSub={(subId) => { const s = m.subscriptions.find((x) => x.id === subId); if (s) setEditingSub(s); }}
+            onTransfer={canTransfer ? (subId) => setTransferringSubId(subId) : undefined}
+            openAssign={assignOpen}
+            onOpenAssignHandled={() => setAssignOpen(false)}
+          />
         )}
 
         {on("family") && (
