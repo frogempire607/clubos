@@ -9,7 +9,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 ## Next up
 
 - **Julian, do first:** ship B12 (branch `claude/b12-stripe-plan-change`) and B10 slice 2 (branch `claude/products-slice-2`, migrate + generate first) — same loop. Orson: NOT until his Sep 25 charge has landed; then billing centre → his row → **Sync from Stripe**, then **Change plan → "12 months"**. Luis's second link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
-- **Next Claude Code session:** B13 design handoff (or B10 slice 3 — 2c inventory). B2 = flip the flag after A3.
+- **Next Claude Code session:** B13 slice 1 once Julian OKs the handoff (else B10 slice 3 — 2c inventory). B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
@@ -102,9 +102,13 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   15435) into Stripe, the sync reads it as $150 with the fee NOT folded and says so — Change plan re-prices it to
   $150 + fee. Not in B12: new-subscription flow for interval changes, member-facing email on plan change.
 
-- [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · DESIGN FIRST
-  "Too hard to change or cancel" = design problem: actions spread over roster menu, profile card, billing
-  centre and bulk tool. Write a handoff like events/products, then build. Not started.
+- [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · DESIGN HANDOFF WRITTEN
+  2026-09-24, on disk — `docs/improvement/design_handoff_membership_panel/` (README + interactive `Membership panel.html`).
+  Julian reviews the prototype (also published as a Claude artifact), then build in four slices: (1) panel + Assign +
+  Cancel + Comp, no migration; (2) Pause/Resume + Change dates — one additive migration
+  (`member_subscriptions.pausedAt/pausedUntil/cancelReason`), Stripe `pause_collection`; (3) Change plan for offline
+  rows + the two-step Stripe switch across billing cycles; (4) billing centre becomes "Advanced billing".
+  Rule of the handoff: every dialog ends with a derived Stripe consequence line; money today is behind a checkbox.
 
 - [ ] **B14 · "Renewing this week" queue + "Paused" card** · BUILT 2026-09-23, on disk — needs branch/build/push
   lib/membersQuery: `renewingSoon` (active row whose currentPeriodEnd / paidThroughDate / endDate lands within

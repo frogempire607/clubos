@@ -4801,3 +4801,26 @@ screen 2g: tiles are variants, not products.
 Not in this slice: a multi-line cart at the desk, inventory across products (2c), bookings (2d/2f), the public
 page + QR (2h). Julian runs `prisma migrate deploy` + `prisma generate` before the build — the five `variantId`
 type errors are the client not knowing the column yet.
+
+## 2026-09-24 — B13 design handoff: the Membership panel (read-only, no product code)
+
+Written like the events/products handoffs: `docs/improvement/design_handoff_membership_panel/README.md` + an
+interactive prototype. The diagnosis from 09-22 stands — every membership action exists, spread over five screens
+and six routes in three vocabularies, and the screen that looks like the control panel is a draft editor. The
+panel replaces the profile's *Current membership* card and becomes the front door; the billing centre survives as
+*Advanced billing*.
+
+Five states (Active·Stripe / Active·cash / Paused / Pending / None), each with its own action set, and seven
+one-question dialogs: Assign (three ways to pay in one dialog — saved card, cash/check, send the offer — writing the
+draft fields the existing routes read in the same request), Change plan (B12, extended to offline rows and to a
+two-step Stripe switch across billing cycles), Change dates (Stripe rows expose only the end date = cancel_at),
+Record payment, Pause/Resume (real dates on the row + Stripe pause_collection), Cancel (at period end by default;
+"now" says what isn't refunded; calls the route that cancels Stripe too — today's Edit→canceled leaves Stripe
+charging), Make it free. The rule that runs through all of it: a derived **Stripe consequence line** on every
+dialog, and a checkbox naming the amount whenever money moves today. Data: one additive migration
+(`pausedAt`, `pausedUntil`, `cancelReason`). New routes needed: switch_stripe_plan, set_stripe_cancel_at,
+pause/resume, cancel_at_period_end. Four slices proposed in the README.
+
+Observation surfaced by the prototype, worth a decision: the MS/HS "Monthly Full Membership" option is configured
+with a 1-month commitment and auto-renew OFF, so any dialog that reads the option's terms will say "ends after one
+month unless renewed". If monthly members are meant to roll, that option's auto-renew default should be ON.

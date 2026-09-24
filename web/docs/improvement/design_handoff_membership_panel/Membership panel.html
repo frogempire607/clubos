@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Membership panel — B13 design reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Every colour below is a literal copy of a token in web/app/globals.css.
+     Implement with the token, never the hex. */
+  :root{
+    --brand:#6D5DF6; --brand-hover:#5948E8; --lime:#A3E635; --orange:#FF6A00;
+    --bg:#F7F7F9; --surface:#FFFFFF; --border:#E5E7EB; --text:#111111; --muted:#6B7280;
+    --label:#374151; --body:#4B5563; --kicker:#9CA3AF;
+    --warn-s:#FFF7ED; --warn-t:#B45309; --warn-b:rgba(180,83,9,.22);
+    --danger-s:#FEF2F2; --danger-t:#B91C1C; --danger-b:rgba(185,28,28,.22);
+    --success-s:rgba(163,230,53,.25); --success-t:#3F6212;
+    --info-s:rgba(109,93,246,.06); --info-b:rgba(109,93,246,.25);
+    --pending-s:#EDEBFF; --pending-t:#4F46E5; --chip-s:#F1F1F3; --chip-t:#4B5563; --hair:#F1F1F3; --inset:#F4F4F6; --dash:#D7D7DC;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#EFEEF2;font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:var(--text)}
+  a{color:var(--brand)}
+  input,select,button,textarea{font-family:inherit;font-size:13px}
+  .canvas{padding:40px 44px 80px;max-width:1400px}
+  .tag{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;border-radius:5px;background:rgba(0,0,0,.08);color:#1a1a1a;text-decoration:none}
+  .tag.dark{background:#1a1a1a;color:#fff}
+  .lede{margin:0 0 24px;font:400 12px/1.6 Inter;color:rgba(0,0,0,.55);max-width:980px}
+  .row{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;margin-bottom:40px}
+  .opt{display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+  .optlabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter;color:rgba(0,0,0,.55)}
+  .frame{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:0 12px 32px rgba(17,17,17,.10);overflow:hidden}
+  .phone{width:393px}
+  .desk{width:760px}
+  h2{margin:0;font-size:16px;font-weight:600}
+  h3{margin:0;font-size:15px;font-weight:600}
+  .muted{color:var(--muted)}
+  .small{font-size:12px}
+  .xs{font-size:11px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px}
+  .pill.ok{background:var(--success-s);color:var(--success-t)} .pill.warn{background:var(--warn-s);color:var(--warn-t)}
+  .pill.pend{background:var(--pending-s);color:var(--pending-t)} .pill.bad{background:var(--danger-s);color:var(--danger-t)} .pill.none{background:var(--chip-s);color:var(--chip-t)}
+  .btn{min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-weight:500;cursor:pointer}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  .btn.primary:hover{background:var(--brand-hover)}
+  .btn.danger{color:var(--danger-t)}
+  .btn.danger.primary{background:var(--danger-t);border-color:var(--danger-t);color:#fff}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sm{min-height:36px;padding:0 12px;font-size:12.5px}
+  .facts{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .desk .facts{grid-template-columns:repeat(4,1fr)}
+  .fact{background:var(--inset);border-radius:10px;padding:8px 10px}
+  .fact .k{font-size:10.5px;color:var(--kicker);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  .fact .v{font-size:13px;color:var(--text);margin-top:2px;font-weight:500}
+  .actions{display:flex;flex-wrap:wrap;gap:8px}
+  .card{border:1px solid var(--border);border-radius:14px;padding:12px 14px}
+  .card + .card{margin-top:10px}
+  .field{display:block;margin-top:10px}
+  .field > span{display:block;font-size:12px;font-weight:500;color:var(--text);margin-bottom:5px}
+  .in{width:100%;min-height:44px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text)}
+  .hint{font-size:11px;color:var(--muted);margin-top:5px}
+  .choice{display:flex;flex-direction:column;gap:6px}
+  .choice button{text-align:left;min-height:44px;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--surface);cursor:pointer}
+  .choice button.sel{border-color:var(--brand);background:var(--info-s);color:var(--brand-hover)}
+  .choice button:disabled{background:var(--inset);color:var(--kicker);cursor:not-allowed}
+  .choice b{display:block;font-size:13px;font-weight:600}
+  .choice small{display:block;font-size:11.5px;color:var(--muted)}
+  .choice button.sel small{color:var(--brand-hover)}
+  .sum{background:var(--bg);border-radius:12px;padding:10px 12px;font-size:13px;line-height:1.5}
+  .sum p{margin:0} .sum p + p{margin-top:3px;color:var(--muted)}
+  .conseq{margin-top:10px;border:1px solid var(--info-b);background:var(--info-s);border-radius:12px;padding:9px 12px;font-size:12.5px;line-height:1.45;color:var(--text)}
+  .conseq b{color:var(--brand-hover);font-weight:600}
+  .conseq.warn{background:var(--warn-s);border-color:var(--warn-b);color:var(--warn-t)} .conseq.warn b{color:var(--warn-t)}
+  .conseq.danger{background:var(--danger-s);border-color:var(--danger-b);color:var(--danger-t)} .conseq.danger b{color:var(--danger-t)}
+  .ack{display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-top:10px}
+  .ack input{margin-top:3px;width:18px;height:18px}
+  .foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)}
+  .sheet-h{padding:14px 16px 10px;border-bottom:1px solid var(--hair)}
+  .sheet-b{padding:12px 16px 14px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font-size:12.5px;cursor:pointer}
+  .chip.sel{border-color:var(--brand);background:var(--info-s);color:var(--brand-hover);font-weight:600}
+  .seg{display:inline-flex;background:var(--chip-s);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+  .seg button{min-height:32px;padding:0 10px;border-radius:8px;border:0;background:transparent;font-size:12px;font-weight:500;color:var(--chip-t);cursor:pointer}
+  .seg button.sel{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .lock{font-size:11.5px;color:var(--muted);border:1px dashed var(--dash);border-radius:12px;padding:9px 12px}
+  .kb{background:var(--hair);border-radius:6px;padding:1px 6px;font:600 11px ui-monospace,Menlo,monospace}
+  .note{font-size:11.5px;color:rgba(0,0,0,.55);max-width:393px;line-height:1.5}
+  .menu{position:absolute;right:14px;top:44px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(17,17,17,.14);padding:6px;min-width:220px;z-index:2}
+  .menu button{display:block;width:100%;text-align:left;min-height:40px;padding:0 10px;border:0;background:transparent;border-radius:8px;font-size:13px;cursor:pointer}
+  .menu button:hover{background:var(--bg)}
+  .hist{border-top:1px solid var(--hair);margin-top:10px;padding-top:10px;font-size:12px;color:var(--body)}
+  .hist div{display:flex;gap:8px;padding:3px 0} .hist span:first-child{color:var(--kicker);white-space:nowrap;width:52px}
+</style>
+</head>
+<body>
+<div class="canvas">
+
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+  <a href="#3a" class="tag dark">3</a>
+  <span style="font:600 13px/1.2 Inter;color:#1a1a1a">Membership panel — one place for assign · change · dates · pay · pause · cancel</span>
+</div>
+<p class="lede">Every action here already exists somewhere in the app — spread across the roster menu, the profile's Edit modal, the billing centre and the bulk price tool, in three vocabularies. The panel replaces the profile's <em>Current membership</em> card and becomes the front door. <strong>Rule:</strong> every dialog ends with a <strong>consequence line</strong> that says what will happen to Stripe, derived from the row and your choices — never typed. Money that would move <em>today</em> is always behind a checkbox naming the amount. Flip the state switcher and edit the dialogs: the sentences are the specification.</p>
+
+<!-- ───────────────────────── 3a ───────────────────────── -->
+<div class="row" id="3a">
+  <div class="opt">
+    <div class="optlabel"><a href="#3a" class="tag">3a</a>Membership panel · phone (393px) — switch the state</div>
+    <div class="seg" id="stateSeg"></div>
+    <div class="frame phone" style="position:relative" id="panelPhone"></div>
+    <p class="note">Headline + pill, one money sentence, a facts row, an action row whose set depends on the state, and a footer to <em>Advanced billing</em> (the billing centre, unchanged). The pill and every sentence read the active <code>MemberSubscription</code> row — never <code>Member.status</code>.</p>
+  </div>
+  <div class="opt">
+    <div class="optlabel"><a href="#3a" class="tag">3a</a>The same panel on desktop (lg:col-span-2) — the five states, one under the other</div>
+    <div id="panelDesk" style="display:flex;flex-direction:column;gap:14px"></div>
+  </div>
+</div>
+
+<!-- ───────────────────────── 3b ───────────────────────── -->
+<div class="row" id="3b">
+  <div class="opt">
+    <div class="optlabel"><a href="#3b" class="tag">3b</a>Assign — pick the option, choose how they pay; the terms and the consequence follow</div>
+    <div class="frame phone" id="dlgAssign"></div>
+    <p class="note">One dialog replaces <em>Purchase membership</em> (roster), <em>Activate this setup now</em>, <em>Record payment &amp; renew</em> and <em>Create offer</em> (billing centre). It writes the draft fields the existing routes read, then calls the route the payment path names — one step, not two.</p>
+  </div>
+
+<!-- ───────────────────────── 3c ───────────────────────── -->
+  <div class="opt" id="3c">
+    <div class="optlabel"><a href="#3c" class="tag">3c</a>Change plan — B12's dialog, now for offline rows and across billing cycles too</div>
+    <div class="frame phone" id="dlgChange"></div>
+    <p class="note">Same interval on Stripe = B12 (price swap at the next invoice). A different interval is no longer a dead end: it is a two-step <em>switch</em> — end this one at the period end, start the new one the same day — run as one action. Offline rows change from the next payment.</p>
+  </div>
+
+<!-- ───────────────────────── 3d ───────────────────────── -->
+  <div class="opt" id="3d">
+    <div class="optlabel"><a href="#3d" class="tag">3d</a>Change dates — Stripe owns the cycle, so a Stripe row exposes only the end date</div>
+    <div class="frame phone" id="dlgDates"></div>
+    <p class="note">Toggle the row kind. Start and paid-through are read-only for Stripe rows (they are Stripe's facts); the end date maps to <code>cancel_at</code>, and clearing it is stated as "renews until cancelled".</p>
+  </div>
+</div>
+
+<div class="row">
+<!-- ───────────────────────── 3e ───────────────────────── -->
+  <div class="opt" id="3e">
+    <div class="optlabel"><a href="#3e" class="tag">3e</a>Record payment — offline rows only; "covers through" is derived and editable</div>
+    <div class="frame phone" id="dlgPay"></div>
+    <p class="note">Replaces the blank <em>Already paid?</em> card two sections down the billing centre. Prefilled from the row; one sentence says what the paid-through date does.</p>
+  </div>
+
+<!-- ───────────────────────── 3f ───────────────────────── -->
+  <div class="opt" id="3f">
+    <div class="optlabel"><a href="#3f" class="tag">3f</a>Pause — a date or open-ended; Stripe's collection pauses with it</div>
+    <div class="frame phone" id="dlgPause"></div>
+    <p class="note">Today "Paused" is a status label with no date and no billing effect. Here it writes <code>pausedAt/pausedUntil</code> on the row, sets the sticky label, and pauses Stripe collection (<code>pause_collection: void, resumes_at</code>). Resume is one button; offline rows get their paused days back.</p>
+  </div>
+
+<!-- ───────────────────────── 3g ───────────────────────── -->
+  <div class="opt" id="3g">
+    <div class="optlabel"><a href="#3g" class="tag">3g</a>Cancel — at the period end by default; "now" is explicit and says what isn't refunded</div>
+    <div class="frame phone" id="dlgCancel"></div>
+    <p class="note">The profile's Edit → status "canceled" today cancels the local row and leaves Stripe charging. This calls the route that cancels both, records <code>CANCELED</code> with the plan and amount (Reports' churn), and keeps access until the paid date.</p>
+  </div>
+</div>
+
+<div class="row">
+<!-- ───────────────────────── 3h ───────────────────────── -->
+  <div class="opt" id="3h">
+    <div class="optlabel"><a href="#3h" class="tag">3h</a>Make it free — the comp in one step</div>
+    <div class="frame phone" id="dlgComp"></div>
+    <p class="note">Reached from ⋯ or from a $0 override in Assign. Says the one thing that matters: this is a comp on purpose, not a leftover placeholder — the distinction the billing centre's <em>CompToggle</em> exists for.</p>
+  </div>
+  <div class="opt">
+    <div class="optlabel"><a href="#3a" class="tag">rules</a>What every dialog has in common</div>
+    <div class="frame phone" style="padding:14px 16px;font-size:12.5px;line-height:1.55;color:var(--body)">
+      <p style="margin:0 0 8px"><b style="color:var(--text)">Consequence line</b> — last thing above the buttons, in the info tint. Derived from the row kind, your choices and live Stripe facts fetched by a preview GET. Warn tint when money moves today; danger tint when something can't be undone.</p>
+      <p style="margin:0 0 8px"><b style="color:var(--text)">Money today = a checkbox</b> naming the amount. Nothing else is gated.</p>
+      <p style="margin:0 0 8px"><b style="color:var(--text)">Undo is stated</b> — "You can resume any time" / "This can't be undone from here".</p>
+      <p style="margin:0 0 8px"><b style="color:var(--text)">Disabled means explained</b> — every greyed path carries its reason inline.</p>
+      <p style="margin:0 0 8px"><b style="color:var(--text)">One vocabulary</b> — <em>membership</em>, <em>plan · option</em>. "Setup" and "offer" retire from owner copy; "subscription" appears only inside Stripe consequence lines.</p>
+      <p style="margin:0"><b style="color:var(--text)">Audit</b> — the note written to <code>BillingAuditLog</code> is the consequence line the owner confirmed.</p>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+// ─────────────────────────── shared data ───────────────────────────
+// The real MS/HS plan (production, 2026-09-24). Option ids are the identity.
+const PLAN = { id:"mshs", name:"MS/HS", contractMonths:null, autoRenewDefault:true, options:[
+  { id:"opt_vavjt5xoqc", label:"Monthly Full Membership", price:175, period:"MONTHLY", contractMonths:1, autoRenew:false },
+  { id:"opt_mqk8430i59", label:"Monthly 2 days (Tue/Thu)", price:110, period:"MONTHLY", contractMonths:1, autoRenew:false },
+  { id:"opt_3xh5n1p2ax", label:"12 months", price:150, period:"MONTHLY", contractMonths:12, autoRenew:false },
+  { id:"opt_yci81fy0r7", label:"3 Months", price:160, period:"MONTHLY", contractMonths:3, autoRenew:false },
+  { id:"opt_078e5udfsb", label:"3 months Upfront", price:450, period:"QUARTERLY", contractMonths:3, autoRenew:false },
+  { id:"opt_ngs7w3hu1e", label:"1 year Upfront", price:1500, period:"ANNUAL", contractMonths:12, autoRenew:false },
+]};
+const PASS_FEES = true;
+const fee = (p) => Math.round(p*100*0.029)/100;
+const withFee = (p) => PASS_FEES ? p + fee(p) : p;
+const money = (n) => "$" + (Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2));
+const money2 = (n) => "$" + n.toFixed(2);
+const PERIOD_WORD = { WEEKLY:"weekly", MONTHLY:"monthly", QUARTERLY:"every 3 months", SEMI_ANNUAL:"every 6 months", ANNUAL:"yearly" };
+const PERIOD_MONTHS = { WEEKLY:0, MONTHLY:1, QUARTERLY:3, SEMI_ANNUAL:6, ANNUAL:12 };
+const TODAY = new Date(Date.UTC(2026,8,24));
+const d = (y,m,day) => new Date(Date.UTC(y,m-1,day));
+const fmt = (x) => x ? x.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"}) : "—";
+const fmtS = (x) => x ? x.toLocaleDateString("en-US",{month:"short",day:"numeric",timeZone:"UTC"}) : "—";
+const iso = (x) => x.toISOString().slice(0,10);
+const parse = (s) => s ? new Date(s+"T00:00:00Z") : null;
+function addMonths(x, n){ const r=new Date(x.getTime()); const day=r.getUTCDate(); r.setUTCDate(1); r.setUTCMonth(r.getUTCMonth()+n); const dim=new Date(Date.UTC(r.getUTCFullYear(), r.getUTCMonth()+1, 0)).getUTCDate(); r.setUTCDate(Math.min(day,dim)); return r; }
+function addPeriod(x, period){ if(period==="WEEKLY"){ const r=new Date(x.getTime()); r.setUTCDate(r.getUTCDate()+7); return r;} return addMonths(x, PERIOD_MONTHS[period]||1); }
+const termsLine = (o) => `${money(o.price)} ${PERIOD_WORD[o.period]}${o.contractMonths ? ` · ${o.contractMonths}-month commitment` : ""} · then ${o.autoRenew ? `renews ${PERIOD_WORD[o.period]}` : "ends"}`;
+
+// One athlete, five states of the same row.
+const STATES = {
+  stripe: { key:"stripe", label:"Active · Stripe", pill:["ok","Active"], plan:"MS/HS", option:"Monthly Full Membership", price:175, period:"MONTHLY", kind:"STRIPE",
+    money:`${money2(withFee(175))} monthly on the saved card · next charge ${fmtS(d(2026,10,22))}`, card:"Visa ····4242", started:d(2026,7,22), renews:"Yes · auto", payer:"Adam Chorba (dad)", committed:null, periodEnd:d(2026,10,22),
+    actions:{ primary:"Change plan", others:["Change dates","Pause","Cancel"], more:["Sync from Stripe","Transfer to another athlete","Make it free"] } },
+  offline: { key:"offline", label:"Active · cash", pill:["ok","Active"], plan:"MS/HS", option:"Monthly Full Membership", price:175, period:"MONTHLY", kind:"OFFLINE",
+    money:`${money(175)} monthly, paid by cash · paid through ${fmtS(d(2026,11,30))}`, card:"Cash / check", started:d(2026,3,1), renews:"When paid", payer:"Adam Chorba (dad)", committed:null, paidThrough:d(2026,11,30),
+    actions:{ primary:"Record payment", others:["Change plan","Change dates","Pause","Cancel"], more:["Transfer to another athlete","Make it free"] } },
+  paused: { key:"paused", label:"Paused", pill:["warn","Paused"], plan:"MS/HS", option:"Monthly Full Membership", price:175, period:"MONTHLY", kind:"STRIPE",
+    money:`Paused since ${fmtS(d(2026,9,23))} · resumes ${fmtS(d(2027,1,5))} · Stripe collection paused`, card:"Visa ····4242", started:d(2026,7,22), renews:"Paused", payer:"Adam Chorba (dad)", committed:null,
+    actions:{ primary:"Resume", others:["Change dates","Cancel"], more:["Transfer to another athlete"] } },
+  pending: { key:"pending", label:"Pending", pill:["pend","Pending"], plan:"MS/HS", option:"12 months", price:150, period:"MONTHLY", kind:"STRIPE",
+    money:`Setup saved — 12 months · ${money(150)} monthly · not active yet · card on file`, card:"Visa ····4242", started:null, renews:"—", payer:"Adam Chorba (dad)", committed:null,
+    actions:{ primary:"Activate now", others:["Send offer","Edit setup","Cancel setup"], more:[] } },
+  none: { key:"none", label:"None", pill:["none","No membership"], plan:null, option:null, price:0, period:null, kind:"NONE",
+    money:`Last: MS/HS · Monthly $530 · ended ${fmtS(d(2026,9,8))}`, card:"No card on file", started:null, renews:"—", payer:"—", committed:null,
+    actions:{ primary:"Assign membership", others:[], more:[] } },
+};
+let state = "stripe";
+
+function panelHTML(s, desk){
+  const committed = s.committed ? `<span class="muted"> · committed through ${fmt(s.committed)}</span>` : "";
+  const head = s.plan ? `${s.plan} · ${s.option}` : "No membership";
+  const facts = s.kind==="NONE" ? "" : `
+    <div class="facts" style="margin-top:12px">
+      <div class="fact"><div class="k">Pays with</div><div class="v">${s.card}</div></div>
+      <div class="fact"><div class="k">Started</div><div class="v">${fmt(s.started)}</div></div>
+      <div class="fact"><div class="k">Renews</div><div class="v">${s.renews}</div></div>
+      <div class="fact"><div class="k">Payer</div><div class="v">${s.payer}</div></div>
+    </div>`;
+  const others = s.actions.others.map(a => `<button class="btn sm ${a.startsWith("Cancel")?"danger":""}">${a}</button>`).join("");
+  const more = s.actions.more.length ? `<button class="btn sm" data-more="${s.key}${desk?"-d":""}" aria-label="More">⋯</button>` : "";
+  return `
+    <div style="padding:14px 16px 12px;position:relative">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+        <div style="min-width:0">
+          <h2 style="line-height:1.25">${head}</h2>
+          <p class="small" style="margin:5px 0 0;color:var(--body)">${s.money}${committed}</p>
+        </div>
+        <span class="pill ${s.pill[0]}">${s.pill[1]}</span>
+      </div>
+      ${facts}
+      <div class="actions" style="margin-top:12px">
+        <button class="btn sm primary">${s.actions.primary}</button>${others}${more}
+      </div>
+      <div class="menu" id="menu-${s.key}${desk?"-d":""}" style="display:none">${s.actions.more.map(a=>`<button>${a}</button>`).join("")}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--hair)">
+        <a href="#" class="xs" style="text-decoration:none;font-weight:500">Advanced billing →</a>
+        ${s.kind!=="NONE" ? `<a href="#" class="xs muted" style="text-decoration:none" data-hist="${s.key}${desk?"-d":""}">Membership history (4)</a>` : ""}
+      </div>
+      <div class="hist" id="hist-${s.key}${desk?"-d":""}" style="display:none">
+        <div><span>Sep 23</span><span>Paused until Jan 5 — Julian</span></div>
+        <div><span>Sep 22</span><span>Price changed in Stripe $175 → $150 (synced)</span></div>
+        <div><span>Jul 22</span><span>Activated on saved card — $180.08 monthly</span></div>
+        <div><span>Jul 3</span><span>Imported: Monthly $175, anchor Jul 24</span></div>
+      </div>
+    </div>`;
+}
+function renderPanels(){
+  document.getElementById("panelPhone").innerHTML = panelHTML(STATES[state], false);
+  document.getElementById("panelDesk").innerHTML = Object.values(STATES).map(s => `<div class="frame desk">${panelHTML(s,true)}</div>`).join("");
+  document.querySelectorAll("[data-more]").forEach(b => b.onclick = () => { const m=document.getElementById("menu-"+b.dataset.more); m.style.display = m.style.display==="none"?"block":"none"; });
+  document.querySelectorAll("[data-hist]").forEach(a => a.onclick = (e) => { e.preventDefault(); const h=document.getElementById("hist-"+a.dataset.hist); h.style.display = h.style.display==="none"?"block":"none"; });
+}
+const seg = document.getElementById("stateSeg");
+Object.values(STATES).forEach(s => { const b=document.createElement("button"); b.textContent=s.label; b.className = s.key===state?"sel":""; b.onclick=()=>{ state=s.key; [...seg.children].forEach(c=>c.className=""); b.className="sel"; renderPanels(); }; seg.appendChild(b); });
+renderPanels();
+
+// ─────────────────────────── dialog scaffolding ───────────────────────────
+function sheet(title, sub, body, foot){
+  return `<div class="sheet-h"><h3>${title}</h3>${sub?`<p class="xs muted" style="margin:3px 0 0">${sub}</p>`:""}</div><div class="sheet-b">${body}</div><div class="foot">${foot}</div>`;
+}
+const conseq = (text, tone="") => `<div class="conseq ${tone}"><b>Stripe:</b> ${text}</div>`;
+const optionSelect = (id, sel, filter) => `<select class="in" id="${id}">${PLAN.options.filter(filter||(()=>true)).map(o=>`<option value="${o.id}" ${o.id===sel?"selected":""}>${PLAN.name} · ${o.label} — ${money(o.price)} ${PERIOD_WORD[o.period]}${o.contractMonths?`, ${o.contractMonths}-mo`:""}</option>`).join("")}</select>`;
+
+// ─────────────────────────── 3b Assign ───────────────────────────
+const A = { opt:"opt_vavjt5xoqc", override:"", start:iso(TODAY), pay:"CARD", firstCharge:"today", firstDate:iso(d(2026,10,1)), ack:false, method:"CASH", amount:"", through:"", note:"", hasCard:true, showOverride:false };
+function renderAssign(){
+  const o = PLAN.options.find(x=>x.id===A.opt);
+  const price = A.override!=="" ? Number(A.override) : o.price;
+  const start = parse(A.start) || TODAY;
+  const commit = o.contractMonths ? addMonths(start, o.contractMonths) : null;
+  const end = o.autoRenew ? null : (commit || addPeriod(start, o.period));
+  const isComp = price === 0;
+  const through = A.through ? parse(A.through) : addPeriod(start, o.period);
+  const amount = A.amount!=="" ? Number(A.amount) : price;
+  const chargesToday = A.pay==="CARD" && A.firstCharge==="today";
+  let cq = "", tone = "";
+  if (isComp) { cq = `nothing — a $0 membership is recorded locally and marked as a comp on purpose.`; }
+  else if (A.pay==="CARD") { if(!A.hasCard) cq = `nothing yet — there is no card on file.`; else if (chargesToday) { cq = `creates a subscription on Visa ····4242 — <b>${money2(withFee(price))} charged today</b>, then ${PERIOD_WORD[o.period]}.${end?` Ends ${fmt(end)}.`:" Renews until cancelled."}`; tone="warn"; } else cq = `creates a subscription on Visa ····4242 — nothing today; first charge ${money2(withFee(price))} on ${fmt(parse(A.firstDate))}, then ${PERIOD_WORD[o.period]}.${end?` Ends ${fmt(end)}.`:""}`; }
+  else if (A.pay==="CASH") cq = `nothing — recorded as a ${A.method==="CASH"?"cash":"check"} membership, ${money(amount)} received, paid through ${fmt(through)}.`;
+  else cq = `nothing until the family confirms and pays. The offer link is valid 14 days.`;
+  const cta = isComp ? "Make it free" : A.pay==="OFFER" ? "Send offer" : A.pay==="CASH" ? `Record ${money(amount)} & assign` : chargesToday ? `Charge ${money2(withFee(price))} & assign` : "Assign";
+  const body = `
+    <div class="card">
+      <label class="field" style="margin-top:0"><span>Plan &amp; option</span>${optionSelect("a_opt", A.opt)}</label>
+      <p class="hint">${isComp ? `<b style="color:var(--text)">$0 — this becomes a comp</b> (see 3h).` : termsLine({...o, price})}</p>
+      ${A.showOverride ? `<label class="field"><span>Different price</span><input class="in" id="a_override" type="number" placeholder="${o.price}" value="${A.override}"><p class="hint">Leave empty for the option price. $0 makes it a comp.</p></label>` : `<button class="btn sm" id="a_showo" style="margin-top:8px">Different price?</button>`}
+    </div>
+    <div class="card">
+      <label class="field" style="margin-top:0"><span>Starts</span><input class="in" id="a_start" type="date" value="${A.start}"></label>
+      <p class="hint">${commit ? `Committed through ${fmt(commit)}${end?` · ends there`:` · renews after`}` : end ? `Ends ${fmt(end)} unless renewed` : "Renews until cancelled"}</p>
+    </div>
+    ${isComp ? "" : `<div class="card">
+      <span class="small" style="font-weight:500;display:block;margin-bottom:6px">How they pay</span>
+      <div class="choice">
+        <button data-pay="CARD" class="${A.pay==="CARD"?"sel":""}" ${A.hasCard?"":"disabled"}><b>Saved card${A.hasCard?" · Visa ····4242":""}</b><small>${A.hasCard?"A Stripe subscription on the card on file.":"No card on file — send the offer, or collect a card in Advanced billing."}</small></button>
+        <button data-pay="CASH" class="${A.pay==="CASH"?"sel":""}"><b>Cash / check</b><small>Record what was received; renews when they pay again.</small></button>
+        <button data-pay="OFFER" class="${A.pay==="OFFER"?"sel":""}"><b>Send the offer to the family</b><small>They confirm and pay from the link — card or cash.</small></button>
+      </div>
+      ${A.pay==="CARD" && A.hasCard ? `
+        <div class="seg" style="margin-top:10px"><button data-fc="today" class="${A.firstCharge==="today"?"sel":""}">First charge today</button><button data-fc="date" class="${A.firstCharge==="date"?"sel":""}">On a date</button></div>
+        ${A.firstCharge==="date" ? `<input class="in" id="a_fd" type="date" value="${A.firstDate}" style="margin-top:8px">` : ""}` : ""}
+      ${A.pay==="CASH" ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label class="field"><span>Amount received</span><input class="in" id="a_amt" type="number" value="${A.amount}" placeholder="${price}"></label>
+          <label class="field"><span>Method</span><select class="in" id="a_method"><option ${A.method==="CASH"?"selected":""}>CASH</option><option ${A.method==="CHECK"?"selected":""}>CHECK</option></select></label>
+        </div>
+        <label class="field"><span>Paid through</span><input class="in" id="a_through" type="date" value="${iso(through)}"></label>
+        <p class="hint">One ${PERIOD_WORD[o.period].replace("every ","")} from the start. Edit if they paid for more.</p>` : ""}
+      ${A.pay==="OFFER" ? `<label class="field"><span>To</span><input class="in" value="adam.chorba@gmail.com (dad)"></label><label class="field"><span>Note to the family</span><input class="in" placeholder="Optional"></label>` : ""}
+    </div>`}
+    <div class="sum" style="margin-top:10px"><p><b>Orson</b> goes on <b>${PLAN.name} · ${o.label}</b>${A.override!==""?` at ${money(price)}`:""} from ${fmt(start)}.</p><p>${isComp?"Free — comped on purpose.":A.pay==="CASH"?`${money(amount)} ${A.method.toLowerCase()} received · paid through ${fmt(through)}`:A.pay==="OFFER"?"Nothing charged until they confirm.":chargesToday?`${money2(withFee(price))} on the card today`:`First charge ${fmt(parse(A.firstDate))}`}</p></div>
+    ${conseq(cq, tone)}
+    ${chargesToday && !isComp && A.hasCard ? `<label class="ack"><input type="checkbox" id="a_ack" ${A.ack?"checked":""}><span>I understand the saved card is charged <b>${money2(withFee(price))} right now</b>.</span></label>` : ""}`;
+  const foot = `<button class="btn">Cancel</button><button class="btn primary" ${chargesToday && !isComp && A.hasCard && !A.ack ? "disabled":""}>${cta}</button>`;
+  const el = document.getElementById("dlgAssign"); el.innerHTML = sheet("Assign a membership", "Orson Chorba · no active membership", body, foot);
+  el.querySelector("#a_opt").onchange = e => { A.opt=e.target.value; renderAssign(); };
+  const so = el.querySelector("#a_showo"); if (so) so.onclick = () => { A.showOverride=true; renderAssign(); };
+  const ov = el.querySelector("#a_override"); if (ov) ov.oninput = e => { A.override=e.target.value; renderAssign(); };
+  el.querySelector("#a_start").onchange = e => { A.start=e.target.value; A.through=""; renderAssign(); };
+  el.querySelectorAll("[data-pay]").forEach(b => b.onclick = () => { A.pay=b.dataset.pay; A.ack=false; renderAssign(); });
+  el.querySelectorAll("[data-fc]").forEach(b => b.onclick = () => { A.firstCharge=b.dataset.fc; A.ack=false; renderAssign(); });
+  const fd = el.querySelector("#a_fd"); if (fd) fd.onchange = e => { A.firstDate=e.target.value; renderAssign(); };
+  const amt = el.querySelector("#a_amt"); if (amt) amt.oninput = e => { A.amount=e.target.value; renderAssign(); };
+  const me = el.querySelector("#a_method"); if (me) me.onchange = e => { A.method=e.target.value; renderAssign(); };
+  const th = el.querySelector("#a_through"); if (th) th.onchange = e => { A.through=e.target.value; renderAssign(); };
+  const ack = el.querySelector("#a_ack"); if (ack) ack.onchange = e => { A.ack=e.target.checked; renderAssign(); };
+}
+renderAssign();
+
+// ─────────────────────────── 3c Change plan ───────────────────────────
+const C = { kind:"STRIPE", opt:"opt_3xh5n1p2ax", renew:"default", ack:false };
+const CUR = { optId:"opt_vavjt5xoqc", label:"Monthly Full Membership", price:175, period:"MONTHLY", periodEnd:d(2026,10,22), paidThrough:d(2026,11,30), unit:withFee(175) };
+function renderChange(){
+  const o = PLAN.options.find(x=>x.id===C.opt);
+  const same = o.period===CUR.period;
+  const eff = C.kind==="STRIPE" ? CUR.periodEnd : CUR.paidThrough;
+  const autoRenew = C.renew==="default" ? o.autoRenew : C.renew==="on";
+  const commit = o.contractMonths ? addMonths(eff, o.contractMonths) : null;
+  const cancelAt = autoRenew ? null : (commit || addPeriod(eff, o.period));
+  let cq, tone="";
+  if (C.kind==="OFFLINE") cq = `nothing — billed offline. Next payment due ${fmt(eff)} at ${money(o.price)}${o.contractMonths?`; committed through ${fmt(commit)}`:""}.`;
+  else if (same) cq = `price changes at the next invoice, ${fmt(eff)}: ${money2(withFee(o.price))} instead of ${money2(CUR.unit)}. Nothing is charged or refunded today.${cancelAt?` Cancel date set to ${fmt(cancelAt)}.`:" Cancel date removed — renews."}`;
+  else { cq = `<b>two steps, one action</b> — the current subscription ends on ${fmt(eff)}; a new ${PERIOD_WORD[o.period]} subscription starts the same day on the same card, first charge ${money2(withFee(o.price))} on ${fmt(eff)}.${cancelAt?` It ends ${fmt(cancelAt)}.`:""} Nothing today.`; tone="warn"; }
+  const body = `
+    <div class="seg" style="margin-bottom:10px"><button data-k="STRIPE" class="${C.kind==="STRIPE"?"sel":""}">Stripe row</button><button data-k="OFFLINE" class="${C.kind==="OFFLINE"?"sel":""}">Offline row</button></div>
+    <p class="small" style="margin:0 0 10px;color:var(--body)">Orson is on <b>${CUR.label}</b> · ${money(CUR.price)} monthly${C.kind==="STRIPE"?` (${money2(CUR.unit)} with the fee) · next invoice ${fmtS(CUR.periodEnd)}`:` · paid through ${fmtS(CUR.paidThrough)}`}.</p>
+    <label class="field" style="margin-top:0"><span>Move to</span>${optionSelect("c_opt", C.opt, x=>x.id!==CUR.optId)}</label>
+    <p class="hint">${same ? "Same billing cycle — swaps in place." : C.kind==="STRIPE" ? `Different billing cycle (${PERIOD_WORD[o.period]}) — Stripe can't swap the cycle in place, so this is a <b>switch</b>: end the current one, start the new one, same day.` : "Different cycle — the next payment is at the new price and period."}</p>
+    <div class="field"><span>After the commitment</span><div class="chips"><button class="chip ${C.renew==="default"?"sel":""}" data-r="default">Option default${o.autoRenew?" (renews)":" (ends)"}</button><button class="chip ${C.renew==="off"?"sel":""}" data-r="off">Ends — no renewal</button><button class="chip ${C.renew==="on"?"sel":""}" data-r="on">Keeps renewing</button></div></div>
+    <div class="sum" style="margin-top:12px"><p><b>${PLAN.name} · ${o.label}</b> from <b>${fmt(eff)}</b>.</p><p>${money2(C.kind==="STRIPE"?withFee(o.price):o.price)} ${PERIOD_WORD[o.period]}${C.kind==="STRIPE"&&PASS_FEES?` (${money(o.price)} + ${money2(fee(o.price))} fee)`:""}.</p>${commit?`<p>${o.contractMonths}-month commitment: ${fmt(eff)} → ${fmt(commit)}.</p>`:""}<p>${cancelAt?`Ends ${fmt(cancelAt)} — no renewal after that.`:"Keeps renewing until you cancel it."}</p></div>
+    ${conseq(cq, tone)}
+    <label class="ack"><input type="checkbox" id="c_ack" ${C.ack?"checked":""}><span>Apply this to Orson's membership. Orson isn't emailed — tell the family yourself.</span></label>`;
+  const el = document.getElementById("dlgChange"); el.innerHTML = sheet("Change plan", "Orson Chorba", body, `<button class="btn">Cancel</button><button class="btn primary" ${C.ack?"":"disabled"}>${same||C.kind==="OFFLINE"?"Change plan":"Switch plan"}</button>`);
+  el.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{C.kind=b.dataset.k;C.ack=false;renderChange();});
+  el.querySelector("#c_opt").onchange=e=>{C.opt=e.target.value;C.ack=false;renderChange();};
+  el.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{C.renew=b.dataset.r;C.ack=false;renderChange();});
+  el.querySelector("#c_ack").onchange=e=>{C.ack=e.target.checked;renderChange();};
+}
+renderChange();
+
+// ─────────────────────────── 3d Change dates ───────────────────────────
+const D = { kind:"STRIPE", start:iso(d(2026,7,22)), through:iso(d(2026,11,30)), end:iso(d(2026,12,10)), commit:iso(d(2026,12,10)) };
+function renderDates(){
+  const stripe = D.kind==="STRIPE";
+  const end = parse(D.end); const commit = parse(D.commit);
+  const commitCapped = end && commit && commit > end;
+  let cq;
+  if (!stripe) cq = "nothing — billed offline. Dates change on the record only.";
+  else if (!end) cq = "cancel date removed — renews until cancelled.";
+  else cq = `cancel date ${D.end===iso(d(2026,12,10))?"stays":"moves to"} ${fmt(end)}; charges continue until then.`;
+  const body = `
+    <div class="seg" style="margin-bottom:10px"><button data-k="STRIPE" class="${stripe?"sel":""}">Stripe row</button><button data-k="OFFLINE" class="${!stripe?"sel":""}">Offline row</button></div>
+    <label class="field" style="margin-top:0"><span>Started</span><input class="in" type="date" id="d_start" value="${D.start}" ${stripe?"disabled":""}>${stripe?`<p class="hint">Stripe owns the billing cycle — the start is a fact, not a setting.</p>`:""}</label>
+    <label class="field"><span>Paid through</span><input class="in" type="date" id="d_through" value="${D.through}" ${stripe?"disabled":""}>${stripe?`<p class="hint">Read from Stripe: the current period ends ${fmtS(d(2026,10,22))}.</p>`:`<p class="hint">Moves with each recorded payment (3e). Edit only to correct.</p>`}</label>
+    <label class="field"><span>Ends</span><div style="display:flex;gap:8px"><input class="in" type="date" id="d_end" value="${D.end}"><button class="btn" id="d_clear" ${D.end?"":"disabled"}>Clear</button></div><p class="hint">${D.end?`Access and billing stop on ${fmt(end)}.`:"No end date — renews until cancelled."}</p></label>
+    <label class="field"><span>Committed through</span><input class="in" type="date" id="d_commit" value="${D.commit}"><p class="hint">${commitCapped?`<b style="color:var(--warn-t)">Capped at the end date</b> — a commitment can't outlive the membership.`:"The floor for cancellations. Informational for the family."}</p></label>
+    ${conseq(cq)}`;
+  const el = document.getElementById("dlgDates"); el.innerHTML = sheet("Change dates", "Orson Chorba · MS/HS · Monthly Full Membership", body, `<button class="btn">Cancel</button><button class="btn primary">Save dates</button>`);
+  el.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{D.kind=b.dataset.k;renderDates();});
+  el.querySelector("#d_start").onchange=e=>{D.start=e.target.value;renderDates();};
+  el.querySelector("#d_through").onchange=e=>{D.through=e.target.value;renderDates();};
+  el.querySelector("#d_end").onchange=e=>{D.end=e.target.value;renderDates();};
+  el.querySelector("#d_clear").onclick=()=>{D.end="";renderDates();};
+  el.querySelector("#d_commit").onchange=e=>{D.commit=e.target.value;renderDates();};
+}
+renderDates();
+
+// ─────────────────────────── 3e Record payment ───────────────────────────
+const P = { amount:"175", method:"CASH", through:"" , note:"" };
+const P_ROW = { price:175, period:"MONTHLY", paidThrough:d(2026,11,30) };
+function renderPay(){
+  const through = P.through ? parse(P.through) : addPeriod(P_ROW.paidThrough, P_ROW.period);
+  const amt = Number(P.amount)||0;
+  const body = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <label class="field" style="margin-top:0"><span>Amount received</span><input class="in" id="p_amt" type="number" value="${P.amount}"></label>
+      <label class="field" style="margin-top:0"><span>Method</span><select class="in" id="p_m"><option ${P.method==="CASH"?"selected":""}>CASH</option><option ${P.method==="CHECK"?"selected":""}>CHECK</option><option ${P.method==="OTHER"?"selected":""}>OTHER</option></select></label>
+    </div>
+    <label class="field"><span>Covers through</span><input class="in" id="p_through" type="date" value="${iso(through)}"><p class="hint">Extends from ${fmt(P_ROW.paidThrough)} to ${fmt(through)}${!P.through?" — one month, the option's period":""}.</p></label>
+    <label class="field"><span>Note</span><input class="in" id="p_note" placeholder="Optional — e.g. check #1042" value="${P.note}"></label>
+    <div class="sum" style="margin-top:12px"><p>Records <b>${money(amt)} ${P.method.toLowerCase()}</b> against Orson's membership.</p><p>Paid through ${fmt(through)}. Shows on the family's receipts and in Financials.</p></div>
+    ${conseq(`nothing. Records ${money(amt)} ${P.method.toLowerCase()} and moves paid-through to ${fmt(through)}.`)}`;
+  const el = document.getElementById("dlgPay"); el.innerHTML = sheet("Record a payment", "Orson Chorba · MS/HS · Monthly Full Membership · cash", body, `<button class="btn">Cancel</button><button class="btn primary">Record ${money(amt)}</button>`);
+  el.querySelector("#p_amt").oninput=e=>{P.amount=e.target.value;renderPay();};
+  el.querySelector("#p_m").onchange=e=>{P.method=e.target.value;renderPay();};
+  el.querySelector("#p_through").onchange=e=>{P.through=e.target.value;renderPay();};
+  el.querySelector("#p_note").oninput=e=>{P.note=e.target.value;};
+}
+renderPay();
+
+// ─────────────────────────── 3f Pause ───────────────────────────
+const U = { kind:"STRIPE", mode:"date", until:iso(d(2027,1,5)) };
+function renderPause(){
+  const stripe = U.kind==="STRIPE"; const until = U.mode==="date" ? parse(U.until) : null;
+  const days = until ? Math.round((until - TODAY)/86400000) : null;
+  const cq = stripe
+    ? (until ? `collection paused — invoices are voided until ${fmt(until)}, then billing resumes automatically.` : `collection paused — invoices are voided until you resume. No charges while paused.`)
+    : `nothing. When you resume, paid-through moves out by the paused days${days?` (${days})`:""}.`;
+  const body = `
+    <div class="seg" style="margin-bottom:10px"><button data-k="STRIPE" class="${stripe?"sel":""}">Stripe row</button><button data-k="OFFLINE" class="${!stripe?"sel":""}">Offline row</button></div>
+    <div class="field" style="margin-top:0"><span>Until</span><div class="chips"><button class="chip ${U.mode==="date"?"sel":""}" data-m="date">A date</button><button class="chip ${U.mode==="open"?"sel":""}" data-m="open">Until I resume it</button></div></div>
+    ${U.mode==="date"?`<input class="in" id="u_until" type="date" value="${U.until}" style="margin-top:8px">`:""}
+    <div class="sum" style="margin-top:12px"><p>No charges and no class access from <b>${fmt(TODAY)}</b>${until?` to <b>${fmt(until)}</b>${days?` (${days} days)`:""}`:" until you resume it"}.</p><p>Attendance is still recorded if Orson shows up. The roster shows him as Paused. You can resume any time.</p></div>
+    ${conseq(cq)}`;
+  const el = document.getElementById("dlgPause"); el.innerHTML = sheet("Pause membership", "Orson Chorba · MS/HS · Monthly Full Membership", body, `<button class="btn">Cancel</button><button class="btn primary">Pause${until?` until ${fmtS(until)}`:""}</button>`);
+  el.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{U.kind=b.dataset.k;renderPause();});
+  el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{U.mode=b.dataset.m;renderPause();});
+  const u=el.querySelector("#u_until"); if(u) u.onchange=e=>{U.until=e.target.value;renderPause();};
+}
+renderPause();
+
+// ─────────────────────────── 3g Cancel ───────────────────────────
+const X = { kind:"STRIPE", when:"period_end", reason:null, ack:false };
+function renderCancel(){
+  const stripe = X.kind==="STRIPE"; const paidTo = stripe ? d(2026,10,22) : d(2026,11,30);
+  const now = X.when==="now";
+  let cq, tone="";
+  if (!stripe) cq = "nothing — billed offline. The record is cancelled" + (now?" today.":` on ${fmt(paidTo)}.`);
+  else if (now) { cq = `cancelled immediately. The current period (paid to ${fmt(paidTo)}) is <b>not refunded</b> from here.`; tone="danger"; }
+  else cq = `cancels at the period end, ${fmt(paidTo)} — no further charges.`;
+  const body = `
+    <div class="seg" style="margin-bottom:10px"><button data-k="STRIPE" class="${stripe?"sel":""}">Stripe row</button><button data-k="OFFLINE" class="${!stripe?"sel":""}">Offline row</button></div>
+    <div class="field" style="margin-top:0"><span>When</span><div class="choice">
+      <button data-w="period_end" class="${!now?"sel":""}"><b>At the end of the paid period · ${fmtS(paidTo)}</b><small>Orson keeps access until then. The usual choice.</small></button>
+      <button data-w="now" class="${now?"sel":""}"><b>Right now</b><small>Access ends today. Nothing already paid is refunded from here.</small></button>
+    </div></div>
+    <div class="field"><span>Reason <span class="muted" style="font-weight:400">(optional — shows in Reports)</span></span><div class="chips">${["Moving","Cost","Injury","Season over","Other"].map(r=>`<button class="chip ${X.reason===r?"sel":""}" data-r="${r}">${r}</button>`).join("")}</div></div>
+    <div class="sum" style="margin-top:12px"><p><b>Orson</b> keeps access until <b>${now?fmt(TODAY):fmt(paidTo)}</b>.</p><p>${now?"This can't be undone from here — assign a new membership to bring him back.":"You can undo this before that date from the panel."}</p></div>
+    ${conseq(cq, tone)}
+    <label class="ack"><input type="checkbox" id="x_ack" ${X.ack?"checked":""}><span>Cancel Orson's membership${now?" <b>now</b>":` on ${fmtS(paidTo)}`}.</span></label>`;
+  const el = document.getElementById("dlgCancel"); el.innerHTML = sheet("Cancel membership", "Orson Chorba · MS/HS · Monthly Full Membership", body, `<button class="btn">Keep it</button><button class="btn danger primary" ${X.ack?"":"disabled"}>Cancel membership</button>`);
+  el.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{X.kind=b.dataset.k;X.ack=false;renderCancel();});
+  el.querySelectorAll("[data-w]").forEach(b=>b.onclick=()=>{X.when=b.dataset.w;X.ack=false;renderCancel();});
+  el.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{X.reason=X.reason===b.dataset.r?null:b.dataset.r;renderCancel();});
+  el.querySelector("#x_ack").onchange=e=>{X.ack=e.target.checked;renderCancel();};
+}
+renderCancel();
+
+// ─────────────────────────── 3h Comp ───────────────────────────
+const K = { kind:"STRIPE", ack:false };
+function renderComp(){
+  const stripe = K.kind==="STRIPE";
+  const body = `
+    <div class="seg" style="margin-bottom:10px"><button data-k="STRIPE" class="${stripe?"sel":""}">Stripe row</button><button data-k="OFFLINE" class="${!stripe?"sel":""}">Offline row</button></div>
+    <div class="sum"><p><b>Orson's</b> membership becomes <b>$0</b>, marked as a comp on purpose — not a placeholder.</p><p>Access is unchanged. Reports count him as a member, not as unbilled.</p></div>
+    ${conseq(stripe ? `the subscription is cancelled at the period end, ${fmt(d(2026,10,22))}; the free membership continues on the record.` : "nothing — the record is marked free.")}
+    <label class="ack"><input type="checkbox" id="k_ack" ${K.ack?"checked":""}><span>Make Orson's membership free.</span></label>`;
+  const el = document.getElementById("dlgComp"); el.innerHTML = sheet("Make it free", "Orson Chorba · MS/HS · Monthly Full Membership", body, `<button class="btn">Cancel</button><button class="btn primary" ${K.ack?"":"disabled"}>Make it free</button>`);
+  el.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{K.kind=b.dataset.k;K.ack=false;renderComp();});
+  el.querySelector("#k_ack").onchange=e=>{K.ack=e.target.checked;renderComp();};
+}
+renderComp();
+</script>
+</body>
+</html>
