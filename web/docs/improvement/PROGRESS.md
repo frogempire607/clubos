@@ -4824,3 +4824,29 @@ pause/resume, cancel_at_period_end. Four slices proposed in the README.
 Observation surfaced by the prototype, worth a decision: the MS/HS "Monthly Full Membership" option is configured
 with a 1-month commitment and auto-renew OFF, so any dialog that reads the option's terms will say "ends after one
 month unless renewed". If monthly members are meant to roll, that option's auto-renew default should be ON.
+
+## 2026-09-24 — B13 slice 1: the Membership panel, Assign, Cancel, Make it free
+
+Design approved in the morning; slice 1 the same day, no migration. The panel replaces the profile's *Current
+membership* card. Everything it says comes from one pure derivation (`lib/membershipPanel.derivePanel`): which row is
+current (the active row with the latest start that has begun — a future-dated active row is "upcoming", which is how
+a Stripe comp reads "$180.08 monthly · ends Oct 22 · then: Free from Oct 22"), the state, the pill, the money line, the
+facts, and the action set. `Member.status` is consulted for exactly one thing — the PAUSED label — because until the
+slice-2 migration the row has no pause date; the panel says so in the Pause dialog rather than pretending the card
+stopped billing.
+
+Assign is the dialog the handoff promised: one option picker with the terms line, a start date, three ways to pay.
+It writes the migration draft through the existing billing-admin PATCH first (plan, option label, override, start,
+anchor, commitment, payment preference) and then calls the route that path already uses — `activate_card`,
+`enroll-paid`, or reactivation create+send — so nothing new touches money. A $0 price becomes a comp: a MANUAL row
+from `/api/members/subscribe` (no Transaction) marked free by the new `comp_membership` action.
+
+Cancel at the period end is new (`cancel_at_period_end`): Stripe's own `cancel_at_period_end`, the local end date,
+and a CANCELED event **dated the effective day** so Reports count the churn in the month it happens. "Right now" is
+the existing DELETE, which was the only route that cancelled Stripe and which no button called. Keep membership
+undoes the scheduled one. Make it free on a Stripe row ends the card billing at the period end and starts a $0 comp
+row that day — never a refund, never a double-counted period, never a gap.
+
+Slice 1 leaves in place, on purpose and labelled: the old edit modal for dates (and for offline plan changes), the
+roster label for Pause, and B12's dialog for Stripe plan changes (the panel deep-links to it). Tests: 31 for the
+derivation and the cancel sentences.

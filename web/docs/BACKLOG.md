@@ -8,8 +8,8 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** ship B12 (branch `claude/b12-stripe-plan-change`) and B10 slice 2 (branch `claude/products-slice-2`, migrate + generate first) — same loop. Orson: NOT until his Sep 25 charge has landed; then billing centre → his row → **Sync from Stripe**, then **Change plan → "12 months"**. Luis's second link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
-- **Next Claude Code session:** B13 slice 1 once Julian OKs the handoff (else B10 slice 3 — 2c inventory). B2 = flip the flag after A3.
+- **Julian, do first:** ship B13 slice 1 (branch `claude/b13-membership-panel-1`, no migration, same loop), then check the panel on Colton, Orson (look only), a cash member and a member with nothing. Orson: NOT until his Sep 25 charge has landed; then billing centre → his row → **Sync from Stripe**, then **Change plan → "12 months"**. Luis's second link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
+- **Next Claude Code session:** B13 slice 2 (pause dates + Stripe pause + Change dates; one migration), then slice 3. B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
@@ -102,13 +102,22 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   15435) into Stripe, the sync reads it as $150 with the fee NOT folded and says so — Change plan re-prices it to
   $150 + fee. Not in B12: new-subscription flow for interval changes, member-facing email on plan change.
 
-- [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · DESIGN HANDOFF WRITTEN
-  2026-09-24, on disk — `docs/improvement/design_handoff_membership_panel/` (README + interactive `Membership panel.html`).
-  Julian reviews the prototype (also published as a Claude artifact), then build in four slices: (1) panel + Assign +
-  Cancel + Comp, no migration; (2) Pause/Resume + Change dates — one additive migration
-  (`member_subscriptions.pausedAt/pausedUntil/cancelReason`), Stripe `pause_collection`; (3) Change plan for offline
-  rows + the two-step Stripe switch across billing cycles; (4) billing centre becomes "Advanced billing".
-  Rule of the handoff: every dialog ends with a derived Stripe consequence line; money today is behind a checkbox.
+- [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · DESIGN APPROVED 2026-09-24 ·
+  SLICE 1 BUILT 2026-09-24, on disk — needs branch/build/push (no migration).
+  Handoff: `docs/improvement/design_handoff_membership_panel/` (README + prototype). Slice 1 = the panel replacing the
+  profile's *Current membership* card (five states, derived by `lib/membershipPanel.ts`, 31 tests
+  `npm run test:membership-panel`; `GET /api/members/[id]/membership-panel`), **Assign** (one dialog: saved card →
+  `activate_card`, cash/check → `enroll-paid`, send the offer → reactivation create+send, $0 → MANUAL row + comp; writes
+  the draft via billing-admin PATCH first so the routes read what was just chosen), **Cancel** (at period end → new
+  `cancel_at_period_end` action: Stripe `cancel_at_period_end`, local end date, CANCELED event dated the effective day;
+  now → the existing DELETE that cancels Stripe too; **Keep membership** undoes a scheduled cancel), **Make it free**
+  (new `comp_membership`: offline row → $0 + deliberateFree; Stripe row → cancels at period end + a $0 comp row from that
+  day). Roster menu *Assign membership* → `/dashboard/members/[id]?assign=1` opens the dialog. Panel's *Change plan* on a
+  Stripe row → `billing?changePlan=<subId>` opens B12's dialog; *Record payment* → `billing?enrol=1`.
+  Slice 1 honesty: **Pause/Resume** still only set the roster label (the dialog says card billing continues); **Change
+  dates** and offline **Change plan** open the old edit modal. Slice 2 = migration (`pausedAt/pausedUntil/cancelReason`) +
+  Stripe pause_collection + Change dates; slice 3 = Change plan for offline rows + cross-cycle Stripe switch; slice 4 =
+  billing centre → Advanced billing. Decision 2026-09-24: MS/HS Monthly option stays auto-renew OFF (Julian).
 
 - [ ] **B14 · "Renewing this week" queue + "Paused" card** · BUILT 2026-09-23, on disk — needs branch/build/push
   lib/membersQuery: `renewingSoon` (active row whose currentPeriodEnd / paidThroughDate / endDate lands within

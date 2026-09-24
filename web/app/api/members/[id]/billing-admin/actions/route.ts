@@ -42,6 +42,10 @@ const schema = z.object({
     "activate_card",
     "sync_stripe",
     "change_stripe_plan",
+    // B13 slice 1
+    "cancel_at_period_end",
+    "keep_membership",
+    "comp_membership",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -59,6 +63,8 @@ const schema = z.object({
   // change_stripe_plan (subscriptionId above): the option to move to, and an
   // optional auto-renew override (null = the option's own default).
   optionId: z.string().optional(),
+  // cancel_at_period_end: the reason chip, optional (Reports' churn breakdown).
+  cancelReason: z.string().max(60).optional().nullable(),
 });
 
 // GET ?subscriptionId=…&direction=on|off — the exact sentence the confirm
@@ -342,6 +348,149 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
     if (!res.ok) return NextResponse.json({ error: res.error, code: res.code }, { status: res.status });
     return NextResponse.json({ ok: true, message: res.message, preview: res.preview });
+  }
+
+  // cancel_at_period_end — B13. The cancel the panel offers by default: the
+  // athlete keeps access to the end of what is paid, then nothing renews.
+  // Stripe rows: cancel_at_period_end on the live subscription (the DELETE
+  // route cancels immediately — that stays the "right now" path). Offline
+  // rows: the end date becomes the paid-through date and the expiry sweep
+  // does the rest. Recorded as CANCELED dated the effective day, so Reports
+  // count the churn in the month it happens, not the month it was decided.
+  if (data.action === "cancel_at_period_end" || data.action === "keep_membership") {
+    if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
+    const row = await prisma.memberSubscription.findFirst({
+      where: { id: data.subscriptionId, memberId: member.id, status: { in: ["active", "past_due"] } },
+    });
+    if (!row) return NextResponse.json({ error: "No live membership to change." }, { status: 404 });
+    const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { stripeAccountId: true } });
+    const keep = data.action === "keep_membership";
+
+    let effective: Date | null = null;
+    if (row.stripeSubscriptionId) {
+      if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
+      try {
+        const live = await stripe.subscriptions.retrieve(row.stripeSubscriptionId, {}, { stripeAccount: club.stripeAccountId });
+        if (!["active", "trialing", "past_due", "unpaid"].includes(live.status)) {
+          return NextResponse.json({ error: `Stripe shows this subscription as ${live.status} — nothing live to ${keep ? "keep" : "cancel"}. Run a sync.`, code: "NOT_LIVE" }, { status: 409 });
+        }
+        effective = new Date(((live.status === "trialing" && live.trial_end) || live.current_period_end) * 1000);
+        await stripe.subscriptions.update(
+          row.stripeSubscriptionId,
+          keep ? { cancel_at_period_end: false, cancel_at: "" } : { cancel_at_period_end: true, metadata: { ...(live.metadata ?? {}), cancelReason: data.cancelReason ?? "" } },
+          { stripeAccount: club.stripeAccountId },
+        );
+      } catch (e) {
+        return NextResponse.json({ error: `Stripe rejected the change — nothing was saved: ${String(e)}` }, { status: 502 });
+      }
+    } else {
+      effective = row.paidThroughDate ?? row.endDate ?? new Date();
+      if (effective.getTime() < Date.now()) effective = new Date();
+    }
+
+    await prisma.memberSubscription.update({
+      where: { id: row.id },
+      data: keep
+        ? { endDate: null, autoRenew: true, notes: `${row.notes ? row.notes + " " : ""}[Cancel undone ${new Date().toISOString().slice(0, 10)}]` }
+        : { endDate: effective, autoRenew: false, notes: `${row.notes ? row.notes + " " : ""}[Cancels ${effective!.toISOString().slice(0, 10)}${data.cancelReason ? ` — ${data.cancelReason}` : ""}]` },
+    });
+    await recordSubscriptionEvent({
+      clubId: session.user.clubId, memberSubscriptionId: row.id, memberId: member.id,
+      kind: keep ? SUBSCRIPTION_EVENT_KIND.REACTIVATED : SUBSCRIPTION_EVENT_KIND.CANCELED,
+      at: keep ? new Date() : effective!,
+      fromPlan: row.optionLabel, fromAmount: String(row.price),
+      actorUserId: session.user.id, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+      detail: { route: `billing-admin/actions ${data.action}`, effectiveAt: effective!.toISOString(), reason: data.cancelReason ?? null, stripe: !!row.stripeSubscriptionId },
+    });
+    const eff = effective!.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    await writeBillingAudit({
+      clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id,
+      action: keep ? "MEMBERSHIP_CANCEL_UNDONE" : "MEMBERSHIP_CANCEL_SCHEDULED",
+      before: { endDate: row.endDate, autoRenew: row.autoRenew },
+      after: { endDate: keep ? null : effective, autoRenew: keep, reason: data.cancelReason ?? null },
+      note: keep
+        ? `"${row.optionLabel}" keeps renewing — the scheduled cancel was removed${row.stripeSubscriptionId ? " (Stripe cancel_at_period_end cleared)" : ""}.`
+        : `"${row.optionLabel}" cancels on ${eff}${row.stripeSubscriptionId ? " — Stripe cancels at the period end, no further charges" : " — billed offline"}${data.cancelReason ? ` · ${data.cancelReason}` : ""}.`,
+    });
+    return NextResponse.json({
+      ok: true, effectiveAt: effective,
+      message: keep ? `${member.firstName}'s membership keeps renewing.` : `${member.firstName} keeps access until ${eff}; nothing renews after that.`,
+    });
+  }
+
+  // comp_membership — B13. "Make it free" in one step. Offline rows: the same
+  // row goes to $0, marked as a comp on purpose. Stripe rows: the card billing
+  // ends at the period end (nothing refunded, nothing charged again) and a $0
+  // comp row starts that day, so the athlete is never without a membership
+  // and the paid period is never double-counted.
+  if (data.action === "comp_membership") {
+    if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
+    const row = await prisma.memberSubscription.findFirst({
+      where: { id: data.subscriptionId, memberId: member.id, status: { in: ["active", "past_due"] } },
+    });
+    if (!row) return NextResponse.json({ error: "No live membership to comp." }, { status: 404 });
+    if (Number(row.price) <= 0 && row.deliberateFree) return NextResponse.json({ ok: true, unchanged: true, message: "Already a comp." });
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    if (row.stripeSubscriptionId) {
+      const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { stripeAccountId: true } });
+      if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
+      let periodEnd: Date;
+      try {
+        const live = await stripe.subscriptions.retrieve(row.stripeSubscriptionId, {}, { stripeAccount: club.stripeAccountId });
+        if (!["active", "trialing", "past_due", "unpaid"].includes(live.status)) {
+          return NextResponse.json({ error: `Stripe shows this subscription as ${live.status}. Run a sync, then comp the row it leaves behind.`, code: "NOT_LIVE" }, { status: 409 });
+        }
+        periodEnd = new Date(((live.status === "trialing" && live.trial_end) || live.current_period_end) * 1000);
+        await stripe.subscriptions.update(row.stripeSubscriptionId, { cancel_at_period_end: true, metadata: { ...(live.metadata ?? {}), compedAt: stamp } }, { stripeAccount: club.stripeAccountId });
+      } catch (e) {
+        return NextResponse.json({ error: `Stripe rejected the change — nothing was saved: ${String(e)}` }, { status: 502 });
+      }
+      await prisma.memberSubscription.update({
+        where: { id: row.id },
+        data: { endDate: periodEnd, autoRenew: false, notes: `${row.notes ? row.notes + " " : ""}[Comped ${stamp} — card billing ends ${periodEnd.toISOString().slice(0, 10)}]` },
+      });
+      const compRow = await prisma.memberSubscription.create({
+        data: {
+          memberId: member.id, membershipId: row.membershipId, optionId: row.optionId, optionLabel: row.optionLabel,
+          price: 0, billingPeriod: row.billingPeriod, billingType: "MANUAL", autoRenew: true, status: "active",
+          startDate: periodEnd, deliberateFree: true,
+          notes: `Comp from ${periodEnd.toISOString().slice(0, 10)} (card billing ended) — ${stamp}${data.reason ? `: ${data.reason}` : ""}.`,
+        },
+      });
+      await recordSubscriptionCreated(compRow, { clubId: session.user.clubId, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION, actorUserId: session.user.id, detail: { route: "billing-admin/actions comp_membership", replaces: row.id } });
+      await recordSubscriptionEvent({
+        clubId: session.user.clubId, memberSubscriptionId: row.id, memberId: member.id,
+        kind: SUBSCRIPTION_EVENT_KIND.PRICE_CHANGE, fromPlan: row.optionLabel, toPlan: row.optionLabel, fromAmount: String(row.price), toAmount: "0",
+        actorUserId: session.user.id, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+        detail: { route: "billing-admin/actions comp_membership", cardBillingEndsAt: periodEnd.toISOString(), compRowId: compRow.id },
+      });
+      const eff = periodEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+      await writeBillingAudit({
+        clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id, action: "MEMBERSHIP_COMPED",
+        before: { subscriptionId: row.id, price: Number(row.price) }, after: { cardBillingEndsAt: periodEnd, compRowId: compRow.id, reason: data.reason ?? null },
+        note: `"${row.optionLabel}" comped — Stripe cancels at the period end (${eff}); a $0 comp membership starts that day.`,
+      });
+      await recomputeMemberStatus(member.id, session.user.clubId);
+      return NextResponse.json({ ok: true, message: `${member.firstName}'s card billing ends ${eff}; the membership continues free from that day.` });
+    }
+
+    await prisma.memberSubscription.update({
+      where: { id: row.id },
+      data: { price: 0, deliberateFree: true, notes: `${row.notes ? row.notes + " " : ""}[Comped ${stamp}${data.reason ? ` — ${data.reason}` : ""}]` },
+    });
+    await recordSubscriptionEvent({
+      clubId: session.user.clubId, memberSubscriptionId: row.id, memberId: member.id,
+      kind: SUBSCRIPTION_EVENT_KIND.PRICE_CHANGE, fromPlan: row.optionLabel, toPlan: row.optionLabel, fromAmount: String(row.price), toAmount: "0",
+      actorUserId: session.user.id, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION, detail: { route: "billing-admin/actions comp_membership" },
+    });
+    await writeBillingAudit({
+      clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id, action: "MEMBERSHIP_COMPED",
+      before: { subscriptionId: row.id, price: Number(row.price), deliberateFree: row.deliberateFree }, after: { price: 0, deliberateFree: true, reason: data.reason ?? null },
+      note: `"${row.optionLabel}" comped — $${Number(row.price).toFixed(2)} → $0, marked as a comp on purpose.`,
+    });
+    await recomputeMemberStatus(member.id, session.user.clubId);
+    return NextResponse.json({ ok: true, message: `${member.firstName}'s membership is now free — comped on purpose.` });
   }
 
   if (data.action === "cancel_pending_activation") {

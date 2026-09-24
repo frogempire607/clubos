@@ -232,6 +232,11 @@ export default function MemberBillingPage() {
       .catch(() => setLoading(false));
   }, [id]);
   useEffect(() => { load(); }, [load]);
+  // B13 — the Membership panel's "Change plan" lands here with the row to change.
+  useEffect(() => {
+    const cp = search.get("changePlan");
+    if (cp && data?.subscriptions.some((s) => s.id === cp && s.hasStripe)) setPlanChangeSubId(cp);
+  }, [search, data]);
 
   useEffect(() => {
     if (search.get("card_saved")) {
