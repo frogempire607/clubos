@@ -1,0 +1,271 @@
+// B12 — change a LIVE Stripe membership from inside AthletixOS.
+//
+// Julian could not do this from Stripe: an Express connected account has no
+// Customers tab, so the only route to "put Orson on 12 months at $150" was a
+// hand-edit the local record never heard about. This is the in-app route:
+//
+//   preview  → what changes, when, and what it commits the member to
+//   commit   → ONE Stripe call (subscriptions.update, no proration: the new
+//              price starts on the next invoice), then the local mirror,
+//              the commitment floor, an event and an audit line
+//
+// Rules the code enforces, not the owner's memory:
+//   - same billing interval only. Monthly → quarterly needs a new
+//     subscription (cancel this one at period end, activate the new setup);
+//     Stripe would otherwise reset the billing cycle and prorate.
+//   - never touches money already billed: proration_behavior "none".
+//   - the commitment counts from the day the new price starts.
+
+import type Stripe from "stripe";
+import { prisma } from "@/lib/prisma";
+import { stripe } from "@/lib/stripe";
+import { billingPeriodToStripeInterval } from "@/lib/stripe";
+import { ensureMembershipProduct } from "@/lib/stripeCatalog";
+import { parseOptions, resolveTerms, type MembershipOption } from "@/lib/membershipOptions";
+import { addUTCMonths, addBillingPeriod } from "@/lib/billingAdmin";
+import { planChangeTerms, sameStripeInterval, unitAmountFor, baseFromUnitAmount } from "@/lib/stripePlanChange";
+import { feeBreakdown } from "@/lib/fees";
+import { writeBillingAudit } from "@/lib/billingAudit";
+import { recordSubscriptionEvent, SUBSCRIPTION_EVENT_KIND, SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
+import { recomputeMemberStatus } from "@/lib/memberStatus";
+
+const LIVE = new Set(["active", "trialing", "past_due", "unpaid"]);
+
+export type PlanChangeError = { ok: false; code: string; error: string; status: number };
+
+export type PlanChangePreview = {
+  ok: true;
+  subscription: { id: string; stripeSubscriptionId: string; stripeStatus: string };
+  current: {
+    planName: string | null; optionLabel: string; price: number; billingPeriod: string | null;
+    /** What Stripe actually charges today (fee-inclusive), for the "before" line. */
+    chargedTotal: number; feeFolded: boolean;
+    cancelAt: Date | null; minimumTermEndsAt: Date | null; autoRenew: boolean;
+  };
+  target: {
+    planId: string; planName: string; optionId: string; optionLabel: string; price: number; billingPeriod: string;
+    fee: number; total: number; contractMonths: number | null;
+  };
+  /** The date the new price first bills — the current period end (trial end while trialing). */
+  effectiveAt: Date;
+  autoRenew: boolean;
+  minimumTermEndsAt: Date | null;
+  cancelAt: Date | null;
+  /** True when the club price is unchanged and only terms move. */
+  sameAmount: boolean;
+  /** Plain sentences for the confirm dialog. */
+  lines: string[];
+};
+
+type Ctx = {
+  club: { id: string; name: string; stripeAccountId: string; stripeChargesEnabled: boolean; passProcessingFees: boolean };
+  row: {
+    id: string; memberId: string; membershipId: string | null; optionId: string | null; optionLabel: string;
+    price: unknown; billingPeriod: string | null; autoRenew: boolean; minimumTermEndsAt: Date | null; endDate: Date | null;
+    stripeSubscriptionId: string | null; status: string;
+  };
+  plan: { id: string; name: string; options: unknown; contractMonths: number | null; autoRenewDefault: boolean; description: string | null; clubId: string; stripeProductId: string | null; stripePriceIds: unknown };
+  option: MembershipOption;
+  sub: Stripe.Subscription;
+};
+
+async function loadContext(input: { clubId: string; memberId: string; subscriptionId: string; optionId: string }): Promise<Ctx | PlanChangeError> {
+  const club = await prisma.club.findUnique({
+    where: { id: input.clubId },
+    select: { id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true },
+  });
+  if (!club?.stripeAccountId || !club.stripeChargesEnabled) {
+    return { ok: false, code: "STRIPE_NOT_CONNECTED", error: "Online payments aren't connected for this club.", status: 409 };
+  }
+  const stripeAccountId: string = club.stripeAccountId;
+  const row = await prisma.memberSubscription.findFirst({
+    where: { id: input.subscriptionId, memberId: input.memberId, member: { clubId: club.id, deletedAt: null } },
+    select: {
+      id: true, memberId: true, membershipId: true, optionId: true, optionLabel: true, price: true, billingPeriod: true,
+      autoRenew: true, minimumTermEndsAt: true, endDate: true, stripeSubscriptionId: true, status: true,
+    },
+  });
+  if (!row) return { ok: false, code: "NOT_FOUND", error: "Subscription not found.", status: 404 };
+  if (!row.stripeSubscriptionId) {
+    return { ok: false, code: "NOT_STRIPE", error: "This membership isn't billed through Stripe — change it with Edit on the profile instead.", status: 409 };
+  }
+  // Option ids are minted once and never reused, so the id alone says which
+  // plan it belongs to — the target may be a different plan than the row's.
+  const plans = await prisma.membership.findMany({
+    where: { clubId: club.id, deletedAt: null },
+    select: { id: true, name: true, options: true, contractMonths: true, autoRenewDefault: true, description: true, clubId: true, stripeProductId: true, stripePriceIds: true },
+  });
+  const plan = plans.find((p) => parseOptions(p.options).some((o) => o.id === input.optionId)) ?? null;
+  if (!plan) return { ok: false, code: "OPTION_NOT_FOUND", error: "That option no longer exists on any plan.", status: 409 };
+  const option = parseOptions(plan.options).find((o) => o.id === input.optionId)!;
+  if (option.billingPeriod === "ONE_TIME" || option.price <= 0) {
+    return { ok: false, code: "OPTION_NOT_RECURRING", error: "Only a recurring, priced option can go on a Stripe subscription.", status: 409 };
+  }
+  if (!sameStripeInterval(option.billingPeriod, row.billingPeriod)) {
+    return {
+      ok: false, code: "INTERVAL_CHANGE",
+      error: `"${option.label}" bills ${option.billingPeriod.toLowerCase().replace("_", "-")} and this subscription bills ${String(row.billingPeriod ?? "").toLowerCase().replace("_", "-")}. Stripe can't switch the billing cycle in place without resetting and prorating it — turn auto-renew off so this one ends at its period end, then activate the new setup from the billing centre.`,
+      status: 409,
+    };
+  }
+  let sub: Stripe.Subscription;
+  try {
+    sub = await stripe.subscriptions.retrieve(row.stripeSubscriptionId, { expand: ["items.data.price"] }, { stripeAccount: stripeAccountId });
+  } catch (e) {
+    return { ok: false, code: "STRIPE_UNREACHABLE", error: `Stripe couldn't be read: ${String(e)}`, status: 502 };
+  }
+  if (!LIVE.has(sub.status)) {
+    return { ok: false, code: "NOT_LIVE", error: `Stripe shows this subscription as ${sub.status} — there's nothing live to change.`, status: 409 };
+  }
+  if ((sub.items?.data?.length ?? 0) !== 1) {
+    return { ok: false, code: "MULTI_ITEM", error: "This subscription has more than one line item in Stripe, which the in-app change doesn't handle.", status: 409 };
+  }
+  return { club: { ...club, stripeAccountId }, row, plan, option, sub };
+}
+
+const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
+function buildPreview(ctx: Ctx, autoRenewOverride: boolean | null): PlanChangePreview {
+  const { club, row, plan, option, sub } = ctx;
+  const item = sub.items.data[0];
+  const unit = item.price?.unit_amount ?? null;
+  const inv = unit != null ? baseFromUnitAmount(unit, club.passProcessingFees) : { baseCents: Math.round(Number(row.price) * 100), feeFolded: false };
+  // While trialing the first invoice is at trial end; otherwise the period end.
+  const effectiveAt = new Date(((sub.status === "trialing" && sub.trial_end) || sub.current_period_end) * 1000);
+  const terms = planChangeTerms({ effectiveAt, option, plan, autoRenew: autoRenewOverride, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
+  const fb = feeBreakdown(option.price, club.passProcessingFees);
+  const sameAmount = inv.baseCents === Math.round(option.price * 100);
+  const lines: string[] = [];
+  lines.push(
+    sameAmount
+      ? `The charge stays $${fb.total.toFixed(2)}${club.passProcessingFees ? ` ($${option.price.toFixed(2)} + $${fb.fee.toFixed(2)} processing fee)` : ""}.`
+      : `From ${fmt(effectiveAt)} the card is charged $${fb.total.toFixed(2)}${club.passProcessingFees ? ` ($${option.price.toFixed(2)} + $${fb.fee.toFixed(2)} processing fee)` : ""} instead of $${(unit != null ? unit / 100 : Number(row.price)).toFixed(2)}.`,
+  );
+  lines.push("Nothing is charged or refunded today — money already billed stays as it is.");
+  if (terms.minimumTermEndsAt) lines.push(`${terms.contractMonths}-month commitment from ${fmt(effectiveAt)} to ${fmt(terms.minimumTermEndsAt)}.`);
+  lines.push(terms.cancelAt ? `Billing ends automatically on ${fmt(terms.cancelAt)} — no renewal after that.` : "Keeps renewing until you cancel it.");
+  return {
+    ok: true,
+    subscription: { id: row.id, stripeSubscriptionId: sub.id, stripeStatus: sub.status },
+    current: {
+      planName: null, optionLabel: row.optionLabel, price: inv.baseCents / 100, billingPeriod: row.billingPeriod,
+      chargedTotal: unit != null ? unit / 100 : Number(row.price), feeFolded: inv.feeFolded,
+      cancelAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null, minimumTermEndsAt: row.minimumTermEndsAt, autoRenew: row.autoRenew,
+    },
+    target: {
+      planId: plan.id, planName: plan.name, optionId: option.id!, optionLabel: option.label, price: option.price, billingPeriod: option.billingPeriod,
+      fee: fb.fee, total: fb.total, contractMonths: resolveTerms(option, plan).contractMonths,
+    },
+    effectiveAt,
+    autoRenew: terms.autoRenew,
+    minimumTermEndsAt: terms.minimumTermEndsAt,
+    cancelAt: terms.cancelAt,
+    sameAmount,
+    lines,
+  };
+}
+
+export type PlanChangeInput = { clubId: string; memberId: string; subscriptionId: string; optionId: string; autoRenew: boolean | null };
+
+export async function previewPlanChange(input: PlanChangeInput): Promise<PlanChangePreview | PlanChangeError> {
+  const ctx = await loadContext(input);
+  if ("ok" in ctx) return ctx;
+  return buildPreview(ctx, input.autoRenew);
+}
+
+export type PlanChangeResult =
+  | { ok: true; preview: PlanChangePreview; message: string }
+  | PlanChangeError;
+
+export async function commitPlanChange(input: PlanChangeInput & { actorUserId: string }): Promise<PlanChangeResult> {
+  const ctx = await loadContext(input);
+  if ("ok" in ctx) return ctx;
+  const { club, row, plan, option, sub } = ctx;
+  const preview = buildPreview(ctx, input.autoRenew);
+  const item = sub.items.data[0];
+
+  // Same product as activations use, so every member on a plan shares one
+  // Stripe Product; a cross-plan change moves to the new plan's product.
+  let productId = await ensureMembershipProduct(
+    { id: plan.id, clubId: plan.clubId, name: plan.name, description: plan.description, stripeProductId: plan.stripeProductId, stripePriceIds: plan.stripePriceIds },
+    { id: club.id, stripeAccountId: club.stripeAccountId, stripeChargesEnabled: true },
+  );
+  if (!productId) {
+    const existing = item.price?.product;
+    productId = typeof existing === "string" ? existing : (existing as { id?: string } | null)?.id ?? null;
+  }
+  if (!productId) return { ok: false, code: "NO_PRODUCT", error: "Couldn't resolve a Stripe product for this plan.", status: 502 };
+
+  const unitAmount = unitAmountFor(option.price, club.passProcessingFees);
+  const interval = billingPeriodToStripeInterval(option.billingPeriod);
+  if (!interval) return { ok: false, code: "OPTION_NOT_RECURRING", error: "That option isn't a recurring billing period.", status: 409 };
+  const cancelAtUnix = preview.cancelAt ? Math.floor(preview.cancelAt.getTime() / 1000) : null;
+
+  let updated: Stripe.Subscription;
+  try {
+    updated = await stripe.subscriptions.update(
+      sub.id,
+      {
+        items: [{ id: item.id, price_data: { currency: "usd", product: productId, unit_amount: unitAmount, recurring: interval } }],
+        // The new price starts on the next invoice. Nothing mid-cycle.
+        proration_behavior: "none",
+        // Explicit either way: a member moving OFF a fixed term must stop
+        // being cut off on the old date.
+        cancel_at: cancelAtUnix ?? "",
+        cancel_at_period_end: false,
+        metadata: { ...(sub.metadata ?? {}), memberSubscriptionId: row.id, memberId: row.memberId, optionId: option.id ?? "", planChangedAt: new Date().toISOString() },
+      },
+      { stripeAccount: club.stripeAccountId, idempotencyKey: `aox-plan-change-${row.id}-${option.id}-${unitAmount}-${cancelAtUnix ?? 0}-${sub.current_period_end}` },
+    );
+  } catch (e) {
+    return { ok: false, code: "STRIPE_FAILED", error: `Stripe rejected the change — nothing was saved: ${String(e)}`, status: 502 };
+  }
+
+  const before = { optionId: row.optionId, optionLabel: row.optionLabel, price: Number(row.price), autoRenew: row.autoRenew, minimumTermEndsAt: row.minimumTermEndsAt, endDate: row.endDate, membershipId: row.membershipId };
+  await prisma.memberSubscription.update({
+    where: { id: row.id },
+    data: {
+      membershipId: plan.id,
+      optionId: option.id,
+      optionLabel: option.label,
+      price: option.price,
+      billingPeriod: option.billingPeriod,
+      autoRenew: preview.autoRenew,
+      minimumTermEndsAt: preview.minimumTermEndsAt,
+      endDate: preview.cancelAt,
+      stripeStatus: updated.status,
+      stripePriceId: updated.items?.data?.[0]?.price?.id ?? null,
+      stripeProductId: productId,
+      currentPeriodEnd: updated.current_period_end ? new Date(updated.current_period_end * 1000) : null,
+      notes: `${row.optionLabel} → ${option.label} on ${new Date().toISOString().slice(0, 10)} (billing centre); new price from ${preview.effectiveAt.toISOString().slice(0, 10)}.`,
+    },
+  });
+  if (row.membershipId !== plan.id) {
+    await prisma.member.updateMany({ where: { id: row.memberId, clubId: club.id }, data: { membershipId: plan.id } });
+  }
+  await prisma.member.updateMany({ where: { id: row.memberId, clubId: club.id }, data: { billingUpdatedAt: new Date(), billingUpdatedById: input.actorUserId } });
+  await recomputeMemberStatus(row.memberId, club.id);
+  await recordSubscriptionEvent({
+    clubId: club.id, memberSubscriptionId: row.id, memberId: row.memberId,
+    kind: preview.sameAmount && row.optionId === option.id ? SUBSCRIPTION_EVENT_KIND.PRICE_CHANGE : SUBSCRIPTION_EVENT_KIND.PLAN_CHANGED,
+    fromPlan: row.optionLabel, toPlan: option.label, fromAmount: String(before.price), toAmount: String(option.price),
+    actorUserId: input.actorUserId, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
+    detail: { route: "billing-admin/actions change_stripe_plan", effectiveAt: preview.effectiveAt.toISOString(), cancelAt: preview.cancelAt?.toISOString() ?? null, unitAmount },
+  });
+  await writeBillingAudit({
+    clubId: club.id, memberId: row.memberId, actorUserId: input.actorUserId,
+    action: "STRIPE_PLAN_CHANGED",
+    before,
+    after: {
+      optionId: option.id, optionLabel: option.label, price: option.price, unitAmount, autoRenew: preview.autoRenew,
+      minimumTermEndsAt: preview.minimumTermEndsAt?.toISOString() ?? null, endDate: preview.cancelAt?.toISOString() ?? null,
+      effectiveAt: preview.effectiveAt.toISOString(), stripeSubscriptionId: sub.id, membershipId: plan.id,
+    },
+    note: `"${row.optionLabel}" $${before.price.toFixed(2)} → "${option.label}" $${option.price.toFixed(2)} from ${fmt(preview.effectiveAt)}${preview.minimumTermEndsAt ? `, committed to ${fmt(preview.minimumTermEndsAt)}` : ""}${preview.cancelAt ? `, ends ${fmt(preview.cancelAt)}` : ", renews"}.`,
+  });
+  return {
+    ok: true,
+    preview,
+    message: `Now on "${option.label}" — $${preview.target.total.toFixed(2)} from ${fmt(preview.effectiveAt)}${preview.cancelAt ? `, ends ${fmt(preview.cancelAt)}` : ""}.`,
+  };
+}

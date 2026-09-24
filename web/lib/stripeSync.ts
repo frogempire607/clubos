@@ -2,6 +2,10 @@ import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { parseOptions } from "@/lib/membershipOptions";
+import { mirrorFromStripePrice, type MirrorResult } from "@/lib/stripePlanChange";
+import { writeBillingAudit } from "@/lib/billingAudit";
+import { recordSubscriptionEvent, SUBSCRIPTION_EVENT_KIND, SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
 
 /**
  * Stripe → AthletixOS reconciliation (Phase B of the payments loop).
@@ -15,6 +19,11 @@ import { recomputeMemberStatus } from "@/lib/memberStatus";
  *     stored stripeSubscriptionId), it caches the live facts — status, next
  *     billing date, price/product, card brand+last4, last invoice — onto the
  *     member's MemberSubscription so the owner/member sees the real state.
+ *     Since B12 that includes the PRICE and the OPTION: the Stripe unit amount
+ *     (fee-stripped when the club passes fees) becomes `price`, the interval
+ *     becomes `billingPeriod`, and the unique plan option at that price+period
+ *     becomes `optionId`/`optionLabel`. Orson Chorba's hand-edit in Stripe
+ *     (2026-09-22) left the row at $175 for two days because this didn't.
  *   - For a subscription it CAN'T confidently link (exists in Stripe but no
  *     local subscription row), it writes a review row to `stripe_reconciliations`
  *     with a best-guess member match. The owner confirms; we never auto-create
@@ -155,7 +164,7 @@ export async function reconcileClubBilling(clubId: string): Promise<ReconcileSum
       for (const sub of res.data) {
         summary.scanned++;
         const snap = buildSnapshot(sub);
-        const handled = await applySubscription(clubId, sub, snap);
+        const { handled } = await applySubscription(clubId, sub, snap);
         if (handled === "linked") summary.linkedUpdated++;
         else if (handled === "flagged") summary.flagged++;
       }
@@ -175,30 +184,88 @@ export async function reconcileClubBilling(clubId: string): Promise<ReconcileSum
   }
 }
 
+const LINKED_SELECT = {
+  id: true, memberId: true, membershipId: true, stripePriceId: true,
+  optionId: true, optionLabel: true, price: true, billingPeriod: true,
+} as const;
+type LinkedRow = {
+  id: string; memberId: string; membershipId: string | null; stripePriceId: string | null;
+  optionId: string | null; optionLabel: string; price: unknown; billingPeriod: string | null;
+};
+
+// The row's price/option as Stripe would have it. Null when there is nothing
+// to compare against (no plan on the row, or Stripe carries no price).
+async function mirrorPriceForRow(clubId: string, row: LinkedRow, snap: SubSnapshot): Promise<MirrorResult | null> {
+  if (snap.amountCents == null) return null;
+  const [club, plan] = await Promise.all([
+    prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true } }),
+    row.membershipId
+      ? prisma.membership.findFirst({ where: { id: row.membershipId, clubId }, select: { options: true } })
+      : Promise.resolve(null),
+  ]);
+  return mirrorFromStripePrice({
+    unitCents: snap.amountCents,
+    interval: snap.interval,
+    intervalCount: (snap.snapshot.intervalCount as number | null) ?? null,
+    passProcessingFees: !!club?.passProcessingFees,
+    options: plan ? parseOptions(plan.options) : [],
+    current: { optionId: row.optionId, optionLabel: row.optionLabel, price: Number(row.price), billingPeriod: row.billingPeriod },
+  });
+}
+
+export type SyncOneResult =
+  | { ok: true; handled: "linked" | "flagged" | "skipped"; stripeStatus: string; currentPeriodEnd: Date | null; mirror: MirrorResult | null }
+  | { ok: false; error: string };
+
+/**
+ * B12 — "Sync from Stripe" for ONE subscription, from the billing centre.
+ * Same code path as the nightly reconcile (applySubscription), so a button
+ * press and the cron can never disagree; reports what moved.
+ */
+export async function syncOneSubscription(clubId: string, stripeSubscriptionId: string): Promise<SyncOneResult> {
+  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { stripeAccountId: true } });
+  if (!club?.stripeAccountId) return { ok: false, error: "This club hasn't connected Stripe yet." };
+  let sub: Stripe.Subscription;
+  try {
+    sub = await stripe.subscriptions.retrieve(
+      stripeSubscriptionId,
+      { expand: ["default_payment_method", "latest_invoice", "items.data.price", "customer"] },
+      { stripeAccount: club.stripeAccountId },
+    );
+  } catch (e) {
+    return { ok: false, error: `Stripe couldn't be read: ${String(e)}` };
+  }
+  const snap = buildSnapshot(sub);
+  const { handled, mirror } = await applySubscription(clubId, sub, snap);
+  return { ok: true, handled, stripeStatus: snap.stripeStatus, currentPeriodEnd: snap.currentPeriodEnd, mirror };
+}
+
 // Returns "linked" if we updated a matched member subscription, "flagged" if we
-// queued it for owner review, "skipped" otherwise.
+// queued it for owner review, "skipped" otherwise — plus what the price mirror
+// changed on a linked row (null when nothing moved).
 async function applySubscription(
   clubId: string,
   sub: Stripe.Subscription,
   snap: SubSnapshot,
-): Promise<"linked" | "flagged" | "skipped"> {
+): Promise<{ handled: "linked" | "flagged" | "skipped"; mirror: MirrorResult | null }> {
   // 1) Confident match: our own metadata points at a MemberSubscription row, or
   //    the subscription id is already stored locally.
   const metaSubId = asStr(sub.metadata?.memberSubscriptionId);
-  let memberSub =
+  const memberSub =
     (metaSubId
       ? await prisma.memberSubscription.findFirst({
           where: { id: metaSubId, member: { clubId } },
-          select: { id: true, memberId: true, stripePriceId: true },
+          select: LINKED_SELECT,
         })
       : null) ??
     (await prisma.memberSubscription.findFirst({
       where: { stripeSubscriptionId: sub.id, member: { clubId } },
-      select: { id: true, memberId: true, stripePriceId: true },
+      select: LINKED_SELECT,
     }));
 
   if (memberSub) {
     const local = localStatusFor(snap.stripeStatus);
+    const mirror = await mirrorPriceForRow(clubId, memberSub, snap);
     await prisma.memberSubscription.update({
       where: { id: memberSub.id },
       data: {
@@ -209,8 +276,33 @@ async function applySubscription(
         ...(snap.priceId ? { stripePriceId: snap.priceId } : {}),
         ...(snap.productId ? { stripeProductId: snap.productId } : {}),
         ...(local ? { status: local } : {}),
+        ...(mirror && mirror.changed.length
+          ? {
+              price: mirror.price,
+              billingPeriod: mirror.billingPeriod,
+              optionId: mirror.optionId,
+              optionLabel: mirror.optionLabel,
+            }
+          : {}),
       },
     });
+    if (mirror && mirror.changed.length) {
+      await recordSubscriptionEvent({
+        clubId, memberSubscriptionId: memberSub.id, memberId: memberSub.memberId,
+        kind: mirror.changed.includes("option") ? SUBSCRIPTION_EVENT_KIND.PLAN_CHANGED : SUBSCRIPTION_EVENT_KIND.PRICE_CHANGE,
+        fromPlan: memberSub.optionLabel, toPlan: mirror.optionLabel,
+        fromAmount: String(memberSub.price), toAmount: String(mirror.price),
+        source: SUBSCRIPTION_EVENT_SOURCE.SYSTEM,
+        detail: { route: "stripeSync mirror", stripeSubscriptionId: sub.id, unitAmount: snap.amountCents, feeFolded: mirror.feeFolded, resolution: mirror.resolution },
+      });
+      await writeBillingAudit({
+        clubId, memberId: memberSub.memberId, actorUserId: null,
+        action: "STRIPE_SYNC_MIRRORED",
+        before: { price: Number(memberSub.price), billingPeriod: memberSub.billingPeriod, optionId: memberSub.optionId, optionLabel: memberSub.optionLabel },
+        after: { price: mirror.price, billingPeriod: mirror.billingPeriod, optionId: mirror.optionId, optionLabel: mirror.optionLabel, unitAmount: snap.amountCents, feeFolded: mirror.feeFolded },
+        note: `Stripe shows $${mirror.price.toFixed(2)} ${String(mirror.billingPeriod ?? "").toLowerCase()} — row updated from "${memberSub.optionLabel}" $${Number(memberSub.price).toFixed(2)} (${mirror.changed.join(", ")}).`,
+      });
+    }
     // Keep the member's own stored customer id populated for the billing portal.
     if (snap.stripeCustomerId) {
       await prisma.member.updateMany({
@@ -224,7 +316,7 @@ async function applySubscription(
       where: { stripeSubscriptionId: sub.id, clubId, status: "OPEN" },
       data: { status: "LINKED", resolvedMemberId: memberSub.memberId, resolvedAt: new Date() },
     });
-    return "linked";
+    return { handled: "linked", mirror: mirror && mirror.changed.length ? mirror : null };
   }
 
   // 2) No local subscription row → suggest a member match but DO NOT mutate.
@@ -294,7 +386,7 @@ async function applySubscription(
   } else {
     await prisma.stripeReconciliation.create({ data: { ...data, stripeSubscriptionId: sub.id } });
   }
-  return "flagged";
+  return { handled: "flagged", mirror: null };
 }
 
 // ── Charge-level reconciliation (2026-07-15, billing-truth batch) ───────────

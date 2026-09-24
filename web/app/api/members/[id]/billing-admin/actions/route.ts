@@ -23,10 +23,14 @@ import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { syncOneSubscription } from "@/lib/stripeSync";
+import { commitPlanChange } from "@/lib/stripePlanChangeServer";
 
 // Discrete, confirmation-gated billing actions (billing:full). Each action is
-// explicit, audited, and preserves history — nothing here deletes rows or
-// touches a live Stripe subscription.
+// explicit, audited, and preserves history — nothing here deletes rows. The
+// only actions that touch a live Stripe subscription are B12's
+// change_stripe_plan (a price swap at the next invoice, never a charge) and
+// sync_stripe (read-only against Stripe).
 
 const schema = z.object({
   action: z.enum([
@@ -36,6 +40,8 @@ const schema = z.object({
     "set_autopay",
     "set_auto_renew",
     "activate_card",
+    "sync_stripe",
+    "change_stripe_plan",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -50,6 +56,9 @@ const schema = z.object({
   // activate_card: a first charge dated today/past runs NOW. Never silently —
   // the caller acknowledges it explicitly (the UI shows the amount and date).
   confirmImmediateCharge: z.boolean().optional().default(false),
+  // change_stripe_plan (subscriptionId above): the option to move to, and an
+  // optional auto-renew override (null = the option's own default).
+  optionId: z.string().optional(),
 });
 
 // GET ?subscriptionId=…&direction=on|off — the exact sentence the confirm
@@ -292,6 +301,47 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         ? `${member.firstName} is on "${option.label}" — $${price.toFixed(2)} charged to the saved card${activation.endsAt ? `, through ${activation.endsAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}.`
         : `${member.firstName} is on "${option.label}" — first charge $${price.toFixed(2)} on ${activation.firstChargeAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}.`,
     });
+  }
+
+  // sync_stripe — B12. Pull ONE subscription's live facts from Stripe onto its
+  // row: status, next billing date, card, and (new) price + option. Read-only
+  // against Stripe. Same code path as the nightly reconcile.
+  if (data.action === "sync_stripe") {
+    if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
+    const row = await prisma.memberSubscription.findFirst({
+      where: { id: data.subscriptionId, memberId: member.id },
+      select: { id: true, stripeSubscriptionId: true, optionLabel: true, price: true },
+    });
+    if (!row) return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
+    if (!row.stripeSubscriptionId) return NextResponse.json({ error: "This membership isn't billed through Stripe — there is nothing to sync." }, { status: 409 });
+    const res = await syncOneSubscription(session.user.clubId, row.stripeSubscriptionId);
+    if (!res.ok) return NextResponse.json({ error: res.error }, { status: 502 });
+    const moved = res.mirror?.changed ?? [];
+    return NextResponse.json({
+      ok: true,
+      stripeStatus: res.stripeStatus,
+      currentPeriodEnd: res.currentPeriodEnd,
+      changed: moved,
+      mirror: res.mirror,
+      message: moved.length
+        ? `Synced — Stripe charges $${res.mirror!.price.toFixed(2)} ${String(res.mirror!.billingPeriod ?? "").toLowerCase()} ("${res.mirror!.optionLabel}"); the row said "${row.optionLabel}" $${Number(row.price).toFixed(2)}. Updated: ${moved.join(", ")}.${res.mirror!.resolution === "unmatched" ? " No plan option has that price, so the option is left unset." : ""}`
+        : `Synced — Stripe agrees with the row (${res.stripeStatus}${res.currentPeriodEnd ? `, next billing ${res.currentPeriodEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}).`,
+    });
+  }
+
+  // change_stripe_plan — B12. Move a live Stripe subscription to another
+  // option of the same billing interval: price swap at the next invoice (no
+  // proration), commitment recorded, cancel date set or cleared. The dialog
+  // showed the preview from GET …/billing-admin/plan-change; this re-derives
+  // everything from live values so a stale dialog can't commit stale terms.
+  if (data.action === "change_stripe_plan") {
+    if (!data.subscriptionId || !data.optionId) return NextResponse.json({ error: "subscriptionId and optionId are required." }, { status: 400 });
+    const res = await commitPlanChange({
+      clubId: session.user.clubId, memberId: member.id, subscriptionId: data.subscriptionId, optionId: data.optionId,
+      autoRenew: data.autoRenew ?? null, actorUserId: session.user.id,
+    });
+    if (!res.ok) return NextResponse.json({ error: res.error, code: res.code }, { status: res.status });
+    return NextResponse.json({ ok: true, message: res.message, preview: res.preview });
   }
 
   if (data.action === "cancel_pending_activation") {

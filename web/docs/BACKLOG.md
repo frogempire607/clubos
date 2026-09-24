@@ -8,8 +8,8 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-- **Julian, do first:** ship the B15 hotfix (steps in chat), then Luis reopens his link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
-- **Next Claude Code session:** B12 (Orson worked example; sync + plan change inside AthletixOS), then B10 slice 2, B13. B2 = flip the flag after A3.
+- **Julian, do first:** ship B12 (branch `claude/b12-stripe-plan-change`, same loop), then Orson: billing centre → his row → **Sync from Stripe** (row follows the $150), then **Change plan → "12 months"** to record the commitment + end date. Luis's second link; A3 (four minors → flip COPPA); AJ Dorn split; Riley end date; Skylor leave-alone; A8 worksheet; Lawell call.
+- **Next Claude Code session:** B10 slice 2, then B13. B2 = flip the flag after A3.
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
 
 ---
@@ -79,18 +79,28 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   no saved card, unsellable draft option, $0. Supersedes a $0 offline placeholder row. Spelling: enroll.
   Not in B9: Stripe plan changes (B12), collect-later / pending rows, the single panel (B13).
 
-- [ ] **B12 · Change a live Stripe membership (plan change + commitment) from inside AthletixOS** · own item, after B14
-  WORKED EXAMPLE — Orson Chorba: wanted 12-month commitment at $150. On 2026-09-22 Julian changed the price by
-  hand in Stripe (sub_1TsknzEIplcCMoSozcu32ldG). Everything that left open is B12's scope:
-  1. Local record didn't follow: row still says Monthly $175. The webhook skips CONNECT subscription.updated
-     and lib/stripeSync refreshes stripePriceId/status/snapshot but never `price`/`optionLabel`/`optionId`;
-     nothing in the UI even runs that sync. Fix: reconciler mirrors price + option; a "Sync from Stripe" action.
-  2. The commitment isn't recorded anywhere (minimumTermEndsAt null) — Stripe only knows amount + interval.
-  3. Julian could NOT reach the connected account's customers from the platform dashboard (Express has no
-     Customers tab) → B12 must do the whole change from AthletixOS: pick option → preview (what changes, when,
-     proration) → confirm → Stripe update (price swap at period end, or cancel_at_period_end + new sub anchored
-     trial_end = old period end) → local mirror + minimumTermEndsAt + audit.
-  Until then: fix the local price on the profile (Current membership → Edit → Price; local-only PATCH).
+- [x] **B12 · Change a live Stripe membership (plan change + commitment) from inside AthletixOS** · BUILT 2026-09-24, on disk — needs branch/build/push
+  WORKED EXAMPLE — Orson Chorba (sub_1TsknzEIplcCMoSozcu32ldG): Julian set $150 by hand in Stripe on 09-22; the row
+  still says Monthly $175, never synced (stripeSnapshot null). What shipped:
+  1. **Sync mirrors price + option.** lib/stripeSync now writes `price` (Stripe unit_amount with the processing fee
+     stripped back out when the club passes fees — lib/stripePlanChange.baseFromUnitAmount), `billingPeriod` (from
+     the interval), and `optionId`/`optionLabel` (the UNIQUE plan option at that price + period; the row's own option
+     is kept if it still matches; no unique match ⇒ optionId cleared, label kept). PRICE_CHANGE / PLAN_CHANGED event +
+     `STRIPE_SYNC_MIRRORED` audit when something moved. Nightly reconcile and the button share one code path.
+  2. **"Sync from Stripe"** button on every live Stripe-billed row in the billing centre (`sync_stripe` action).
+  3. **"Change plan"** on the same rows → picks any recurring option of the SAME billing interval (other cycles listed
+     disabled with the reason) → preview from live Stripe values (GET …/billing-admin/plan-change: new charge, effective
+     date = current period end / trial end, commitment from that date, end date or "keeps renewing", auto-renew override)
+     → confirm → `change_stripe_plan`: ONE `subscriptions.update` (price_data on the plan's catalog product,
+     `proration_behavior: none`, `cancel_at` set or cleared) → row mirrored (price/option/plan, minimumTermEndsAt,
+     autoRenew, endDate = cancel_at, stripePriceId) → event + `STRIPE_PLAN_CHANGED` audit. Never charges or refunds today.
+     Interval changes are refused with the recipe (auto-renew off → ends at period end → activate the new setup).
+  Also: `billingPeriodToStripeInterval` learned QUADRIMESTRAL (month/4). Tests: scripts/stripe-plan-change-tests.ts (29).
+  For Orson: Sync first (row → $150, option "12 months" since it is the only $150 monthly option), then Change plan →
+  "12 months" to stamp the 12-month commitment and the end date (auto-renew default OFF on that option ⇒ ends 12
+  months after the next invoice; pick "Keeps renewing" if he should roll on). Fee note: if Julian typed 15000 (not
+  15435) into Stripe, the sync reads it as $150 with the fee NOT folded and says so — Change plan re-prices it to
+  $150 + fee. Not in B12: new-subscription flow for interval changes, member-facing email on plan change.
 
 - [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · DESIGN FIRST
   "Too hard to change or cancel" = design problem: actions spread over roster menu, profile card, billing

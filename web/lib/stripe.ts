@@ -49,6 +49,7 @@ export function billingPeriodToStripeInterval(period: string): {
     case "WEEKLY": return { interval: "week", interval_count: 1 };
     case "MONTHLY": return { interval: "month", interval_count: 1 };
     case "QUARTERLY": return { interval: "month", interval_count: 3 };
+    case "QUADRIMESTRAL": return { interval: "month", interval_count: 4 };
     case "SEMI_ANNUAL": return { interval: "month", interval_count: 6 };
     case "ANNUAL": return { interval: "year", interval_count: 1 };
     case "ONE_TIME": return null;
