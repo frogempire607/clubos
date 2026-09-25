@@ -16,6 +16,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { siblingDrift } from "@/lib/membershipSiblingServer";
 import { queueClauses } from "@/lib/membersQuery";
 import { hasPermission, type PermissionKey, type PermissionLevel } from "@/lib/permissions";
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
@@ -78,6 +79,20 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
         .catch(() => null),
     );
   };
+
+  // ── B3 slice 2: sibling membership discount drift ───────────────────────
+  // A family's membership priced without the discount it earns (or carrying
+  // one it no longer earns). Recommend only — the owner applies it.
+  probe(
+    can("billing", "full"),
+    async () => (await siblingDrift(clubId)).length,
+    {
+      kind: "FAMILY_DISCOUNT_DRIFT",
+      label: "Sibling discounts to review",
+      severity: "medium",
+      href: "/dashboard/settings/billing#sibling-discount",
+    },
+  );
 
   // ── Privates ──────────────────────────────────────────────────────────
   probe(

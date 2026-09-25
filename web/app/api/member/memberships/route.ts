@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
 import { resolveFamilyContext } from "@/lib/memberContext";
+import { siblingQuotes } from "@/lib/membershipSiblingServer";
 import { trialForMembership } from "@/lib/freeTrial";
 
 // GET /api/member/memberships
@@ -85,11 +86,25 @@ export async function GET() {
 
   const defaultId = resolved && resolved !== "FORBIDDEN" ? resolved.context?.id ?? null : null;
 
+  // B3 slice 2 — what each option costs each athlete with the sibling
+  // membership discount (only discounted options appear). Checkout re-derives
+  // it; this is only so the family sees the number before paying.
+  const siblingByMember = await siblingQuotes(
+    session.user.clubId,
+    accessibleIds,
+    membershipsRaw.flatMap((m) => {
+      let opts: { label: string; price: number; billingPeriod: string }[] = [];
+      try { opts = JSON.parse(String(m.options)); } catch { opts = []; }
+      return opts.map((o) => ({ membershipId: m.id, optionLabel: o.label, price: Number(o.price), billingPeriod: o.billingPeriod }));
+    }),
+  ).catch(() => ({}));
+
   return NextResponse.json({
     memberships,
     accessible,
     defaultMemberId: defaultId,
     activeByMember,
+    siblingByMember,
     // Back-compat: subs for the default profile.
     activeSubscriptions: defaultId ? activeByMember[defaultId] ?? [] : [],
     hasMemberProfile: accessible.length > 0,

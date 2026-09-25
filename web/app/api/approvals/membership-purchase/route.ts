@@ -9,7 +9,8 @@ import { optionIdForPurchase, parseOptions, minimumTermEndForOptionId } from "@/
 import { requirePermission } from "@/lib/apiGuard";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
-import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
+import { findValidDiscount, recordDiscountUse } from "@/lib/discounts";
+import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
 
 // POST /api/approvals/membership-purchase
 //
@@ -128,7 +129,13 @@ export async function POST(req: Request) {
     }
     discount = check.discount;
   }
-  const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
+  // B3 slice 2 — sibling discount vs the code, re-resolved at approval.
+  const priced = await membershipDiscountAtPurchase({
+    clubId, memberId: approval.memberId, membershipId: membership.id, listPrice: option.price,
+    billingPeriod: option.billingPeriod, code: discount,
+  });
+  discount = priced.code;
+  const finalPrice = priced.finalPrice;
 
   const startDate = new Date();
   const isOneTime = option.billingPeriod === "ONE_TIME";
@@ -159,8 +166,8 @@ export async function POST(req: Request) {
       autoRenew: false,
       status: "active",
       startedAt: new Date(),
-      discountCode: discount?.code || null,
-      notes: `In-portal ${paymentMethod.toLowerCase()} purchase approved by staff.${discount ? ` Discount ${discount.code} applied.` : ""}`,
+      ...priced.fields,
+      notes: `In-portal ${paymentMethod.toLowerCase()} purchase approved by staff.${priced.label ? ` ${priced.label} applied.` : ""}`,
     },
   });
   if (discount) await recordDiscountUse(discount.id);
@@ -182,7 +189,7 @@ export async function POST(req: Request) {
         type: "INVOICE",
         category: "memberships",
         paymentMethod,
-        description: `Membership (${paymentMethod.toLowerCase()}): ${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
+        description: `Membership (${paymentMethod.toLowerCase()}): ${membership.name} — ${option.label}${priced.label ? ` (${priced.label})` : ""}`,
         manual: true,
         txDate: new Date(),
       },

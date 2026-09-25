@@ -20,7 +20,8 @@ import {
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
-import { findValidDiscount, discountedPrice, recordDiscountUse } from "@/lib/discounts";
+import { findValidDiscount, recordDiscountUse } from "@/lib/discounts";
+import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
 import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
 
 const schema = z.object({
@@ -100,7 +101,19 @@ export async function POST(req: Request) {
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
       discount = check.discount;
     }
-    const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
+    // B3 slice 2 — the sibling membership discount competes with the code;
+    // the bigger saving wins and only a winning code is redeemed.
+    const pending0 = await prisma.memberSubscription.findFirst({
+      where: { memberId: member.id, membershipId, status: "pending", stripeSubscriptionId: null },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    const priced = await membershipDiscountAtPurchase({
+      clubId: club.id, memberId: member.id, membershipId, listPrice: option.price,
+      billingPeriod: option.billingPeriod, code: discount, excludeSubscriptionId: pending0?.id ?? null,
+    });
+    discount = priced.code;
+    const finalPrice = priced.finalPrice;
     // Record WHICH option was sold. Without this every new subscription is
     // unattributable — see lib/membershipOptions.optionIdForPurchase.
     const planOptionsForTerm = parseOptions(membership.options);
@@ -241,7 +254,7 @@ export async function POST(req: Request) {
             billingType,
             endDate,
             autoRenew: resolvedAutoRenew,
-            discountCode: discount?.code || null,
+            ...priced.fields,
           },
         })
       : await prisma.memberSubscription.create({
@@ -258,7 +271,7 @@ export async function POST(req: Request) {
             endDate,
             autoRenew: resolvedAutoRenew,
             status: "pending",
-            discountCode: discount?.code || null,
+            ...priced.fields,
           },
         });
 
@@ -296,7 +309,7 @@ export async function POST(req: Request) {
       ? { product: catalogProductId }
       : {
           product_data: {
-            name: `${membership.name} — ${option.label}${discount ? ` (code ${discount.code})` : ""}`,
+            name: `${membership.name} — ${option.label}${priced.label ? ` (${priced.label})` : ""}`,
             ...((() => {
               const d =
                 (membership.description ?? "") +

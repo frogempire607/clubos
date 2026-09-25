@@ -8,6 +8,8 @@ import { parseOptions, resolveTerms } from "@/lib/membershipOptions";
 import { resolveDraftOptionId } from "@/lib/billingAdmin";
 import { resumeLapsedPauses } from "@/lib/membershipPause";
 import { datesEditable } from "@/lib/membershipPanel";
+import { siblingLinesForMember } from "@/lib/membershipSiblingServer";
+import { siblingOn, membershipSiblingSummary } from "@/lib/membershipSiblingDiscount";
 
 // B13 — GET /api/members/[id]/membership-panel
 //
@@ -136,7 +138,28 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     return { planId: p.id, planName: p.name, id: o.id!, label: o.label, price: o.price, billingPeriod: o.billingPeriod, contractMonths: t.contractMonths, autoRenew: t.autoRenewDefault };
   }));
 
+  // B3 slice 2 — the sibling membership discount: this athlete's family, and
+  // whether the current membership's price matches the rule. Read-only; the
+  // owner applies a recommendation through Change plan.
+  const sib = await siblingLinesForMember(clubId, member.id).catch(() => null);
+  const curLine = current && sib ? sib.lines.find((l) => l.subId === current.id) ?? null : null;
+  const curRow = current ? member.subscriptions.find((s) => s.id === current.id) ?? null : null;
+  const sibling =
+    sib && (siblingOn(sib.cfg) || sib.family.some((l) => l.drift))
+      ? {
+          summary: membershipSiblingSummary(sib.cfg),
+          family: sib.family
+            .filter((l) => l.position != null)
+            .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
+            .map((l) => ({ memberId: l.memberId, name: l.memberName, position: l.position, price: l.price, expected: l.expected })),
+          current: curLine && curRow
+            ? { subId: curLine.subId, optionId: curRow.optionId, drift: curLine.drift, label: curLine.label, price: curLine.price, expected: curLine.expected }
+            : null,
+        }
+      : null;
+
   return NextResponse.json({
+    sibling,
     view,
     member: { id: member.id, firstName: member.firstName, lastName: member.lastName, isMinor: member.isMinor, guardianEmail: member.guardianEmail, email: member.email },
     club: { passProcessingFees: member.club.passProcessingFees, stripeReady: !!member.club.stripeAccountId && !!member.club.stripeChargesEnabled },

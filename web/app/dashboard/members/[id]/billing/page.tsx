@@ -752,6 +752,7 @@ export default function MemberBillingPage() {
           data={data}
           memberId={id}
           subscriptionId={planChangeSubId}
+          initialOptionId={search.get("option")}
           onClose={() => setPlanChangeSubId(null)}
           onDone={(m) => { setPlanChangeSubId(null); setMsg(m); load(); }}
         />
@@ -1127,7 +1128,7 @@ type PlanChangePreview = {
   effectiveAt: string; autoRenew: boolean; minimumTermEndsAt: string | null; cancelAt: string | null; sameAmount: boolean; lines: string[];
 };
 
-function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { data: Data; memberId: string; subscriptionId: string; onClose: () => void; onDone: (msg: string) => void }) {
+function PlanChangeModal({ data, memberId, subscriptionId, initialOptionId, onClose, onDone }: { data: Data; memberId: string; subscriptionId: string; initialOptionId?: string | null; onClose: () => void; onDone: (msg: string) => void }) {
   const sub = data.subscriptions.find((s) => s.id === subscriptionId) ?? null;
   // B13 slice 3: every recurring option is offered. Same billing cycle swaps in
   // place at the next invoice; a different cycle on a Stripe row becomes a
@@ -1148,7 +1149,8 @@ function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { 
     }
     return out.sort((a, b) => Number(b.sameInterval) - Number(a.sameInterval) || a.planName.localeCompare(b.planName) || a.price - b.price);
   }, [data.plans, sub]);
-  const [optionId, setOptionId] = useState<string>("");
+  // B3 slice 2 — "Apply sibling discount" opens this on the current option.
+  const [optionId, setOptionId] = useState<string>(initialOptionId ?? "");
   const [autoRenew, setAutoRenew] = useState<"default" | "on" | "off">("default");
   const [preview, setPreview] = useState<PlanChangePreview | null>(null);
   const [loading, setLoading] = useState(false);

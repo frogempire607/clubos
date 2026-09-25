@@ -41,6 +41,12 @@ type Payload = {
     editable: { startDate: boolean; paidThroughDate: boolean; endDate: boolean; minimumTermEndsAt: boolean };
   } | null;
   history: { id: string; label: string; price: number; billingPeriod: string | null; status: string; startDate: string | null; endDate: string | null; hasStripe: boolean }[];
+  // B3 slice 2 — the sibling membership discount for this athlete's family.
+  sibling?: {
+    summary: string;
+    family: { memberId: string; name: string; position: number | null; price: number; expected: number | null }[];
+    current: { subId: string; optionId: string | null; drift: "DOWN" | "UP" | null; label: string | null; price: number; expected: number | null } | null;
+  } | null;
 };
 
 const LABELS: Record<PanelAction, string> = {
@@ -211,6 +217,34 @@ export default function MembershipPanel({
             <div key={k} className="bg-[#F4F4F6] rounded-lg px-2.5 py-2"><div className="text-[10.5px] uppercase tracking-wide font-semibold text-[#9CA3AF]">{k}</div><div className="text-[13px] font-medium text-text-primary mt-0.5 truncate">{val}</div></div>
           ))}
         </div>
+      )}
+
+      {data.sibling?.current?.drift && data.sibling.current.expected != null && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+          {data.sibling.current.drift === "DOWN" ? (
+            <>
+              <strong>Sibling discount recommended.</strong> {data.sibling.current.label}: {money(data.sibling.current.price)} → {money(data.sibling.current.expected)}.
+              {" "}Nothing changes until you apply it — it starts on the next payment.
+            </>
+          ) : (
+            <>
+              <strong>Sibling discount no longer earned.</strong> The family has fewer paying athletes now, so the list price would be {money(data.sibling.current.expected)} (today {money(data.sibling.current.price)}). Nothing changes on its own.
+            </>
+          )}
+          {canBill && data.sibling.current.optionId && (
+            <button
+              className="block mt-1.5 text-brand font-medium hover:underline"
+              onClick={() => router.push(`/dashboard/members/${memberId}/billing?changePlan=${data.sibling!.current!.subId}&option=${data.sibling!.current!.optionId}`)}
+            >
+              Review in Change plan →
+            </button>
+          )}
+        </div>
+      )}
+      {data.sibling && data.sibling.family.length > 1 && (
+        <p className="text-xs text-text-muted mt-2">
+          Family: {data.sibling.family.map((f) => `${f.name.split(" ")[0]} (${f.position === 1 ? "full price" : `${f.position === 2 ? "2nd" : f.position === 3 ? "3rd" : `${f.position}th`}`})`).join(", ")}
+        </p>
       )}
 
       {canBill && (

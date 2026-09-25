@@ -15,7 +15,7 @@ const input = "w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-s
 const chip = (on: boolean) =>
   `text-xs px-2.5 py-1.5 rounded-lg border ${on ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary"}`;
 
-function AmountInput({ value, onChange }: { value: AmountRule | undefined; onChange: (v: AmountRule) => void }) {
+export function AmountInput({ value, onChange }: { value: AmountRule | undefined; onChange: (v: AmountRule) => void }) {
   const v = value ?? { type: "FIXED" as const, value: 0 };
   return (
     <div className="flex gap-1.5 items-center">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import SiblingDiscountCard from "@/components/settings/SiblingDiscountCard";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { getTierName, TIER_PRICES, TIER_FEATURES, type Tier } from "@/lib/tier";
@@ -199,6 +200,9 @@ export default function BillingSettingsPage() {
 
       {/* ── Offline (cash/check) activation policy ── */}
       <OfflineActivationPolicyCard />
+
+      {/* ── B3 slice 2: sibling membership discount ── */}
+      <SiblingDiscountCard />
 
       {/* ── AthletixOS Subscription Plan ── */}
       <div className="mt-8">
