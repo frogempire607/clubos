@@ -473,7 +473,7 @@ export type MemberListResult = {
    * COUNT_CAP, matching `counts`. A wrong number here sends staff to chase work
    * that isn't there; no number at all is the honest answer at that scale.
    */
-  queueCounts: { neverInvited: number; blocked: number; missingContact: number; duplicates: number; renewingSoon: number; paused: number } | null;
+  queueCounts: { neverInvited: number; blocked: number; missingContact: number; duplicates: number; renewingSoon: number; paused: number; pausedNextResume?: string | null } | null;
 };
 
 /**
@@ -698,15 +698,24 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
 async function countQueues(clubId: string, f: MemberListFilters) {
   const base = memberWhere(clubId, { ...f, queue: null, search: "", tag: "", gender: "" });
   const q = queueClauses();
-  const [neverInvited, blocked, missingContact, duplicates, renewingSoon, paused] = await Promise.all([
+  const [neverInvited, blocked, missingContact, duplicates, renewingSoon, paused, nextResume] = await Promise.all([
     prisma.member.count({ where: { AND: [base, q.neverInvited] } }),
     prisma.member.count({ where: { AND: [base, q.blocked] } }),
     prisma.member.count({ where: { AND: [base, q.missingContact] } }),
     countDuplicateGroups(clubId),
     prisma.member.count({ where: { AND: [base, q.renewingSoon] } }),
     prisma.member.count({ where: { AND: [base, q.paused] } }),
+    // B13 slice 4 — the Paused card says when the next one is back.
+    prisma.memberSubscription.findFirst({
+      where: { member: { AND: [base, q.paused] }, pausedAt: { not: null }, pausedUntil: { gt: new Date() } },
+      orderBy: { pausedUntil: "asc" },
+      select: { pausedUntil: true },
+    }),
   ]);
-  return { neverInvited, blocked, missingContact, duplicates, renewingSoon, paused };
+  return {
+    neverInvited, blocked, missingContact, duplicates, renewingSoon, paused,
+    pausedNextResume: nextResume?.pausedUntil ? nextResume.pausedUntil.toISOString() : null,
+  };
 }
 
 /**

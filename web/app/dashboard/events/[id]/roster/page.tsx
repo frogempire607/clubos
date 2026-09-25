@@ -13,7 +13,7 @@ import { Download, ArrowLeft } from "lucide-react";
 type Person = { entryId: string; registrationId: string; name: string; memberId: string | null; state: "confirmed" | "pending" | "waitlist" };
 type Grid = {
   columns: { id: string; label: string }[];
-  rows: { position: { id: string; label: string; capacity: number | null }; cells: { rosterId: string; people: Person[]; taken: number; capacity: number | null }[] }[];
+  rows: { position: { id: string; label: string; capacity: number | null }; cells: { rosterId: string; offered?: boolean; people: Person[]; taken: number; capacity: number | null }[] }[];
   waitlist: (Person & { rosterLabel: string; positionLabel: string })[];
   unplaced: Person[];
   counts: { confirmed: number; pending: number; waitlist: number };
@@ -103,9 +103,9 @@ export default function RosterGridPage() {
                   {row.cells.map((c) => {
                     const full = c.capacity != null && c.taken >= c.capacity;
                     return (
-                      <td key={c.rosterId} className="px-3 py-2 border-b border-l border-app-border min-w-[140px]">
+                      <td key={c.rosterId} className={`px-3 py-2 border-b border-l border-app-border min-w-[140px] ${c.offered === false ? "bg-app-bg" : ""}`}>
                         {c.people.length === 0 ? (
-                          <span className="text-text-muted text-xs">—</span>
+                          <span className="text-text-muted text-xs">{c.offered === false ? "not offered" : "—"}</span>
                         ) : (
                           <ul className="space-y-0.5">{c.people.map((p) => <li key={p.entryId}><Name p={p} /></li>)}</ul>
                         )}

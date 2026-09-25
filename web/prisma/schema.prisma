@@ -1741,6 +1741,8 @@ model EventRosterPosition {
   eventId   String
   label     String
   capacity  Int?
+  // Rosters this position is offered in; empty = every roster.
+  rosterIds String[] @default([])
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

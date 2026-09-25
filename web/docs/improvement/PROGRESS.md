@@ -5030,3 +5030,31 @@ the club to register. Decided: **save a card, charge later** — same promise a 
   schedules the charge date (slice from 09-24).
 - Public page: "Save a card — charged later" with the date and "only if the coach approves", a consent checkbox in
   plain words, button "Save card & register — nothing charged today". Members can still sign in instead.
+
+## 2026-09-25 — Positions only in some rosters (divisions)
+
+Julian: some positions only exist in some rosters (e.g. "60 (K4 only)"); the picker should only show a position once
+the family picks a roster it's offered in. Manual is fine.
+
+- Migration `20260928000000_roster_position_rosters`: `event_roster_positions.rosterIds TEXT[] DEFAULT {}`
+  (empty = offered in every roster, so every existing event is unchanged).
+- `lib/eventRoster`: `offeredIn`, `rostersNamedInLabel` (reads "(K4 only)", "(K4/K6)"); `decidePick` refuses a cell
+  that isn't offered; availability and the grid skip it (grid cell `offered:false`, "n/a" in exports).
+- Editor: per-position "In:" roster chips (none ticked = all); "Match rosters to position names" button; pasted lists
+  and "build from dropdowns" auto-detect. Saved by roster label → ids after the rosters are written.
+- SpotPicker shows only positions offered in the chosen roster. Coach grid greys "not offered" cells. Duplicate
+  remaps `rosterIds` to the copy's rosters.
+
+Tests: event-roster 59 → 72.
+
+## 2026-09-25 — B13 slice 4: Advanced billing, Stripe pause drift, Paused card date
+
+- `lib/stripeSync.applySubscription`: if Stripe has `pause_collection` and our row isn't paused → set
+  `pausedAt/pausedUntil`, member PAUSED, SYSTEM event + audit `MEMBERSHIP_PAUSED`; if our row is paused and Stripe
+  isn't → `resumeMembership` ("stripeSync pause_collection cleared"). Shared tail moved into `finishLinked`.
+- Members roster: Paused queue card shows "next back {date}" (`countQueues.pausedNextResume`).
+- Billing centre renamed **Advanced billing**, with a line pointing to the profile's Membership panel.
+  Deviation from the handoff: the page is NOT stripped — its activate / record-payment tools stay, because the panel's
+  record-payment path still lands on `billing?enrol=1` and migration setups live only here.
+
+B13 complete. Tests: membership-panel 46, stripe-plan-change 48, event-payment 84 — all green.

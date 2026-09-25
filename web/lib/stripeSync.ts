@@ -6,6 +6,7 @@ import { parseOptions } from "@/lib/membershipOptions";
 import { mirrorFromStripePrice, type MirrorResult } from "@/lib/stripePlanChange";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { recordSubscriptionEvent, SUBSCRIPTION_EVENT_KIND, SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
+import { resumeMembership } from "@/lib/membershipPause";
 
 /**
  * Stripe → AthletixOS reconciliation (Phase B of the payments loop).
@@ -186,11 +187,12 @@ export async function reconcileClubBilling(clubId: string): Promise<ReconcileSum
 
 const LINKED_SELECT = {
   id: true, memberId: true, membershipId: true, stripePriceId: true,
-  optionId: true, optionLabel: true, price: true, billingPeriod: true,
+  optionId: true, optionLabel: true, price: true, billingPeriod: true, pausedAt: true, pausedUntil: true,
 } as const;
 type LinkedRow = {
   id: string; memberId: string; membershipId: string | null; stripePriceId: string | null;
   optionId: string | null; optionLabel: string; price: unknown; billingPeriod: string | null;
+  pausedAt?: Date | null; pausedUntil?: Date | null;
 };
 
 // The row's price/option as Stripe would have it. Null when there is nothing
@@ -310,13 +312,33 @@ async function applySubscription(
         data: { stripeCustomerId: snap.stripeCustomerId },
       });
     }
-    await recomputeMemberStatus(memberSub.memberId, clubId);
-    // If a review row existed for this sub, it's resolved now.
-    await prisma.stripeReconciliation.updateMany({
-      where: { stripeSubscriptionId: sub.id, clubId, status: "OPEN" },
-      data: { status: "LINKED", resolvedMemberId: memberSub.memberId, resolvedAt: new Date() },
-    });
-    return { handled: "linked", mirror: mirror && mirror.changed.length ? mirror : null };
+    // B13 slice 4 — a pause set (or lifted) by hand in the Stripe dashboard.
+    // Stripe is the truth for whether collection is paused; the row and the
+    // roster label follow it, so the Paused queue and the panel don't lie.
+    const stripePaused = !!sub.pause_collection;
+    if (stripePaused && !memberSub.pausedAt) {
+      const until = sub.pause_collection?.resumes_at ? new Date(sub.pause_collection.resumes_at * 1000) : null;
+      const now = new Date();
+      await prisma.memberSubscription.update({ where: { id: memberSub.id }, data: { pausedAt: now, pausedUntil: until } });
+      await prisma.member.updateMany({ where: { id: memberSub.memberId, clubId }, data: { status: "PAUSED" } });
+      await recordSubscriptionEvent({
+        clubId, memberSubscriptionId: memberSub.id, memberId: memberSub.memberId, kind: SUBSCRIPTION_EVENT_KIND.PAUSED,
+        fromPlan: memberSub.optionLabel, fromAmount: String(memberSub.price), source: SUBSCRIPTION_EVENT_SOURCE.SYSTEM,
+        detail: { route: "stripeSync pause_collection", until: until?.toISOString() ?? null, stripeSubscriptionId: sub.id },
+      });
+      await writeBillingAudit({
+        clubId, memberId: memberSub.memberId, actorUserId: null, action: "MEMBERSHIP_PAUSED",
+        before: { pausedAt: null }, after: { pausedAt: now, pausedUntil: until },
+        note: `Stripe shows collection paused${until ? ` until ${until.toISOString().slice(0, 10)}` : ""} (set in the Stripe dashboard) — row marked paused to match.`,
+      });
+      return finishLinked(clubId, sub, memberSub, mirror, true);
+    }
+    if (!stripePaused && memberSub.pausedAt) {
+      // Lifted in Stripe: resume locally (the Stripe call inside is a no-op
+      // clear of a pause that is already gone).
+      await resumeMembership({ clubId, memberId: memberSub.memberId, subscriptionId: memberSub.id, actorUserId: null, via: "stripeSync pause_collection cleared" });
+    }
+    return finishLinked(clubId, sub, memberSub, mirror, false);
   }
 
   // 2) No local subscription row → suggest a member match but DO NOT mutate.
@@ -611,4 +633,23 @@ export async function fillChargeFees(
     filled++;
   }
   return filled;
+}
+
+// The end of a linked sync, shared by the pause-drift branches above.
+async function finishLinked(
+  clubId: string,
+  sub: Stripe.Subscription,
+  memberSub: LinkedRow,
+  mirror: MirrorResult | null,
+  justPaused: boolean,
+): Promise<{ handled: "linked"; mirror: MirrorResult | null }> {
+  // PAUSED is the one sticky label (B1); a recompute right after setting it
+  // would only re-derive it, so it's skipped on that path.
+  if (!justPaused) await recomputeMemberStatus(memberSub.memberId, clubId);
+  // If a review row existed for this sub, it's resolved now.
+  await prisma.stripeReconciliation.updateMany({
+    where: { stripeSubscriptionId: sub.id, clubId, status: "OPEN" },
+    data: { status: "LINKED", resolvedMemberId: memberSub.memberId, resolvedAt: new Date() },
+  });
+  return { handled: "linked", mirror: mirror && mirror.changed.length ? mirror : null };
 }
