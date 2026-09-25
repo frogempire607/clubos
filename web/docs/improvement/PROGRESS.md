@@ -5087,3 +5087,33 @@ Not in this slice: a live quote of the sibling discount before submit on the pub
 email already registered); an automatic refund when a group fills after someone paid (flagged in the code, done by hand).
 
 Tests: new `test:event-auto-discounts` (44). event-roster 72, event-payment 84, event-repricing 87, guards green.
+
+## 2026-09-25 — B3 slice 2: sibling membership discount
+
+Julian: automatic at checkout (new purchases), siblings only. Running memberships are never repriced on their own —
+they're recommended and the owner applies them (plan.md §9.3 kept for those).
+
+- Migration `20260930000000_membership_sibling_discount`: `clubs.siblingDiscount JSONB '{}'`;
+  `member_subscriptions.discountSource / discountLabel / discountType / discountValue` (the EventRegistration snapshot
+  shape, §9.10 M34 minus the rule id — one rule per club). All additive; '{}' = off.
+- `lib/membershipSiblingDiscount` (pure): config (the event sibling shapes + `discountWhich` CHEAPER|PRICIER +
+  plan scope), `planFamily` (one athlete per representative membership; comps / $0 / not-live / out-of-scope don't
+  count; ordering per-month price, then start date, then id — stable), drift DOWN (missing) / UP (no longer earned;
+  flagged, never removed), `siblingForPurchase`.
+- `lib/membershipSiblingServer`: payer = subscription payer → responsible payer → own login → primary (else earliest)
+  CONFIRMED guardian. `membershipDiscountAtPurchase` = code vs sibling, bigger saving wins, tie → sibling; only a
+  winning code is redeemed. Used by the portal subscribe (card + cash), the cash approval, and staff assign.
+- Change plan (`previewAnyPlanChange` / `commitAnyPlanChange`) carries the sibling discount the family still earns on
+  the target option (preview line says so) and stamps/clears the discount columns; B12's direct path clears them.
+  "Review in Change plan" on the Membership panel opens the dialog on the current option = applying a recommendation.
+- Membership panel: recommendation box + "Family: …" line. Action Center `FAMILY_DISCOUNT_DRIFT` (billing:full) →
+  Settings → Billing → Sibling membership discount, which lists every membership to review. Portal memberships page
+  shows the sibling price per option for the selected athlete.
+
+Production check 09-25: 5 payer families with 2+ paying athletes (11 athletes). Rule starts off — nothing flagged
+until Julian turns it on.
+
+Not in this slice: group rate for memberships; a discount line on receipt emails; migration approve / reactivation
+offers don't add it (staff-priced paths).
+
+Tests: new `test:membership-sibling` (32). stripe-plan-change 48, membership-panel 46, event-auto-discounts 44, guards green.

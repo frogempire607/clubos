@@ -43,6 +43,8 @@ export default function MemberMembershipsPage() {
   // Option key currently showing the card / cash-check payment choice.
   const [choosingKey, setChoosingKey] = useState<string | null>(null);
   const [discountCode, setDiscountCode] = useState("");
+  // B3 slice 2 — memberId → "planId:optionLabel" → the sibling price.
+  const [siblingByMember, setSiblingByMember] = useState<Record<string, Record<string, { label: string; price: number }>>>({});
 
   useEffect(() => {
     fetch("/api/member/memberships")
@@ -51,6 +53,7 @@ export default function MemberMembershipsPage() {
         if (d) {
           setMemberships(d.memberships || []);
           setActiveByMember(d.activeByMember || {});
+          setSiblingByMember(d.siblingByMember || {});
           setAccessible(d.accessible || []);
           setSelectedMemberId(d.defaultMemberId ?? d.accessible?.[0]?.id ?? null);
           setHasMemberProfile(d.hasMemberProfile);
@@ -259,10 +262,22 @@ export default function MemberMembershipsPage() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-stone-900">{o.label}</p>
-                              <p className="text-xs text-stone-500">
-                                ${o.price.toFixed(2)}
-                                <span>{periodLabel[o.billingPeriod] ?? ""}</span>
-                              </p>
+                              {(() => {
+                                const sib = selectedMemberId ? siblingByMember[selectedMemberId]?.[`${m.id}:${o.label}`] : undefined;
+                                return sib ? (
+                                  <p className="text-xs text-stone-500">
+                                    <span className="line-through mr-1">${o.price.toFixed(2)}</span>
+                                    <span className="font-medium text-emerald-700">${sib.price.toFixed(2)}</span>
+                                    <span>{periodLabel[o.billingPeriod] ?? ""}</span>
+                                    <span className="block text-emerald-700">{sib.label}</span>
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-stone-500">
+                                    ${o.price.toFixed(2)}
+                                    <span>{periodLabel[o.billingPeriod] ?? ""}</span>
+                                  </p>
+                                );
+                              })()}
                             </div>
                             <button
                               disabled={!hasMemberProfile || submitting === key}

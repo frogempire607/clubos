@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session:** B3 slice 1 (event sibling / group rate / coach discount) built 09-25 on `claude/b3-event-discounts` (migration `20260929000000_event_auto_discounts`). Next: B3 slice 2 — the membership rules from plan.md Phase 9 (detect + recommend; the B13 Change plan is now the apply path).
+- **Next Claude session:** B3 slice 2 (sibling MEMBERSHIP discount) built 09-25 on `claude/b3-membership-sibling` (migration `20260930000000_membership_sibling_discount`). B3 then covers events + membership siblings; the school group rate for memberships and receipt discount lines are left for later.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
@@ -162,7 +162,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   an obsolete pre-squash copy (main has rewritten signup since — MINOR_SELF, Aug 16). DELETE IT.
   Remaining work = A3, then set `FEATURE_PARENTAL_CONSENT=true` in Netlify and redeploy.
 
-- [ ] **B3 · Phase 9 — Family & Group Discounts** · SLICE 1 BUILT 09-25 (events) · slice 2 = memberships
+- [ ] **B3 · Phase 9 — Family & Group Discounts** · SLICE 1 BUILT 09-25 (events) · SLICE 2 BUILT 09-25 (membership siblings) · later: membership group rate, receipt lines
   Julian 09-25: events first (Finger Lakes). Sibling = automatic (no code); group rate = same school/team, N+ athletes,
   coach sets it per event (label, number, amount, optional pick-list); coach can also set a $/% discount at approval.
   Deviation from plan.md §9.12 #6 ("memberships only at launch") is Julian's call; the membership half keeps the

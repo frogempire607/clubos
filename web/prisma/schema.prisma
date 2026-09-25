@@ -56,6 +56,9 @@ model Club {
   // member/customer's checkout total so the club nets the full amount.
   // Centralized math lives in lib/fees.ts — never hardcode the % elsewhere.
   passProcessingFees       Boolean               @default(false)
+  // B3 slice 2 — the sibling membership discount (lib/membershipSiblingDiscount):
+  // { on, shape, each?, tiers?, discountWhich: CHEAPER|PRICIER, membershipIds[] }.
+  siblingDiscount          Json                  @default("{}")
   processingFeeNote        String?
   // When a CASH/CHECK offer is accepted: 'ON_ACCEPTANCE' activates the
   // membership with payment still due; 'ON_PAYMENT' activates only when staff
@@ -1103,6 +1106,13 @@ model MemberSubscription {
   // Discount applied at purchase
   discountCode   String?
   discountAmount Decimal? @db.Decimal(10, 2)
+  // B3 slice 2 — where the discount came from (CODE | SIBLING), its name and
+  // its rule as of application ("Sibling membership discount (2nd athlete)",
+  // PERCENT 10). discountCode stays "a code a human used" — null for SIBLING.
+  discountSource String?
+  discountLabel  String?
+  discountType   String?
+  discountValue  Decimal? @db.Decimal(10, 2)
 
   // A $0 membership the club MEANT to give away — a comp, a coach's kid, a
   // scholarship. Distinguishes a real free membership from the $0 placeholder

@@ -36,6 +36,7 @@ import { feeBreakdown } from "@/lib/fees";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { recordSubscriptionEvent, SUBSCRIPTION_EVENT_KIND, SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { siblingDiscountForPlanChange } from "@/lib/membershipSiblingServer";
 
 const LIVE = new Set(["active", "trialing", "past_due", "unpaid"]);
 
@@ -74,10 +75,30 @@ type Ctx = {
   };
   plan: { id: string; name: string; options: unknown; contractMonths: number | null; autoRenewDefault: boolean; description: string | null; clubId: string; stripeProductId: string | null; stripePriceIds: unknown };
   option: MembershipOption;
+  /** The option's own price before PlanChangeInput.discount (B3 slice 2). */
+  listPrice: number;
   sub: Stripe.Subscription;
 };
 
-async function loadContext(input: { clubId: string; memberId: string; subscriptionId: string; optionId: string; allowIntervalChange?: boolean }): Promise<Ctx | PlanChangeError> {
+/** B3 slice 2 — a discount carried onto the new price (the sibling
+ *  membership discount, applied from its recommendation). */
+export type PlanChangeDiscount = { source: "SIBLING"; type: "PERCENT" | "FIXED"; value: number; label: string };
+
+function discountOption(option: MembershipOption, d: PlanChangeDiscount | null | undefined): MembershipOption {
+  if (!d) return option;
+  const cut = d.type === "PERCENT" ? (option.price * d.value) / 100 : d.value;
+  return { ...option, price: Math.max(0, Math.round((option.price - cut) * 100) / 100) };
+}
+
+/** The discount columns for the row after a plan change: the discount carried
+ *  in, or none — a plan change without one resets the row to the list price. */
+function discountColumns(d: PlanChangeDiscount | null | undefined, listPrice: number, price: number) {
+  return d
+    ? { discountCode: null, discountSource: d.source, discountLabel: d.label, discountType: d.type, discountValue: d.value, discountAmount: Math.round((listPrice - price) * 100) / 100 }
+    : { discountCode: null, discountSource: null, discountLabel: null, discountType: null, discountValue: null, discountAmount: null };
+}
+
+async function loadContext(input: { clubId: string; memberId: string; subscriptionId: string; optionId: string; allowIntervalChange?: boolean; discount?: PlanChangeDiscount | null }): Promise<Ctx | PlanChangeError> {
   const club = await prisma.club.findUnique({
     where: { id: input.clubId },
     select: { id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true },
@@ -132,7 +153,7 @@ async function loadContext(input: { clubId: string; memberId: string; subscripti
   if ((sub.items?.data?.length ?? 0) !== 1) {
     return { ok: false, code: "MULTI_ITEM", error: "This subscription has more than one line item in Stripe, which the in-app change doesn't handle.", status: 409 };
   }
-  return { club: { ...club, stripeAccountId }, row, plan, option, sub };
+  return { club: { ...club, stripeAccountId }, row, plan, option: discountOption(option, input.discount), listPrice: option.price, sub };
 }
 
 const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -177,7 +198,7 @@ function buildPreview(ctx: Ctx, autoRenewOverride: boolean | null): PlanChangePr
   };
 }
 
-export type PlanChangeInput = { clubId: string; memberId: string; subscriptionId: string; optionId: string; autoRenew: boolean | null };
+export type PlanChangeInput = { clubId: string; memberId: string; subscriptionId: string; optionId: string; autoRenew: boolean | null; discount?: PlanChangeDiscount | null };
 
 export async function previewPlanChange(input: PlanChangeInput): Promise<PlanChangePreview | PlanChangeError> {
   const ctx = await loadContext(input);
@@ -249,7 +270,8 @@ export async function commitPlanChange(input: PlanChangeInput & { actorUserId: s
       stripePriceId: updated.items?.data?.[0]?.price?.id ?? null,
       stripeProductId: productId,
       currentPeriodEnd: updated.current_period_end ? new Date(updated.current_period_end * 1000) : null,
-      notes: `${row.optionLabel} → ${option.label} on ${new Date().toISOString().slice(0, 10)} (billing centre); new price from ${preview.effectiveAt.toISOString().slice(0, 10)}.`,
+      ...discountColumns(input.discount, ctx.listPrice, option.price),
+      notes: `${row.optionLabel} → ${option.label}${input.discount ? ` (${input.discount.label})` : ""} on ${new Date().toISOString().slice(0, 10)} (billing centre); new price from ${preview.effectiveAt.toISOString().slice(0, 10)}.`,
     },
   });
   if (row.membershipId !== plan.id) {
@@ -309,6 +331,7 @@ type OfflineCtx = {
   };
   plan: { id: string; name: string; options: unknown; contractMonths: number | null; autoRenewDefault: boolean };
   option: MembershipOption;
+  listPrice: number;
 };
 
 async function whichKind(input: { clubId: string; memberId: string; subscriptionId: string; optionId: string }): Promise<PlanChangeKind | PlanChangeError> {
@@ -326,7 +349,7 @@ async function whichKind(input: { clubId: string; memberId: string; subscription
 
 // ── OFFLINE ──────────────────────────────────────────────────────────────────
 
-async function loadOffline(input: { clubId: string; memberId: string; subscriptionId: string; optionId: string }): Promise<OfflineCtx | PlanChangeError> {
+async function loadOffline(input: { clubId: string; memberId: string; subscriptionId: string; optionId: string; discount?: PlanChangeDiscount | null }): Promise<OfflineCtx | PlanChangeError> {
   const club = await prisma.club.findUnique({ where: { id: input.clubId }, select: { id: true, name: true } });
   if (!club) return { ok: false, code: "NOT_FOUND", error: "Club not found.", status: 404 };
   const row = await prisma.memberSubscription.findFirst({
@@ -353,7 +376,7 @@ async function loadOffline(input: { clubId: string; memberId: string; subscripti
   if (option.billingPeriod === "ONE_TIME") {
     return { ok: false, code: "OPTION_NOT_RECURRING", error: "A one-time option can't replace a running membership — assign it as a new membership instead.", status: 409 };
   }
-  return { club, row, plan, option };
+  return { club, row, plan, option: discountOption(option, input.discount), listPrice: option.price };
 }
 
 function offlinePreview(ctx: OfflineCtx, autoRenew: boolean | null, now: Date): AnyPlanChangePreview {
@@ -404,8 +427,9 @@ async function commitOffline(input: PlanChangeInput & { actorUserId: string }): 
       autoRenew: preview.autoRenew,
       minimumTermEndsAt: preview.minimumTermEndsAt,
       endDate: preview.cancelAt,
+      ...discountColumns(input.discount, ctx.listPrice, option.price),
       // paidThroughDate deliberately untouched: what was paid for stays paid for.
-      notes: `${row.optionLabel} → ${option.label} on ${new Date().toISOString().slice(0, 10)} (membership panel); new price from the next payment, ${preview.effectiveAt.toISOString().slice(0, 10)}.`,
+      notes: `${row.optionLabel} → ${option.label}${input.discount ? ` (${input.discount.label})` : ""} on ${new Date().toISOString().slice(0, 10)} (membership panel); new price from the next payment, ${preview.effectiveAt.toISOString().slice(0, 10)}.`,
     },
   });
   if (row.membershipId !== plan.id) {
@@ -561,6 +585,9 @@ async function commitSwitch(input: PlanChangeInput & { actorUserId: string }): P
     };
   }
 
+  if (input.discount) {
+    await prisma.memberSubscription.update({ where: { id: created.memberSub.id }, data: discountColumns(input.discount, ctx.listPrice, option.price) });
+  }
   const before = { optionId: row.optionId, optionLabel: row.optionLabel, price: Number(row.price), billingPeriod: row.billingPeriod, autoRenew: row.autoRenew, endDate: row.endDate };
   await prisma.memberSubscription.update({
     where: { id: row.id },
@@ -610,7 +637,21 @@ async function commitSwitch(input: PlanChangeInput & { actorUserId: string }): P
 
 export type AnyPlanChangeResult = { ok: true; preview: AnyPlanChangePreview; message: string } | PlanChangeError;
 
-export async function previewAnyPlanChange(input: PlanChangeInput): Promise<AnyPlanChangePreview | PlanChangeError> {
+/** B3 slice 2 — unless the caller decided, a plan change carries the sibling
+ *  membership discount the family still earns on the target option. */
+async function withSibling<T extends PlanChangeInput>(input: T): Promise<T> {
+  if (input.discount !== undefined) return input;
+  return { ...input, discount: await siblingDiscountForPlanChange(input) };
+}
+
+export async function previewAnyPlanChange(rawInput: PlanChangeInput): Promise<AnyPlanChangePreview | PlanChangeError> {
+  const input = await withSibling(rawInput);
+  const p = await previewAnyPlanChangeInner(input);
+  if (!p.ok || !input.discount) return p;
+  return { ...p, lines: [`Includes the ${input.discount.label}: $${(p.target.price).toFixed(2)} instead of the list price.`, ...p.lines] };
+}
+
+async function previewAnyPlanChangeInner(input: PlanChangeInput): Promise<AnyPlanChangePreview | PlanChangeError> {
   const kind = await whichKind(input);
   if (typeof kind !== "string") return kind;
   if (kind === "OFFLINE") {
@@ -631,8 +672,9 @@ export async function previewAnyPlanChange(input: PlanChangeInput): Promise<AnyP
 
 /** `expectedKind` is what the owner confirmed; a row that changed shape since the preview is refused, not reinterpreted. */
 export async function commitAnyPlanChange(
-  input: PlanChangeInput & { actorUserId: string; expectedKind: PlanChangeKind },
+  rawInput: PlanChangeInput & { actorUserId: string; expectedKind: PlanChangeKind },
 ): Promise<AnyPlanChangeResult> {
+  const input = await withSibling(rawInput);
   const kind = await whichKind(input);
   if (typeof kind !== "string") return kind;
   if (kind !== input.expectedKind) {

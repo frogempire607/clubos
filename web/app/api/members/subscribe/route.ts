@@ -15,7 +15,8 @@ import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
-import { discountedPrice, recordDiscountUse } from "@/lib/discounts";
+import { recordDiscountUse } from "@/lib/discounts";
+import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
 import { resolveStaffDiscount, discountAppliedLabel, type ResolvedStaffDiscount } from "@/lib/staffPayments";
 import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
 import { sendEmail } from "@/lib/email";
@@ -114,9 +115,15 @@ export async function POST(req: Request) {
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
       discount = check.discount;
     }
-    const finalPrice = discount ? discountedPrice(option.price, discount) : option.price;
-    const discountAmount = discount ? Math.round((option.price - finalPrice) * 100) / 100 : null;
-    const discountLabel = discountAppliedLabel(discount);
+    // B3 slice 2 — the sibling membership discount competes with the code.
+    const priced = await membershipDiscountAtPurchase({
+      clubId: club.id, memberId: member.id, membershipId, listPrice: option.price,
+      billingPeriod: option.billingPeriod, code: discount,
+    });
+    if (discount && !priced.code) discount = null; // lost to the sibling discount — not redeemed
+    const finalPrice = priced.finalPrice;
+    const discountAmount = priced.fields.discountAmount;
+    const discountLabel = priced.fields.discountSource === "SIBLING" ? priced.fields.discountLabel : discountAppliedLabel(discount);
 
     // Resolve billing type: explicit override > ONE_TIME if period is ONE_TIME > plan default
     const resolvedBillingType =
@@ -184,8 +191,7 @@ export async function POST(req: Request) {
           status: "active",
           startedAt: new Date(),
           notes: body.notes || null,
-          discountCode: discount?.code || null,
-          discountAmount,
+          ...priced.fields,
         },
       });
       if (discount) await recordDiscountUse(discount.id);
@@ -228,7 +234,7 @@ export async function POST(req: Request) {
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
                   <tr><td style="padding:6px 0;color:#666">Plan</td><td style="padding:6px 0;text-align:right">${membership.name} — ${option.label}</td></tr>
                   ${
-                    discount
+                    discountLabel && (discountAmount ?? 0) > 0
                       ? `<tr><td style="padding:6px 0;color:#666">Original price</td><td style="padding:6px 0;text-align:right">$${option.price.toFixed(2)}</td></tr>
                          <tr><td style="padding:6px 0;color:#666">${discountLabel}</td><td style="padding:6px 0;text-align:right">−$${(discountAmount ?? 0).toFixed(2)}</td></tr>`
                       : ""
@@ -310,8 +316,7 @@ export async function POST(req: Request) {
         billingAnchorDate,
         status: "pending",
         notes: body.notes || null,
-        discountCode: discount?.code || null,
-        discountAmount,
+        ...priced.fields,
       },
     });
 
