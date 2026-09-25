@@ -403,15 +403,19 @@ export async function chargeEventRegistration(registrationId: string): Promise<A
     reg.chargeAttempts += 1;
   }
 
-  if (!reg.member) {
+  // Whose card: a card saved on the public link for THIS registration wins
+  // (guestStripe*, 2026-09-25 — the guest may also match a member by email
+  // whose account has no card); otherwise the member's saved card.
+  const guestCustomer = reg.guestStripeCustomerId;
+  if (!guestCustomer && !reg.member) {
     await recordFailure(reg, "No member record with a saved card is linked to this registration.");
     return { registrationId, outcome: "failed", error: "No linked member" };
   }
-  const customerId = reg.member.stripeSetupCustomerId ?? reg.member.stripeCustomerId;
+  const customerId = guestCustomer ?? reg.member!.stripeSetupCustomerId ?? reg.member!.stripeCustomerId;
   const paymentMethodId = await resolveChargeablePaymentMethodId(
     customerId,
     reg.club.stripeAccountId,
-    reg.member.stripeSetupPaymentMethodId,
+    guestCustomer ? reg.guestStripePaymentMethodId : reg.member!.stripeSetupPaymentMethodId,
   );
   if (!customerId || !paymentMethodId) {
     await recordFailure(reg, "No chargeable saved card on file.");

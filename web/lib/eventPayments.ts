@@ -582,8 +582,18 @@ export function publicSignupRequiresAccount(args: {
   billOnApproval: boolean;
 }): boolean {
   if (!args.owesMoney || args.billOnApproval) return false;
-  const publicMethods = args.allowed.filter((m) => m !== "AUTO_CARD" && (m !== "CARD" || args.stripeReady));
-  return publicMethods.length === 0 && args.allowed.includes("AUTO_CARD");
+  // Since 2026-09-25 a guest can save a card on the public link too (Stripe
+  // setup), so AUTO_CARD is a public method whenever Stripe is connected.
+  return publicPaymentMethods(args.allowed, args.stripeReady).length === 0 && args.allowed.includes("AUTO_CARD");
+}
+
+/**
+ * What the anonymous public link can offer. Card and saved-card both need a
+ * connected Stripe account; a saved card on the public link is stored on the
+ * registration (guestStripe*), since a guest has no member row to hold it.
+ */
+export function publicPaymentMethods(allowed: EventPaymentMethod[], stripeReady: boolean): EventPaymentMethod[] {
+  return allowed.filter((m) => (m !== "CARD" && m !== "AUTO_CARD") || stripeReady);
 }
 
 /**

@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session:** B16 is built — Julian merges it (one deploy). Then B13 slice 4, then B3 (discounts — B16 decision 3 rides on it). B13 slice 4 after.
+- **Next Claude session:** B16 merged (ed1ca65). Guest saved card built 09-25 (migration `20260927000000_guest_saved_card`). Then B13 slice 4, then B3 (discounts — B16 decision 3 rides on it).
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)

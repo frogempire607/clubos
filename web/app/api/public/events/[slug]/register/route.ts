@@ -17,6 +17,8 @@ import {
   resolveEventPolicy,
   EVENT_PAYMENT_METHOD_LABELS,
   publicSignupRequiresAccount,
+  publicPaymentMethods,
+  eventScheduledChargeAt,
 } from "@/lib/eventPayments";
 import { eventFormFields, validateFormResponses } from "@/lib/eventForm";
 import { rosterActive, type SpotPick } from "@/lib/eventRoster";
@@ -34,7 +36,11 @@ const schema = z.object({
   formResponses: z.record(z.string(), z.union([z.string(), z.boolean()])).default({}),
   // The registrant's payment decision. AUTO_CARD is never offered publicly
   // (it needs an authenticated member with a saved card).
-  paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional(),
+  paymentMethod: z.enum(["CARD", "AUTO_CARD", "CASH", "CHECK"]).optional(),
+  // AUTO_CARD (2026-09-25): a guest saves a card now and is charged on the
+  // event's charge date — only after approval when a coach reviews. This is
+  // the exact consent they ticked, stored with the registration.
+  autoChargeConsent: z.object({ agreed: z.literal(true), buttonLabel: z.string().max(200).optional() }).optional(),
   // Optional discount code (EVENT scope, narrowed to this event). Re-resolved
   // here against the server-derived price — whatever the page previewed is
   // never trusted. An invalid code is a hard 400, never silently dropped.
@@ -258,8 +264,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // check can't be collected without Stripe, but card can't be collected
   // WITHOUT it — so a club with no Connect account only gets offline methods.
   const stripeReady = !!event.club.stripeAccountId && !!event.club.stripeChargesEnabled;
-  const allowed = eventAllowedPaymentMethods(event).filter((m) => m !== "AUTO_CARD");
-  const selectable = allowed.filter((m) => m !== "CARD" || stripeReady);
+  const allowed = eventAllowedPaymentMethods(event);
+  const selectable = publicPaymentMethods(allowed, stripeReady);
   // Phase 5 §5.12 item 7: APPROVAL_CHARGE needs a saved card, a saved card
   // needs an account, and this route is anonymous — so it is never offered
   // here, exactly like AUTO_CARD. An approval-gated public event whose policy
@@ -278,7 +284,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     (policy.approvalPaymentIntent === "INVOICE" || policy.approvalPaymentIntent === "APPROVAL_CHARGE");
   const needsDecision = !isVariableCost && amountDue > 0 && !billOnApproval;
 
-  let method: "CARD" | "CASH" | "CHECK" | null = null;
+  let method: "CARD" | "AUTO_CARD" | "CASH" | "CHECK" | null = null;
   if (needsDecision) {
     // Saved card only — that needs an account, so the answer is "sign in",
     // not "contact the club" (Finger Lakes Duals, 2026-09-24).
@@ -316,6 +322,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       );
     }
     method = chosen;
+    if (method === "AUTO_CARD" && !body.autoChargeConsent?.agreed) {
+      return NextResponse.json(
+        { error: "CONSENT_REQUIRED", message: "Please confirm you authorize the charge on the charge date." },
+        { status: 400 },
+      );
+    }
   }
 
   const registration = await prisma.eventRegistration.create({
@@ -336,7 +348,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       // coach has to approve first, nothing else is complete either: the row
       // is a REQUEST (PENDING_REVIEW) rather than a spot, and no Booking
       // exists for it until the approve route creates one (§5.4.5).
-      status: method === "CARD"
+      // A guest's saved card isn't on file until Stripe's setup page completes,
+      // so AUTO_CARD also starts as PENDING_PAYMENT; the webhook moves it on.
+      status: method === "CARD" || method === "AUTO_CARD"
         ? "PENDING_PAYMENT"
         : method
           ? // Cash and check keep their own status even under approval: the
@@ -344,15 +358,34 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
             // approvalStatus below is what gates the spot. The render context
             // reads approvalStatus FIRST, so the registrant still sees
             // "Registration requested", not "You're registered".
-            offlineStatusForMethod(method)
+            offlineStatusForMethod(method as "CASH" | "CHECK")
           : policy.requiresCoachApproval
             ? "PENDING_REVIEW"
             : "REGISTERED",
       paymentMethod: method ?? (billOnApproval ? "INVOICE" : null),
       // null means "coach approval was never part of this event's contract" —
       // never write PENDING on an event that doesn't require it.
-      approvalStatus: policy.requiresCoachApproval ? "PENDING" : null,
-      approvalRequestedAt: policy.requiresCoachApproval ? new Date() : null,
+      // A guest saving a card reaches the coach only once the card is saved
+      // (the webhook sets PENDING then), so an abandoned card page never
+      // lands in the Approvals inbox.
+      approvalStatus: policy.requiresCoachApproval && method !== "AUTO_CARD" ? "PENDING" : null,
+      approvalRequestedAt: policy.requiresCoachApproval && method !== "AUTO_CARD" ? new Date() : null,
+      ...(method === "AUTO_CARD"
+        ? {
+            autoChargeConsent: {
+              at: new Date().toISOString(),
+              kind: "GUEST_SAVED_CARD",
+              email: body.email.toLowerCase(),
+              ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+              userAgent: req.headers.get("user-agent") ?? null,
+              buttonLabel: body.autoChargeConsent?.buttonLabel ?? null,
+              amount: amountDue,
+              chargeOn: eventScheduledChargeAt(event).toISOString(),
+              afterApproval: policy.requiresCoachApproval,
+              ...(discount ? { discountCode: discount.code } : {}),
+            },
+          }
+        : {}),
       amountDue: isVariableCost ? estimatedShare : amountDue > 0 ? amountDue : null,
       // The rule, not just the result. On a variable-cost event amountDue is
       // only an estimate, but the code still binds — bill-registrants applies
@@ -398,6 +431,43 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // behave — an abandoned checkout burns a use, which is the existing
   // trade-off across the whole engine, not something new here.
   if (discount) await recordDiscountUse(discount.id);
+
+  // ── Guest saved card (2026-09-25) ───────────────────────────────────────
+  // No account, so no member to hold the card: a Stripe customer is made on
+  // the club's account for this registration, and Stripe's setup page saves
+  // the card to it. Nothing is charged here or on the setup page. The
+  // webhook (metadata.guestCardRegistrationId) stores the card on the row and
+  // moves it to "awaiting coach review" or "charge scheduled".
+  if (method === "AUTO_CARD") {
+    const stripeAccount = event.club.stripeAccountId!;
+    const customer = await stripe.customers.create(
+      {
+        email: body.email.toLowerCase(),
+        name: body.name,
+        phone: body.phone || undefined,
+        metadata: { eventRegistrationId: registration.id, eventId: event.id, clubId: event.clubId, kind: "event_guest" },
+      },
+      { stripeAccount },
+    );
+    const baseUrl = baseUrlFromRequest(req);
+    const setup = await stripe.checkout.sessions.create(
+      {
+        mode: "setup",
+        customer: customer.id,
+        currency: "usd",
+        success_url: registrationReturnUrl(baseUrl, event, registration.id, "paid"),
+        cancel_url: registrationReturnUrl(baseUrl, event, registration.id, "canceled"),
+        metadata: { guestCardRegistrationId: registration.id, clubId: event.clubId, eventId: event.id },
+        setup_intent_data: { metadata: { guestCardRegistrationId: registration.id, clubId: event.clubId } },
+      },
+      { stripeAccount },
+    );
+    await prisma.eventRegistration.update({
+      where: { id: registration.id },
+      data: { stripeCheckoutSessionId: setup.id, guestStripeCustomerId: customer.id },
+    });
+    return NextResponse.json({ url: setup.url, registrationId: registration.id });
+  }
 
   // ── Awaiting coach review (§5.4.5) ──────────────────────────────────────
   // Everything that isn't a card checkout or an at-the-door payment stops

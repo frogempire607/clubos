@@ -6,6 +6,7 @@ import {
   capacityWhere,
   resolveEventPolicy,
   publicSignupRequiresAccount,
+  publicPaymentMethods,
 } from "@/lib/eventPayments";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { documentsForEvent } from "@/lib/eventDocuments";
@@ -183,9 +184,13 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     // code field even though it has no total to quote yet.
     variableCost: !!event.variableCostEnabled,
     capacityReached,
-    // AUTO_CARD needs an authenticated member with a saved card — the public
-    // page is anonymous, so it only ever offers CARD / CASH / CHECK.
-    paymentMethods: eventAllowedPaymentMethods(event).filter((m) => m !== "AUTO_CARD"),
+    // Since 2026-09-25 a guest can save a card here too (charged on the
+    // event's date, after approval when a coach reviews). Card and saved card
+    // both need Stripe connected.
+    paymentMethods: publicPaymentMethods(
+      eventAllowedPaymentMethods(event),
+      !!event.club.stripeAccountId && !!event.club.stripeChargesEnabled,
+    ),
     // Coach approval, resolved event → type → off. APPROVAL_CHARGE is never
     // reachable here (it needs a saved card, which needs an account — §5.12
     // item 7), so the page only needs to know THAT approval applies and, when
