@@ -11,7 +11,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
-import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor, isBookable } from "@/lib/productSettings";
+import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor, unitPriceAtQuantity, isBookable } from "@/lib/productSettings";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
@@ -93,7 +93,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
     // Member price when the club set one (variant price still wins — see
     // unitPriceFor), then the discount code on top.
-    const listPrice = unitPriceFor(settings, Number(product.price), variant, "MEMBER_PORTAL");
+    // Bulk pricing (quantity breaks) lowers the unit before the code applies.
+    const listPrice = unitPriceAtQuantity(settings.quantityBreaks, unitPriceFor(settings, Number(product.price), variant, "MEMBER_PORTAL"), quantity).unit;
     const unitPrice = discount ? discountedPrice(listPrice, discount) : listPrice;
     const totalAmount = unitPrice * quantity;
     const totalCents = Math.round(totalAmount * 100);

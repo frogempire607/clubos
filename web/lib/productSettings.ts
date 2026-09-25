@@ -79,6 +79,8 @@ export type Variant = {
   photoUrl: string | null;
 };
 export type Tier = { name: string; includes: string; length: string; price: number | null };
+/** Bulk pricing: buying `minQty` or more in one checkout makes each unit `price`. */
+export type QtyBreak = { minQty: number; price: number };
 export type Duration = { mins: number; price: number | null };
 export type AddOn = { label: string; price: number | null; perGuest: boolean };
 export type QuestionKind = "SHORT" | "LONG" | "NUMBER";
@@ -91,6 +93,8 @@ export type ProductSettings = {
   v: 2;
   photos: string[];
   memberPrice: number | null;
+  /** Bulk pricing, ascending by minQty (2+). Empty = one price at any quantity. */
+  quantityBreaks: QtyBreak[];
   tiersEnabled: boolean;
   tiers: Tier[];
   lowStockAlertQuantity: number | null;
@@ -126,6 +130,7 @@ export function emptyProductSettings(): ProductSettings {
     v: 2,
     photos: [],
     memberPrice: null,
+    quantityBreaks: [],
     tiersEnabled: false,
     tiers: [],
     lowStockAlertQuantity: null,
@@ -352,6 +357,7 @@ export function normalizeProductSettings(raw: unknown): ProductSettings {
   out.maxGuests = int(s.maxGuests);
   out.otherRequiresApproval = !!s.otherRequiresApproval;
   out.photos = strList(s.photos).slice(0, 4);
+  out.quantityBreaks = parseQuantityBreaks(s.quantityBreaks);
 
   if (s.v === 2) {
     out.tiersEnabled = !!s.tiersEnabled;
@@ -567,6 +573,50 @@ export function unitPriceFor(
   if (variant && variant.price != null) return variant.price;
   if (storefront === "MEMBER_PORTAL" && settings.memberPrice != null) return settings.memberPrice;
   return Number(base) || 0;
+}
+
+// ── bulk pricing ─────────────────────────────────────────────────────────────
+
+export const MAX_QTY_BREAKS = 5;
+
+/** Clean a quantityBreaks list: whole quantities of 2+, prices of 0+, one row
+ *  per quantity (the last wins), ascending, at most MAX_QTY_BREAKS. */
+export function parseQuantityBreaks(raw: unknown): QtyBreak[] {
+  if (!Array.isArray(raw)) return [];
+  const byQty = new Map<number, number>();
+  for (const r of raw as Partial<QtyBreak>[]) {
+    const q = Math.floor(Number(r?.minQty));
+    const p = Number(r?.price);
+    if (!Number.isFinite(q) || q < 2 || q > 1000) continue;
+    if (r?.price == null || !Number.isFinite(p) || p < 0) continue;
+    byQty.set(q, Math.round(p * 100) / 100);
+  }
+  return Array.from(byQty, ([minQty, price]) => ({ minQty, price }))
+    .sort((a, b) => a.minQty - b.minQty)
+    .slice(0, MAX_QTY_BREAKS);
+}
+
+/** The bulk row that applies at this quantity (the highest minQty ≤ qty), or null. */
+export function qtyBreakFor(breaks: QtyBreak[], quantity: number): QtyBreak | null {
+  let hit: QtyBreak | null = null;
+  for (const b of breaks) if (quantity >= b.minQty) hit = b;
+  return hit;
+}
+
+/**
+ * The unit price at a quantity: the bulk price when a row applies AND it is
+ * lower than what the unit would cost anyway (a member price or a variant
+ * price that is already cheaper is never raised).
+ */
+export function unitPriceAtQuantity(breaks: QtyBreak[], unit: number, quantity: number): { unit: number; bulk: QtyBreak | null } {
+  const b = qtyBreakFor(breaks, quantity);
+  if (b && b.price < unit) return { unit: b.price, bulk: b };
+  return { unit, bulk: null };
+}
+
+/** "2+ $35 each · 3+ $30 each" */
+export function quantityBreaksLabel(breaks: QtyBreak[]): string {
+  return breaks.map((b) => `${b.minQty}+ $${b.price.toFixed(2)} each`).join(" · ");
 }
 
 export type StockCheck =

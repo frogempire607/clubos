@@ -67,7 +67,8 @@ export default function UnitEconomicsTab({ range, customFrom, customTo }: { rang
       </div>
 
       {/* 4 per-athlete KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* KPI cards 4 → 2 → 1 (2.5.12.2). */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard label="Revenue / athlete" value={money(data.perAthlete.revenue)} hint={`${data.athleteCount} active athletes`} />
         <KpiCard label="Cost / athlete" value={money(data.perAthlete.cost)} hint="All expenses ÷ athletes" />
         <KpiCard label="Gross profit / athlete" value={money(data.perAthlete.grossProfit)} hint="After variable costs" />
@@ -90,7 +91,7 @@ function KpiCard({ label, value, hint }: { label: string; value: string; hint: s
   return (
     <div className="bg-surface border border-app-border rounded-xl p-4">
       <p className="text-[11px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
-      <p className="text-2xl font-semibold text-text-primary tabular-nums mt-1">{value}</p>
+      <p className="text-2xl font-semibold text-text-primary tabular-nums mt-1 break-words">{value}</p>
       <p className="text-[11px] text-text-muted mt-0.5">{hint}</p>
     </div>
   );
@@ -192,7 +193,7 @@ function AcquisitionCard({ acquisition }: { acquisition: Response["acquisition"]
           Estimated
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiCard label="CAC" value={moneyRound(acquisition.cac)} hint="Cost to acquire" />
         <KpiCard label="LTV" value={moneyRound(acquisition.ltv)} hint="Lifetime value" />
         <KpiCard

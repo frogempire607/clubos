@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollTable } from "@/components/reports/responsive";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Info, TrendingDown, TrendingUp, Minus } from "lucide-react";
@@ -110,7 +111,7 @@ export default function MembershipTab({ range, customFrom, customTo }: { range: 
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`text-xs px-3 py-1 rounded-full whitespace-nowrap min-h-[32px] ${
+                className={`text-xs px-3 py-1 rounded-full whitespace-nowrap min-h-[44px] sm:min-h-[32px] ${
                   filter === f
                     ? "bg-charcoal text-white font-semibold"
                     : "bg-app-bg text-text-muted"
@@ -154,7 +155,7 @@ export default function MembershipTab({ range, customFrom, customTo }: { range: 
           <p className="text-sm text-text-muted">No plan-level breakdown available.</p>
         ) : (
           <>
-            <div className="hidden md:block overflow-x-auto">
+            <ScrollTable className="hidden md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
@@ -177,7 +178,7 @@ export default function MembershipTab({ range, customFrom, customTo }: { range: 
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollTable>
             <ul className="md:hidden space-y-2">
               {data.breakdown.map((row) => (
                 <li key={row.key} className="border border-app-border rounded-lg p-3">
@@ -295,17 +296,20 @@ function TrendCard({ trend }: { trend: Response["trend"] }) {
       {trend.every((t) => t.churnRate == null) ? (
         <p className="text-sm text-text-muted">Not enough history to draw a trend.</p>
       ) : (
-        <div className="flex items-end gap-2 h-32 overflow-x-auto">
+        <div className="flex items-stretch gap-2 h-36 overflow-x-auto">
           {trend.map((t) => {
             const rate = t.churnRate ?? 0;
             const h = Math.max(2, (rate / max) * 100);
             return (
               <div key={t.period} className="flex-1 min-w-[24px] flex flex-col items-center gap-1">
-                <div
-                  className={`w-full rounded-t ${rate > 5 ? "bg-red-400" : "bg-brand"}`}
-                  style={{ height: `${h}%` }}
-                  title={`${t.label}: ${fmtPct(t.churnRate)}`}
-                />
+                {/* A definite-height track so the % bar height resolves. */}
+                <div className="flex-1 w-full flex items-end">
+                  <div
+                    className={`w-full rounded-t ${rate > 5 ? "bg-red-400" : "bg-brand"}`}
+                    style={{ height: `${h}%` }}
+                    title={`${t.label}: ${fmtPct(t.churnRate)}`}
+                  />
+                </div>
                 <span className="text-[10px] text-text-muted whitespace-nowrap">{t.label.split(" ")[0]}</span>
                 <span className="text-[10px] text-text-muted tabular-nums">{fmtPct(t.churnRate)}</span>
               </div>

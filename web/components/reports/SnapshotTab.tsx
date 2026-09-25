@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ArrowRight, TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { SkeletonCard } from "@/components/LoadingSkeleton";
 import ActionItems from "@/components/reports/ActionItems";
+import { usePhone } from "@/components/reports/responsive";
+import { monthLabel } from "@/lib/reportsMonthLabel";
 import type { RangeKey } from "@/components/reports/RangeDropdown";
 
 type SnapshotResponse = {
@@ -165,7 +167,7 @@ function MetricInline({ label, value, accent }: { label: string; value: string; 
   return (
     <div>
       <p className="text-[11px] text-text-muted uppercase tracking-wide">{label}</p>
-      <p className={`text-base sm:text-lg font-semibold tabular-nums ${cls}`}>{value}</p>
+      <p className={`text-base sm:text-lg font-semibold tabular-nums break-all ${cls}`}>{value}</p>
     </div>
   );
 }
@@ -372,13 +374,10 @@ function CashRunwayCard({ cash, runway }: { cash: SnapshotResponse["cash"]; runw
 
 function MoneyInVsOutChart({ trend }: { trend: SnapshotResponse["trend"] }) {
   const [showAll, setShowAll] = useState(false);
-  const visible = useMemo(() => {
-    // Below sm show last 6 with toggle.
-    if (typeof window !== "undefined" && window.innerWidth < 640 && !showAll) {
-      return trend.slice(-6);
-    }
-    return trend;
-  }, [trend, showAll]);
+  // Below sm: the last 6 months, with a "show all" toggle (2.5.12.6). A live
+  // media query, so rotating the phone re-lays the chart.
+  const phone = usePhone();
+  const visible = useMemo(() => (phone && !showAll ? trend.slice(-6) : trend), [trend, showAll, phone]);
   const maxVal = Math.max(1, ...trend.map((b) => Math.max(b.inflows, b.outflows)));
 
   return (
@@ -394,15 +393,17 @@ function MoneyInVsOutChart({ trend }: { trend: SnapshotResponse["trend"] }) {
           </span>
           {trend.length > 6 && (
             <button
-              className="sm:hidden text-brand font-semibold"
+              className="sm:hidden text-brand font-semibold min-h-[44px] px-2 -mr-2"
               onClick={() => setShowAll((v) => !v)}
+              aria-pressed={showAll}
             >
               {showAll ? "Show recent" : "Show all"}
             </button>
           )}
         </div>
       </div>
-      <div className="flex items-end gap-2 h-40 overflow-x-auto">
+      {/* Columns stretch to the chart height so the % bar heights resolve. */}
+      <div className="flex items-stretch gap-2 h-40 overflow-x-auto">
         {visible.map((b, i) => {
           const inH = Math.max(2, (b.inflows / maxVal) * 100);
           const outH = Math.max(2, (b.outflows / maxVal) * 100);
@@ -413,7 +414,7 @@ function MoneyInVsOutChart({ trend }: { trend: SnapshotResponse["trend"] }) {
                 <div className="flex-1 bg-brand/30 rounded-t" style={{ height: `${outH}%` }} title={`Out ${moneyExact(b.outflows)}`} />
               </div>
               <span className="text-[10px] text-text-muted whitespace-nowrap">
-                {new Date(b.month).toLocaleDateString("en-US", { month: "short" })}
+                {monthLabel(b.month)}
                 {b.isPartial && "*"}
               </span>
             </div>

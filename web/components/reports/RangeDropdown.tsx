@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronDown } from "lucide-react";
+import { useBodyScrollLock, usePhone } from "@/components/reports/responsive";
 
 export type RangeKey =
   | "this_week"
@@ -62,11 +63,16 @@ export default function RangeDropdown({
     };
   }, [open]);
   const current = OPTIONS.find((o) => o.key === value) ?? OPTIONS[2];
+  // The phone bottom sheet holds the page still behind it.
+  const phone = usePhone();
+  useBodyScrollLock(open && phone);
   return (
     <div className="relative" ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className="h-9 flex items-center gap-2 px-3 border border-app-border rounded-lg bg-surface text-sm font-medium text-text-primary hover:bg-app-bg transition-colors min-h-[44px] sm:min-h-9"
       >
         <CalendarDays size={15} strokeWidth={2} className="text-text-muted" />
@@ -167,20 +173,29 @@ function CustomInputs({
   const [t, setT] = useState(to ?? "");
   return (
     <div className="border-t border-app-border mt-1 pt-2 px-2 pb-2 space-y-2">
-      <div className="flex items-center gap-2">
-        <input
-          type="date"
-          value={f}
-          onChange={(e) => setF(e.target.value)}
-          className="flex-1 px-2 py-1.5 text-sm border border-app-border rounded"
-        />
-        <span className="text-xs text-text-muted">to</span>
-        <input
-          type="date"
-          value={t}
-          onChange={(e) => setT(e.target.value)}
-          className="flex-1 px-2 py-1.5 text-sm border border-app-border rounded"
-        />
+      {/* Native date inputs; stacked on phones so neither is squeezed. */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <label className="flex-1 min-w-0">
+          <span className="sm:sr-only block text-[11px] text-text-muted mb-0.5">From</span>
+          <input
+            type="date"
+            aria-label="From"
+            value={f}
+            onChange={(e) => setF(e.target.value)}
+            className="w-full min-w-0 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm border border-app-border rounded bg-surface text-text-primary"
+          />
+        </label>
+        <span className="hidden sm:inline text-xs text-text-muted">to</span>
+        <label className="flex-1 min-w-0">
+          <span className="sm:sr-only block text-[11px] text-text-muted mb-0.5">To</span>
+          <input
+            type="date"
+            aria-label="To"
+            value={t}
+            onChange={(e) => setT(e.target.value)}
+            className="w-full min-w-0 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm border border-app-border rounded bg-surface text-text-primary"
+          />
+        </label>
       </div>
       <button
         onClick={() => {

@@ -507,16 +507,16 @@ Everything in `ARCHITECTURE-NOTES.md §2.3` items 1, 2, 3 lands here — they un
 
 | # | Task | Class | Migration | Status |
 |---|---|---|---|---|
-| 2.5.12.1 | Horizontal-scroll tab bar with sticky-into-view; never collapses to `<select>`. | UI | — | ⬜ |
-| 2.5.12.2 | KPI cards 4→2→1; two-column pairs stack in read order. | UI | — | ⬜ |
-| 2.5.12.3 | Every wide table: sticky first column + `-webkit-overflow-scrolling: touch` + right-edge fade shadow. | UI | — | ⬜ |
-| 2.5.12.4 | P&L below `sm`: stacked card layout. | UI | — | ⬜ |
-| 2.5.12.5 | Drill-through on mobile is full-screen sheet, not popover. | UI | — | ⬜ |
-| 2.5.12.6 | 12-month chart below `sm`: last 6 months + "show all" toggle. | UI | — | ⬜ |
-| 2.5.12.7 | Range dropdown: bottom sheet on mobile, 44px minimum row height. | UI | — | ⬜ |
-| 2.5.12.8 | Reliability + alert strips never collapsed on small screens. | UI | — | ⬜ |
-| 2.5.12.9 | Every interactive target ≥ 44×44 on touch. | UI | — | ⬜ |
-| 2.5.12.10 | No horizontal page scroll at 375, 414, 768 px. | UI | — | ⬜ |
+| 2.5.12.1 | Horizontal-scroll tab bar with sticky-into-view; never collapses to `<select>`. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.2 | KPI cards 4→2→1; two-column pairs stack in read order. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.3 | Every wide table: sticky first column + `-webkit-overflow-scrolling: touch` + right-edge fade shadow. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.4 | P&L below `sm`: stacked card layout. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.5 | Drill-through on mobile is full-screen sheet, not popover. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.6 | 12-month chart below `sm`: last 6 months + "show all" toggle. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.7 | Range dropdown: bottom sheet on mobile, 44px minimum row height. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.8 | Reliability + alert strips never collapsed on small screens. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.9 | Every interactive target ≥ 44×44 on touch. | UI | — | ✅ 2026-09-25 |
+| 2.5.12.10 | No horizontal page scroll at 375, 414, 768 px. | UI | — | ✅ 2026-09-25 |
 
 ### 2.5.13 Test suite (spec 06 — every case)
 
@@ -5176,3 +5176,17 @@ Julian: yes to the group rate, but clubs name their own groups and may have seve
   rule label when there's no code.
 
 Tests: new `test:membership-group-rates` (24). sibling 32, event-auto-discounts 44, plan-change 48, panel 46, guards green.
+
+
+---
+
+### 2026-09-25 — B5 / 2.5.12 Reports mobile + products bulk pricing & public photos (branch `claude/b5-reports-mobile`)
+
+- 2.5.12.1–10 built (see BACKLOG B5 for the file list). Guard: `scripts/reports-mobile-guard.ts` (58, run with
+  TZ=America/New_York). `reports-tests.ts` still 263/263.
+- Found while auditing: Snapshot "Money in vs out" month labels were one month early for US clubs; Snapshot and
+  churn-trend bars used % heights inside auto-height columns (rendered as slivers). Both fixed.
+- Owner-reported: product JPEGs broke on the public page (`/api/files` is session-gated). New narrow public route
+  `/api/public/media/[kind]/[ownerId]/[fileId]`; `storeView` rewrites every product photo; public event API rewrites
+  the cover. Bulk pricing (`quantityBreaks`) added — pure helpers in `lib/productSettings.ts`, 39 tests.
+- Open: real-device pass at 375/414/768 with an owner session.

@@ -184,7 +184,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+    <div className="reports-touch p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto min-w-0">
       <PageHeader
         title="Reports"
         description="Owner-first answers about the health of your club."
@@ -234,15 +234,19 @@ export default function ReportsPage() {
       {/* Tabs bar. Horizontal scroll below lg. */}
       <div
         ref={tabsRef}
-        className="bg-surface border border-app-border rounded-xl mb-5 p-1 flex gap-1 overflow-x-auto relative"
-        style={{ scrollBehavior: "smooth" }}
+        role="tablist"
+        aria-label="Report sections"
+        className="bg-surface border border-app-border rounded-xl mb-5 p-1 flex gap-1 overflow-x-auto overscroll-x-contain relative [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ scrollBehavior: "smooth", WebkitOverflowScrolling: "touch" }}
       >
         {visibleTabs.map((t) => (
           <button
             key={t.key}
             ref={(el) => { tabRefs.current[t.key] = el; }}
+            role="tab"
+            aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
-            className={`text-xs sm:text-sm px-3 py-2 rounded-md whitespace-nowrap font-medium transition-colors min-h-[44px] sm:min-h-0 flex items-center ${
+            className={`shrink-0 text-xs sm:text-sm px-3 py-2 rounded-md whitespace-nowrap font-medium transition-colors min-h-[44px] sm:min-h-0 flex items-center ${
               tab === t.key
                 ? "bg-charcoal text-white"
                 : "text-text-muted hover:text-text-primary"

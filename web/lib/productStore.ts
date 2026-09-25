@@ -7,6 +7,7 @@
 // phone is the number the front desk sees.
 
 import { normalizeProductSettings, unitPriceFor, variantStatus, isBookable, PRODUCT_TYPE_LABELS, type ProductSettings, type ProductType } from "@/lib/productSettings";
+import { publicMediaUrl } from "@/lib/publicMedia";
 import { lengthOptions, effectiveWindows, type LengthOption } from "@/lib/productBooking";
 
 export type StoreVariant = { id: string; label: string; values: string[]; stock: number; price: number; status: "OUT" | "LOW" | "OK"; photoUrl: string | null };
@@ -26,6 +27,8 @@ export type StoreProduct = {
   inventory: number | null;
   optionGroups: { name: string; values: string[] }[];
   variants: StoreVariant[];
+  /** Bulk pricing — "2+ $35 each"; empty = one price at any quantity. */
+  quantityBreaks: { minQty: number; price: number }[];
   hasVariants: boolean;
   /** Units across variants (or the plain count); null = untracked. */
   available: number | null;
@@ -55,7 +58,11 @@ type Row = {
 export function storeView(row: Row): StoreProduct {
   const settings: ProductSettings = normalizeProductSettings(row.settings);
   const base = Number(row.price) || 0;
-  const photos = settings.photos.length ? settings.photos : row.imageUrl ? [row.imageUrl] : [];
+  // Photos go out through the public media route so they load for a buyer
+  // who is not signed in to staff (the /api/files path is session-gated).
+  const photos = (settings.photos.length ? settings.photos : row.imageUrl ? [row.imageUrl] : [])
+    .map((u) => publicMediaUrl("product", row.id, u))
+    .filter((u): u is string => !!u);
   const variants: StoreVariant[] = settings.variants.map((v) => ({
     id: v.id,
     label: v.label,
@@ -63,7 +70,7 @@ export function storeView(row: Row): StoreProduct {
     stock: v.stock,
     price: unitPriceFor(settings, base, v, "MEMBER_PORTAL"),
     status: variantStatus(v, settings.lowStockAlertQuantity),
-    photoUrl: v.photoUrl,
+    photoUrl: publicMediaUrl("product", row.id, v.photoUrl),
   }));
   const hasVariants = variants.length > 0;
   const available = hasVariants
@@ -84,6 +91,7 @@ export function storeView(row: Row): StoreProduct {
     inventory: row.inventory,
     optionGroups: settings.optionGroups.filter((g) => g.values.length > 0),
     variants,
+    quantityBreaks: settings.quantityBreaks,
     hasVariants,
     available,
     needsBookingFlow: isBookable(row.productType),

@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollTable } from "@/components/reports/responsive";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AlertTriangle, ChevronRight, Info, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
@@ -125,7 +126,7 @@ export default function CostsTab({ range, customFrom, customTo }: { range: Range
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden md:block overflow-x-auto">
+            <ScrollTable className="hidden md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
@@ -169,7 +170,7 @@ export default function CostsTab({ range, customFrom, customTo }: { range: Range
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollTable>
             {/* Mobile card list */}
             <ul className="md:hidden space-y-2">
               {data.topCategories.map((c) => (

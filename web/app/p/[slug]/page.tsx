@@ -4,6 +4,8 @@
 // Anyone with the link (or a scanned QR tag) buys or books with Stripe — no
 // account needed. Members are pointed at signing in for the member price.
 
+import BulkPriceNote from "@/components/products/BulkPriceNote";
+import { unitPriceAtQuantity } from "@/lib/productSettings";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
@@ -46,7 +48,9 @@ export default function PublicProductPage() {
   if (!data || !p) return <Shell accent="#1C1917"><div className="pskeleton h-64 rounded-2xl" /></Shell>;
 
   // The public price is the list price (or the variant's own).
-  const unit = chosen ? chosen.price : p.price;
+  const listUnit = chosen ? chosen.price : p.price;
+  // Bulk pricing lowers each unit at the club's quantity breaks.
+  const unit = unitPriceAtQuantity(p.quantityBreaks ?? [], listUnit, qty).unit;
   const available = p.hasVariants ? (chosen ? chosen.stock : null) : p.available;
   const soldOut = available !== null && available <= 0;
   const maxQty = available == null ? 20 : Math.max(1, Math.min(20, available));
@@ -106,7 +110,7 @@ export default function PublicProductPage() {
         <div className="space-y-4">
           <div>
             <h1 className="text-xl font-semibold text-stone-900 leading-tight">{p.name}</h1>
-            {!p.booking && <div className="text-lg font-semibold text-stone-900 mt-1">{money(unit)}</div>}
+            {!p.booking && <div className="text-lg font-semibold text-stone-900 mt-1">{money(unit)}{unit < listUnit && <span className="ml-2 text-sm font-normal text-stone-400 line-through">{money(listUnit)}</span>}</div>}
             {data.memberSaves > 0 && (
               <p className="text-xs mt-1"><span className="font-medium text-stone-700 bg-stone-100 rounded-full px-2 py-0.5">Members save {money(data.memberSaves)}</span> <Link href={`/login?callbackUrl=${encodeURIComponent(`/member/products/${p.id}`)}`} className="underline text-stone-600">Sign in</Link></p>
             )}
@@ -143,6 +147,7 @@ export default function PublicProductPage() {
                   <button type="button" aria-label="More" onClick={() => setQty((q) => Math.min(maxQty, q + 1))} disabled={qty >= maxQty} className="w-11 h-11 flex items-center justify-center disabled:opacity-30"><Plus size={16} /></button>
                 </div>
               </div>
+              <BulkPriceNote breaks={p.quantityBreaks ?? []} unit={listUnit} quantity={qty} onPick={(n) => setQty(Math.min(maxQty, n))} />
               <div className="space-y-2">
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="w-full px-3 py-2.5 border border-stone-300 rounded-xl text-sm bg-white" />
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email for the receipt" className="w-full px-3 py-2.5 border border-stone-300 rounded-xl text-sm bg-white" />

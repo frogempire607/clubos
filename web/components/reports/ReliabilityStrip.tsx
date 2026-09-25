@@ -60,25 +60,29 @@ export default function ReliabilityStrip({
     : null;
   if (sections.length === 0) return null;
   return (
-    <div className="bg-surface border border-app-border rounded-lg py-2.5 px-3.5 mb-5 flex items-center gap-4 flex-wrap">
+    // Never collapsed on phones (2.5.12.8): each section wraps onto its own
+    // line below sm, with a full-height tap row.
+    <div className="bg-surface border border-app-border rounded-lg py-1.5 sm:py-2.5 px-3.5 mb-5 flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-4 sm:flex-wrap">
       {sections.map((s, i) => {
         const badge = stateBadge(s.state);
         return (
-          <div key={`${s.key}-${i}`} className="flex items-center gap-2">
+          <div key={`${s.key}-${i}`} className="flex items-center gap-2 min-w-0">
             {i > 0 && <div className="hidden sm:block w-px h-3.5 bg-app-border" />}
             <Link
               href={s.href}
-              className="flex items-center gap-2 text-xs font-medium text-text-primary hover:text-brand transition-colors"
+              className="flex items-start sm:items-center gap-2 py-2 sm:py-0 min-h-[44px] sm:min-h-0 text-xs font-medium text-text-primary hover:text-brand transition-colors min-w-0"
             >
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-              <span>{s.label}</span>
-              <span className="text-text-muted font-normal">{s.detail}</span>
+              <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 sm:mt-0 ${badge.dot}`} />
+              <span className="min-w-0 break-words">
+                <span>{s.label}</span>{" "}
+                <span className="text-text-muted font-normal">{s.detail}</span>
+              </span>
             </Link>
           </div>
         );
       })}
       {ago != null && (
-        <span className="ml-auto text-[11px] text-text-muted">
+        <span className="sm:ml-auto py-1.5 sm:py-0 text-[11px] text-text-muted">
           Updated {ago === 0 ? "just now" : `${ago}m ago`}
         </span>
       )}

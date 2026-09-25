@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { storeView } from "@/lib/productStore";
 import { normalizeProductSettings, unitPriceFor, findVariant } from "@/lib/productSettings";
 import { onPublicLink } from "@/lib/productPublic";
+import { publicClubLogoUrl } from "@/lib/clubLogo";
 
 // GET /api/public/products/[slug] — B10 2h, the public product page. NO AUTH.
 // The store projection (no SKUs, thresholds or notes) plus the club's
@@ -27,7 +28,7 @@ export async function GET(req: Request, context: { params: Promise<{ slug: strin
     product: view,
     // Non-members pay the list price; the badge tells members what signing in saves.
     memberSaves: Math.max(0, Math.round((view.price - view.memberPrice) * 100) / 100),
-    club: { name: product.club.name, slug: product.club.slug, logoUrl: product.club.logoUrl, primaryColor: product.club.primaryColor },
+    club: { name: product.club.name, slug: product.club.slug, logoUrl: product.club.logoUrl ? publicClubLogoUrl(product.club.id, product.club.logoUrl) : null, primaryColor: product.club.primaryColor },
     canPay: !!product.club.stripeAccountId && !!product.club.stripeChargesEnabled,
   });
 }

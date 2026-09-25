@@ -448,3 +448,23 @@ body {
   .member-portal .pskeleton { animation: none; }
   .member-portal .pfade { animation: none; }
 }
+
+/* B5 (plan §2.5.12.9) — Reports on touch screens: every control is at least
+ * 44×44. Unlayered on purpose, so it beats a tab's own desktop sizing
+ * (sm:min-h-9 and friends) on a touch tablet too. Inline text links are
+ * unaffected (min-height does not apply to inline boxes). */
+@media (pointer: coarse) {
+  .reports-touch button:not(.touch-exempt),
+  .reports-touch select,
+  .reports-touch [role="tab"],
+  .reports-touch a[href]:not(.touch-exempt) {
+    min-height: 44px;
+  }
+  .reports-touch button:not(.touch-exempt),
+  .reports-touch select {
+    min-width: 44px;
+  }
+  .reports-touch input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+    min-height: 44px;
+  }
+}

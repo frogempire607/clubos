@@ -8,6 +8,8 @@
 // and the checkout button disables itself the moment the chosen combination is
 // at 0. Nothing here is typed twice.
 
+import BulkPriceNote from "@/components/products/BulkPriceNote";
+import { unitPriceAtQuantity } from "@/lib/productSettings";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -80,7 +82,9 @@ export default function MemberProductDetailPage() {
   const soldOut = available !== null && available <= 0;
   const needsPick = !!product?.hasVariants && !chosen;
   const maxQty = available == null ? 20 : Math.max(1, Math.min(20, available));
-  const total = unit * qty;
+  // Bulk pricing lowers each unit at the club's quantity breaks.
+  const bulkUnit = product ? unitPriceAtQuantity(product.quantityBreaks ?? [], unit, qty).unit : unit;
+  const total = bulkUnit * qty;
 
   useEffect(() => { setQty((q) => Math.min(q, maxQty)); }, [maxQty]);
 
@@ -244,6 +248,8 @@ export default function MemberProductDetailPage() {
               <button type="button" aria-label="More" onClick={() => setQty((q) => Math.min(maxQty, q + 1))} disabled={qty >= maxQty} className="w-11 h-11 flex items-center justify-center text-stone-700 disabled:opacity-30"><Plus size={16} /></button>
             </div>
           </div>
+
+          {product && <BulkPriceNote breaks={product.quantityBreaks ?? []} unit={unit} quantity={qty} onPick={(n) => setQty(Math.min(maxQty, n))} />}
 
           <label className="block">
             <span className="block text-xs text-stone-500 mb-1">Discount code</span>

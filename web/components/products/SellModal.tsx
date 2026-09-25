@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import StaffDiscountPicker from "@/components/StaffDiscountPicker";
 import {
-  checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor, variantStatus,
+  checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor, unitPriceAtQuantity, variantStatus,
 } from "@/lib/productSettings";
 
 export type SellableProduct = {
@@ -44,7 +44,10 @@ export default function SellModal({ product, onClose, onSold }: { product: Sella
   }, []);
 
   const variant = findVariant(settings, variantId);
-  const unit = unitPriceFor(settings, product.price, variant, "STAFF");
+  const listUnit = unitPriceFor(settings, product.price, variant, "STAFF");
+  // Bulk pricing — same rule the sell route applies.
+  const bulk = unitPriceAtQuantity(settings.quantityBreaks, listUnit, quantity);
+  const unit = bulk.unit;
   const total = unit * quantity;
   const stock = checkStock(settings, product, variantId, quantity);
   const lineLabel = variant ? `${product.name} — ${variant.label}` : product.name;
@@ -157,7 +160,7 @@ export default function SellModal({ product, onClose, onSold }: { product: Sella
             </div>
 
             <div className="pt-2 border-t border-app-border space-y-1">
-              <div className="flex items-center justify-between text-sm text-text-muted"><span>{quantity}× {variant ? variant.label : product.name}</span><span>{money(unit)} each</span></div>
+              <div className="flex items-center justify-between text-sm text-text-muted"><span>{quantity}× {variant ? variant.label : product.name}</span><span>{money(unit)} each{bulk.bulk ? ` (${bulk.bulk.minQty}+ bulk, was ${money(listUnit)})` : ""}</span></div>
               <div className="flex items-center justify-between"><span className="text-sm text-text-muted">Total</span><span className="text-lg font-semibold text-text-primary">{money(total)}</span></div>
             </div>
 

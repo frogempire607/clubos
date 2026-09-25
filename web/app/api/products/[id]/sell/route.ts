@@ -9,7 +9,7 @@ import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
-import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor } from "@/lib/productSettings";
+import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor, unitPriceAtQuantity } from "@/lib/productSettings";
 import { releaseStock } from "@/lib/productStock";
 import { recordProductMoney } from "@/lib/productMoney";
 
@@ -47,7 +47,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // plain count only for products without variants.
     const stock = checkStock(settings, product, body.variantId, quantity);
     if (!stock.ok) return NextResponse.json({ error: stockMessage(stock), code: stock.reason }, { status: 400 });
-    const unitPrice = unitPriceFor(settings, Number(product.price), variant, "STAFF");
+    // Bulk pricing: at the club's quantity breaks the unit drops (never rises).
+    const unitPrice = unitPriceAtQuantity(settings.quantityBreaks, unitPriceFor(settings, Number(product.price), variant, "STAFF"), quantity).unit;
     const originalTotal = unitPrice * quantity;
     const lineName = variant ? `${product.name} — ${variant.label}` : product.name;
 
