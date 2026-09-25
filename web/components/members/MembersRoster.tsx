@@ -118,6 +118,8 @@ type QueueCounts = {
   duplicates: number;
   renewingSoon: number;
   paused: number;
+  /** ISO date the next paused member resumes, when any pause has one. */
+  pausedNextResume?: string | null;
 };
 
 type Payload = {
@@ -1288,9 +1290,14 @@ function WorkQueueStrip({
         const body = (
           <>
             <div className="text-[22px] font-semibold leading-none tabular-nums text-text-primary">
-              {queueCounts ? queueCounts[c.key as keyof QueueCounts].toLocaleString() : "—"}
+              {queueCounts ? Number(queueCounts[c.key as keyof QueueCounts] ?? 0).toLocaleString() : "—"}
             </div>
             <div className="mt-1 text-[12.5px] text-text-primary">{c.label}</div>
+            {c.key === "paused" && queueCounts?.pausedNextResume && (
+              <div className="text-[11px] text-text-muted">
+                next back {new Date(queueCounts.pausedNextResume).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+              </div>
+            )}
             <div className="mt-1 text-[12px] font-medium" style={{ color: "var(--color-prospect-text)" }}>
               {c.action} →
             </div>

@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import ImageUpload from "@/components/ImageUpload";
 import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
-import { validateRosterDef } from "@/lib/eventRoster";
+import { validateRosterDef, rostersNamedInLabel } from "@/lib/eventRoster";
 import { ESCALATION_SCHEDULE_DAYS, type EscalationSchedule } from "@/lib/eventPayments";
 import {
   PARTICIPANT_FIELD_ID,
@@ -352,7 +352,8 @@ export default function EventEditor({
 
   // ── B16: roster positions (columns = rosters, rows = positions) ──
   type RosterRowState = { id: string | null; label: string };
-  type PositionRowState = { id: string | null; label: string; capacity: string };
+  // `rosters`: labels of the rosters this position is offered in; [] = all.
+  type PositionRowState = { id: string | null; label: string; capacity: string; rosters: string[] };
   const [rosterCols, setRosterCols] = useState<RosterRowState[]>([]);
   const [rosterRows, setRosterRows] = useState<PositionRowState[]>([]);
   const [rosterDirty, setRosterDirty] = useState(false);
@@ -369,7 +370,11 @@ export default function EventEditor({
       .then((d) => {
         if (!alive || !d?.definition) { if (alive) setRosterLoaded(true); return; }
         setRosterCols(d.definition.rosters.map((r: { id: string; label: string }) => ({ id: r.id, label: r.label })));
-        setRosterRows(d.definition.positions.map((p: { id: string; label: string; capacity: number | null }) => ({ id: p.id, label: p.label, capacity: p.capacity == null ? "" : String(p.capacity) })));
+        const labelOf = new Map<string, string>(d.definition.rosters.map((r: { id: string; label: string }) => [r.id, r.label]));
+        setRosterRows(d.definition.positions.map((p: { id: string; label: string; capacity: number | null; rosterIds?: string[] }) => ({
+          id: p.id, label: p.label, capacity: p.capacity == null ? "" : String(p.capacity),
+          rosters: (p.rosterIds ?? []).map((rid) => labelOf.get(rid)).filter((x): x is string => !!x),
+        })));
         setRosterLoaded(true);
       })
       .catch(() => alive && setRosterLoaded(true));
@@ -387,7 +392,8 @@ export default function EventEditor({
     const [cols, rows] = opts(a).length <= opts(b).length ? [a, b] : [b, a];
     editRoster(() => {
       setRosterCols(opts(cols).map((label) => ({ id: null, label })));
-      setRosterRows(opts(rows).map((label) => ({ id: null, label, capacity: "" })));
+      // "40 (K4 only)", "52 (K4/K6)" → offered only in the rosters they name.
+      setRosterRows(opts(rows).map((label) => ({ id: null, label, capacity: "", rosters: rostersNamedInLabel(label, opts(cols)) })));
       setCategories((cs) => cs.filter((c) => c.key !== cols.key && c.key !== rows.key));
     });
     // Only questions that were already saved can have answers to carry over.
@@ -532,7 +538,13 @@ export default function EventEditor({
     // event behind with no roster (and a second Save creating a duplicate).
     const rosterBody = {
       rosters: rosterCols.map((r) => ({ id: r.id, label: r.label })),
-      positions: rosterRows.map((p) => ({ id: p.id, label: p.label, capacity: p.capacity.trim() === "" ? null : Number(p.capacity) })),
+      positions: rosterRows.map((p) => ({
+        id: p.id,
+        label: p.label,
+        capacity: p.capacity.trim() === "" ? null : Number(p.capacity),
+        // Only labels of rosters still on the event; a renamed/removed roster drops out.
+        rosters: p.rosters.filter((l) => rosterCols.some((r) => r.label.trim().toLowerCase() === l.trim().toLowerCase())),
+      })),
     };
     if (rosterDirty) {
       const rc = validateRosterDef(rosterBody);
@@ -967,27 +979,61 @@ export default function EventEditor({
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-medium text-text-primary">Positions (rows)</span>
-            <button type="button" onClick={() => editRoster(() => setRosterRows((c) => [...c, { id: null, label: "", capacity: "" }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Position</button>
+            <button type="button" onClick={() => editRoster(() => setRosterRows((c) => [...c, { id: null, label: "", capacity: "", rosters: [] }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Position</button>
           </div>
           {rosterRows.length > 0 && (
             <div className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center text-[10px] uppercase tracking-wide text-text-muted mb-1">
               <span>Position</span><span>Capacity</span><span />
             </div>
           )}
-          {rosterRows.map((p, i) => (
-            <div key={p.id ?? `new-${i}`} className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center mb-1.5">
-              <input value={p.label} onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x))))} placeholder="Position name" className={input} />
-              <input value={p.capacity} inputMode="numeric" onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, capacity: e.target.value.replace(/[^0-9]/g, "") } : x))))} placeholder="No limit" className={input} />
-              <button type="button" onClick={() => editRoster(() => setRosterRows((c) => c.filter((_, idx) => idx !== i)))} className="text-xs text-red-600 px-2">Remove</button>
-            </div>
-          ))}
+          {rosterRows.map((p, i) => {
+            const liveCols = rosterCols.filter((r) => r.label.trim());
+            const isOn = (l: string) => p.rosters.length === 0 || p.rosters.some((x) => x.toLowerCase() === l.trim().toLowerCase());
+            const toggleCol = (l: string) => editRoster(() => setRosterRows((c) => c.map((x, idx) => {
+              if (idx !== i) return x;
+              const all = liveCols.map((r) => r.label.trim());
+              const current = x.rosters.length === 0 ? all : x.rosters;
+              const next = current.some((y) => y.toLowerCase() === l.toLowerCase()) ? current.filter((y) => y.toLowerCase() !== l.toLowerCase()) : [...current, l];
+              if (next.length === 0) return x; // at least one roster
+              return { ...x, rosters: next.length === all.length ? [] : next };
+            })));
+            return (
+              <div key={p.id ?? `new-${i}`} className="mb-2">
+                <div className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center">
+                  <input value={p.label} onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x))))} placeholder="Position name" className={input} />
+                  <input value={p.capacity} inputMode="numeric" onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, capacity: e.target.value.replace(/[^0-9]/g, "") } : x))))} placeholder="No limit" className={input} />
+                  <button type="button" onClick={() => editRoster(() => setRosterRows((c) => c.filter((_, idx) => idx !== i)))} className="text-xs text-red-600 px-2">Remove</button>
+                </div>
+                {liveCols.length > 1 && (
+                  <div className="flex flex-wrap items-center gap-1 mt-1">
+                    <span className="text-[10px] text-text-muted mr-0.5">In:</span>
+                    {liveCols.map((r) => {
+                      const on = isOn(r.label);
+                      return (
+                        <button key={r.id ?? r.label} type="button" onClick={() => toggleCol(r.label.trim())} aria-pressed={on}
+                          className={`text-[10px] px-2 py-0.5 rounded-full border ${on ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-muted line-through"}`}>
+                          {r.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {rosterRows.length > 0 && rosterCols.filter((r) => r.label.trim()).length > 1 && (
+            <button type="button" onClick={() => {
+              const labels = rosterCols.map((r) => r.label.trim()).filter(Boolean);
+              editRoster(() => setRosterRows((c) => c.map((x) => ({ ...x, rosters: rostersNamedInLabel(x.label, labels) }))));
+            }} className="text-[11px] text-brand mr-3">Match rosters to position names</button>
+          )}
           <details className="mt-1">
             <summary className="text-[11px] text-brand cursor-pointer">Paste many positions at once</summary>
             <textarea value={pasteRows} onChange={(e) => setPasteRows(e.target.value)} rows={4} placeholder={"One per line"} className={`${input} mt-1.5`} />
             <button type="button" onClick={() => {
               const labels = pasteRows.split("\n").map((x) => x.trim()).filter(Boolean);
               if (!labels.length) return;
-              editRoster(() => setRosterRows((c) => [...c, ...labels.filter((l) => !c.some((x) => x.label.toLowerCase() === l.toLowerCase())).map((label) => ({ id: null, label, capacity: "" }))]));
+              editRoster(() => setRosterRows((c) => [...c, ...labels.filter((l) => !c.some((x) => x.label.toLowerCase() === l.toLowerCase())).map((label) => ({ id: null, label, capacity: "", rosters: rostersNamedInLabel(label, rosterCols.map((r) => r.label.trim()).filter(Boolean)) }))]));
               setPasteRows("");
             }} className="mt-1.5 text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary">Add these</button>
           </details>

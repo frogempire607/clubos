@@ -3,7 +3,7 @@
  * Worked example: a duals tournament, rosters K4 / K6 / K8, weights as positions.
  */
 import {
-  validateRosterDef, holdsCell, takenByCell, decidePick, availability, buildGrid, gridTable, cellKey, rosterActive,
+  validateRosterDef, holdsCell, rostersNamedInLabel, offeredIn, takenByCell, decidePick, availability, buildGrid, gridTable, cellKey, rosterActive,
   type RosterColumn, type RosterRow, type GridEntry,
 } from "../lib/eventRoster";
 import { checkEntries, entriesTotalCents, entriesPriceLine, maxEntriesFor, type EntryRules } from "../lib/eventEntries";
@@ -141,6 +141,30 @@ console.log("\nrepricing knows about entries:");
   check("a 2-entry $170 row is NOT flagged as stale", plan.changed.length === 0, plan.rows);
   const plan2 = planReprice({ ...ev, memberPrice: 90, nonMemberPrice: 90 }, [{ id: "r1", memberId: "m", status: "AWAITING_CASH", amountDue: "170.00", entryCount: 2 }]);
   check("price moves to $90 ⇒ expected $180 for 2 entries", plan2.rows[0].expected === 180);
+}
+
+console.log("\npositions only in some rosters:");
+{
+  const labels = ["K4", "K6", "K8"];
+  check("'40 (K4 only)' ⇒ K4", JSON.stringify(rostersNamedInLabel("40 (K4 only)", labels)) === '["K4"]');
+  check("'52 (K4/K6)' ⇒ K4, K6", JSON.stringify(rostersNamedInLabel("52 (K4/K6)", labels)) === '["K4","K6"]');
+  check("'72' ⇒ every roster", rostersNamedInLabel("72", labels).length === 0);
+  check("'Open (anyone)' ⇒ every roster (words that aren't rosters)", rostersNamedInLabel("Open (anyone)", labels).length === 0);
+  check("case-insensitive", JSON.stringify(rostersNamedInLabel("84 (k8 only)", labels)) === '["K8"]');
+  const def = validateRosterDef({ rosters: [{ label: "K4" }, { label: "K6" }], positions: [{ label: "40", rosters: ["k4"] }, { label: "60", rosters: ["K4", "K6"] }] });
+  check("definition keeps a restriction, normalizes the label", def.ok && JSON.stringify(def.def.positions[0].rosterLabels) === '["K4"]');
+  check("every roster ticked = no restriction", def.ok && def.def.positions[1].rosterLabels.length === 0);
+  check("a roster that isn't on the event is refused", !validateRosterDef({ rosters: [{ label: "K4" }], positions: [{ label: "40", rosters: ["K9"] }] }).ok);
+  const rs: RosterColumn[] = [{ id: "k4", label: "K4", sortOrder: 0 }, { id: "k6", label: "K6", sortOrder: 1 }];
+  const ps: RosterRow[] = [{ id: "w40", label: "40", capacity: null, sortOrder: 0, rosterIds: ["k4"] }, { id: "w60", label: "60", capacity: null, sortOrder: 1 }];
+  check("offeredIn", offeredIn(ps[0], "k4") && !offeredIn(ps[0], "k6") && offeredIn(ps[1], "k6"));
+  const bad = decidePick({ pick: { rosterId: "k6", positionId: "w40" }, rosters: rs, positions: ps, taken: new Map(), approvalGated: true });
+  check("picking 40 in K6 refused, even with a coach", !bad.ok && bad.message.includes("isn't offered in K6"));
+  const av = availability(rs, ps, new Map());
+  check("families never see 40 under K6", !av.some((c) => c.rosterId === "k6" && c.positionId === "w40") && av.some((c) => c.rosterId === "k4" && c.positionId === "w40"));
+  const g = buildGrid({ rosters: rs, positions: ps, entries: [], holdSpotDuringReview: false, now });
+  check("grid marks the cell not offered", g.rows[0].cells[1].offered === false && g.rows[0].cells[0].offered === true);
+  check("CSV/PDF says n/a there", gridTable(g).rows[0][2] === "n/a");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

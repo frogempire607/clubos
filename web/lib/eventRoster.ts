@@ -17,18 +17,51 @@
 import { ACTIVE_REGISTRATION_STATUSES, CHECKOUT_HOLD_MS } from "@/lib/eventPayments";
 
 export type RosterColumn = { id: string; label: string; sortOrder: number };
-export type RosterRow = { id: string; label: string; capacity: number | null; sortOrder: number };
+export type RosterRow = {
+  id: string;
+  label: string;
+  capacity: number | null;
+  sortOrder: number;
+  /** Rosters this position is offered in; empty/absent = every roster. */
+  rosterIds?: string[];
+};
+
+/** Is this position a spot in that roster? (e.g. "40" only in K4.) */
+export function offeredIn(position: Pick<RosterRow, "rosterIds">, rosterId: string): boolean {
+  return !position.rosterIds || position.rosterIds.length === 0 || position.rosterIds.includes(rosterId);
+}
+
+/**
+ * Read the rosters a position name already names, e.g. "40 (K4 only)",
+ * "52 (K4/K6)", "80 (K6/K8)". Only when EVERY word in the brackets is one of
+ * the rosters (ignoring "only"/"and"): anything else returns [] = every
+ * roster, so "Open (anyone)" stays open. The owner can change it after.
+ */
+export function rostersNamedInLabel(label: string, rosterLabels: string[]): string[] {
+  const m = label.match(/\(([^)]*)\)/);
+  if (!m) return [];
+  const known = new Map(rosterLabels.map((r) => [r.trim().toLowerCase(), r]));
+  const tokens = m[1]
+    .split(/[\/,&+]|\band\b/i)
+    .map((t) => t.replace(/\bonly\b/i, "").trim().toLowerCase())
+    .filter(Boolean);
+  if (tokens.length === 0) return [];
+  const hit = tokens.map((t) => known.get(t));
+  if (hit.some((h) => !h)) return [];
+  return Array.from(new Set(hit as string[]));
+}
 
 // ── Definition (what the owner edits) ────────────────────────────────────────
 
 export type RosterDefInput = {
   rosters: { id?: string | null; label: string }[];
-  positions: { id?: string | null; label: string; capacity?: number | null }[];
+  /** `rosters`: the roster LABELS this position is offered in; empty/absent = all. */
+  positions: { id?: string | null; label: string; capacity?: number | null; rosters?: string[] | null }[];
 };
 
 export type RosterDef = {
   rosters: { id: string | null; label: string }[];
-  positions: { id: string | null; label: string; capacity: number | null }[];
+  positions: { id: string | null; label: string; capacity: number | null; rosterLabels: string[] }[];
 };
 
 export const ROSTER_LIMITS = { rosters: 30, positions: 150, label: 60, capacity: 999 } as const;
@@ -62,7 +95,19 @@ export function validateRosterDef(input: RosterDefInput): { ok: true; def: Roste
       }
       capacity = n;
     }
-    positions.push({ id: p.id || null, label, capacity });
+    // Labels, not ids: a roster added in the same save has no id yet. Every
+    // roster ticked is the same as none ticked (offered everywhere).
+    const byLabel = new Map(rosters.map((r) => [r.label.toLowerCase(), r.label]));
+    const picked: string[] = [];
+    for (const raw of p.rosters ?? []) {
+      const hit = byLabel.get(String(raw ?? "").trim().toLowerCase());
+      if (!hit) return { ok: false, error: `"${label}" is set to a roster that isn't on this event (${String(raw)}).` };
+      if (!picked.includes(hit)) picked.push(hit);
+    }
+    if (p.rosters && p.rosters.length > 0 && picked.length === 0) {
+      return { ok: false, error: `"${label}" isn't offered in any roster.` };
+    }
+    positions.push({ id: p.id || null, label, capacity, rosterLabels: picked.length === rosters.length ? [] : picked });
   }
   if ((rosters.length === 0) !== (positions.length === 0)) {
     return {
@@ -152,6 +197,9 @@ export function decidePick(args: {
   const roster = args.rosters.find((r) => r.id === args.pick.rosterId);
   const position = args.positions.find((p) => p.id === args.pick.positionId);
   if (!roster || !position) return { ok: false, code: "UNKNOWN_SPOT", message: "That spot isn't on this event's roster any more. Pick again." };
+  if (!offeredIn(position, roster.id)) {
+    return { ok: false, code: "UNKNOWN_SPOT", message: `${position.label} isn't offered in ${roster.label}. Pick another spot.` };
+  }
   const cap = position.capacity;
   const used = args.taken.get(cellKey(roster.id, position.id)) ?? 0;
   if (cap == null || used < cap) return { ok: true, status: "ACTIVE" };
@@ -162,7 +210,7 @@ export function decidePick(args: {
 /** What families see per cell: open count, or null for no limit. Numbers only — never names. */
 export function availability(rosters: RosterColumn[], positions: RosterRow[], taken: Map<string, number>) {
   return rosters.flatMap((r) =>
-    positions.map((p) => {
+    positions.filter((p) => offeredIn(p, r.id)).map((p) => {
       const used = taken.get(cellKey(r.id, p.id)) ?? 0;
       return { rosterId: r.id, positionId: p.id, capacity: p.capacity, taken: used, open: p.capacity == null ? null : Math.max(0, p.capacity - used) };
     }),
@@ -182,7 +230,7 @@ export type GridPerson = { entryId: string; registrationId: string; name: string
 
 export type Grid = {
   columns: RosterColumn[];
-  rows: { position: RosterRow; cells: { rosterId: string; people: GridPerson[]; taken: number; capacity: number | null }[] }[];
+  rows: { position: RosterRow; cells: { rosterId: string; offered: boolean; people: GridPerson[]; taken: number; capacity: number | null }[] }[];
   waitlist: (GridPerson & { rosterLabel: string; positionLabel: string })[];
   /** Entries whose roster or position was removed — shown so nobody silently drops off. */
   unplaced: GridPerson[];
@@ -229,7 +277,7 @@ export function buildGrid(args: {
       cells: rosters.map((r) => {
         const k = cellKey(r.id, p.id);
         const people = [...(byCell.get(k) ?? [])].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-        return { rosterId: r.id, people, taken: taken.get(k) ?? 0, capacity: p.capacity };
+        return { rosterId: r.id, offered: offeredIn(p, r.id), people, taken: taken.get(k) ?? 0, capacity: p.capacity };
       }),
     })),
     waitlist,
@@ -243,7 +291,11 @@ export function gridTable(grid: Grid): { headers: string[]; rows: string[][]; wa
   const headers = ["", ...grid.columns.map((c) => c.label)];
   const rows = grid.rows.map((row) => [
     row.position.capacity != null ? `${row.position.label} (${row.position.capacity})` : row.position.label,
-    ...row.cells.map((c) => c.people.map((p) => (p.state === "pending" ? `${p.name} (pending)` : p.name)).join("\n")),
+    ...row.cells.map((c) =>
+      !c.offered && c.people.length === 0
+        ? "n/a"
+        : c.people.map((p) => (p.state === "pending" ? `${p.name} (pending)` : p.name)).join("\n"),
+    ),
   ]);
   const waitlistRows = grid.waitlist.map((w) => [w.positionLabel, w.rosterLabel, w.name]);
   return { headers, rows, waitlistRows };

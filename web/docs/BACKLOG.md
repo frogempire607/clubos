@@ -15,7 +15,8 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session:** B16 merged (ed1ca65). Guest saved card built 09-25 (migration `20260927000000_guest_saved_card`). Then B13 slice 4, then B3 (discounts — B16 decision 3 rides on it).
+- **Next Claude session:** positions-per-roster + B13 slice 4 built 09-25 on `claude/roster-positions-b13-4` (migration `20260928000000_roster_position_rosters`). B13 is then complete. Next: B3 (discounts — B16 decision 3 rides on it).
+- **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
@@ -112,7 +113,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   15435) into Stripe, the sync reads it as $150 with the fee NOT folded and says so — Change plan re-prices it to
   $150 + fee. Not in B12: new-subscription flow for interval changes, member-facing email on plan change.
 
-- [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · SLICE 1 SHIPPED 80f9b28 ·
+- [x] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · SLICES 1–4 BUILT (slice 4 09-25: Stripe pause drift sync, Paused card "next back", billing page → Advanced billing) · SLICE 1 SHIPPED 80f9b28 ·
   SLICE 2 SHIPPED e621b26 (+ eb106d4, be070cc).
   Handoff: `docs/improvement/design_handoff_membership_panel/`. Slice 2 = migration `20260925000000_membership_pause`
   (`member_subscriptions.pausedAt/pausedUntil/cancelReason`, additive) + **Pause/Resume for real**

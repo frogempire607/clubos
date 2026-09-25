@@ -73,14 +73,22 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
         })),
       });
     }
-    if (rosters.length > 0) {
-      await db.eventRoster.createMany({
-        data: rosters.map((r) => ({ eventId: created.id, label: r.label, sortOrder: r.sortOrder })),
-      });
+    // Rosters one by one so "only in these rosters" can be re-pointed at the
+    // copy's new roster ids.
+    const newRosterId = new Map<string, string>();
+    for (const r of rosters) {
+      const row = await db.eventRoster.create({ data: { eventId: created.id, label: r.label, sortOrder: r.sortOrder } });
+      newRosterId.set(r.id, row.id);
     }
     if (rosterPositions.length > 0) {
       await db.eventRosterPosition.createMany({
-        data: rosterPositions.map((p) => ({ eventId: created.id, label: p.label, capacity: p.capacity, sortOrder: p.sortOrder })),
+        data: rosterPositions.map((p) => ({
+          eventId: created.id,
+          label: p.label,
+          capacity: p.capacity,
+          sortOrder: p.sortOrder,
+          rosterIds: p.rosterIds.map((id) => newRosterId.get(id)).filter((x): x is string => !!x),
+        })),
       });
     }
     if (staffAssignments.length > 0) {

@@ -22,7 +22,7 @@ type Db = Prisma.TransactionClient | typeof prisma;
 export async function loadRosterDef(eventId: string, db: Db = prisma): Promise<{ rosters: RosterColumn[]; positions: RosterRow[] }> {
   const [rosters, positions] = await Promise.all([
     db.eventRoster.findMany({ where: { eventId }, orderBy: { sortOrder: "asc" }, select: { id: true, label: true, sortOrder: true } }),
-    db.eventRosterPosition.findMany({ where: { eventId }, orderBy: { sortOrder: "asc" }, select: { id: true, label: true, capacity: true, sortOrder: true } }),
+    db.eventRosterPosition.findMany({ where: { eventId }, orderBy: { sortOrder: "asc" }, select: { id: true, label: true, capacity: true, sortOrder: true, rosterIds: true } }),
   ]);
   return { rosters, positions };
 }
@@ -51,7 +51,7 @@ export async function rosterForSignup(eventId: string, holdSpotDuringReview: boo
   const taken = await takenNow(eventId, holdSpotDuringReview);
   return {
     rosters: def.rosters.map((r) => ({ id: r.id, label: r.label })),
-    positions: def.positions.map((p) => ({ id: p.id, label: p.label, capacity: p.capacity })),
+    positions: def.positions.map((p) => ({ id: p.id, label: p.label, capacity: p.capacity, rosterIds: p.rosterIds })),
     cells: availability(def.rosters, def.positions, taken),
   };
 }
@@ -201,13 +201,21 @@ export async function saveRosterDef(eventId: string, def: RosterDef): Promise<{ 
   await prisma.$transaction(async (db) => {
     if (removedR.length) await db.eventRoster.deleteMany({ where: { eventId, id: { in: removedR.map((r) => r.id) } } });
     if (removedP.length) await db.eventRosterPosition.deleteMany({ where: { eventId, id: { in: removedP.map((p) => p.id) } } });
+    // Rosters first, so positions can point at them by id (a roster added in
+    // this same save only gets its id here).
+    const idByLabel = new Map<string, string>();
     for (const [i, r] of def.rosters.entries()) {
-      if (r.id && current.rosters.some((x) => x.id === r.id)) await db.eventRoster.update({ where: { id: r.id }, data: { label: r.label, sortOrder: i } });
-      else await db.eventRoster.create({ data: { eventId, label: r.label, sortOrder: i } });
+      const row =
+        r.id && current.rosters.some((x) => x.id === r.id)
+          ? await db.eventRoster.update({ where: { id: r.id }, data: { label: r.label, sortOrder: i } })
+          : await db.eventRoster.create({ data: { eventId, label: r.label, sortOrder: i } });
+      idByLabel.set(r.label.toLowerCase(), row.id);
     }
     for (const [i, p] of def.positions.entries()) {
-      if (p.id && current.positions.some((x) => x.id === p.id)) await db.eventRosterPosition.update({ where: { id: p.id }, data: { label: p.label, capacity: p.capacity, sortOrder: i } });
-      else await db.eventRosterPosition.create({ data: { eventId, label: p.label, capacity: p.capacity, sortOrder: i } });
+      const rosterIds = p.rosterLabels.map((l) => idByLabel.get(l.toLowerCase())).filter((x): x is string => !!x);
+      const data = { label: p.label, capacity: p.capacity, sortOrder: i, rosterIds };
+      if (p.id && current.positions.some((x) => x.id === p.id)) await db.eventRosterPosition.update({ where: { id: p.id }, data });
+      else await db.eventRosterPosition.create({ data: { eventId, ...data } });
     }
   });
   return { ok: true };

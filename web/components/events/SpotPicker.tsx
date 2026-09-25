@@ -7,7 +7,7 @@
 
 export type SignupRoster = {
   rosters: { id: string; label: string }[];
-  positions: { id: string; label: string; capacity: number | null }[];
+  positions: { id: string; label: string; capacity: number | null; rosterIds?: string[] }[];
   cells: { rosterId: string; positionId: string; capacity: number | null; taken: number; open: number | null }[];
 };
 
@@ -62,7 +62,8 @@ export default function SpotPicker({
             Spot{roster.rosters.length > 1 ? ` in ${roster.rosters.find((r) => r.id === rosterId)?.label ?? ""}` : ""} *
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {roster.positions.map((p) => {
+            {/* Only the positions offered in this roster (a cell exists). */}
+            {roster.positions.filter((p) => !!cell(p.id)).map((p) => {
               const c = cell(p.id);
               const full = c?.open === 0;
               const disabled = full && !approvalGated;

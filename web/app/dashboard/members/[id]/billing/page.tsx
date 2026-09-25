@@ -279,7 +279,7 @@ export default function MemberBillingPage() {
       <div className="mt-3 mb-5 flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold text-text-primary">
-            {m.firstName} {m.lastName} <span className="text-text-muted font-normal">· Billing</span>
+            {m.firstName} {m.lastName} <span className="text-text-muted font-normal">· Advanced billing</span>
           </h1>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-charcoal text-white" title={data.billingState.explanation}>
@@ -296,6 +296,13 @@ export default function MemberBillingPage() {
             )}
           </div>
           <p className="text-xs text-text-muted mt-1">{data.billingState.explanation}</p>
+          {/* B13 slice 4 — the everyday actions live on the profile's
+              Membership panel; this page is the detail behind them. */}
+          <p className="text-xs text-text-primary mt-2 rounded-lg bg-app-bg px-2.5 py-1.5 inline-block">
+            Assign, change plan, dates, pause and cancel live in the{" "}
+            <Link href={`/dashboard/members/${id}`} className="text-brand font-medium hover:underline">Membership panel on the profile</Link>.
+            This page is for migration setups, payment methods and Stripe details.
+          </p>
           {data.readiness.reasons.length > 0 && (
             <p className="text-xs text-text-muted mt-0.5">{data.readiness.reasons.join(" · ")}</p>
           )}
