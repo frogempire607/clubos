@@ -241,6 +241,13 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   registration is the money spine). Editor rewrite 1a/1b is slice 2 and needs a migration
   (EventSession.price, pricingModel, signupAccess, splitInvoiceWhen). Scoping in PROGRESS.md.
 
+- [ ] **B16 · Event entries: roster positions, multiple entries, generic questions** · DESIGNED 2026-09-24, not built
+  Handoff: `docs/improvement/design_handoff_event_entries/README.md`. Decided: capacity per roster cell, full cell ⇒
+  waitlist, same-roster-twice is a per-event toggle, entry price = same each OR separate extra-entry price (coach
+  picks), whole-registration approval with proposals, event requests in the main Approvals inbox, discounts via B3,
+  public link allowed per event. Slices: (1) approvals inbox + generic question types, (2) roster builder + grid
+  PDF/CSV (migration), (3) multiple entries, (4) discounts via B3. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
+
 ## C — Done, don't resurrect
 
 - [x] Class-time duplicate bug + the `(classId, date)` unique constraint (Phase 10)
