@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AlertOctagon, MapPin, CheckCircle2, PartyPopper, ArrowRight } from "lucide-react";
 import { mapsDirectionsUrl } from "@/lib/maps";
+import SpotPicker, { type SignupRoster, type SpotValue } from "@/components/events/SpotPicker";
 
 type FormField = {
   id: string;
@@ -48,6 +49,8 @@ type PublicEvent = {
   accountRequired?: boolean;
   // The portal can register for this event (visibility + purchase access).
   portalAvailable?: boolean;
+  // B16 — pick a spot on the roster (labels + open counts), or null.
+  roster?: SignupRoster | null;
 };
 
 // What each public payment choice means to the registrant. AUTO_CARD is
@@ -70,6 +73,7 @@ export default function PublicEventPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [responses, setResponses] = useState<Record<string, string | boolean>>({});
+  const [spot, setSpot] = useState<SpotValue>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<null | { message: string }>(null);
   const [payMethod, setPayMethod] = useState<string>("");
@@ -176,6 +180,10 @@ export default function PublicEventPage() {
       setError("Please review and acknowledge the event documents.");
       return;
     }
+    if (event?.roster && !(spot?.rosterId && spot.positionId)) {
+      setError("Pick a spot on the roster.");
+      return;
+    }
     setSubmitting(true);
     setError("");
     const res = await fetch(`/api/public/events/${slug}/register`, {
@@ -186,6 +194,7 @@ export default function PublicEventPage() {
         email,
         phone: phone || null,
         formResponses: responses,
+        ...(spot?.rosterId && spot.positionId ? { entries: [{ rosterId: spot.rosterId, positionId: spot.positionId }] } : {}),
         ...(needsPayChoice ? { paymentMethod: payMethod } : {}),
         ...(applied ? { discountCode: applied.code } : {}),
         ...(gatedDocs.length > 0 ? { acknowledgeDocuments: docsAcknowledged } : {}),
@@ -469,6 +478,16 @@ export default function PublicEventPage() {
                 />
               </div>
             </div>
+
+            {event.roster && (
+              <SpotPicker
+                roster={event.roster}
+                value={spot}
+                onChange={setSpot}
+                approvalGated={!!event.requiresCoachApproval}
+                accent={accent}
+              />
+            )}
 
             {/* Owner-defined custom fields */}
             {event.registrationForm.map((f) => (

@@ -19,6 +19,8 @@ import {
   publicSignupRequiresAccount,
 } from "@/lib/eventPayments";
 import { eventFormFields, validateFormResponses } from "@/lib/eventForm";
+import { rosterActive, type SpotPick } from "@/lib/eventRoster";
+import { loadRosterDef, checkPicks, writeEntries } from "@/lib/eventRosterServer";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
@@ -40,6 +42,8 @@ const schema = z.object({
   // visitors can't produce an audited signature, so acknowledgement (stored on
   // the registration) is the strongest gate available here.
   acknowledgeDocuments: z.boolean().optional(),
+  // B16 — the roster spot(s) asked for. One until multiple entries ships.
+  entries: z.array(z.object({ rosterId: z.string().min(1), positionId: z.string().min(1) })).max(10).optional(),
 });
 
 // POST /api/public/events/[slug]/register
@@ -147,6 +151,23 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       },
       { status: 400 },
     );
+  }
+
+  // B16 — roster spot. Checked before anything is written: a full spot on an
+  // event that confirms on signup is refused here; on an approval-gated event
+  // it becomes a waitlist request the coach sees.
+  const rosterDef = await loadRosterDef(event.id);
+  let picks: SpotPick[] = [];
+  if (rosterActive(rosterDef.rosters, rosterDef.positions)) {
+    picks = (body.entries ?? []).slice(0, 1);
+    if (picks.length === 0) return NextResponse.json({ error: "Pick a spot on the roster." }, { status: 400 });
+    const checked = await checkPicks({
+      eventId: event.id,
+      picks,
+      approvalGated: policy.requiresCoachApproval,
+      holdSpotDuringReview: policy.holdSpotDuringReview,
+    });
+    if (!checked.ok) return NextResponse.json({ error: checked.message, code: checked.code }, { status: 409 });
   }
 
   // Try to match an existing member by email (so it shows on their account).
@@ -314,6 +335,17 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       discountAmount: isVariableCost ? null : discountFields.discountAmount,
     },
   });
+
+  if (picks.length > 0) {
+    await writeEntries({
+      eventId: event.id,
+      clubId: event.clubId,
+      registrationId: registration.id,
+      picks,
+      approvalGated: policy.requiresCoachApproval,
+      holdSpotDuringReview: policy.holdSpotDuringReview,
+    });
+  }
 
   // The registration number the visitor will quote back to staff. Derived from
   // the row id, so it is the same value on the page, in the email, and in any

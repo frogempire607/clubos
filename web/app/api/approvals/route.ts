@@ -516,6 +516,12 @@ async function eventRegistrationRequests(args: {
       proposedChange: true,
       proposedChangeRespondedAt: true,
       event: { select: { id: true, name: true, startsAt: true, autoChargeDate: true, registrationForm: true } },
+      // B16 — the roster spot(s) asked for.
+      entries: {
+        where: { status: { not: "DROPPED" } },
+        orderBy: { sortOrder: "asc" },
+        select: { status: true, roster: { select: { label: true } }, position: { select: { label: true } } },
+      },
     },
   });
   return rows.map((r) => {
@@ -524,6 +530,13 @@ async function eventRegistrationRequests(args: {
     const answers = fields
       .filter((f) => responses[f.id] !== undefined && responses[f.id] !== "")
       .map((f) => ({ label: f.label, value: responses[f.id] === true ? "Yes" : String(responses[f.id]) }));
+    for (const e of r.entries) {
+      if (!e.roster || !e.position) continue;
+      answers.unshift({
+        label: "Spot",
+        value: `${e.position.label} · ${e.roster.label}${e.status === "WAITLIST" ? " (waitlist — full)" : ""}`,
+      });
+    }
     return {
       id: `event-registration:${r.id}`,
       kind: "EVENT_REGISTRATION" as const,

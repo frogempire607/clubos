@@ -19,10 +19,11 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ImageUpload from "@/components/ImageUpload";
 import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
+import { validateRosterDef } from "@/lib/eventRoster";
 import { ESCALATION_SCHEDULE_DAYS, type EscalationSchedule } from "@/lib/eventPayments";
 import {
   PARTICIPANT_FIELD_ID,
@@ -330,6 +331,45 @@ export default function EventEditor({
   const [responsibleCoachUserId, setResponsibleCoachUserId] = useState<string>(ev?.responsibleCoachUserId || "");
   const [holdSpotDuringReview, setHoldSpotDuringReview] = useState<boolean>(!!ev?.holdSpotDuringReview);
 
+  // ── B16: roster positions (columns = rosters, rows = positions) ──
+  type RosterRowState = { id: string | null; label: string };
+  type PositionRowState = { id: string | null; label: string; capacity: string };
+  const [rosterCols, setRosterCols] = useState<RosterRowState[]>([]);
+  const [rosterRows, setRosterRows] = useState<PositionRowState[]>([]);
+  const [rosterDirty, setRosterDirty] = useState(false);
+  const [rosterLoaded, setRosterLoaded] = useState(!isEdit);
+  const [pasteRows, setPasteRows] = useState("");
+  useEffect(() => {
+    if (!isEdit || !ev?.id) return;
+    let alive = true;
+    fetch(`/api/events/${ev.id}/roster`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d?.definition) { if (alive) setRosterLoaded(true); return; }
+        setRosterCols(d.definition.rosters.map((r: { id: string; label: string }) => ({ id: r.id, label: r.label })));
+        setRosterRows(d.definition.positions.map((p: { id: string; label: string; capacity: number | null }) => ({ id: p.id, label: p.label, capacity: p.capacity == null ? "" : String(p.capacity) })));
+        setRosterLoaded(true);
+      })
+      .catch(() => alive && setRosterLoaded(true));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const editRoster = (fn: () => void) => { fn(); setRosterDirty(true); };
+  // Two dropdowns already on the form (e.g. Weight Class + Division) can become
+  // the roster in one tap: the one with fewer choices becomes the columns.
+  function rosterFromDropdowns() {
+    const withOpts = categories.filter((c) => c.optionsText.split("\n").map((x) => x.trim()).filter(Boolean).length > 0);
+    if (withOpts.length < 2) return;
+    const [a, b] = withOpts;
+    const opts = (c: typeof a) => c.optionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+    const [cols, rows] = opts(a).length <= opts(b).length ? [a, b] : [b, a];
+    editRoster(() => {
+      setRosterCols(opts(cols).map((label) => ({ id: null, label })));
+      setRosterRows(opts(rows).map((label) => ({ id: null, label, capacity: "" })));
+      setCategories((cs) => cs.filter((c) => c.key !== cols.key && c.key !== rows.key));
+    });
+  }
+
   // ── Capacity, dates & policy ──
   const [capacity, setCapacity] = useState(ev?.capacity?.toString() || "");
   const [paymentDueBy, setPaymentDueBy] = useState<string>(ev?.paymentDueBy ? new Date(ev.paymentDueBy).toISOString().slice(0, 10) : "");
@@ -461,6 +501,16 @@ export default function EventEditor({
     if (datesBad) { setError(`Ends before it starts. Pick an end after ${new Date(startsAt).toLocaleString()}.`); setOpen((o) => ({ ...o, schedule: true })); return; }
     if (badSessions) { setError(`${badSessions} session${badSessions === 1 ? "" : "s"} end${badSessions === 1 ? "s" : ""} before it starts.`); setOpen((o) => ({ ...o, schedule: true })); return; }
     if (!exclusions.paymentMethodsLocked && exclusions.paymentMethods.length === 0) { setError("Pick at least one way to pay, or make the event free."); setOpen((o) => ({ ...o, pay: true })); return; }
+    // Checked before the event is saved, so a bad roster never leaves a saved
+    // event behind with no roster (and a second Save creating a duplicate).
+    const rosterBody = {
+      rosters: rosterCols.map((r) => ({ id: r.id, label: r.label })),
+      positions: rosterRows.map((p) => ({ id: p.id, label: p.label, capacity: p.capacity.trim() === "" ? null : Number(p.capacity) })),
+    };
+    if (rosterDirty) {
+      const rc = validateRosterDef(rosterBody);
+      if (!rc.ok) { setError(rc.error); setOpen((o) => ({ ...o, roster: true })); return; }
+    }
     setSaving(true);
     const customEventTypeId = isCustom ? typeKey.replace("custom:", "") : null;
     const type = isCustom ? "OTHER" : (typeKey as EditorBuiltInType);
@@ -536,12 +586,30 @@ export default function EventEditor({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    setSaving(false);
     if (!res.ok) {
+      setSaving(false);
       const data = await res.json().catch(() => ({}));
       setError(typeof data.error === "string" ? data.error : Array.isArray(data.error) ? data.error.map((x: { message?: string }) => x.message).join("; ") : "Save failed");
       return;
     }
+    const saved = await res.json().catch(() => ({}));
+    const savedId: string | undefined = isEdit ? ev!.id : saved?.id;
+    if (rosterDirty && savedId) {
+      const rr = await fetch(`/api/events/${savedId}/roster`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rosterBody),
+      });
+      if (!rr.ok) {
+        setSaving(false);
+        const d = await rr.json().catch(() => ({}));
+        setError(`The event was saved, but the roster wasn't: ${typeof d.error === "string" ? d.error : "try again"}`);
+        setOpen((o) => ({ ...o, roster: true }));
+        if (!isEdit) onSaved(); // a new event exists now — don't let a second Save duplicate it
+        return;
+      }
+    }
+    setSaving(false);
     onSaved();
   }
 
@@ -815,6 +883,77 @@ export default function EventEditor({
           </div>
         ) : (
           <p className="text-[11px] text-text-muted">Coach approval is available on tournaments and on custom types with a policy (Events → Manage types).</p>
+        )}
+      </Card>
+
+      <Card
+        title="Roster positions"
+        summary={!rosterLoaded ? "Loading…" : rosterCols.length && rosterRows.length ? `${rosterCols.length} roster${rosterCols.length === 1 ? "" : "s"} × ${rosterRows.length} position${rosterRows.length === 1 ? "" : "s"} — families pick a spot` : "Off — no spots to pick"}
+        open={!!open.roster} onToggle={() => toggle("roster")}
+      >
+        <p className="text-[11px] text-text-muted">
+          Families pick one spot when they sign up. <strong>Rosters</strong> are the columns of your grid (e.g. divisions, skill levels);
+          <strong> positions</strong> are the rows (e.g. weights, positions). Capacity is per spot — a position&apos;s capacity applies inside each roster.
+          {approvalOn ? " A full spot can still be requested — it goes on the waitlist for you to decide." : " A full spot can't be picked."}
+        </p>
+        {rosterCols.length === 0 && rosterRows.length === 0 && categories.filter((c) => c.optionsText.trim()).length >= 2 && (
+          <button type="button" onClick={rosterFromDropdowns} className="w-full text-left rounded-xl border border-brand/40 bg-brand/5 px-3 py-2.5 text-xs text-text-primary">
+            <span className="font-medium text-brand">Build the roster from your dropdowns</span>
+            <span className="block text-text-muted mt-0.5">
+              Turns &quot;{categories.filter((c) => c.optionsText.trim())[0]?.label}&quot; and &quot;{categories.filter((c) => c.optionsText.trim())[1]?.label}&quot; into rosters and positions and removes them from the questions. Answers already given stay on those registrations.
+            </span>
+          </button>
+        )}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-text-primary">Rosters (columns)</span>
+            <button type="button" onClick={() => editRoster(() => setRosterCols((c) => [...c, { id: null, label: "" }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Roster</button>
+          </div>
+          {rosterCols.map((r, i) => (
+            <div key={r.id ?? `new-${i}`} className="flex gap-2 mb-1.5">
+              <input value={r.label} onChange={(e) => editRoster(() => setRosterCols((c) => c.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x))))} placeholder="Roster name — e.g. Advanced" className={input} />
+              <button type="button" onClick={() => editRoster(() => setRosterCols((c) => c.filter((_, idx) => idx !== i)))} className="text-xs text-red-600 px-2">Remove</button>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-text-primary">Positions (rows)</span>
+            <button type="button" onClick={() => editRoster(() => setRosterRows((c) => [...c, { id: null, label: "", capacity: "" }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Position</button>
+          </div>
+          {rosterRows.length > 0 && (
+            <div className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center text-[10px] uppercase tracking-wide text-text-muted mb-1">
+              <span>Position</span><span>Capacity</span><span />
+            </div>
+          )}
+          {rosterRows.map((p, i) => (
+            <div key={p.id ?? `new-${i}`} className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center mb-1.5">
+              <input value={p.label} onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x))))} placeholder="Position name" className={input} />
+              <input value={p.capacity} inputMode="numeric" onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, capacity: e.target.value.replace(/[^0-9]/g, "") } : x))))} placeholder="No limit" className={input} />
+              <button type="button" onClick={() => editRoster(() => setRosterRows((c) => c.filter((_, idx) => idx !== i)))} className="text-xs text-red-600 px-2">Remove</button>
+            </div>
+          ))}
+          <details className="mt-1">
+            <summary className="text-[11px] text-brand cursor-pointer">Paste many positions at once</summary>
+            <textarea value={pasteRows} onChange={(e) => setPasteRows(e.target.value)} rows={4} placeholder={"One per line"} className={`${input} mt-1.5`} />
+            <button type="button" onClick={() => {
+              const labels = pasteRows.split("\n").map((x) => x.trim()).filter(Boolean);
+              if (!labels.length) return;
+              editRoster(() => setRosterRows((c) => [...c, ...labels.filter((l) => !c.some((x) => x.label.toLowerCase() === l.toLowerCase())).map((label) => ({ id: null, label, capacity: "" }))]));
+              setPasteRows("");
+            }} className="mt-1.5 text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary">Add these</button>
+          </details>
+          {rosterRows.length > 1 && (
+            <button type="button" onClick={() => {
+              const v = window.prompt("Capacity for every position (blank = no limit)", "1");
+              if (v === null) return;
+              const n = v.replace(/[^0-9]/g, "");
+              editRoster(() => setRosterRows((c) => c.map((x) => ({ ...x, capacity: n }))));
+            }} className="mt-1.5 ml-2 text-[11px] text-brand">Set every capacity…</button>
+          )}
+        </div>
+        {isEdit && rosterCols.length > 0 && rosterRows.length > 0 && !rosterDirty && (
+          <a href={`/dashboard/events/${ev!.id}/roster`} className="inline-block text-xs text-brand font-medium">Open the roster grid →</a>
         )}
       </Card>
 

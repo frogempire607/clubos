@@ -11,6 +11,7 @@ import EventExpenseEditor from "@/components/EventExpenseEditor";
 import EventRow, { EVENT_ROW_VIEWS, type EventRowView } from "@/components/events/EventRow";
 import AttendeesModal from "@/components/events/AttendeesModal";
 import EventEditor, { type EditorEvent } from "@/components/events/EventEditor";
+import Link from "next/link";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
 import type { EventMoneySummary } from "@/lib/eventAttendees";
 import {
@@ -405,6 +406,14 @@ export default function EventsPage() {
                       >
                         Attendees{e.money ? ` (${e.money.attendees})` : ""}
                       </button>
+                      {/* B16 — the roster grid (empty-state explains how to set one up). */}
+                      <Link
+                        href={`/dashboard/events/${e.id}/roster`}
+                        onClick={() => setActionMenuFor(null)}
+                        className="block w-full text-left px-3 py-3 text-sm text-text-primary hover:bg-app-bg rounded-lg"
+                      >
+                        Roster grid
+                      </Link>
                       {hasRegistrations && (
                         <button
                           onClick={() => { setActionMenuFor(null); setViewingRegistrations(e.id); }}

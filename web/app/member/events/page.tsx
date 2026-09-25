@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CalendarRange, MessageCircle, Package } from "lucide-react";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 import { eventFormFields, type EventFormField } from "@/lib/eventForm";
+import SpotPicker, { type SignupRoster, type SpotValue } from "@/components/events/SpotPicker";
 
 type EventCard = {
   id: string;
@@ -32,6 +33,9 @@ type EventCard = {
   // The event's questions (weight class, division, …) and the owner's note.
   registrationForm?: unknown;
   publicFormIntro?: string | null;
+  // B16 — the roster to pick a spot from, and whether a coach reviews signups.
+  roster?: SignupRoster | null;
+  approvalGated?: boolean;
 };
 
 type FormAnswers = Record<string, string | boolean>;
@@ -112,6 +116,7 @@ export default function MemberEventsPage() {
   // else and re-sent with every retry of that registration (payment choice,
   // document acknowledgement) so they're never asked twice.
   const answersRef = useRef<Record<string, FormAnswers>>({});
+  const spotRef = useRef<Record<string, { rosterId: string; positionId: string }>>({});
   const answerKey = (eventId: string) => `${eventId}:${selectedMemberId ?? ""}`;
   const [formPrompt, setFormPrompt] = useState<null | {
     eventId: string;
@@ -121,6 +126,9 @@ export default function MemberEventsPage() {
     intro: string | null;
     error?: string;
     initial?: FormAnswers;
+    roster?: SignupRoster | null;
+    approvalGated?: boolean;
+    initialSpot?: SpotValue;
   }>(null);
 
   // Deep link from the public event page (/e/[slug] → sign in → here):
@@ -211,8 +219,12 @@ export default function MemberEventsPage() {
     const ev = events.find((x) => x.id === eventId);
     const fields = eventFormFields(ev?.registrationForm);
     const answers = answersRef.current[answerKey(eventId)];
-    if (fields.length > 0 && !answers) {
-      setFormPrompt({ eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null });
+    const spot = spotRef.current[answerKey(eventId)];
+    if ((fields.length > 0 && !answers) || (ev?.roster && !spot)) {
+      setFormPrompt({
+        eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null,
+        roster: ev?.roster ?? null, approvalGated: !!ev?.approvalGated, initial: answers, initialSpot: spot ?? null,
+      });
       return;
     }
     setBusy(eventId);
@@ -235,23 +247,36 @@ export default function MemberEventsPage() {
           : {}),
         ...(acknowledgeDocuments ? { acknowledgeDocuments: true } : {}),
         ...(answers ? { formResponses: answers } : {}),
+        ...(spot ? { entries: [spot] } : {}),
       }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     // The server has questions this page didn't know about, or an answer it
     // won't take — ask (again), keeping what was typed.
-    if (res.status === 400 && (d.error === "FORM_REQUIRED" || d.error === "FORM_INVALID")) {
+    // The spot filled up (or vanished) since the page loaded — refresh the
+    // counts and ask again, keeping everything else they entered.
+    if (res.status === 409 && (d.error === "SPOT_FULL" || d.error === "UNKNOWN_SPOT")) {
+      delete spotRef.current[answerKey(eventId)];
+      setError(d.message || "That spot isn't available any more. Pick another.");
+      load();
+      return;
+    }
+    if (res.status === 400 && (d.error === "FORM_REQUIRED" || d.error === "FORM_INVALID" || d.error === "ROSTER_REQUIRED")) {
       setFormPrompt({
         eventId,
         pricingType,
         sessionIds,
         fields: d.fields ? eventFormFields(d.fields) : fields,
         intro: d.intro ?? ev?.publicFormIntro ?? null,
-        error: d.error === "FORM_INVALID" ? d.message : undefined,
+        error: d.error === "FORM_INVALID" || d.error === "ROSTER_REQUIRED" ? d.message : undefined,
         initial: answers,
+        roster: ev?.roster ?? null,
+        approvalGated: !!ev?.approvalGated,
+        initialSpot: spot ?? null,
       });
       delete answersRef.current[answerKey(eventId)];
+      delete spotRef.current[answerKey(eventId)];
       return;
     }
     // The event offers more than one way to pay — ask, then re-submit. The
@@ -657,9 +682,10 @@ export default function MemberEventsPage() {
             setSelectedMemberId(id);
           }}
           onClose={() => setFormPrompt(null)}
-          onSubmit={(answers) => {
+          onSubmit={(answers, spot) => {
             const p = formPrompt;
             answersRef.current[answerKey(p.eventId)] = answers;
+            if (spot) spotRef.current[answerKey(p.eventId)] = spot;
             setFormPrompt(null);
             register(p.eventId, p.pricingType, undefined, undefined, p.sessionIds);
           }}
@@ -947,15 +973,24 @@ function EventFormModal({
   onClose,
   onSubmit,
 }: {
-  prompt: { fields: EventFormField[]; intro: string | null; error?: string; initial?: FormAnswers };
+  prompt: {
+    fields: EventFormField[];
+    intro: string | null;
+    error?: string;
+    initial?: FormAnswers;
+    roster?: SignupRoster | null;
+    approvalGated?: boolean;
+    initialSpot?: SpotValue;
+  };
   eventName: string;
   accessible: AccessibleProfile[];
   memberId: string | null;
   onMemberChange: (id: string) => void;
   onClose: () => void;
-  onSubmit: (answers: FormAnswers) => void;
+  onSubmit: (answers: FormAnswers, spot: { rosterId: string; positionId: string } | null) => void;
 }) {
   const [answers, setAnswers] = useState<FormAnswers>(prompt.initial ?? {});
+  const [spot, setSpot] = useState<SpotValue>(prompt.initialSpot ?? null);
   const [err, setErr] = useState(prompt.error ?? "");
   const who = accessible.find((a) => a.id === memberId) ?? accessible[0] ?? null;
 
@@ -968,7 +1003,11 @@ function EventFormModal({
         return;
       }
     }
-    onSubmit(answers);
+    if (prompt.roster && !(spot?.rosterId && spot.positionId)) {
+      setErr("Pick a spot on the roster.");
+      return;
+    }
+    onSubmit(answers, spot?.rosterId && spot.positionId ? { rosterId: spot.rosterId, positionId: spot.positionId } : null);
   }
 
   const inputCls = "w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-300";
@@ -997,6 +1036,14 @@ function EventFormModal({
             </div>
           )}
           {prompt.intro && <p className="text-sm text-stone-500 whitespace-pre-wrap">{prompt.intro}</p>}
+          {prompt.roster && (
+            <SpotPicker
+              roster={prompt.roster}
+              value={spot}
+              onChange={(v) => { setSpot(v); setErr(""); }}
+              approvalGated={!!prompt.approvalGated}
+            />
+          )}
           {prompt.fields.map((f) => (
             <div key={f.id}>
               <label className="block text-sm font-medium text-stone-700 mb-1">

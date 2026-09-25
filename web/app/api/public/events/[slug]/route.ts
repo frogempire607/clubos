@@ -9,6 +9,7 @@ import {
 } from "@/lib/eventPayments";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { documentsForEvent } from "@/lib/eventDocuments";
+import { rosterForSignup } from "@/lib/eventRosterServer";
 
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
@@ -194,6 +195,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     cancellationPolicyText: publicPolicy.cancellationPolicyText,
     documents,
     autoChargeDate: event.autoChargeDate,
+    // B16 — the roster's labels and open counts (never names), or null.
+    roster: await rosterForSignup(event.id, publicPolicy.holdSpotDuringReview),
     // The only way to pay is a card saved on an account (AUTO_CARD), so the
     // family signs in and registers from the portal. Same rule the register
     // route answers ACCOUNT_REQUIRED with — lib/eventPayments.

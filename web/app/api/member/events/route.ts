@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
+import { rosterForSignup } from "@/lib/eventRosterServer";
+import { resolveEventPolicy } from "@/lib/eventPayments";
 
 // GET /api/member/events
 // Upcoming events visible to members. Filters out STAFF_ONLY visibility,
@@ -30,7 +32,7 @@ export async function GET(req: Request) {
       orderBy: { startsAt: "asc" },
       include: {
         location: { select: { name: true } },
-        customEventType: { select: { id: true, name: true, color: true, textColor: true } },
+        customEventType: { select: { id: true, name: true, color: true, textColor: true, defaultPolicy: true } },
         sessions: { orderBy: { sortOrder: "asc" } },
         _count: { select: { bookings: true } },
       },
@@ -65,8 +67,20 @@ export async function GET(req: Request) {
   // will actually charge. Drives member vs non-member event pricing.
   const isActiveMember = subscriptions.length > 0;
 
+  // B16 — the roster families pick a spot from: labels and open counts only.
+  const withRoster = await Promise.all(
+    events.map(async (e) => {
+      // The type's policy decides approval; it's resolved here and not sent.
+      const approvalGated = resolveEventPolicy(e).requiresCoachApproval;
+      const customEventType = e.customEventType
+        ? { id: e.customEventType.id, name: e.customEventType.name, color: e.customEventType.color, textColor: e.customEventType.textColor }
+        : null;
+      return { ...e, customEventType, approvalGated, roster: await rosterForSignup(e.id, e.holdSpotDuringReview) };
+    }),
+  );
+
   return NextResponse.json({
-    events,
+    events: withRoster,
     bookings,
     activeMembershipIds: subscriptions.map((s) => s.membershipId),
     isActiveMember,

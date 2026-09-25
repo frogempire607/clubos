@@ -45,12 +45,14 @@ import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { ACTIVE_REGISTRATION_STATUSES, resolveEventPolicy, approvedAutoCardChargeAt } from "@/lib/eventPayments";
 import { proposableKeys, resolveCategoryFields, resolveExtraEntryLabel } from "@/lib/eventCategories";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { claimSpotsOnApprove } from "@/lib/eventRosterServer";
 import { stripe } from "@/lib/stripe";
 
 export type MutationErrorCode =
   | "NOT_FOUND"
   | "INVALID_TRANSITION"
   | "EVENT_FULL"
+  | "CELL_FULL"
   | "PROPOSALS_NOT_ALLOWED"
   | "INVALID_PRICE_DELTA"
   | "FINANCE_PERMISSION_REQUIRED"
@@ -205,6 +207,15 @@ export async function approveRegistration(args: {
       }
     }
 
+    // B16 — roster spots are decided here too: each cell this registration
+    // asked for must still have room among the spots already given out.
+    const spots = await claimSpotsOnApprove(db, {
+      eventId: reg.eventId,
+      registrationId: reg.id,
+      holdSpotDuringReview: policy.holdSpotDuringReview,
+    });
+    if (!spots.ok) return fail("CELL_FULL", 409, spots.message, reg);
+
     const activeCount = await db.eventRegistration.count({
       where: { eventId: reg.eventId, status: { not: "CANCELED" } },
     });
@@ -267,6 +278,8 @@ export async function approveRegistration(args: {
       scheduledChargeAt,
     };
     const nextReminderAt = computeNextReminderAt(projected, reg.event, policy, { now });
+
+    await spots.activate();
 
     const updated = await db.eventRegistration.update({
       where: { id: reg.id },

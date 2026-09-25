@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session:** B16 slice 2 (roster builder + grid PDF/CSV, migration) on `claude/b16-event-entries`, then slice 3; merge B16 to main once. B13 slice 4 after.
+- **Next Claude session:** B16 slice 3 (multiple entries + entry proposals) on `claude/b16-event-entries`; then merge B16 to main once (migration already applied). B13 slice 4 after.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
@@ -250,7 +250,9 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   public link allowed per event. Slices: (1) approvals inbox + generic question types, (2) roster builder + grid
   PDF/CSV (migration), (3) multiple entries, (4) discounts via B3.
   SLICE 1 BUILT 2026-09-24 on branch `claude/b16-event-entries` (not merged — merge once with slice 2+): event requests
-  in the Approvals inbox (approve / decline with reason / link to propose), question-type chips replace sport presets. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
+  in the Approvals inbox (approve / decline with reason / link to propose), question-type chips replace sport presets.
+  SLICE 2 BUILT 2026-09-25 on the same branch: migration `20260926000000_event_roster_entries` (apply BEFORE the merge),
+  roster builder card, spot picker (public + portal), approve re-checks cells, coach grid page + PDF/CSV. 34 tests. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
 
 ## C — Done, don't resurrect
 

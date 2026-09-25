@@ -4956,3 +4956,31 @@ for a `pause_collection` set by hand. Nothing here charges a card today, so no c
   free). `netlify.toml` now has an `ignore` rule: a push to main that changes only `web/docs` or files outside `web/`
   skips the build. Working rhythm from here: one branch per phase, pushed as often as we like (free), merged to main
   once per finished phase.
+
+## 2026-09-25 — B16 slice 2: roster positions, spot picker, the coach's grid
+
+Migration `20260926000000_event_roster_entries` (additive, RLS tenant policies like event_sessions): `event_rosters`
+(columns), `event_roster_positions` (rows, `capacity` per cell), `event_registration_entries` (the spot(s) a
+registration asked for — no money; ACTIVE | WAITLIST | DROPPED), and five `events` columns for slice 3
+(`allowMultipleEntries`, `maxEntries`, `additionalEntryPrice`, `allowSameRosterTwice`, `entriesOnPublicLink`) so B16
+needs no second migration.
+
+- Rules (`lib/eventRoster.ts`, pure, 34 tests `npm run test:event-roster`): capacity per cell; whether an entry holds its
+  cell is read off its registration with the capacityWhere rule, plus: a registration waiting on the coach holds
+  nothing unless holdSpotDuringReview — the coach chooses who fills a cell, the same philosophy as event capacity.
+  Full cell ⇒ WAITLIST on approval-gated events, refused on confirm-on-signup events.
+- Server (`lib/eventRosterServer.ts`): picks checked BEFORE a registration is written; entries written after, under a
+  per-cell advisory lock; `approveRegistration` re-checks every cell the registration asked for (`CELL_FULL` with the
+  spot named) and promotes its waitlisted entries when they fit. Removing a roster/position someone signed up for is
+  refused (like a paid-for session).
+- Both signup routes take `entries: [{ rosterId, positionId }]` (one until slice 3). Public GET and member events GET
+  return the roster with open counts only (never names). Every member-route path that writes a row places the spot.
+- UI: shared `components/events/SpotPicker.tsx` (roster chips → position tiles with "2 left / Full — waitlist") on the
+  public page and in the portal's registration modal; the editor's new **Roster positions** card (columns, rows,
+  capacity, paste many, set every capacity, "Build the roster from your dropdowns" for events like Finger Lakes);
+  `/dashboard/events/[id]/roster` grid (sticky position column, pending marked, waitlist + "signed up without a spot"
+  below) with **PDF** and **CSV** (`GET /api/events/[id]/roster/export`); "Roster grid" in each event's ⋯ menu; the
+  Approvals card shows "Spot: 60 · K6".
+
+Not in this slice: proposals that move an entry (slice 3), multiple entries (slice 3). Existing registrations made with
+the old dropdowns show under "signed up without a spot" — their answers are still on the registration.
