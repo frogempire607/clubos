@@ -11,6 +11,7 @@ import { resolveStaffDiscount, quotePayment } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
 import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor } from "@/lib/productSettings";
 import { releaseStock } from "@/lib/productStock";
+import { recordProductMoney } from "@/lib/productMoney";
 
 const schema = z.object({
   memberId:    z.string().optional().nullable(),
@@ -88,6 +89,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
       await releaseStock({ productId: params.id, variantId: variant?.id ?? null, quantity });
       if (discount) await recordDiscountUse(discount.id);
+      // B10 slice 3 — the money reaches Financials (it never did before).
+      const txId = await recordProductMoney({
+        clubId: session.user.clubId, memberId: body.memberId || null, amount: totalAmount,
+        description: `Product sale — ${lineName}${quantity > 1 ? ` × ${quantity}` : ""}`, method: "CASH",
+        discountCode: discount?.code ?? null, discountAmount: discount ? quote.discountAmount : null, recordedByUserId: session.user.id ?? null,
+      });
+      if (txId) await prisma.productSale.update({ where: { id: sale.id }, data: { transactionId: txId } });
 
       return NextResponse.json({ sale, type: "manual" }, { status: 201 });
     }

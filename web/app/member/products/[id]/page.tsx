@@ -14,6 +14,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, ImageIcon, Minus, Plus, ShieldCheck } from "lucide-react";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 import type { StoreProduct, StoreVariant } from "@/lib/productStore";
+import BookingFlow, { type BookingPayload } from "@/components/products/BookingFlow";
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
@@ -83,6 +84,26 @@ export default function MemberProductDetailPage() {
 
   useEffect(() => { setQty((q) => Math.min(q, maxQty)); }, [maxQty]);
 
+  // B10 slice 3 — a booking (rental / party).
+  const [bookedMsg, setBookedMsg] = useState("");
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("booked")) setBookedMsg("Booked — you'll see it confirmed once the payment lands.");
+  }, []);
+  async function book(p: BookingPayload) {
+    if (!product) return;
+    setBusy(true); setError("");
+    const res = await fetch(`/api/member/products/${product.id}/book`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...p, memberId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { setBusy(false); setError(d.error || "Couldn't book that."); return; }
+    if (d.url) { window.location.href = d.url; return; }
+    setBusy(false);
+    setBookedMsg(d.status === "PENDING" ? "Request sent — the club will confirm it." : "Booked. See you there!");
+  }
+
   async function checkout() {
     if (!product) return;
     setBusy(true); setError("");
@@ -150,7 +171,7 @@ export default function MemberProductDetailPage() {
 
         <div className="space-y-4">
           <div>
-            <span className="inline-block text-[11px] font-medium uppercase tracking-wider text-stone-500 bg-stone-100 rounded-full px-2 py-0.5 mb-2">Shop</span>
+            <span className="inline-block text-[11px] font-medium uppercase tracking-wider text-stone-500 bg-stone-100 rounded-full px-2 py-0.5 mb-2">{product.booking ? "Book" : "Shop"}</span>
             <h1 className="text-xl font-semibold text-stone-900 leading-tight">{product.name}</h1>
             <div className="mt-1 flex items-baseline gap-2">
               <span className="text-lg font-semibold text-stone-900">{money(unit)}</span>
@@ -170,10 +191,18 @@ export default function MemberProductDetailPage() {
             </div>
           )}
 
-          {product.needsBookingFlow && (
-            <div className="pcard p-3 text-sm text-stone-600">Rentals and parties are booked, not bought — booking from the app is coming soon. Ask the front desk in the meantime.</div>
+          {bookedMsg && <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-sm text-green-800">{bookedMsg}</div>}
+          {product.booking && (
+            <BookingFlow
+              booking={product.booking}
+              availabilityUrl={(date, len) => `/api/member/products/${product.id}/availability?date=${date}&length=${encodeURIComponent(len)}`}
+              busy={busy}
+              error={error}
+              onSubmit={book}
+            />
           )}
 
+          {!product.booking && (<>
           {/* Option pickers with per-value stock */}
           {groups.map((g) => (
             <div key={g.name}>
@@ -228,13 +257,14 @@ export default function MemberProductDetailPage() {
           <div className="hidden md:block">
             <CheckoutButton total={total} disabled={busy || !hasMemberProfile || soldOut || needsPick || product.needsBookingFlow} soldOut={soldOut} needsPick={needsPick} busy={busy} onClick={checkout} />
           </div>
+          </>)}
         </div>
       </div>
 
       {/* Sticky checkout above the 60px bottom nav */}
-      <div className="fixed left-0 right-0 md:hidden px-4 pt-2 pb-2" style={{ bottom: "calc(60px + env(safe-area-inset-bottom))", background: "linear-gradient(to top, #FAFAF9 70%, rgba(250,250,249,0))" }}>
+      {!product.booking && <div className="fixed left-0 right-0 md:hidden px-4 pt-2 pb-2" style={{ bottom: "calc(60px + env(safe-area-inset-bottom))", background: "linear-gradient(to top, #FAFAF9 70%, rgba(250,250,249,0))" }}>
         <CheckoutButton total={total} disabled={busy || !hasMemberProfile || soldOut || needsPick || product.needsBookingFlow} soldOut={soldOut} needsPick={needsPick} busy={busy} onClick={checkout} />
-      </div>
+      </div>}
     </div>
   );
 }

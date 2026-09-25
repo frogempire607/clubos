@@ -6,7 +6,8 @@
 // from the same ledger the editor, cards and Sell tiles read, so "2 left" on a
 // phone is the number the front desk sees.
 
-import { normalizeProductSettings, unitPriceFor, variantStatus, type ProductSettings } from "@/lib/productSettings";
+import { normalizeProductSettings, unitPriceFor, variantStatus, isBookable, PRODUCT_TYPE_LABELS, type ProductSettings, type ProductType } from "@/lib/productSettings";
+import { lengthOptions, effectiveWindows, type LengthOption } from "@/lib/productBooking";
 
 export type StoreVariant = { id: string; label: string; values: string[]; stock: number; price: number; status: "OUT" | "LOW" | "OK"; photoUrl: string | null };
 
@@ -29,6 +30,21 @@ export type StoreProduct = {
   /** Units across variants (or the plain count); null = untracked. */
   available: number | null;
   needsBookingFlow: boolean;
+  typeLabel: string;
+  /** B10 slice 3 — what the booking flow (2f) needs; null when not bookable. */
+  booking: {
+    options: LengthOption[];
+    addOns: { label: string; price: number; perGuest: boolean }[];
+    maxGuests: number | null;
+    questions: { label: string; kind: string; required: boolean }[];
+    mode: ProductSettings["depositMode"];
+    depositAmount: number | null;
+    requiresApproval: boolean;
+    bookingWindowDays: number;
+    /** Weekdays with any time window ("Mon"…), and closed dates. */
+    openDays: string[];
+    blackoutDates: string[];
+  } | null;
 };
 
 type Row = {
@@ -70,6 +86,21 @@ export function storeView(row: Row): StoreProduct {
     variants,
     hasVariants,
     available,
-    needsBookingFlow: row.productType === "FACILITY_RENTAL" || row.productType === "BIRTHDAY_PARTY",
+    needsBookingFlow: isBookable(row.productType),
+    typeLabel: PRODUCT_TYPE_LABELS[row.productType as ProductType] ?? "Other",
+    booking: isBookable(row.productType)
+      ? {
+          options: lengthOptions(settings, base),
+          addOns: settings.addOns.filter((a) => a.price != null).map((a) => ({ label: a.label, price: a.price!, perGuest: a.perGuest })),
+          maxGuests: settings.maxGuests,
+          questions: settings.questions,
+          mode: settings.depositMode,
+          depositAmount: settings.depositMode === "DEPOSIT" ? settings.depositAmount : null,
+          requiresApproval: settings.requiresApproval,
+          bookingWindowDays: settings.bookingWindowDays ?? 60,
+          openDays: Array.from(new Set(effectiveWindows(settings).flatMap((w) => w.days))),
+          blackoutDates: settings.blackoutDates,
+        }
+      : null,
   };
 }

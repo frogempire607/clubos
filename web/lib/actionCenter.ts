@@ -80,6 +80,18 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
     );
   };
 
+  // ── B10 slice 3: rental / party bookings waiting on staff ───────────────
+  probe(
+    can("events", "view"),
+    () => prisma.productBooking.count({ where: { clubId, status: "PENDING" } }),
+    {
+      kind: "PRODUCT_BOOKINGS_PENDING",
+      label: "Rental & party requests to confirm",
+      severity: "high",
+      href: "/dashboard/products/bookings",
+    },
+  );
+
   // ── B3 slice 2: sibling membership discount drift ───────────────────────
   // A family's membership priced without the discount it earns (or carrying
   // one it no longer earns). Recommend only — the owner applies it.

@@ -37,6 +37,7 @@
     "test:event-roster": "tsx scripts/event-roster-tests.ts",
     "test:event-auto-discounts": "tsx scripts/event-auto-discount-tests.ts",
     "test:membership-sibling": "tsx scripts/membership-sibling-tests.ts",
+    "test:product-booking": "tsx scripts/product-booking-tests.ts",
     "test:non-renewal": "tsx scripts/non-renewal-tests.ts",
     "test:permission-boundary": "tsx scripts/permission-boundary-guard.ts",
     "test:permission-behaviour": "tsx scripts/permission-behaviour-tests.ts",

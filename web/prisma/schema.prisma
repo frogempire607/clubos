@@ -2961,11 +2961,16 @@ model Product {
   trackInventory Boolean   @default(false)
   inventory      Int?
   deletedAt      DateTime?
+  // B10 slice 3 — the public product page /p/{publicSlug} (mirrors /e/{slug}),
+  // and how many times it was opened from a QR code (?src=qr).
+  publicSlug     String?   @unique
+  scanCount      Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sales ProductSale[]
+  sales    ProductSale[]
+  bookings ProductBooking[]
 
   @@index([clubId])
   @@map("products")
@@ -2984,6 +2989,11 @@ model ProductSale {
   // B10 slice 2 — the variant row (Product.settings.variants[].id, e.g.
   // "Youth M / Black") this sale took units from. Null = no variants.
   variantId               String?
+  // B10 slice 3 — a public-link buyer with no member row, and the
+  // Transaction that puts this sale's money in Financials.
+  guestName               String?
+  guestEmail              String?
+  transactionId           String?
   unitPrice               Decimal  @db.Decimal(10, 2)
   totalAmount             Decimal  @db.Decimal(10, 2)
   discountCode            String?
@@ -3809,4 +3819,47 @@ model EmailOptOutAudit {
   @@index([clubId, email, createdAt])
   @@index([clubId, createdAt])
   @@map("email_opt_out_audits")
+}
+
+// B10 slice 3 — a booking of a Bookable product (rental / party): the
+// handoff's 2d/2f. Money is computed from the product's tier / length / add-on
+// tables at booking time and snapshotted here (the tables may change later).
+//   status: PENDING_PAYMENT (card checkout open) | PENDING (waiting on staff)
+//           | CONFIRMED | DECLINED | CANCELED
+//   paymentMode: FULL | DEPOSIT | REQUEST_ONLY — as of booking
+model ProductBooking {
+  id              String    @id @default(cuid())
+  clubId          String
+  productId       String
+  memberId        String?
+  guestName       String?
+  guestEmail      String?
+  guestPhone      String?
+  bookedByUserId  String?
+  tierName        String?
+  durationMins    Int
+  startsAt        DateTime
+  endsAt          DateTime
+  guests          Int       @default(1)
+  addOns          Json      @default("[]")
+  answers         Json      @default("{}")
+  status          String    @default("PENDING")
+  paymentMode     String    @default("FULL")
+  amountTotal     Decimal   @db.Decimal(10, 2)
+  dueNow          Decimal   @db.Decimal(10, 2)
+  amountPaid      Decimal   @default(0) @db.Decimal(10, 2)
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  transactionId   String?
+  declinedReason  String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, startsAt])
+  @@index([productId, startsAt])
+  @@index([clubId, status])
+  @@map("product_bookings")
 }

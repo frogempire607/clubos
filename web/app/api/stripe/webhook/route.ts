@@ -6,6 +6,8 @@ import { applyNonRenewal, planNonRenewal } from "@/lib/autopay";
 import { invoicePeriodEnd } from "@/lib/stripeTruth";
 import { prisma } from "@/lib/prisma";
 import { releaseStock } from "@/lib/productStock";
+import { recordProductMoney } from "@/lib/productMoney";
+import { confirmBookingPayment } from "@/lib/productBookingServer";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import {
   sendBookingConfirmationEmail,
@@ -769,8 +771,36 @@ export async function POST(req: Request) {
 
           // Units leave when the payment lands — from the VARIANT ledger when
           // the sale names one (B10 slice 2), else the plain count.
-          const sale = await prisma.productSale.findFirst({ where: { id: saleId, clubId }, select: { productId: true, variantId: true, quantity: true } });
-          if (sale) await releaseStock({ productId: sale.productId, variantId: sale.variantId, quantity: sale.quantity });
+          const sale = await prisma.productSale.findFirst({
+            where: { id: saleId, clubId },
+            select: { id: true, productId: true, variantId: true, quantity: true, memberId: true, transactionId: true, discountCode: true, discountAmount: true, guestName: true, product: { select: { name: true } } },
+          });
+          if (sale && !sale.transactionId) {
+            // Units leave once: only the first delivery gets here (the
+            // Transaction below is what marks it handled).
+            await releaseStock({ productId: sale.productId, variantId: sale.variantId, quantity: sale.quantity });
+            // B10 slice 3 — the money reaches Financials.
+            const txId = await recordProductMoney({
+              clubId, memberId: sale.memberId, amount: (session.amount_total || 0) / 100,
+              description: `Product sale — ${sale.product.name}${sale.variantId ? ` (${sale.variantId})` : ""}${sale.quantity > 1 ? ` × ${sale.quantity}` : ""}${sale.guestName ? ` — ${sale.guestName}` : ""}`,
+              method: "STRIPE", paymentIntentId: (session.payment_intent as string | null) ?? null, money: checkoutMoney,
+              discountCode: sale.discountCode ?? session.metadata?.discountCode ?? null,
+              discountAmount: sale.discountAmount != null ? Number(sale.discountAmount) : null,
+            });
+            if (txId) await prisma.productSale.update({ where: { id: sale.id }, data: { transactionId: txId } });
+          }
+        }
+
+        // ── B10 slice 3: product booking (rental / party) checkout ───────────
+        const productBookingId = session.metadata?.productBookingId;
+        if (productBookingId) {
+          await confirmBookingPayment({
+            bookingId: productBookingId,
+            clubId,
+            amount: (session.amount_total || 0) / 100,
+            paymentIntentId: (session.payment_intent as string | null) ?? null,
+            money: checkoutMoney,
+          });
         }
 
         // ── Member-shop private package purchase ────────────────────────────

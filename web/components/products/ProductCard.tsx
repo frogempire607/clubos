@@ -7,6 +7,7 @@
 import { MoreVertical } from "lucide-react";
 import {
   isBookable,
+  PRODUCT_TYPE_LABELS,
   normalizeProductSettings,
   storefrontsFor,
   tierRange,
@@ -32,13 +33,7 @@ export type CardProduct = {
   _count: { sales: number };
 };
 
-const TYPE_LABELS: Record<ProductType, string> = {
-  GEAR: "Gear / merch",
-  FACILITY_RENTAL: "Facility rental",
-  BIRTHDAY_PARTY: "Birthday party",
-  DIGITAL: "Digital item",
-  OTHER: "Other",
-};
+const TYPE_LABELS = PRODUCT_TYPE_LABELS;
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -73,21 +68,26 @@ export function deriveCard(p: CardProduct) {
   return { settings: s, ledger, bookable, fronts, cover, badge, chips, priceLine, primary, needsAttention };
 }
 
-export default function ProductCard({ product: p, onSell, onEdit, onToggleActive, onRemove }: {
+export default function ProductCard({ product: p, onSell, onEdit, onToggleActive, onRemove, onBookings, onRestock, pending = 0 }: {
   product: CardProduct;
   onSell: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
   onRemove: () => void;
+  onBookings?: () => void;
+  onRestock?: () => void;
+  /** B10 slice 3 — bookings of this product waiting on staff. */
+  pending?: number;
 }) {
   const d = deriveCard(p);
+  if (pending > 0) d.chips.push(`${pending} pending`);
   const badgeStyle = {
     ok: { background: "var(--color-success-surface)", color: "var(--color-success-text)" },
     warn: { background: "var(--color-warn-surface)", color: "var(--color-warn-text)" },
     danger: { background: "var(--color-danger-surface)", color: "var(--color-danger-text)" },
     muted: { background: "var(--color-chip-surface)", color: "var(--color-chip-text)" },
   }[d.badge.tone];
-  const primaryAction = d.primary === "Activate" ? onToggleActive : d.primary === "Bookings" ? onEdit : d.primary === "Restock" ? onEdit : onSell;
+  const primaryAction = d.primary === "Activate" ? onToggleActive : d.primary === "Bookings" ? onBookings ?? onEdit : d.primary === "Restock" ? onRestock ?? onEdit : onSell;
 
   return (
     <div className={`bg-surface rounded-[14px] border border-app-border overflow-hidden flex flex-col ${p.active ? "" : "opacity-70"}`}>

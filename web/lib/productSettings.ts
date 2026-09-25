@@ -26,7 +26,43 @@
 // editor totals, the card badges and chips; the tier table feeds the pricing
 // summary; storefronts are derived from visibility + showLocation and back.
 
-export type ProductType = "GEAR" | "FACILITY_RENTAL" | "BIRTHDAY_PARTY" | "DIGITAL" | "OTHER";
+// B10 slice 3 — the handoff's 11 types. FACILITY_RENTAL / BIRTHDAY_PARTY are the
+// pre-redesign values; they still read as Bookable (isBookable) and the editor
+// offers BOOKABLE instead.
+export type ProductType =
+  | "GEAR" | "BOOKABLE" | "PUNCH_CARD" | "TEAM_KIT" | "CONCESSION" | "GIFT_CARD"
+  | "MEMBERSHIP_ADDON" | "TOURNAMENT_ENTRY" | "PRE_ORDER" | "DIGITAL" | "OTHER"
+  | "FACILITY_RENTAL" | "BIRTHDAY_PARTY";
+
+export const PRODUCT_TYPES = [
+  "GEAR", "BOOKABLE", "PUNCH_CARD", "TEAM_KIT", "CONCESSION", "GIFT_CARD",
+  "MEMBERSHIP_ADDON", "TOURNAMENT_ENTRY", "PRE_ORDER", "DIGITAL", "OTHER",
+] as const;
+export const ALL_PRODUCT_TYPES = [...PRODUCT_TYPES, "FACILITY_RENTAL", "BIRTHDAY_PARTY"] as const;
+
+export const PRODUCT_TYPE_LABELS: Record<ProductType, string> = {
+  GEAR: "Gear / merch",
+  BOOKABLE: "Bookable",
+  PUNCH_CARD: "Punch card / class pack",
+  TEAM_KIT: "Team registration kit",
+  CONCESSION: "Concessions",
+  GIFT_CARD: "Gift card",
+  MEMBERSHIP_ADDON: "Membership add-on",
+  TOURNAMENT_ENTRY: "Tournament entry",
+  PRE_ORDER: "Fundraiser pre-order",
+  DIGITAL: "Digital item",
+  OTHER: "Other",
+  FACILITY_RENTAL: "Bookable (rental)",
+  BIRTHDAY_PARTY: "Bookable (party)",
+};
+
+/** The Product.category column the list/filters and Financials group by. */
+export function categoryForType(type: ProductType): "GEAR" | "APPAREL" | "FACILITY" | "SERVICE" | "OTHER" {
+  if (type === "GEAR" || type === "PRE_ORDER" || type === "TEAM_KIT" || type === "CONCESSION") return "GEAR";
+  if (isBookable(type)) return "FACILITY";
+  if (type === "DIGITAL" || type === "PUNCH_CARD" || type === "MEMBERSHIP_ADDON" || type === "GIFT_CARD" || type === "TOURNAMENT_ENTRY") return "SERVICE";
+  return "OTHER";
+}
 export type Visibility = "MEMBERS_ONLY" | "PUBLIC_ONLY" | "MEMBERS_AND_PUBLIC" | "INTERNAL_ONLY";
 export type ShowLocation = "MEMBER_PORTAL" | "PUBLIC_CHECKOUT" | "INTERNAL_ONLY";
 export type Storefront = "MEMBER_PORTAL" | "PUBLIC_LINK" | "STAFF_ONLY";
@@ -47,6 +83,8 @@ export type Duration = { mins: number; price: number | null };
 export type AddOn = { label: string; price: number | null; perGuest: boolean };
 export type QuestionKind = "SHORT" | "LONG" | "NUMBER";
 export type Question = { label: string; kind: QuestionKind; required: boolean };
+/** A bookable time window: on these days, from–to ("16:00"–"20:00", 24h). */
+export type TimeWindow = { days: string[]; from: string; to: string };
 export type DepositMode = "FULL" | "DEPOSIT" | "REQUEST_ONLY";
 
 export type ProductSettings = {
@@ -62,9 +100,12 @@ export type ProductSettings = {
   digitalInstructions: string | null;
   digitalAccess: string | null;
   availableDays: string[];
-  /** Kept as the owner typed them ("Mon-Fri 4:00 PM-8:00 PM") — a structured
-   *  time-window editor is slice 2. */
-  timeWindows: string[];
+  /** Structured since B10 slice 3; legacy text lines ("Mon-Fri 4:00 PM-8:00 PM")
+   *  are parsed by parseTimeWindowLine. Empty = open all day on bookable days
+   *  (9:00–21:00, see effectiveWindows). */
+  timeWindows: TimeWindow[];
+  /** How far ahead families can book, in days. null = 60. */
+  bookingWindowDays: number | null;
   durations: Duration[];
   bufferMinutes: number | null;
   capacityLimit: number | null;
@@ -95,6 +136,7 @@ export function emptyProductSettings(): ProductSettings {
     digitalAccess: null,
     availableDays: [],
     timeWindows: [],
+    bookingWindowDays: null,
     durations: [],
     bufferMinutes: null,
     capacityLimit: null,
@@ -128,6 +170,50 @@ const strList = (v: unknown): string[] =>
 function moneyIn(text: string): number | null {
   const m = text.match(/\$?\s*(\d+(?:[.,]\d{1,2})?)\s*(?:dollars|usd)?\s*$/i) ?? text.match(/\$\s*(\d+(?:[.,]\d{1,2})?)/);
   return m ? num(m[1]) : null;
+}
+
+// ── time windows ─────────────────────────────────────────────────────────────
+
+export const DAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "4:00 PM" / "16:00" / "4pm" → "16:00"; anything else → null. */
+export function normTime(v: unknown): string | null {
+  const t = str(v).toLowerCase().replace(/\s+/g, "");
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2] ?? "0");
+  if (m[3] === "pm" && h < 12) h += 12;
+  if (m[3] === "am" && h === 12) h = 0;
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+/** "Mon-Fri 4:00 PM-8:00 PM", "Sat 9am-1pm", "Mon,Wed 16:00-20:00" → a window. */
+export function parseTimeWindowLine(line: string): TimeWindow | null {
+  const m = line.trim().match(/^([A-Za-z,\s-]+?)\s+(\d{1,2}(?::\d{2})?\s*(?:[ap]m)?)\s*[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:[ap]m)?)$/i);
+  if (!m) return null;
+  const from = normTime(m[2]), to = normTime(m[3]);
+  if (!from || !to || from >= to) return null;
+  const cap = (d: string) => d.slice(0, 1).toUpperCase() + d.slice(1, 3).toLowerCase();
+  const days: string[] = [];
+  for (const part of m[1].split(",").map((x) => x.trim()).filter(Boolean)) {
+    const [a, b] = part.split("-").map((x) => cap(x.trim()));
+    const ia = DAY_KEYS.indexOf(a);
+    if (ia < 0) return null;
+    if (!b) { days.push(a); continue; }
+    const ib = DAY_KEYS.indexOf(b);
+    if (ib < 0) return null;
+    for (let i = ia; ; i = (i + 1) % 7) { days.push(DAY_KEYS[i]); if (i === ib) break; }
+  }
+  return { days: Array.from(new Set(days)), from, to };
+}
+
+/** "16:00" → "4:00 PM" */
+export function timeLabel(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
 
 /** "Size: Youth S, Youth M, Adult L" → { name: "Size", values: [...] } */
@@ -248,7 +334,15 @@ export function normalizeProductSettings(raw: unknown): ProductSettings {
   out.digitalInstructions = str(s.digitalInstructions) || null;
   out.digitalAccess = str(s.digitalAccess) || null;
   out.availableDays = strList(s.availableDays);
-  out.timeWindows = strList(s.timeWindows);
+  out.timeWindows = Array.isArray(s.timeWindows)
+    ? (s.timeWindows as unknown[]).flatMap((w) => {
+        if (typeof w === "string") return parseTimeWindowLine(w) ?? [];
+        const o = (w && typeof w === "object" ? w : {}) as Partial<TimeWindow>;
+        const from = normTime(o.from), to = normTime(o.to);
+        return from && to && from < to ? [{ days: strList(o.days).filter((d) => DAY_KEYS.includes(d)), from, to }] : [];
+      })
+    : typeof s.timeWindows === "string" ? strList(s.timeWindows).flatMap((l) => parseTimeWindowLine(l) ?? []) : [];
+  out.bookingWindowDays = int(s.bookingWindowDays);
   out.bufferMinutes = int(s.bufferMinutes);
   out.capacityLimit = int(s.capacityLimit);
   out.requiresApproval = !!s.requiresApproval;
@@ -397,23 +491,46 @@ export const STOREFRONT_LABELS: Record<Storefront, { label: string; hint: string
   STAFF_ONLY: { label: "Front desk only", hint: "Sold by staff; never listed anywhere." },
 };
 
-/** Which types hold stock, and the reason the others don't (the editor's lock panel). */
-export function stockBehaviour(type: ProductType): { holdsStock: boolean; reason: string } {
+/**
+ * Which types hold stock, how (a variant matrix or one plain count), and the
+ * note the editor shows under the type picker — the handoff's 2a table.
+ */
+export function stockBehaviour(type: ProductType): { holdsStock: boolean; variants: boolean; reason: string } {
   switch (type) {
     case "GEAR":
-      return { holdsStock: true, reason: "Physical items with sizes and colors. Each variant carries its own stock, price, SKU and photo." };
+      return { holdsStock: true, variants: true, reason: "Physical items with sizes and colors. Each variant carries its own stock, price, SKU and photo." };
+    case "PRE_ORDER":
+      return { holdsStock: true, variants: true, reason: "Sold before it exists — collect orders now, count what you owe families later. Stock here is how many you'll order; leave it off to take unlimited orders." };
+    case "CONCESSION":
+      return { holdsStock: true, variants: false, reason: "Snack-bar items sold fast at the desk. Simple count per item, no sizes." };
+    case "BOOKABLE":
     case "FACILITY_RENTAL":
     case "BIRTHDAY_PARTY":
-      return { holdsStock: false, reason: "Rentals and parties are booked into time slots — there is no shelf to count." };
+      return { holdsStock: false, variants: false, reason: "Facility rentals and birthday parties, booked into time slots — there is no shelf to count. Private lessons stay OUT of products: they keep their own Privates surface." };
+    case "PUNCH_CARD":
+      return { holdsStock: false, variants: false, reason: "A number of visits sold up front. Stock is unlimited — the visits are tracked by whoever redeems them, not by a shelf count." };
+    case "TEAM_KIT":
+      return { holdsStock: false, variants: false, reason: "A kit's stock comes from the items inside it — counting the bundle separately would double-count. Track the items as their own products." };
+    case "GIFT_CARD":
+      return { holdsStock: false, variants: false, reason: "A gift card is a balance, not an object — there is nothing to count and nothing to ship." };
+    case "MEMBERSHIP_ADDON":
+      return { holdsStock: false, variants: false, reason: "Add-ons bill alongside a membership, so there is no shelf to count." };
+    case "TOURNAMENT_ENTRY":
+      return { holdsStock: false, variants: false, reason: "Entries are capped by the event's capacity, not a stock count." };
     case "DIGITAL":
-      return { holdsStock: false, reason: "Delivered after purchase. Nothing to count, nothing to ship." };
+      return { holdsStock: false, variants: false, reason: "Delivered after purchase. Nothing to count, nothing to ship." };
     default:
-      return { holdsStock: false, reason: "Anything else purchasable, with optional questions at checkout." };
+      return { holdsStock: false, variants: false, reason: "Anything else purchasable, with optional questions at checkout." };
   }
 }
 
-export function isBookable(type: ProductType): boolean {
-  return type === "FACILITY_RENTAL" || type === "BIRTHDAY_PARTY";
+export function isBookable(type: ProductType | string): boolean {
+  return type === "BOOKABLE" || type === "FACILITY_RENTAL" || type === "BIRTHDAY_PARTY";
+}
+
+/** Types with something to hand over (the fulfilment choice applies). */
+export function needsFulfillment(type: ProductType): boolean {
+  return type === "GEAR" || type === "PRE_ORDER" || type === "CONCESSION" || type === "TEAM_KIT" || type === "OTHER";
 }
 
 // ── selling a variant (slice 2) ──────────────────────────────────────────────

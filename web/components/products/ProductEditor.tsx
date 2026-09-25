@@ -13,12 +13,19 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { X, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
+import PublicLinkPanel from "@/components/products/PublicLinkPanel";
 import {
   DEFAULT_LOW_STOCK,
   STOREFRONT_LABELS,
   columnsForStorefronts,
   derivedInventory,
   isBookable,
+  PRODUCT_TYPE_LABELS,
+  PRODUCT_TYPES,
+  categoryForType,
+  needsFulfillment,
+  timeLabel,
+  type TimeWindow,
   normalizeProductSettings,
   reconcileVariants,
   expandVariants,
@@ -50,22 +57,12 @@ export type EditableProduct = {
   settings: Record<string, unknown> | null;
   trackInventory: boolean;
   inventory: number | null;
+  publicSlug?: string | null;
+  scanCount?: number;
 };
 
-const TYPE_LABELS: Record<ProductType, string> = {
-  GEAR: "Gear / merch",
-  FACILITY_RENTAL: "Facility rental",
-  BIRTHDAY_PARTY: "Birthday party",
-  DIGITAL: "Digital item",
-  OTHER: "Other",
-};
-
-function productTypeToCategory(type: ProductType) {
-  if (type === "GEAR") return "GEAR";
-  if (type === "FACILITY_RENTAL" || type === "BIRTHDAY_PARTY") return "FACILITY";
-  if (type === "DIGITAL") return "SERVICE";
-  return "OTHER";
-}
+const TYPE_LABELS = PRODUCT_TYPE_LABELS;
+const productTypeToCategory = categoryForType;
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const numOrNull = (s: string): number | null => (s.trim() === "" ? null : Number.isFinite(Number(s)) ? Number(s) : null);
@@ -141,6 +138,8 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
   const [internalNotes, setInternalNotes] = useState(product?.internalNotes || "");
   const [trackInventory, setTrackInventory] = useState(product?.trackInventory || false);
   const [inventory, setInventory] = useState(product?.inventory != null ? String(product.inventory) : "");
+  // B10 slice 3 — /p/{slug}. Minted from the name on first save when blank.
+  const [slug, setSlug] = useState<string>(product?.publicSlug ?? "");
   const [storefronts, setStorefronts] = useState<Storefront[]>(product ? storefrontsFor(product.visibility, product.showLocation) : ["MEMBER_PORTAL"]);
   const [s, setS] = useState<ProductSettings>(() => {
     const base = normalizeProductSettings(product?.settings);
@@ -214,8 +213,8 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
     const settings: ProductSettings = {
       ...s,
       // Non-stock types never carry a matrix; a switched-off tracker drops it too.
-      optionGroups: stock.holdsStock && trackInventory ? s.optionGroups : [],
-      variants: stock.holdsStock && trackInventory ? s.variants : [],
+      optionGroups: stock.variants && trackInventory ? s.optionGroups : [],
+      variants: stock.variants && trackInventory ? s.variants : [],
       tiers: s.tiersEnabled ? s.tiers.filter((t) => t.name.trim()) : [],
       durations: bookable ? s.durations.filter((d) => d.mins > 0) : [],
       addOns: bookable ? s.addOns.filter((a) => a.label.trim()) : [],
@@ -236,6 +235,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
       trackInventory: stock.holdsStock ? trackInventory : false,
       inventory: stock.holdsStock && trackInventory ? derivedInventory(settings, numOrNull(inventory)) : null,
       imageUrl: settings.photos[0] ?? null,
+      publicSlug: storefronts.includes("PUBLIC_LINK") ? slug.trim() || null : undefined,
     };
     const res = await fetch(isEdit ? `/api/products/${product!.id}` : "/api/products", {
       method: isEdit ? "PATCH" : "POST",
@@ -265,14 +265,14 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
           {/* Type picker */}
           <div className="rounded-[14px] p-3.5" style={{ background: "var(--color-table-chrome)", border: "1px solid var(--color-app-border)" }}>
             <div className="flex flex-wrap gap-1.5">
-              {(Object.keys(TYPE_LABELS) as ProductType[]).map((t) => (
+              {(PRODUCT_TYPES as readonly ProductType[]).concat(PRODUCT_TYPES.includes(productType as (typeof PRODUCT_TYPES)[number]) ? [] : [productType]).map((t) => (
                 <button key={t} type="button" onClick={() => setProductType(t)} aria-pressed={productType === t} className={`text-[13px] px-3 py-1.5 rounded-full border transition ${productType === t ? "border-brand text-brand font-semibold" : "border-app-border text-text-primary hover:bg-app-bg"}`} style={productType === t ? { background: "var(--color-info-surface)" } : undefined}>
                   {TYPE_LABELS[t]}
                 </button>
               ))}
             </div>
             <p className="text-[12px] text-text-muted mt-2">
-              {stock.reason}{bookable ? " Private lessons stay out of products — they keep their own Privates surface." : ""}
+              {stock.reason}
             </p>
           </div>
 
@@ -366,6 +366,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                     <input id="p-low" type="number" min="0" value={s.lowStockAlertQuantity ?? ""} onChange={(e) => patch({ lowStockAlertQuantity: numOrNull(e.target.value) })} placeholder={String(DEFAULT_LOW_STOCK)} className={input} />
                   </div>
                 </div>
+                {stock.variants && (<>
                 <div className="space-y-2">
                   <div className={label}>Option groups</div>
                   {s.optionGroups.map((g, gi) => (
@@ -411,12 +412,13 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                     <div className="text-[12px] text-text-muted tabular-nums">{ledger.units} units · {money(ledger.retailValue)} at retail</div>
                   </div>
                 )}
+                </>)}
               </>
             )}
           </Card>
 
           {/* Booking & availability */}
-          <Card title="Booking & availability" summary={bookingSummary} open={open.booking} onToggle={() => toggle("booking")} locked={bookable ? null : "Only rentals and parties are booked into time slots."}>
+          <Card title="Booking & availability" summary={bookingSummary} open={open.booking} onToggle={() => toggle("booking")} locked={bookable ? null : "Only Bookable items (rentals, parties) are booked into time slots."}>
             <div>
               <div className={label}>Bookable days</div>
               <div className="flex flex-wrap gap-1.5">
@@ -426,15 +428,37 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                 })}
               </div>
             </div>
-            <div>
-              <label className={label} htmlFor="p-windows">Time windows</label>
-              <textarea id="p-windows" rows={2} value={s.timeWindows.join("\n")} onChange={(e) => patch({ timeWindows: e.target.value.split("\n") })} placeholder={"Mon-Fri 4:00 PM-8:00 PM\nSat 9:00 AM-1:00 PM"} className={input} />
+            <div className="space-y-1.5">
+              <div className={label}>Time windows</div>
+              {s.timeWindows.length === 0 && <p className="text-[11.5px] text-text-muted">None set — bookable days are open 9:00 AM to 9:00 PM.</p>}
+              {s.timeWindows.map((w, i) => {
+                const setW = (nw: Partial<TimeWindow>) => patch({ timeWindows: s.timeWindows.map((x, j) => (j === i ? { ...x, ...nw } : x)) });
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-1.5">
+                    {DAYS.map((d) => {
+                      const on = w.days.includes(d);
+                      return <button key={d} type="button" aria-pressed={on} onClick={() => setW({ days: on ? w.days.filter((x) => x !== d) : [...w.days, d] })} className={`px-2 py-1 rounded-md text-[11px] border ${on ? "bg-brand text-white border-brand" : "border-app-border text-text-muted"}`}>{d}</button>;
+                    })}
+                    <input aria-label="From" type="time" value={w.from} onChange={(e) => setW({ from: e.target.value })} className={`${dense} !w-[110px]`} />
+                    <span className="text-text-muted text-xs">to</span>
+                    <input aria-label="To" type="time" value={w.to} onChange={(e) => setW({ to: e.target.value })} className={`${dense} !w-[110px]`} />
+                    <button type="button" aria-label="Remove window" onClick={() => patch({ timeWindows: s.timeWindows.filter((_, j) => j !== i) })} className="w-7 h-7 rounded-lg hover:bg-app-bg text-text-muted flex items-center justify-center"><Trash2 size={14} /></button>
+                  </div>
+                );
+              })}
+              <button type="button" onClick={() => patch({ timeWindows: [...s.timeWindows, { days: [], from: "16:00", to: "20:00" }] })} className="text-[12.5px] font-medium text-brand inline-flex items-center gap-1"><Plus size={13} /> Add time window</button>
+              {s.timeWindows.length > 0 && (
+                <p className="text-[11.5px] text-text-muted">
+                  {s.timeWindows.map((w) => `${w.days.length ? w.days.join(", ") : "Every bookable day"} ${timeLabel(w.from)}–${timeLabel(w.to)}`).join(" · ")}. A window with no days ticked applies to every bookable day.
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div><label className={label} htmlFor="p-buffer">Buffer (min)</label><input id="p-buffer" type="number" min="0" value={s.bufferMinutes ?? ""} onChange={(e) => patch({ bufferMinutes: numOrNull(e.target.value) })} className={input} /></div>
               <div><label className={label} htmlFor="p-cap">Bookings per slot</label><input id="p-cap" type="number" min="0" value={s.capacityLimit ?? ""} onChange={(e) => patch({ capacityLimit: numOrNull(e.target.value) })} className={input} /></div>
               <div><label className={label} htmlFor="p-guests">Max guests</label><input id="p-guests" type="number" min="0" value={s.maxGuests ?? ""} onChange={(e) => patch({ maxGuests: numOrNull(e.target.value) })} className={input} /></div>
             </div>
+            <div className="max-w-[260px]"><label className={label} htmlFor="p-window">Booking window (days ahead)</label><input id="p-window" type="number" min="1" value={s.bookingWindowDays ?? ""} onChange={(e) => patch({ bookingWindowDays: numOrNull(e.target.value) })} placeholder="60" className={input} /></div>
             <div className="space-y-1.5">
               <div className={label}>Length & price</div>
               {s.durations.map((d, i) => (
@@ -534,8 +558,10 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                 );
               })}
             </div>
-            {storefronts.includes("PUBLIC_LINK") && <LockPanel>The shareable link and QR tag are generated when you save — a dedicated public product page (/p/…) is coming; today the public link widens who sees it in the member store.</LockPanel>}
-            {productType === "GEAR" ? (
+            {storefronts.includes("PUBLIC_LINK") && (
+              <PublicLinkPanel productId={product?.id ?? null} name={name} slug={slug} onSlug={setSlug} scanCount={product?.scanCount ?? 0} />
+            )}
+            {needsFulfillment(productType) ? (
               <div><label className={label} htmlFor="p-fulfil">Fulfillment</label><select id="p-fulfil" value={s.fulfillment} onChange={(e) => patch({ fulfillment: e.target.value })} className={input}><option value="PICKUP">Pickup at the gym</option><option value="SHIPPING_FUTURE">Shipping (later)</option></select></div>
             ) : (
               <LockPanel>Nothing to hand over for this type — no fulfillment step.</LockPanel>

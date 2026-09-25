@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Package } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ProductEditor from "@/components/products/ProductEditor";
 import ProductCard, { deriveCard } from "@/components/products/ProductCard";
 import SellModal from "@/components/products/SellModal";
 
 type Category = "GEAR" | "APPAREL" | "FACILITY" | "SERVICE" | "OTHER";
-type ProductType = "GEAR" | "FACILITY_RENTAL" | "BIRTHDAY_PARTY" | "DIGITAL" | "OTHER";
+import type { ProductType } from "@/lib/productSettings";
 type Visibility = "MEMBERS_ONLY" | "PUBLIC_ONLY" | "MEMBERS_AND_PUBLIC" | "INTERNAL_ONLY";
 type ShowLocation = "MEMBER_PORTAL" | "PUBLIC_CHECKOUT" | "INTERNAL_ONLY";
 
@@ -39,6 +41,21 @@ export default function ProductsPage() {
   const [selling, setSelling] = useState<Product | null>(null);
   const [filter, setFilter] = useState<"all" | "gear" | "bookable" | "attention" | "inactive">("all");
   const [query, setQuery] = useState("");
+  const router = useRouter();
+  // B10 slice 3 — bookings waiting on staff, per product (the cards' "n pending").
+  const [pendingBy, setPendingBy] = useState<Record<string, number>>({});
+  const [pendingTotal, setPendingTotal] = useState(0);
+  useEffect(() => {
+    const from = new Date(Date.now() - 86_400_000).toISOString();
+    const to = new Date(Date.now() + 180 * 86_400_000).toISOString();
+    fetch(`/api/products/bookings?from=${from}&to=${to}`).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d) return;
+      const m: Record<string, number> = {};
+      for (const b of d.bookings as { productId: string; status: string }[]) if (b.status === "PENDING") m[b.productId] = (m[b.productId] ?? 0) + 1;
+      setPendingBy(m);
+      setPendingTotal(d.pendingTotal ?? 0);
+    });
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -95,9 +112,13 @@ export default function ProductsPage() {
             {counts.attention > 0 ? ` · ${counts.attention} need${counts.attention === 1 ? "s" : ""} attention` : ""}
           </p>
         </div>
-        <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
-          + Add product
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href="/dashboard/products/inventory" className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg">Receive stock</Link>
+          <Link href="/dashboard/products/bookings" className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg">Bookings{pendingTotal > 0 ? ` · ${pendingTotal} waiting` : ""}</Link>
+          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
+            + Add product
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
@@ -136,6 +157,9 @@ export default function ProductsPage() {
               onEdit={() => setEditing(p)}
               onToggleActive={() => handleToggleActive(p)}
               onRemove={() => handleDelete(p.id)}
+              onBookings={() => router.push("/dashboard/products/bookings")}
+              onRestock={() => router.push("/dashboard/products/inventory")}
+              pending={pendingBy[p.id] ?? 0}
             />
           ))}
         </div>
