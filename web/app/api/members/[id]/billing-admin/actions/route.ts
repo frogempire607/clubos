@@ -24,7 +24,7 @@ import { recordDiscountUse } from "@/lib/discounts";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { syncOneSubscription } from "@/lib/stripeSync";
-import { commitPlanChange } from "@/lib/stripePlanChangeServer";
+import { commitPlanChange, commitAnyPlanChange } from "@/lib/stripePlanChangeServer";
 import { pauseMembership, resumeMembership } from "@/lib/membershipPause";
 import { resolveDatesEdit } from "@/lib/membershipPanel";
 
@@ -52,6 +52,8 @@ const schema = z.object({
     "pause_membership",
     "resume_membership",
     "set_dates",
+    // B13 slice 3 — one Change plan for every row (SAME_INTERVAL / SWITCH / OFFLINE)
+    "change_plan",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -69,6 +71,8 @@ const schema = z.object({
   // change_stripe_plan (subscriptionId above): the option to move to, and an
   // optional auto-renew override (null = the option's own default).
   optionId: z.string().optional(),
+  // change_plan: the kind the preview showed; a row that changed shape since is refused.
+  expectedKind: z.enum(["SAME_INTERVAL", "SWITCH", "OFFLINE"]).optional(),
   // cancel_at_period_end: the reason chip, optional (Reports' churn breakdown).
   cancelReason: z.string().max(60).optional().nullable(),
   // pause_membership: resume date (YYYY-MM-DD) or null = until resumed.
@@ -360,6 +364,23 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const res = await commitPlanChange({
       clubId: session.user.clubId, memberId: member.id, subscriptionId: data.subscriptionId, optionId: data.optionId,
       autoRenew: data.autoRenew ?? null, actorUserId: session.user.id,
+    });
+    if (!res.ok) return NextResponse.json({ error: res.error, code: res.code }, { status: res.status });
+    return NextResponse.json({ ok: true, message: res.message, preview: res.preview });
+  }
+
+  // change_plan — B13 slice 3. The one Change plan for every row. The kind
+  // (same-interval Stripe swap, cross-cycle Stripe switch, offline) comes from
+  // the row and the option, and must match what the owner previewed. A switch
+  // creates the new subscription first and ends the old one second, rolling
+  // the first step back if the second fails; it never charges today.
+  if (data.action === "change_plan") {
+    if (!data.subscriptionId || !data.optionId || !data.expectedKind) {
+      return NextResponse.json({ error: "subscriptionId, optionId and expectedKind are required." }, { status: 400 });
+    }
+    const res = await commitAnyPlanChange({
+      clubId: session.user.clubId, memberId: member.id, subscriptionId: data.subscriptionId, optionId: data.optionId,
+      autoRenew: data.autoRenew ?? null, actorUserId: session.user.id, expectedKind: data.expectedKind,
     });
     if (!res.ok) return NextResponse.json({ error: res.error, code: res.code }, { status: res.status });
     return NextResponse.json({ ok: true, message: res.message, preview: res.preview });

@@ -4869,3 +4869,72 @@ The panel no longer opens the old edit modal for anything on the current row.
 
 Deferred from the slice, on purpose: the B14 Paused card showing "resumes {date}" (cosmetic; the queue itself is
 right), and a Stripe-side check that `pause_collection` was not already set by hand in the dashboard.
+
+## 2026-09-24 — Events: the public link sends saved-card families to sign in; the portal asks the event's questions
+
+Reported by Julian with a screenshot: Titus Hall's mom opened the Finger Lakes Duals public link and got "Online
+payment isn't set up for this event yet. Please contact the club." She then registered from the portal, which worked
+but never asked weight class or division. Production (SELECT only) showed why, three separate faults:
+
+1. **The event's only payment method is AUTO_CARD** ("saved card, charged Nov 14"). The public route strips AUTO_CARD
+   (it needs an account), found nothing left, and answered with the Stripe-not-connected error. It is not a setup
+   problem — the family has to sign in. Now `lib/eventPayments.publicSignupRequiresAccount` decides it in one place;
+   the GET returns `accountRequired` + `portalAvailable`, the page shows "Register from your family's account" with
+   **Sign in to register**, and the POST answers `409 ACCOUNT_REQUIRED` instead of the 503.
+2. **Signing in from the event page went nowhere useful.** The login page only honours `/member` callbacks, so the old
+   `callbackUrl=/e/<slug>` was dropped and families landed on the portal home. Every sign-in link on the page now
+   points at `/member/events?event=<id>` (with `role=member&club=<slug>`), and the portal opens that event's
+   registration for the current athlete. A signed-in member sees **Continue to register** instead of the anonymous form.
+3. **The portal route never read `Event.registrationForm`.** New `lib/eventForm.ts` is the one validator (required,
+   select answers from the list, unknown keys dropped); both routes use it. The portal asks the questions in a modal
+   before payment (with "Who are you registering?" for multi-athlete families), re-sends them on every retry, and the
+   server enforces them (`FORM_REQUIRED` / `FORM_INVALID`). Answers land on every row the portal writes; covered/free
+   events with questions get a plain REGISTERED row to hold them; a plain card checkout on an event with questions is
+   registration-backed (PENDING_PAYMENT row + `eventRegistrationId` webhook branch) so the answers survive.
+
+Also found and fixed on the way:
+- **Approval with no intent set ignored the event's payment menu.** The editor's default (approval on, no "charge on
+  approval") made the portal offer "Bill me if approved", so Titus's row was INVOICE, not a card on Nov 14.
+  `approvalOptionsFromEventMethods` now follows the event's own methods; AUTO_CARD under approval records consent,
+  sits PENDING_REVIEW with nothing scheduled, and `approveRegistration` moves it to SCHEDULED at the charge date (or
+  charges at once if approved after the date). Render copy says "if your coach approves, … charged $X on Nov 14".
+- **Latent double-record in the Stripe webhook:** the approval CARD path's metadata carries memberId + eventId as well
+  as eventRegistrationId, so both webhook branches would fire — two Transactions and a Booking before approval. Guarded
+  (`!eventRegistrationId`). Zero such rows in production.
+- A child's registration row had `email: ""`; it now falls back to the guardian's login email.
+- "(event day)" no longer follows a charge date the owner set explicitly.
+- Pre-existing sport-terms guard failure: the editor's category placeholder said "Weight class" → "e.g. Division".
+
+Tests: event-payment-tests 58 → 81 (public sign-in rule, approval options, charge date, form validator).
+Not done: an athlete in two divisions still needs two registrations; the portal holds one per athlete per event
+(Booking is unique on event+member). Titus's existing row is CANCELED/DECLINED — his mom registers again.
+
+## 2026-09-24 — B13 slice 3: Change plan for everyone
+
+One Change plan dialog (billing centre, reached from the panel's Change plan and now from every bulk-price row) for
+every live row. `GET …/billing-admin/plan-change` answers with a `kind`, and `POST …/actions change_plan` takes the kind
+back and refuses if the row changed shape since the preview (`KIND_CHANGED`):
+
+- **SAME_INTERVAL** — B12 unchanged (price swap at the next invoice, `proration_behavior: none`).
+- **SWITCH** — a Stripe row moving to a different billing cycle. Previously refused with a recipe. Now one action,
+  two Stripe steps, one audit (`STRIPE_PLAN_SWITCHED`): (1) a NEW subscription on the same customer + card via
+  `lib/cardActivation.createSavedCardSubscription`, trialing until the old period end so its first charge is that day,
+  with the new option's commitment / cancel_at counted from that day; (2) the old subscription gets
+  `cancel_at = period end`, no proration. The new one is created first on purpose: if step 2 fails, step 1 is canceled
+  before it has charged anything (and the local row marked canceled), so the member is exactly where they started — the
+  other order could leave them with no membership. If even the rollback fails, the error names the subscription to
+  cancel and the date. Refused: paused billing, past-due/unpaid, a cancel_at earlier than the period end, a period
+  ending within the hour. Locally: the old row gets `endDate` = switch day + auto-renew off; the new row starts that day
+  and shows on the panel as "Then: … from …". Events: PLAN_CHANGED on the old row, CREATED on the new.
+- **OFFLINE** — cash/check rows. Option, price and period change **from the next payment**: `paidThroughDate` is
+  untouched, the commitment and end date are counted from it (overdue ⇒ the overdue payment takes the new price; never
+  paid ⇒ from today). Audit `OFFLINE_PLAN_CHANGED` with the consequence lines as the note; PLAN_CHANGED / PRICE_CHANGE
+  event. Paused rows are refused (resume first).
+
+Pure rules in `lib/stripePlanChange.ts` (`offlinePlanChange`, `switchLines`); tests 29 → 48. The bulk price tool no
+longer moves members between options — its "Move to" column is a **Change plan →** link to the same dialog, so there is
+one set of rules for moving a membership. The old `change_stripe_plan` action stays for compatibility; nothing in the UI
+sends it any more.
+
+Not yet: slice 4 (billing centre → Advanced billing), the B14 Paused card "resumes {date}", and a Sync-from-Stripe check
+for a `pause_collection` set by hand. Nothing here charges a card today, so no checkbox names an amount.

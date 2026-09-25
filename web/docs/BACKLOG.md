@@ -10,9 +10,15 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 **Start with `docs/HANDOFF.md`** (written 2026-09-24) — the full state: shipped, on disk, Julian's to-do, next session's order.
 
-- **Julian, do first:** ship the on-disk bit (`claude/events-public-link`: full public link + copy, HANDOFF.md), then the production looks (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3 (Luis → Clint/Aylen → Jacob) so B2 can flip. Orson only after his Sep 25 charge.
-- **Next Claude Code session:** B13 slice 3 (offline Change plan + cross-cycle Stripe switch) → slice 4 → B10 slice 3. B2 = flip the flag after A3.
+- **Julian, do first:** ship `claude/events-signin-and-questions` (below), then ask Titus's mom to register again from
+  the link (she'll be sent to sign in, then asked weight class + division). Then the production looks from HANDOFF.md
+  (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
+- **Next Claude session:** B13 slice 4 (billing centre → Advanced billing; B14 Paused card "resumes {date}") → B10 slice 3.
+- **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
+  member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
+- **Open question (events):** an athlete in two divisions needs two registrations; the portal allows one per athlete
+  per event. Decide whether that's worth building before the next tournament.
 
 ---
 
@@ -81,7 +87,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   no saved card, unsellable draft option, $0. Supersedes a $0 offline placeholder row. Spelling: enroll.
   Not in B9: Stripe plan changes (B12), collect-later / pending rows, the single panel (B13).
 
-- [x] **B12 · Change a live Stripe membership (plan change + commitment) from inside AthletixOS** · BUILT 2026-09-24, on disk — needs branch/build/push
+- [x] **B12 · Change a live Stripe membership (plan change + commitment) from inside AthletixOS** · SHIPPED 5f43b4e
   WORKED EXAMPLE — Orson Chorba (sub_1TsknzEIplcCMoSozcu32ldG): Julian set $150 by hand in Stripe on 09-22; the row
   still says Monthly $175, never synced (stripeSnapshot null). What shipped:
   1. **Sync mirrors price + option.** lib/stripeSync now writes `price` (Stripe unit_amount with the processing fee
@@ -105,7 +111,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   $150 + fee. Not in B12: new-subscription flow for interval changes, member-facing email on plan change.
 
 - [ ] **B13 · One Membership panel (assign / change / dates / record payment / pause / cancel)** · SLICE 1 SHIPPED 80f9b28 ·
-  SLICE 2 BUILT 2026-09-24, on disk — needs **migrate + generate** then branch/build/push.
+  SLICE 2 SHIPPED e621b26 (+ eb106d4, be070cc).
   Handoff: `docs/improvement/design_handoff_membership_panel/`. Slice 2 = migration `20260925000000_membership_pause`
   (`member_subscriptions.pausedAt/pausedUntil/cancelReason`, additive) + **Pause/Resume for real**
   (`lib/membershipPause.ts`: Stripe `pause_collection {behavior: void, resumes_at}` / cleared on resume; offline rows
@@ -119,8 +125,11 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (card → `activate_card`, cash → `enroll-paid`, offer → reactivation, $0 → comp), Cancel (`cancel_at_period_end` /
   DELETE now / `keep_membership`), Make it free (`comp_membership`), roster Assign → `?assign=1`, Stripe Change plan →
   `billing?changePlan=`.
-  Next: slice 3 = Change plan for offline rows + the two-step Stripe switch across billing cycles; slice 4 = billing
-  centre → Advanced billing; B14 Paused card "resumes {date}" (deferred from slice 2). Decision 2026-09-24: MS/HS
+  SLICE 3 BUILT 2026-09-24 (on disk, no migration): one Change plan for every row — SAME_INTERVAL (B12), SWITCH
+  (Stripe, different cycle: new sub on the same card from the period end, old sub cancel_at that day, rollback if step 2
+  fails) and OFFLINE (from the next payment, paid-through untouched). `change_plan` action + `kind` on the preview. Bulk
+  price tool's per-row move → a Change plan link. Tests 29 → 48 (stripe-plan-change).
+  Next: slice 4 = billing centre → Advanced billing; B14 Paused card "resumes {date}" (deferred from slice 2). Decision 2026-09-24: MS/HS
   Monthly stays auto-renew OFF (Julian).
 
 - [x] **B14 · "Renewing this week" queue + "Paused" card** · SHIPPED a417f90
@@ -177,7 +186,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   further along: loader, QuickAdd chip, charge-route DAY_NOT_INCLUDED, more tests). Write-up in
   docs/improvement/PROGRESS.md (2026-09-14, third entry).
 
-- [ ] **B10 · Products redesign (design handoff)** · SLICE 1 SHIPPED 1ca6d0c · SLICE 2 BUILT 2026-09-24, on disk — needs
+- [ ] **B10 · Products redesign (design handoff)** · SLICE 1 SHIPPED 1ca6d0c · SLICE 2 SHIPPED ed63f9c. Was:
   migrate + branch/build/push. Slice 2 = **2g Sell by variant + 2e member store detail**, one additive migration
   `20260924000000_product_sale_variant` (`product_sales.variantId TEXT NULL`). What shipped:
   - `lib/productSettings`: `checkStock` (a product with variants REQUIRES a pick; else the plain count), `unitPriceFor`
@@ -240,4 +249,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-23 evening (A2/A5/A6 done; A7/A8/A9 scoped; AJ Dorn split queued)_
+_Last reviewed: 2026-09-24 night (events sign-in + questions fix; B10 s2, B12, B13 s1–2 are shipped)_

@@ -235,7 +235,8 @@ export default function MemberBillingPage() {
   // B13 — the Membership panel's "Change plan" lands here with the row to change.
   useEffect(() => {
     const cp = search.get("changePlan");
-    if (cp && data?.subscriptions.some((s) => s.id === cp && s.hasStripe)) setPlanChangeSubId(cp);
+    // B13 slice 3: offline rows change plan here too (from the next payment).
+    if (cp && data?.subscriptions.some((s) => s.id === cp && (s.status === "active" || s.status === "past_due"))) setPlanChangeSubId(cp);
   }, [search, data]);
 
   useEffect(() => {
@@ -1112,6 +1113,8 @@ function CardActivateModal({ data, memberId, onClose, onDone }: { data: Data; me
 // does its own math: every sentence comes from GET …/plan-change, computed
 // from Stripe's live period end, and the commit recomputes it server-side.
 type PlanChangePreview = {
+  // B13 slice 3 — which change this is; sent back on commit.
+  kind: "SAME_INTERVAL" | "SWITCH" | "OFFLINE";
   current: { optionLabel: string; price: number; chargedTotal: number; cancelAt: string | null; minimumTermEndsAt: string | null; autoRenew: boolean };
   target: { planName: string; optionLabel: string; price: number; billingPeriod: string; fee: number; total: number; contractMonths: number | null };
   effectiveAt: string; autoRenew: boolean; minimumTermEndsAt: string | null; cancelAt: string | null; sameAmount: boolean; lines: string[];
@@ -1119,14 +1122,15 @@ type PlanChangePreview = {
 
 function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { data: Data; memberId: string; subscriptionId: string; onClose: () => void; onDone: (msg: string) => void }) {
   const sub = data.subscriptions.find((s) => s.id === subscriptionId) ?? null;
-  // Only options on the same billing interval can swap in place; the rest are
-  // listed disabled with the reason, so the owner learns the rule from the
-  // picker instead of from an error.
+  // B13 slice 3: every recurring option is offered. Same billing cycle swaps in
+  // place at the next invoice; a different cycle on a Stripe row becomes a
+  // switch at the period end; an offline row changes from its next payment.
+  // The picker says which, so the owner reads the consequence before choosing.
   const choices = useMemo(() => {
     const out: { id: string; label: string; planName: string; price: number; billingPeriod: string; contractMonths: number | null; sameInterval: boolean; isCurrent: boolean }[] = [];
     for (const p of data.plans) {
       for (const o of p.options) {
-        if (!o.id || o.billingPeriod === "ONE_TIME" || o.price <= 0) continue;
+        if (!o.id || o.billingPeriod === "ONE_TIME" || (sub?.hasStripe && o.price <= 0)) continue;
         out.push({
           id: o.id, label: o.label, planName: p.name, price: o.price, billingPeriod: o.billingPeriod,
           contractMonths: o.contractMonths ?? p.contractMonths ?? null,
@@ -1159,11 +1163,11 @@ function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { 
   }, [optionId, autoRenew, subscriptionId, memberId]);
 
   const commit = async () => {
-    if (!optionId) return;
+    if (!optionId || !preview) return;
     setBusy(true); setError("");
     const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "change_stripe_plan", confirm: true, subscriptionId, optionId, ...(autoRenew === "default" ? {} : { autoRenew: autoRenew === "on" }) }),
+      body: JSON.stringify({ action: "change_plan", confirm: true, subscriptionId, optionId, expectedKind: preview?.kind, ...(autoRenew === "default" ? {} : { autoRenew: autoRenew === "on" }) }),
     });
     const d = await r.json().catch(() => ({}));
     setBusy(false);
@@ -1179,7 +1183,11 @@ function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { 
         <div>
           <h3 className="text-base font-semibold text-text-primary">Change plan</h3>
           <p className="text-xs text-text-muted mt-0.5">
-            {data.member.firstName} is on <strong>{sub.optionLabel}</strong> · {fmtMoney(sub.price)} {periodWord(sub.billingPeriod)} in Stripe. The new price starts on the next invoice — nothing is charged or refunded today.
+            {sub.hasStripe ? (
+              <>{data.member.firstName} is on <strong>{sub.optionLabel}</strong> · {fmtMoney(sub.price)} {periodWord(sub.billingPeriod)} in Stripe. Nothing is charged or refunded today.</>
+            ) : (
+              <>{data.member.firstName} is on <strong>{sub.optionLabel}</strong> · {fmtMoney(sub.price)} {periodWord(sub.billingPeriod)}, billed offline. The new option starts from the next payment.</>
+            )}
           </p>
         </div>
         {error && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2">{error}</p>}
@@ -1189,14 +1197,16 @@ function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { 
           <select value={optionId} onChange={(e) => setOptionId(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary min-h-[44px] md:min-h-0">
             <option value="">Pick an option…</option>
             {choices.map((c) => (
-              <option key={c.id} value={c.id} disabled={!c.sameInterval || c.isCurrent}>
+              <option key={c.id} value={c.id} disabled={c.isCurrent}>
                 {c.planName} · {c.label} — {fmtMoney(c.price)} {periodWord(c.billingPeriod)}{c.contractMonths ? `, ${c.contractMonths}-mo commitment` : ""}
-                {c.isCurrent ? " (current)" : !c.sameInterval ? " — different billing cycle" : ""}
+                {c.isCurrent ? " (current)" : !c.sameInterval && sub.hasStripe ? " — switches at period end" : ""}
               </option>
             ))}
           </select>
           <span className="block text-[11px] text-text-muted mt-1">
-            Only options billed {periodWord(sub.billingPeriod)} can swap in place. A different cycle (e.g. monthly → 3 months upfront) needs this subscription to end and the new setup activated.
+            {sub.hasStripe
+              ? `Options billed ${periodWord(sub.billingPeriod)} swap in place at the next invoice. A different cycle (e.g. monthly → 3 months upfront) ends this subscription at its period end and starts the new one that day on the same card.`
+              : "Paid-through stays as it is; the next payment is at the new price."}
           </span>
         </label>
 
@@ -1215,9 +1225,12 @@ function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { 
         {loading && <p className="text-xs text-text-muted">Checking with Stripe…</p>}
         {preview && (
           <div className="text-sm text-text-primary bg-app-bg rounded-lg px-3 py-2.5 space-y-1">
-            <p><strong>{preview.target.planName} · {preview.target.optionLabel}</strong> from <strong>{fmtDateUTC(preview.effectiveAt)}</strong>.</p>
+            <p>
+              {preview.kind === "SWITCH" ? "Switch to " : ""}<strong>{preview.target.planName} · {preview.target.optionLabel}</strong>
+              {preview.kind === "OFFLINE" ? " from the next payment, " : " from "}<strong>{fmtDateUTC(preview.effectiveAt)}</strong>.
+            </p>
             {preview.lines.map((l, i) => <p key={i} className={i === 0 ? "" : "text-text-muted"}>{l}</p>)}
-            {preview.current.cancelAt && !preview.cancelAt && (
+            {preview.kind !== "SWITCH" && preview.current.cancelAt && !preview.cancelAt && (
               <p className="text-text-muted">The old end date ({fmtDateUTC(preview.current.cancelAt)}) is removed.</p>
             )}
           </div>
@@ -1225,13 +1238,20 @@ function PlanChangeModal({ data, memberId, subscriptionId, onClose, onDone }: { 
         {preview && (
           <label className="flex items-start gap-2 text-sm text-text-primary">
             <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
-            <span>Apply this to {data.member.firstName}&apos;s Stripe subscription. {data.member.firstName} isn&apos;t emailed — tell the family yourself.</span>
+            <span>
+              {preview.kind === "SWITCH"
+                ? `End the current Stripe subscription on ${fmtDateUTC(preview.effectiveAt)} and start the new one that day on the same card.`
+                : preview.kind === "OFFLINE"
+                  ? `Change ${data.member.firstName}'s membership. Nothing is charged.`
+                  : `Apply this to ${data.member.firstName}'s Stripe subscription.`}{" "}
+              {data.member.firstName} isn&apos;t emailed — tell the family yourself.
+            </span>
           </label>
         )}
         <div className="flex gap-2 justify-end pt-1">
           <button onClick={onClose} disabled={busy} className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Cancel</button>
           <button onClick={commit} disabled={busy || !preview || !ack} className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
-            {busy ? "Applying…" : "Change plan"}
+            {busy ? "Applying…" : preview?.kind === "SWITCH" ? "Switch plan" : "Change plan"}
           </button>
         </div>
       </div>

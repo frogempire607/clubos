@@ -2,9 +2,14 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermissionLive } from "@/lib/apiGuard";
-import { previewPlanChange } from "@/lib/stripePlanChangeServer";
+import { previewAnyPlanChange } from "@/lib/stripePlanChangeServer";
 
-// B12 — GET ?subscriptionId=…&optionId=…[&autoRenew=true|false]
+// B12 / B13 slice 3 — GET ?subscriptionId=…&optionId=…[&autoRenew=true|false]
+// `kind` in the answer says which change this is: SAME_INTERVAL (Stripe price
+// swap at the next invoice), SWITCH (Stripe, different billing cycle: end at
+// period end + new subscription that day), OFFLINE (local, from the next
+// payment). The commit (POST …/actions change_plan) takes the kind back and
+// refuses if the row no longer matches it.
 // The exact sentences the "Change plan" dialog shows, computed from LIVE Stripe
 // values (period end, trial end, current unit amount). Read-only; billing:view.
 // The commit (POST …/actions change_stripe_plan) recomputes the same preview,
@@ -22,7 +27,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   const ar = url.searchParams.get("autoRenew");
   if (!subscriptionId || !optionId) return NextResponse.json({ error: "subscriptionId and optionId are required." }, { status: 400 });
 
-  const res = await previewPlanChange({
+  const res = await previewAnyPlanChange({
     clubId: session.user.clubId, memberId: id, subscriptionId, optionId,
     autoRenew: ar === "true" ? true : ar === "false" ? false : null,
   });
