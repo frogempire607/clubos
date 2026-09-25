@@ -5,6 +5,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { ALL_PRODUCT_TYPES } from "@/lib/productSettings";
+import { mintProductSlug } from "@/lib/productPublic";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -23,7 +25,7 @@ const schema = z.object({
   description:   z.string().max(500).optional().nullable(),
   price:         z.number().nonnegative(),
   category:      z.enum(["GEAR", "APPAREL", "FACILITY", "SERVICE", "OTHER"]).default("OTHER"),
-  productType:   z.enum(["GEAR", "FACILITY_RENTAL", "BIRTHDAY_PARTY", "DIGITAL", "OTHER"]).default("GEAR"),
+  productType:   z.enum(ALL_PRODUCT_TYPES).default("GEAR"),
   imageUrl:      z.string().max(500).optional().nullable(),
   active:        z.boolean().optional(),
   visibility:    z.enum(["MEMBERS_ONLY", "PUBLIC_ONLY", "MEMBERS_AND_PUBLIC", "INTERNAL_ONLY"]).default("MEMBERS_AND_PUBLIC"),
@@ -33,6 +35,8 @@ const schema = z.object({
   settings:      z.record(z.any()).optional().default({}),
   trackInventory: z.boolean().optional(),
   inventory:     z.number().int().nonnegative().optional().nullable(),
+  // B10 slice 3 — /p/{slug}; minted from the name when the public link is on and none is set.
+  publicSlug:    z.string().max(80).optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -43,8 +47,11 @@ export async function POST(req: Request) {
 
   try {
     const body = schema.parse(await req.json());
+    const { publicSlug, ...rest } = body;
+    const wantsPublic = rest.showLocation === "PUBLIC_CHECKOUT" || rest.visibility === "PUBLIC_ONLY";
+    const slug = wantsPublic || publicSlug ? await mintProductSlug(publicSlug, rest.name) : null;
     const product = await prisma.product.create({
-      data: { clubId: session.user.clubId, ...body, imageUrl: body.imageUrl || null },
+      data: { clubId: session.user.clubId, ...rest, imageUrl: rest.imageUrl || null, publicSlug: slug },
     });
     return NextResponse.json(product, { status: 201 });
   } catch (err) {

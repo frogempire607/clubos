@@ -5,13 +5,15 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { ALL_PRODUCT_TYPES } from "@/lib/productSettings";
+import { mintProductSlug } from "@/lib/productPublic";
 
 const schema = z.object({
   name:          z.string().min(1).max(100).optional(),
   description:   z.string().max(500).optional().nullable(),
   price:         z.number().nonnegative().optional(),
   category:      z.enum(["GEAR", "APPAREL", "FACILITY", "SERVICE", "OTHER"]).optional(),
-  productType:   z.enum(["GEAR", "FACILITY_RENTAL", "BIRTHDAY_PARTY", "DIGITAL", "OTHER"]).optional(),
+  productType:   z.enum(ALL_PRODUCT_TYPES).optional(),
   imageUrl:      z.string().max(500).optional().nullable(),
   active:        z.boolean().optional(),
   visibility:    z.enum(["MEMBERS_ONLY", "PUBLIC_ONLY", "MEMBERS_AND_PUBLIC", "INTERNAL_ONLY"]).optional(),
@@ -21,6 +23,8 @@ const schema = z.object({
   settings:      z.record(z.any()).optional(),
   trackInventory: z.boolean().optional(),
   inventory:     z.number().int().nonnegative().optional().nullable(),
+  // B10 slice 3 — /p/{slug}; minted from the name when the public link is on and none is set.
+  publicSlug:    z.string().max(80).optional().nullable(),
 });
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -37,7 +41,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   try {
     const body = schema.parse(await req.json());
-    const updated = await prisma.product.update({ where: { id: params.id }, data: body });
+    const { publicSlug, ...rest } = body;
+    const showLocation = rest.showLocation ?? existing.showLocation;
+    const wantsPublic = showLocation === "PUBLIC_CHECKOUT" || (rest.visibility ?? existing.visibility) === "PUBLIC_ONLY";
+    const nextSlug =
+      publicSlug !== undefined && publicSlug !== null && publicSlug !== existing.publicSlug
+        ? await mintProductSlug(publicSlug, rest.name ?? existing.name, existing.id)
+        : wantsPublic && !existing.publicSlug
+          ? await mintProductSlug(null, rest.name ?? existing.name, existing.id)
+          : undefined;
+    const updated = await prisma.product.update({ where: { id: params.id }, data: { ...rest, ...(nextSlug ? { publicSlug: nextSlug } : {}) } });
     return NextResponse.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: formatZodError(err) }, { status: 400 });

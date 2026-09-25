@@ -15,13 +15,11 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session:** B3 slice 2 (sibling MEMBERSHIP discount) built 09-25 on `claude/b3-membership-sibling` (migration `20260930000000_membership_sibling_discount`). B3 then covers events + membership siblings; the school group rate for memberships and receipt discount lines are left for later.
+- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. Order: B3 slice 3 (receipt discount lines; membership group rate only if Julian wants it) → B5 Reports mobile → B7 once class "Accepted Memberships" is option-aware. B2 waits on A3.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
-- **Open question (events):** an athlete in two divisions needs two registrations; the portal allows one per athlete
-  per event. Decide whether that's worth building before the next tournament.
 
 ---
 
@@ -162,7 +160,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   an obsolete pre-squash copy (main has rewritten signup since — MINOR_SELF, Aug 16). DELETE IT.
   Remaining work = A3, then set `FEATURE_PARENTAL_CONSENT=true` in Netlify and redeploy.
 
-- [ ] **B3 · Phase 9 — Family & Group Discounts** · SLICE 1 BUILT 09-25 (events) · SLICE 2 BUILT 09-25 (membership siblings) · later: membership group rate, receipt lines
+- [ ] **B3 · Phase 9 — Family & Group Discounts** · SLICE 1 SHIPPED 09-25 (events, be954f3) · SLICE 2 SHIPPED 09-25 (membership siblings, a69bb33) · later: membership group rate, receipt lines
   Julian 09-25: events first (Finger Lakes). Sibling = automatic (no code); group rate = same school/team, N+ athletes,
   coach sets it per event (label, number, amount, optional pick-list); coach can also set a $/% discount at approval.
   Deviation from plan.md §9.12 #6 ("memberships only at launch") is Julian's call; the membership half keeps the
@@ -194,7 +192,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   further along: loader, QuickAdd chip, charge-route DAY_NOT_INCLUDED, more tests). Write-up in
   docs/improvement/PROGRESS.md (2026-09-14, third entry).
 
-- [ ] **B10 · Products redesign (design handoff)** · SLICE 1 SHIPPED 1ca6d0c · SLICE 2 SHIPPED ed63f9c. Was:
+- [x] **B10 · Products redesign (design handoff)** · SLICE 1 SHIPPED 1ca6d0c · SLICE 2 SHIPPED ed63f9c · SLICE 3 (the rest: 2c inventory, 2d/2f bookings, 2h public page + QR, 11 types, time windows, product money → Financials) BUILT 2026-09-25 on `claude/b10-products-complete`, migration `20261001000000_products_complete`. Was:
   migrate + branch/build/push. Slice 2 = **2g Sell by variant + 2e member store detail**, one additive migration
   `20260924000000_product_sale_variant` (`product_sales.variantId TEXT NULL`). What shipped:
   - `lib/productSettings`: `checkStock` (a product with variants REQUIRES a pick; else the plain count), `unitPriceFor`
@@ -249,7 +247,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   registration is the money spine). Editor rewrite 1a/1b is slice 2 and needs a migration
   (EventSession.price, pricingModel, signupAccess, splitInvoiceWhen). Scoping in PROGRESS.md.
 
-- [ ] **B16 · Event entries: roster positions, multiple entries, generic questions** · DESIGNED 2026-09-24, not built
+- [x] **B16 · Event entries: roster positions, multiple entries, generic questions** · SHIPPED 2026-09-25 (ed1ca65 + guest card + positions-per-roster)
   Handoff: `docs/improvement/design_handoff_event_entries/README.md`. Decided: capacity per roster cell, full cell ⇒
   waitlist, same-roster-twice is a per-event toggle, entry price = same each OR separate extra-entry price (coach
   picks), whole-registration approval with proposals, event requests in the main Approvals inbox, discounts via B3,

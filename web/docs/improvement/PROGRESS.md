@@ -5117,3 +5117,39 @@ Not in this slice: group rate for memberships; a discount line on receipt emails
 offers don't add it (staff-priced paths).
 
 Tests: new `test:membership-sibling` (32). stripe-plan-change 48, membership-panel 46, event-auto-discounts 44, guards green.
+
+## 2026-09-25 — B10 slice 3: products complete (inventory, bookings, public page, 11 types)
+
+Everything left in the products handoff, one branch, one migration (`20261001000000_products_complete`, additive:
+`products.publicSlug` (unique) + `scanCount`; `product_sales.guestName/guestEmail/transactionId`; new
+`product_bookings` with the tenant RLS policy). Production had 0 products, so no data moved.
+
+- **11 types** (`lib/productSettings.PRODUCT_TYPES`) with the handoff's stock behaviour: variant matrix (Gear,
+  Pre-order), plain count (Concessions), no stock (Bookable, Punch card, Team kit, Gift card, Membership add-on,
+  Tournament entry, Digital, Other). FACILITY_RENTAL / BIRTHDAY_PARTY still read as Bookable. Honest limit: gift-card
+  balances, punch-card visit counting and add-on billing are NOT wired — those types sell as plain items today.
+- **Structured time windows** (`TimeWindow {days, from, to}`) + booking window days; legacy text lines upgrade on read.
+- **2c Inventory** `/dashboard/products/inventory`: four tiles, every tracked variant worst first, −/+ stepper and
+  Receive stock through `PATCH /api/products/[id]/stock` (`lib/productInventory.adjustStock`, never below 0, in a tx).
+- **2d Bookings** `/dashboard/products/bookings`: week columns + this week's list; Approve / Decline (with reason,
+  optional card refund) / Cancel (optional refund) / Take payment (cash balance) / + Add booking (front desk,
+  confirmed, optional cash now). Action Center `PRODUCT_BOOKINGS_PENDING`. Cards show "n pending".
+- **2f Booking flow** (`components/products/BookingFlow`, member store + public page): tier/length → day + slot →
+  questions, guests, add-ons (per-guest × guests) → summary. `lib/productBooking` (pure): `quoteFromParts` is both
+  the page's summary and the server's charge; slots from windows, 30-min grid, buffer on both sides, bookings per slot,
+  blackout dates, booking window, club timezone (`Club.timezone`, default America/New_York). Server re-checks the slot
+  under an advisory lock. Pay in full / Deposit → Stripe Checkout (`metadata.productBookingId`, webhook →
+  `confirmBookingPayment`); Request first → no money, waits on staff.
+- **2h Public page** `/p/{slug}` + `GET/POST /api/public/products/[slug]…`: guests buy at the list price (variant
+  prices honoured) or book; "Members save $X — Sign in"; `?src=qr` counts scans. Editor's Public link panel: slug,
+  copy/open, QR (QRModal), print tag sheet (6 per page) + poster (`/dashboard/products/[id]/tags`), website button
+  snippet, scan count. Slug minted from the name on save.
+- **Money now reaches Financials.** Before this, product sales (cash or Stripe) wrote only a ProductSale — no
+  Transaction, so merch never showed in Financials/Reports. `lib/productMoney.recordProductMoney` (type PRODUCT,
+  category products, PI-deduped) is now called by the manual sale, the Stripe webhook (sale + booking) and booking
+  cash payments. The webhook's stock release is now once per sale (guarded by the Transaction link).
+
+Not in this slice: booking confirmation / decline emails (Stripe's receipt covers paid ones; staff message from the
+list), a real calendar hour grid (days are columns with time-ordered chips), tax lines.
+
+Tests: new `test:product-booking` (55). product-settings 69, guards green.

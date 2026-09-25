@@ -11,7 +11,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
-import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor } from "@/lib/productSettings";
+import { checkStock, findVariant, normalizeProductSettings, stockMessage, unitPriceFor, isBookable } from "@/lib/productSettings";
 
 const schema = z.object({
   quantity: z.number().int().positive().max(20).default(1),
@@ -42,11 +42,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
     });
     if (!product) return NextResponse.json({ error: "Product not available" }, { status: 404 });
-    if (product.productType !== "GEAR" && product.productType !== "OTHER" && product.productType !== "DIGITAL") {
-      return NextResponse.json(
-        { error: "This product type needs a booking/request flow and cannot be purchased here yet." },
-        { status: 400 },
-      );
+    if (isBookable(product.productType)) {
+      return NextResponse.json({ error: "This is booked into a time slot — use Book instead." }, { status: 400 });
     }
 
     // Stock: the variant ledger when the product has variants, else the plain count.

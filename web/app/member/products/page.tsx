@@ -103,7 +103,7 @@ export default function MemberProductsPage() {
                         </div>
                         <p className="mt-1 text-[11px] text-stone-500">
                           {p.needsBookingFlow
-                            ? "Booking coming soon"
+                            ? "Book a time"
                             : soldOut ? "Out of stock"
                             : p.hasVariants
                               ? `${p.variants.length} options${soldOutVariants ? ` · ${soldOutVariants} sold out` : ""}`
