@@ -16,7 +16,7 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { applyProcessingFee, processingFeeLineItem } from "@/lib/fees";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { sendEmail, sendPaymentReceiptEmail } from "@/lib/email";
+import { sendEmail, sendPaymentReceiptEmail, receiptDiscountLine } from "@/lib/email";
 import { recordDiscountUse } from "@/lib/discounts";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { registrationReturnUrl } from "@/lib/registrationUrl";
@@ -180,6 +180,7 @@ async function recordSuccess(reg: RegForCharge, pi: Stripe.PaymentIntent, totalC
         amountPaid: `$${totalCharged.toFixed(2)}`,
         paidAt: new Date(),
         portalUrl: `${getAppBaseUrl()}/member`,
+        discountLine: receiptDiscountLine(reg.discountLabel ?? reg.discountCode, reg.discountAmount),
       });
     } catch (e) {
       console.error("event auto-charge receipt failed", e);

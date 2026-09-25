@@ -145,15 +145,17 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const curLine = current && sib ? sib.lines.find((l) => l.subId === current.id) ?? null : null;
   const curRow = current ? member.subscriptions.find((s) => s.id === current.id) ?? null : null;
   const sibling =
-    sib && (siblingOn(sib.cfg) || sib.family.some((l) => l.drift))
+    sib && (sib.anyOn || sib.family.some((l) => l.drift))
       ? {
-          summary: membershipSiblingSummary(sib.cfg),
+          summary: siblingOn(sib.cfg) ? membershipSiblingSummary(sib.cfg) : "",
+          // B3 slice 3 — the club's group rates and this athlete's answers.
+          groups: sib.rates.filter((r) => r.on).map((r) => ({ id: r.id, label: r.label, options: r.options, value: sib.groupValues[r.id] ?? "" })),
           family: sib.family
             .filter((l) => l.position != null)
             .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
             .map((l) => ({ memberId: l.memberId, name: l.memberName, position: l.position, price: l.price, expected: l.expected })),
           current: curLine && curRow
-            ? { subId: curLine.subId, optionId: curRow.optionId, drift: curLine.drift, label: curLine.label, price: curLine.price, expected: curLine.expected }
+            ? { subId: curLine.subId, optionId: curRow.optionId, drift: curLine.drift, label: curLine.label, source: curLine.source, price: curLine.price, expected: curLine.expected }
             : null,
         }
       : null;

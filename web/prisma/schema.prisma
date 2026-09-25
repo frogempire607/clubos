@@ -59,6 +59,10 @@ model Club {
   // B3 slice 2 — the sibling membership discount (lib/membershipSiblingDiscount):
   // { on, shape, each?, tiers?, discountWhich: CHEAPER|PRICIER, membershipIds[] }.
   siblingDiscount          Json                  @default("{}")
+  // B3 slice 3 — the club's membership group rates (lib/membershipGroupRates):
+  // [{ id, on, label, threshold, amount, options[], membershipIds[] }]. The club
+  // names what athletes share — a team, a school, a bus route — nothing assumed.
+  groupRates               Json                  @default("[]")
   processingFeeNote        String?
   // When a CASH/CHECK offer is accepted: 'ON_ACCEPTANCE' activates the
   // membership with payment still due; 'ON_PAYMENT' activates only when staff
@@ -805,6 +809,9 @@ model Member {
   // Stripe customer/payment method funds this athlete's membership. Bare id
   // (actorUserId convention); resolved to a name at read time.
   responsiblePayerUserId    String?
+  // B3 slice 3 — this athlete's answer for each club group rate, keyed by the
+  // rate's id ({ "gr_x1": "Lincoln High" }). Grouped on the normalized value.
+  groupValues               Json      @default("{}")
   // Who last changed the billing setup, and when (roster display; the full
   // before/after trail lives in billing_audit_logs).
   billingUpdatedAt          DateTime?

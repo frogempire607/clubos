@@ -100,7 +100,7 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
     async () => (await siblingDrift(clubId)).length,
     {
       kind: "FAMILY_DISCOUNT_DRIFT",
-      label: "Sibling discounts to review",
+      label: "Membership discounts to review (sibling / group)",
       severity: "medium",
       href: "/dashboard/settings/billing#sibling-discount",
     },

@@ -46,7 +46,14 @@ export default function MemberMembershipsPage() {
   // B3 slice 2 — memberId → "planId:optionLabel" → the sibling price.
   const [siblingByMember, setSiblingByMember] = useState<Record<string, Record<string, { label: string; price: number }>>>({});
 
-  useEffect(() => {
+  // B3 slice 3 — the club's group rates (team, school, … the club's words) and
+  // each athlete's answers; answering here is what makes the rate apply at checkout.
+  const [groupRates, setGroupRates] = useState<{ id: string; label: string; options: string[] }[]>([]);
+  const [groupValues, setGroupValues] = useState<Record<string, Record<string, string>>>({});
+  const [groupDraft, setGroupDraft] = useState<Record<string, string> | null>(null);
+  const [groupMsg, setGroupMsg] = useState("");
+
+  const loadMemberships = (keepSelection = false) =>
     fetch("/api/member/memberships")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -55,12 +62,27 @@ export default function MemberMembershipsPage() {
           setActiveByMember(d.activeByMember || {});
           setSiblingByMember(d.siblingByMember || {});
           setAccessible(d.accessible || []);
-          setSelectedMemberId(d.defaultMemberId ?? d.accessible?.[0]?.id ?? null);
+          if (!keepSelection) setSelectedMemberId(d.defaultMemberId ?? d.accessible?.[0]?.id ?? null);
           setHasMemberProfile(d.hasMemberProfile);
         }
         setLoading(false);
       });
+  useEffect(() => {
+    loadMemberships();
+    fetch("/api/member/group-values").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) { setGroupRates(d.rates || []); setGroupValues(d.values || {}); } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  async function saveGroups() {
+    if (!selectedMemberId || !groupDraft) return;
+    setGroupMsg("");
+    const r = await fetch("/api/member/group-values", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memberId: selectedMemberId, values: groupDraft }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setGroupMsg(d.error || "Couldn't save."); return; }
+    setGroupValues((v) => ({ ...v, [selectedMemberId]: d.groupValues ?? groupDraft }));
+    setGroupDraft(null);
+    setGroupMsg("Saved — prices below include any group rate this earns.");
+    loadMemberships(true);
+  }
 
   // Subscriptions for the currently selected profile (self or chosen child).
   const activeSubs: ActiveSub[] = selectedMemberId ? activeByMember[selectedMemberId] ?? [] : [];
@@ -134,6 +156,39 @@ export default function MemberMembershipsPage() {
         onChange={setSelectedMemberId}
         label="Membership for"
       />
+
+      {groupRates.length > 0 && selectedMemberId && (
+        <div className="bg-white rounded-xl border border-stone-200 p-3 mb-4 text-sm">
+          {groupDraft ? (
+            <div className="space-y-2">
+              {groupRates.map((g) => (
+                <label key={g.id} className="flex items-center gap-2">
+                  <span className="w-28 shrink-0 text-stone-700">{g.label}</span>
+                  {g.options.length ? (
+                    <select value={groupDraft[g.id] ?? ""} onChange={(e) => setGroupDraft((d) => ({ ...(d ?? {}), [g.id]: e.target.value }))} className="flex-1 px-2 py-1.5 border border-stone-300 rounded-lg bg-white">
+                      <option value="">None / not listed</option>
+                      {g.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input value={groupDraft[g.id] ?? ""} onChange={(e) => setGroupDraft((d) => ({ ...(d ?? {}), [g.id]: e.target.value }))} className="flex-1 px-2 py-1.5 border border-stone-300 rounded-lg" />
+                  )}
+                </label>
+              ))}
+              <div className="flex gap-2">
+                <button onClick={saveGroups} className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium">Save</button>
+                <button onClick={() => setGroupDraft(null)} className="px-3 py-1.5 border border-stone-300 rounded-lg text-xs">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-stone-600">
+              {groupRates.map((g) => `${g.label}: ${groupValues[selectedMemberId]?.[g.id] || "—"}`).join(" · ")}
+              <button onClick={() => setGroupDraft({ ...(groupValues[selectedMemberId] ?? {}) })} className="ml-2 text-stone-900 underline text-xs">Edit</button>
+              <span className="block text-xs text-stone-500">Group rates apply when enough athletes share the same answer.</span>
+            </p>
+          )}
+          {groupMsg && <p className="text-xs text-stone-600 mt-1">{groupMsg}</p>}
+        </div>
+      )}
 
       {!hasMemberProfile && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800">

@@ -440,6 +440,7 @@ export async function sendPaymentReceiptEmail({
   amountPaid,
   paidAt,
   portalUrl,
+  discountLine,
 }: {
   to: string;
   firstName: string;
@@ -448,6 +449,8 @@ export async function sendPaymentReceiptEmail({
   amountPaid: string;
   paidAt: Date;
   portalUrl: string;
+  /** B3 slice 3 — "Sibling membership discount (2nd athlete) — $15.00 off". */
+  discountLine?: string | null;
 }) {
   const dateStr = paidAt.toLocaleDateString("en-US", {
     month: "long",
@@ -465,6 +468,7 @@ export async function sendPaymentReceiptEmail({
       </p>
       <div style="background:#F5F3EE;border-radius:8px;padding:16px;margin:0 0 16px">
         <p style="color:#1c1917;margin:0 0 4px;font-weight:600">${description}</p>
+        ${discountLine ? `<p style="color:#3F6212;margin:0 0 4px;font-size:14px">Includes ${escapeReceipt(discountLine)}</p>` : ""}
         <p style="color:#57534e;margin:0;font-size:14px">Amount charged: <strong>${amountPaid}</strong></p>
         <p style="color:#57534e;margin:4px 0 0;font-size:14px">Date: <strong>${dateStr}</strong></p>
       </div>
@@ -1171,4 +1175,16 @@ export async function sendMembershipReactivationEmail(params: ReactivationEmailP
     replyTo: params.replyTo,
     html,
   });
+}
+
+function escapeReceipt(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** "Lincoln High group rate — $15.00 off" from a stored snapshot; null when none. */
+export function receiptDiscountLine(label: string | null | undefined, amount: unknown): string | null {
+  const off = Number(amount ?? 0);
+  const name = (label ?? "").trim();
+  if (!name || !(off > 0)) return null;
+  return `${name} — $${off.toFixed(2)} off`;
 }

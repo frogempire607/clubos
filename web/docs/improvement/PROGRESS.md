@@ -5153,3 +5153,26 @@ Not in this slice: booking confirmation / decline emails (Stripe's receipt cover
 list), a real calendar hour grid (days are columns with time-ordered chips), tax lines.
 
 Tests: new `test:product-booking` (55). product-settings 69, guards green.
+
+## 2026-09-25 — B3 slice 3: membership group rates (club-named) + receipt discount lines
+
+Julian: yes to the group rate, but clubs name their own groups and may have several — nothing assumed "school".
+
+- Migration `20261002000000_membership_group_rates`: `clubs.groupRates JSONB '[]'`, `members.groupValues JSONB '{}'`.
+- `lib/membershipGroupRates` (pure): up to 10 rates `{id, on, label, threshold, amount, options[], membershipIds[]}`,
+  validated (named, unique names, N ≥ 2); athlete answers keyed by rate id, cleaned against pick-lists; `groupCounts`
+  (distinct athletes on live, paid, in-scope memberships; comps don't count); `bestGroupRate` (biggest dollar saving
+  across rates); `combineAuto` = one answer per membership, sibling vs group, with drift DOWN/UP.
+  Deviation from plan.md §9.4 (one `Member.school` column): a JSON answer per club-defined rate instead — what Julian asked.
+- Server (`lib/membershipSiblingServer`): families now include payer-less athletes (families of one) so they count
+  toward groups; checkout, cash approval, staff assign, portal quotes and Change plan all use the same best-of
+  sibling/group/code. Settings "to review" list + Action Center (renamed "Membership discounts to review") cover both.
+- UI: Settings → Billing → Membership group rates (add/remove, name, number, amount, pick-list, plans, answered
+  count); Membership panel shows the athlete's answers (Edit) and "Group rate recommended"; portal memberships page lets
+  a family answer per athlete (prices re-quote). Events: the group question no longer defaults to "School"; an event can
+  copy one of the club's groups, and the portal pre-fills the athlete's answer.
+- Receipts: `sendPaymentReceiptEmail` takes `discountLine`; membership renewals (invoice.paid), event card payments and
+  scheduled event charges now say "Includes Varsity team rate — $22.50 off". invoice.paid Transactions also carry the
+  rule label when there's no code.
+
+Tests: new `test:membership-group-rates` (24). sibling 32, event-auto-discounts 44, plan-change 48, panel 46, guards green.

@@ -40,6 +40,9 @@ export type GroupConfig = {
   amount: AmountRule;
   /** Optional pick-list. Empty = families type it (grouped case-insensitively). */
   options: string[];
+  /** B3 slice 3 — copied from a club group rate (Settings → Billing): the
+   *  portal pre-fills each athlete's answer from their profile. */
+  clubRateId?: string | null;
 };
 
 export type AutoDiscounts = { sibling?: SiblingConfig; group?: GroupConfig };
@@ -87,11 +90,11 @@ export function parseAutoDiscounts(raw: unknown): AutoDiscounts {
   if (g && typeof g === "object") {
     const amount = readAmount(g.amount);
     const threshold = Math.max(2, Math.floor(Number(g.threshold) || 2));
-    const label = typeof g.label === "string" && g.label.trim() ? g.label.trim().slice(0, 40) : "School / team";
+    const label = typeof g.label === "string" && g.label.trim() ? g.label.trim().slice(0, 40) : "Group";
     const options = Array.isArray(g.options)
       ? g.options.filter((o): o is string => typeof o === "string" && !!o.trim()).map((o) => o.trim())
       : [];
-    if (amount) out.group = { on: g.on === true, label, threshold, amount, options };
+    if (amount) out.group = { on: g.on === true, label, threshold, amount, options, clubRateId: typeof g.clubRateId === "string" ? g.clubRateId : null };
   }
   return out;
 }
@@ -144,7 +147,7 @@ export function validateAutoDiscounts(
     const threshold = Math.floor(Number(g.threshold));
     const label = typeof g.label === "string" ? g.label.trim() : "";
     if (on) {
-      if (!label) return { ok: false, message: "Group rate: name the thing athletes share (e.g. School)." };
+      if (!label) return { ok: false, message: "Group rate: name what the athletes share (a team, a school, a club…)." };
       if (label.length > 40) return { ok: false, message: "Group rate: keep the name under 40 characters." };
       if (!Number.isFinite(threshold) || threshold < 2) return { ok: false, message: "Group rate: at least 2 athletes." };
       if (!amount) return { ok: false, message: "Group rate: enter an amount above 0 (percent at most 100)." };
@@ -161,10 +164,11 @@ export function validateAutoDiscounts(
     if (amount || on) {
       value.group = {
         on,
-        label: label || "School / team",
+        label: label || "Group",
         threshold: Number.isFinite(threshold) && threshold >= 2 ? threshold : 2,
         amount: amount ?? { type: "PERCENT", value: 10 },
         options,
+        clubRateId: typeof g.clubRateId === "string" && g.clubRateId ? g.clubRateId : null,
       };
     }
   }
@@ -333,13 +337,13 @@ export function autoDiscountSummary(cfg: AutoDiscounts): string[] {
 /** What a signup page needs: the lines to show, and the group question to ask. */
 export type AutoDiscountView = {
   lines: string[];
-  group: { label: string; options: string[] } | null;
+  group: { label: string; options: string[]; clubRateId: string | null } | null;
 };
 
 export function autoDiscountView(raw: unknown): AutoDiscountView {
   const cfg = parseAutoDiscounts(raw);
   return {
     lines: autoDiscountSummary(cfg),
-    group: groupActive(cfg) ? { label: cfg.group!.label, options: cfg.group!.options } : null,
+    group: groupActive(cfg) ? { label: cfg.group!.label, options: cfg.group!.options, clubRateId: cfg.group!.clubRateId ?? null } : null,
   };
 }

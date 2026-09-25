@@ -44,8 +44,9 @@ type Payload = {
   // B3 slice 2 — the sibling membership discount for this athlete's family.
   sibling?: {
     summary: string;
+    groups: { id: string; label: string; options: string[]; value: string }[];
     family: { memberId: string; name: string; position: number | null; price: number; expected: number | null }[];
-    current: { subId: string; optionId: string | null; drift: "DOWN" | "UP" | null; label: string | null; price: number; expected: number | null } | null;
+    current: { subId: string; optionId: string | null; drift: "DOWN" | "UP" | null; label: string | null; source: "SIBLING" | "GROUP" | null; price: number; expected: number | null } | null;
   } | null;
 };
 
@@ -223,12 +224,12 @@ export default function MembershipPanel({
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
           {data.sibling.current.drift === "DOWN" ? (
             <>
-              <strong>Sibling discount recommended.</strong> {data.sibling.current.label}: {money(data.sibling.current.price)} → {money(data.sibling.current.expected)}.
+              <strong>{data.sibling.current.source === "GROUP" ? "Group rate recommended." : "Sibling discount recommended."}</strong> {data.sibling.current.label}: {money(data.sibling.current.price)} → {money(data.sibling.current.expected)}.
               {" "}Nothing changes until you apply it — it starts on the next payment.
             </>
           ) : (
             <>
-              <strong>Sibling discount no longer earned.</strong> The family has fewer paying athletes now, so the list price would be {money(data.sibling.current.expected)} (today {money(data.sibling.current.price)}). Nothing changes on its own.
+              <strong>Discount no longer earned.</strong> The family or group has fewer paying athletes now, so the price would be {money(data.sibling.current.expected)} (today {money(data.sibling.current.price)}). Nothing changes on its own.
             </>
           )}
           {canBill && data.sibling.current.optionId && (
@@ -240,6 +241,9 @@ export default function MembershipPanel({
             </button>
           )}
         </div>
+      )}
+      {data.sibling && data.sibling.groups.length > 0 && (
+        <GroupAnswers memberId={memberId} groups={data.sibling.groups} canEdit={canBill} onSaved={() => { load(); onChanged(); }} />
       )}
       {data.sibling && data.sibling.family.length > 1 && (
         <p className="text-xs text-text-muted mt-2">
@@ -660,5 +664,51 @@ function CompDialog({ data, onClose, onDone }: { data: Payload; onClose: () => v
         onDone(r.d.message ?? "Comped.");
       }}>{busy ? "Working…" : "Make it free"}</button></Foot>
     </Sheet>
+  );
+}
+
+// B3 slice 3 — which group (team, school, …) this athlete is in, per club group rate.
+function GroupAnswers({ memberId, groups, canEdit, onSaved }: { memberId: string; groups: { id: string; label: string; options: string[]; value: string }[]; canEdit: boolean; onSaved: () => void }) {
+  const [edit, setEdit] = useState(false);
+  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(groups.map((g) => [g.id, g.value])));
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/members/${memberId}/group-values`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values: vals }) });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { setErr(d.error || "Couldn't save."); return; }
+    setEdit(false); onSaved();
+  }
+  if (!edit) {
+    return (
+      <p className="text-xs text-text-muted mt-2">
+        {groups.map((g) => `${g.label}: ${g.value || "—"}`).join(" · ")}
+        {canEdit && <button className="text-brand hover:underline ml-2" onClick={() => setEdit(true)}>Edit</button>}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 rounded-lg border border-app-border p-2.5 space-y-2">
+      {groups.map((g) => (
+        <label key={g.id} className="flex items-center gap-2 text-xs">
+          <span className="w-28 shrink-0 text-text-primary">{g.label}</span>
+          {g.options.length ? (
+            <select value={vals[g.id] ?? ""} onChange={(e) => setVals((v) => ({ ...v, [g.id]: e.target.value }))} className="flex-1 px-2 py-1.5 border border-app-border rounded-lg bg-surface">
+              <option value="">None</option>
+              {g.options.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input value={vals[g.id] ?? ""} onChange={(e) => setVals((v) => ({ ...v, [g.id]: e.target.value }))} className="flex-1 px-2 py-1.5 border border-app-border rounded-lg bg-surface" />
+          )}
+        </label>
+      ))}
+      {err && <p className="text-xs text-red-600">{err}</p>}
+      <div className="flex gap-2">
+        <button onClick={save} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
+        <button onClick={() => setEdit(false)} className="text-xs px-3 py-1.5 rounded-lg border border-app-border">Cancel</button>
+      </div>
+    </div>
   );
 }

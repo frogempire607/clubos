@@ -1,5 +1,7 @@
-// B3 slice 2 — the database half of lib/membershipSiblingDiscount: who pays
-// for whom, and each family's memberships as the rule sees them.
+// B3 slices 2–3 — the database half of the automatic membership discounts:
+// the sibling discount (lib/membershipSiblingDiscount) and the club's group
+// rates (lib/membershipGroupRates). Who pays for whom, which group each
+// athlete is in, and each membership's one best automatic discount.
 
 import { prisma } from "@/lib/prisma";
 import { resolvePayerUserId } from "@/lib/familyAccess";
@@ -14,6 +16,16 @@ import {
   type SiblingLine,
   type SiblingSub,
 } from "@/lib/membershipSiblingDiscount";
+import {
+  parseGroupRates,
+  readGroupValues,
+  groupCounts,
+  bestGroupRate,
+  combineAuto,
+  type AutoLine,
+  type GroupRate,
+} from "@/lib/membershipGroupRates";
+import { amountOff } from "@/lib/eventAutoDiscounts";
 
 const LIVE = ["active", "past_due", "trialing"];
 
@@ -46,6 +58,10 @@ function payerKey(sub: { payerUserId: string | null } | null, m: MemberKeyInput,
 
 export type Families = {
   cfg: MembershipSiblingConfig;
+  rates: GroupRate[];
+  /** member id → their group answers. */
+  groupValuesOf: Map<string, Record<string, string>>;
+  counts: ReturnType<typeof groupCounts>;
   /** payer key → that payer's live memberships. */
   byPayer: Map<string, SiblingSub[]>;
   /** subscription id → payer key. */
@@ -54,22 +70,25 @@ export type Families = {
 
 /** Every paying family in the club. Club-sized scan, fine at club scale. */
 export async function loadFamilies(clubId: string): Promise<Families> {
-  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { siblingDiscount: true } });
+  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { siblingDiscount: true, groupRates: true } });
   const cfg = parseMembershipSibling(club?.siblingDiscount);
+  const rates = parseGroupRates(club?.groupRates);
   const subs = await prisma.memberSubscription.findMany({
     where: { status: { in: LIVE }, member: { clubId, deletedAt: null } },
     select: {
       id: true, memberId: true, membershipId: true, price: true, billingPeriod: true, status: true, deliberateFree: true,
       discountSource: true, discountAmount: true, discountCode: true, startDate: true, createdAt: true, payerUserId: true,
-      member: { select: { id: true, firstName: true, lastName: true, userId: true, responsiblePayerUserId: true } },
+      member: { select: { id: true, firstName: true, lastName: true, userId: true, responsiblePayerUserId: true, groupValues: true } },
     },
   });
+  const groupValuesOf = new Map<string, Record<string, string>>();
+  for (const s of subs) groupValuesOf.set(s.memberId, readGroupValues(s.member.groupValues));
   const guardians = await primaryGuardians(clubId, Array.from(new Set(subs.map((s) => s.memberId))));
   const byPayer = new Map<string, SiblingSub[]>();
   const keyOf = new Map<string, string>();
   for (const s of subs) {
-    const key = payerKey(s, s.member, guardians);
-    if (!key) continue; // no payer we can name ⇒ a family of one
+    // No payer we can name ⇒ a family of one (still counts toward group rates).
+    const key = payerKey(s, s.member, guardians) ?? `solo:${s.memberId}`;
     const price = Number(s.price);
     const off = s.discountAmount != null ? Number(s.discountAmount) : 0;
     const row: SiblingSub = {
@@ -88,27 +107,48 @@ export async function loadFamilies(clubId: string): Promise<Families> {
     keyOf.set(s.id, key);
     byPayer.set(key, [...(byPayer.get(key) ?? []), row]);
   }
-  return { cfg, byPayer, keyOf };
+  const all = Array.from(byPayer.values()).flat();
+  const counts = groupCounts(rates, all.map((x) => ({ memberId: x.memberId, membershipId: x.membershipId, listPrice: x.listPrice, status: x.status, deliberateFree: x.deliberateFree, groupValues: groupValuesOf.get(x.memberId) ?? {} })));
+  return { cfg, rates, groupValuesOf, counts, byPayer, keyOf };
+}
+
+/** A family's memberships with their one best automatic discount (sibling or group). */
+function autoLinesFor(f: Families, subs: SiblingSub[]): AutoLine[] {
+  const lines = planFamily(f.cfg, subs);
+  return lines.map((l) => {
+    const sub = subs.find((x) => x.id === l.subId)!;
+    const grp = bestGroupRate({
+      rates: f.rates, counts: f.counts, memberId: sub.memberId, groupValues: f.groupValuesOf.get(sub.memberId) ?? {},
+      membershipId: sub.membershipId, listPrice: sub.listPrice,
+    });
+    return combineAuto(l, sub, grp);
+  });
+}
+
+export function anyAutoOn(f: Families): boolean {
+  return siblingOn(f.cfg) || f.rates.some((r) => r.on);
 }
 
 /** The family lines for one member's memberships (their siblings included). */
-export async function siblingLinesForMember(clubId: string, memberId: string): Promise<{ cfg: MembershipSiblingConfig; lines: SiblingLine[]; family: SiblingLine[] }> {
+export async function siblingLinesForMember(clubId: string, memberId: string): Promise<{ cfg: MembershipSiblingConfig; anyOn: boolean; rates: GroupRate[]; groupValues: Record<string, string>; lines: AutoLine[]; family: AutoLine[] }> {
   const f = await loadFamilies(clubId);
   const keys = new Set<string>();
   for (const [key, subs] of Array.from(f.byPayer.entries())) if (subs.some((s) => s.memberId === memberId)) keys.add(key);
-  const family: SiblingLine[] = [];
-  for (const k of Array.from(keys)) family.push(...planFamily(f.cfg, f.byPayer.get(k)!));
-  return { cfg: f.cfg, lines: family.filter((l) => l.memberId === memberId), family };
+  const family: AutoLine[] = [];
+  for (const k of Array.from(keys)) family.push(...autoLinesFor(f, f.byPayer.get(k)!));
+  let groupValues = f.groupValuesOf.get(memberId);
+  if (!groupValues) {
+    const m = await prisma.member.findUnique({ where: { id: memberId }, select: { groupValues: true } });
+    groupValues = readGroupValues(m?.groupValues);
+  }
+  return { cfg: f.cfg, anyOn: anyAutoOn(f), rates: f.rates, groupValues, lines: family.filter((l) => l.memberId === memberId), family };
 }
 
 /** Every membership whose price doesn't match the rule (Action Center). */
-export async function siblingDrift(clubId: string): Promise<SiblingLine[]> {
+export async function siblingDrift(clubId: string): Promise<AutoLine[]> {
   const f = await loadFamilies(clubId);
-  const out: SiblingLine[] = [];
-  for (const subs of Array.from(f.byPayer.values())) {
-    if (subs.length < 2 && !subs.some((s) => s.discountSource === "SIBLING")) continue;
-    out.push(...planFamily(f.cfg, subs).filter((l) => l.drift));
-  }
+  const out: AutoLine[] = [];
+  for (const subs of Array.from(f.byPayer.values())) out.push(...autoLinesFor(f, subs).filter((l) => l.drift));
   return out;
 }
 
@@ -124,23 +164,42 @@ export async function siblingForNewMembership(args: {
   listPrice: number;
   billingPeriod: string | null;
   excludeSubscriptionId?: string | null;
-}): Promise<{ rule: { type: "PERCENT" | "FIXED"; value: number } | null; label: string | null; position: number | null; off: number }> {
-  const none = { rule: null, label: null, position: null, off: 0 };
-  const f = await loadFamilies(args.clubId);
-  if (!siblingOn(f.cfg)) return none;
-  const guardians = await primaryGuardians(args.clubId, [args.member.id]);
-  const key = payerKey(null, args.member, guardians);
-  if (!key) return none;
-  const family = (f.byPayer.get(key) ?? []).filter((s) => s.id !== args.excludeSubscriptionId);
-  return siblingForPurchase(f.cfg, family, {
-    memberId: args.member.id,
-    memberName: `${args.member.firstName ?? ""} ${args.member.lastName ?? ""}`.trim(),
-    membershipId: args.membershipId,
-    listPrice: args.listPrice,
-    billingPeriod: args.billingPeriod,
-    startDate: new Date(),
-  });
+  groupValues?: Record<string, string> | null;
+  families?: Families;
+}): Promise<AutoPurchase> {
+  const none: AutoPurchase = { rule: null, label: null, position: null, off: 0, source: null };
+  const f = args.families ?? (await loadFamilies(args.clubId));
+  if (!anyAutoOn(f)) return none;
+  let sib: AutoPurchase = none;
+  if (siblingOn(f.cfg)) {
+    const guardians = await primaryGuardians(args.clubId, [args.member.id]);
+    const key = payerKey(null, args.member, guardians);
+    if (key) {
+      const family = (f.byPayer.get(key) ?? []).filter((s) => s.id !== args.excludeSubscriptionId);
+      const r = siblingForPurchase(f.cfg, family, {
+        memberId: args.member.id,
+        memberName: `${args.member.firstName ?? ""} ${args.member.lastName ?? ""}`.trim(),
+        membershipId: args.membershipId,
+        listPrice: args.listPrice,
+        billingPeriod: args.billingPeriod,
+        startDate: new Date(),
+      });
+      if (r.rule && r.off > 0) sib = { ...r, source: "SIBLING" };
+    }
+  }
+  const gv = args.groupValues ?? f.groupValuesOf.get(args.member.id) ?? readGroupValues((await prisma.member.findUnique({ where: { id: args.member.id }, select: { groupValues: true } }))?.groupValues);
+  const grp = bestGroupRate({ rates: f.rates, counts: f.counts, memberId: args.member.id, groupValues: gv, membershipId: args.membershipId, listPrice: args.listPrice, includeSelf: true });
+  if (grp && grp.off > sib.off) return { rule: grp.rule, label: grp.label, position: null, off: grp.off, source: "GROUP" };
+  return sib;
 }
+
+export type AutoPurchase = {
+  rule: { type: "PERCENT" | "FIXED"; value: number } | null;
+  label: string | null;
+  position: number | null;
+  off: number;
+  source: "SIBLING" | "GROUP" | null;
+};
 
 export type PurchaseDiscount = {
   finalPrice: number;
@@ -192,7 +251,7 @@ export async function membershipDiscountAtPurchase(args: {
       finalPrice: Math.round((list - sib.off) * 100) / 100,
       code: null,
       fields: {
-        discountCode: null, discountAmount: sib.off, discountSource: "SIBLING", discountLabel: sib.label,
+        discountCode: null, discountAmount: sib.off, discountSource: sib.source ?? "SIBLING", discountLabel: sib.label,
         discountType: sib.rule.type, discountValue: sib.rule.value,
       },
       label: sib.label,
@@ -231,7 +290,7 @@ export async function siblingDiscountForPlanChange(input: {
   memberId: string;
   subscriptionId: string;
   optionId: string;
-}): Promise<{ source: "SIBLING"; type: "PERCENT" | "FIXED"; value: number; label: string } | null> {
+}): Promise<{ source: "SIBLING" | "GROUP"; type: "PERCENT" | "FIXED"; value: number; label: string } | null> {
   const plans = await prisma.membership.findMany({ where: { clubId: input.clubId, deletedAt: null }, select: { id: true, options: true } });
   let hit: { planId: string; price: number; billingPeriod: string } | null = null;
   for (const p of plans) {
@@ -248,7 +307,7 @@ export async function siblingDiscountForPlanChange(input: {
     clubId: input.clubId, member, membershipId: hit.planId, listPrice: hit.price,
     billingPeriod: hit.billingPeriod, excludeSubscriptionId: input.subscriptionId,
   });
-  return sib.rule && sib.label && sib.off > 0 ? { source: "SIBLING", type: sib.rule.type, value: sib.rule.value, label: sib.label } : null;
+  return sib.rule && sib.label && sib.off > 0 ? { source: sib.source ?? "SIBLING", type: sib.rule.type, value: sib.rule.value, label: sib.label } : null;
 }
 
 /**
@@ -264,23 +323,18 @@ export async function siblingQuotes(
   const out: Record<string, Record<string, { label: string; price: number }>> = {};
   if (memberIds.length === 0 || items.length === 0) return out;
   const f = await loadFamilies(clubId);
-  if (!siblingOn(f.cfg)) return out;
-  const [members, guardians] = await Promise.all([
-    prisma.member.findMany({
-      where: { id: { in: memberIds }, clubId },
-      select: { id: true, userId: true, responsiblePayerUserId: true, firstName: true, lastName: true },
-    }),
-    primaryGuardians(clubId, memberIds),
-  ]);
+  if (!anyAutoOn(f)) return out;
+  const members = await prisma.member.findMany({
+    where: { id: { in: memberIds }, clubId },
+    select: { id: true, userId: true, responsiblePayerUserId: true, firstName: true, lastName: true, groupValues: true },
+  });
   for (const m of members) {
-    const key = payerKey(null, m, guardians);
-    if (!key) continue;
-    const family = f.byPayer.get(key) ?? [];
     for (const it of items) {
       if (it.billingPeriod === "ONE_TIME" || it.price <= 0) continue;
-      const q = siblingForPurchase(f.cfg, family, {
-        memberId: m.id, memberName: `${m.firstName} ${m.lastName ?? ""}`.trim(), membershipId: it.membershipId,
-        listPrice: it.price, billingPeriod: it.billingPeriod, startDate: new Date(),
+      // Same function checkout uses, so the price shown is the price charged.
+      const q = await siblingForNewMembership({
+        clubId, member: m, membershipId: it.membershipId, listPrice: it.price, billingPeriod: it.billingPeriod,
+        groupValues: readGroupValues(m.groupValues), families: f,
       });
       if (q.rule && q.label && q.off > 0) {
         (out[m.id] ||= {})[`${it.membershipId}:${it.optionLabel}`] = { label: q.label, price: Math.round((it.price - q.off) * 100) / 100 };
