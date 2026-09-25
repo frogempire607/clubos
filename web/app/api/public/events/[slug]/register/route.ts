@@ -19,6 +19,9 @@ import {
   publicSignupRequiresAccount,
 } from "@/lib/eventPayments";
 import { eventFormFields, validateFormResponses } from "@/lib/eventForm";
+import { rosterActive, type SpotPick } from "@/lib/eventRoster";
+import { checkEntries, entriesTotalCents, type CheckedEntry } from "@/lib/eventEntries";
+import { loadRosterDef, checkPicks, writeEntries } from "@/lib/eventRosterServer";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
@@ -40,6 +43,18 @@ const schema = z.object({
   // visitors can't produce an audited signature, so acknowledgement (stored on
   // the registration) is the strongest gate available here.
   acknowledgeDocuments: z.boolean().optional(),
+  // B16 — the athlete's entries: a roster spot each (when the event has a
+  // roster) and the answers to the questions asked for each entry.
+  entries: z
+    .array(
+      z.object({
+        rosterId: z.string().optional().nullable(),
+        positionId: z.string().optional().nullable(),
+        answers: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 // POST /api/public/events/[slug]/register
@@ -128,7 +143,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // The event's questions — the one validator the portal uses too
   // (lib/eventForm): required answered, select answers from the list, and
   // only the event's own keys kept.
-  const formCheck = validateFormResponses(eventFormFields(event.registrationForm), body.formResponses);
+  const allFields = eventFormFields(event.registrationForm);
+  const formCheck = validateFormResponses(allFields.filter((f) => !f.perEntry), body.formResponses);
   if (!formCheck.ok) {
     return NextResponse.json({ error: formCheck.message }, { status: 400 });
   }
@@ -147,6 +163,32 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       },
       { status: 400 },
     );
+  }
+
+  // B16 — roster spot. Checked before anything is written: a full spot on an
+  // event that confirms on signup is refused here; on an approval-gated event
+  // it becomes a waitlist request the coach sees.
+  const rosterDef = await loadRosterDef(event.id);
+  const usesRoster = rosterActive(rosterDef.rosters, rosterDef.positions);
+  const entriesCheck = checkEntries({
+    entries: body.entries,
+    rules: event,
+    channel: "PUBLIC",
+    rosterActive: usesRoster,
+    rosterLabel: (id) => rosterDef.rosters.find((r) => r.id === id)?.label ?? "That roster",
+    perEntryFields: allFields.filter((f) => f.perEntry),
+  });
+  if (!entriesCheck.ok) return NextResponse.json({ error: entriesCheck.message, code: entriesCheck.code }, { status: 400 });
+  const entries: CheckedEntry[] = entriesCheck.entries;
+  const picks: SpotPick[] = entries.filter((e) => e.rosterId && e.positionId).map((e) => ({ rosterId: e.rosterId!, positionId: e.positionId! }));
+  if (picks.length > 0) {
+    const checked = await checkPicks({
+      eventId: event.id,
+      picks,
+      approvalGated: policy.requiresCoachApproval,
+      holdSpotDuringReview: policy.holdSpotDuringReview,
+    });
+    if (!checked.ok) return NextResponse.json({ error: checked.message, code: checked.code }, { status: 409 });
   }
 
   // Try to match an existing member by email (so it shows on their account).
@@ -199,7 +241,15 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // registration reached a coach with nothing to charge (2026-08-12). A matched
   // member gets the member rate; everyone else the non-member one, with either
   // falling through to whatever price the owner actually set.
-  const grossDue = isVariableCost ? 0 : registrationListPrice(event, { memberId: member?.id ?? null });
+  // B16 — N entries at the event price, or the first at the event price and
+  // the rest at the owner's additional-entry price.
+  const grossDue = isVariableCost
+    ? 0
+    : entriesTotalCents(
+        Math.round(registrationListPrice(event, { memberId: member?.id ?? null }) * 100),
+        Math.max(1, entries.length),
+        event.additionalEntryPrice != null ? Math.round(Number(event.additionalEntryPrice) * 100) : null,
+      ) / 100;
   const discountFields = registrationDiscountFields(discount, grossDue);
   const amountDue = isVariableCost ? 0 : discountFields.amountDue;
 
@@ -314,6 +364,17 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       discountAmount: isVariableCost ? null : discountFields.discountAmount,
     },
   });
+
+  if (entries.length > 0) {
+    await writeEntries({
+      eventId: event.id,
+      clubId: event.clubId,
+      registrationId: registration.id,
+      entries,
+      approvalGated: policy.requiresCoachApproval,
+      holdSpotDuringReview: policy.holdSpotDuringReview,
+    });
+  }
 
   // The registration number the visitor will quote back to staff. Derived from
   // the row id, so it is the same value on the page, in the email, and in any

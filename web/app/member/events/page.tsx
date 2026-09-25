@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { CalendarRange, MessageCircle, Package } from "lucide-react";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
 import { eventFormFields, type EventFormField } from "@/lib/eventForm";
+import type { SignupRoster } from "@/components/events/SpotPicker";
+import EntriesEditor, { entriesPayload, emptyEntry, type EntryDraft } from "@/components/events/EntriesEditor";
+import { maxEntriesFor } from "@/lib/eventEntries";
 
 type EventCard = {
   id: string;
@@ -32,7 +35,18 @@ type EventCard = {
   // The event's questions (weight class, division, …) and the owner's note.
   registrationForm?: unknown;
   publicFormIntro?: string | null;
+  // B16 — the roster to pick a spot from, and whether a coach reviews signups.
+  roster?: SignupRoster | null;
+  approvalGated?: boolean;
+  // B16 slice 3 — entry rules (scalar event columns, sent as-is).
+  allowMultipleEntries?: boolean;
+  maxEntries?: number | null;
+  additionalEntryPrice?: number | string | null;
+  allowSameRosterTwice?: boolean;
+  entriesOnPublicLink?: boolean;
 };
+
+type EntryPayload = { rosterId?: string; positionId?: string; answers: Record<string, string | boolean> };
 
 type FormAnswers = Record<string, string | boolean>;
 
@@ -112,6 +126,8 @@ export default function MemberEventsPage() {
   // else and re-sent with every retry of that registration (payment choice,
   // document acknowledgement) so they're never asked twice.
   const answersRef = useRef<Record<string, FormAnswers>>({});
+  // The entries the family built (spots + per-entry answers), per athlete per event.
+  const entriesRef = useRef<Record<string, { payload: EntryPayload[]; drafts: EntryDraft[] }>>({});
   const answerKey = (eventId: string) => `${eventId}:${selectedMemberId ?? ""}`;
   const [formPrompt, setFormPrompt] = useState<null | {
     eventId: string;
@@ -121,6 +137,13 @@ export default function MemberEventsPage() {
     intro: string | null;
     error?: string;
     initial?: FormAnswers;
+    roster?: SignupRoster | null;
+    approvalGated?: boolean;
+    initialDrafts?: EntryDraft[];
+    maxEntries?: number;
+    unitPriceCents?: number | null;
+    additionalCents?: number | null;
+    allowSameRosterTwice?: boolean;
   }>(null);
 
   // Deep link from the public event page (/e/[slug] → sign in → here):
@@ -211,8 +234,25 @@ export default function MemberEventsPage() {
     const ev = events.find((x) => x.id === eventId);
     const fields = eventFormFields(ev?.registrationForm);
     const answers = answersRef.current[answerKey(eventId)];
-    if (fields.length > 0 && !answers) {
-      setFormPrompt({ eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null });
+    const built = entriesRef.current[answerKey(eventId)];
+    const needsEntries = !!ev?.roster || fields.some((f) => f.perEntry);
+    const promptExtras = () => ({
+      roster: ev?.roster ?? null,
+      approvalGated: !!ev?.approvalGated,
+      initialDrafts: built?.drafts,
+      maxEntries: ev ? maxEntriesFor({
+        allowMultipleEntries: !!ev.allowMultipleEntries, maxEntries: ev.maxEntries ?? null,
+        allowSameRosterTwice: !!ev.allowSameRosterTwice, entriesOnPublicLink: !!ev.entriesOnPublicLink,
+      }, "PORTAL") : 1,
+      unitPriceCents: (() => {
+        const p = isActiveMember ? ev?.memberPrice ?? ev?.nonMemberPrice : ev?.nonMemberPrice ?? ev?.memberPrice;
+        return p == null ? null : Math.round(Number(p) * 100);
+      })(),
+      additionalCents: ev?.additionalEntryPrice != null ? Math.round(Number(ev.additionalEntryPrice) * 100) : null,
+      allowSameRosterTwice: !!ev?.allowSameRosterTwice,
+    });
+    if ((fields.some((f) => !f.perEntry) && !answers) || (needsEntries && !built)) {
+      setFormPrompt({ eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null, initial: answers, ...promptExtras() });
       return;
     }
     setBusy(eventId);
@@ -235,23 +275,34 @@ export default function MemberEventsPage() {
           : {}),
         ...(acknowledgeDocuments ? { acknowledgeDocuments: true } : {}),
         ...(answers ? { formResponses: answers } : {}),
+        ...(built && built.payload.length > 0 ? { entries: built.payload } : {}),
       }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     // The server has questions this page didn't know about, or an answer it
     // won't take — ask (again), keeping what was typed.
-    if (res.status === 400 && (d.error === "FORM_REQUIRED" || d.error === "FORM_INVALID")) {
+    // The spot filled up (or vanished) since the page loaded — refresh the
+    // counts and ask again, keeping everything else they entered.
+    if (res.status === 409 && (d.error === "SPOT_FULL" || d.error === "UNKNOWN_SPOT")) {
+      delete entriesRef.current[answerKey(eventId)];
+      setError(d.message || "That spot isn't available any more. Pick another.");
+      load();
+      return;
+    }
+    if (res.status === 400 && (d.error === "FORM_REQUIRED" || d.error === "FORM_INVALID" || d.error === "ROSTER_REQUIRED" || d.error === "ENTRIES_INVALID")) {
       setFormPrompt({
         eventId,
         pricingType,
         sessionIds,
         fields: d.fields ? eventFormFields(d.fields) : fields,
         intro: d.intro ?? ev?.publicFormIntro ?? null,
-        error: d.error === "FORM_INVALID" ? d.message : undefined,
+        error: d.error === "FORM_REQUIRED" ? undefined : d.message,
         initial: answers,
+        ...promptExtras(),
       });
       delete answersRef.current[answerKey(eventId)];
+      delete entriesRef.current[answerKey(eventId)];
       return;
     }
     // The event offers more than one way to pay — ask, then re-submit. The
@@ -657,9 +708,10 @@ export default function MemberEventsPage() {
             setSelectedMemberId(id);
           }}
           onClose={() => setFormPrompt(null)}
-          onSubmit={(answers) => {
+          onSubmit={(answers, built) => {
             const p = formPrompt;
             answersRef.current[answerKey(p.eventId)] = answers;
+            if (built) entriesRef.current[answerKey(p.eventId)] = built;
             setFormPrompt(null);
             register(p.eventId, p.pricingType, undefined, undefined, p.sessionIds);
           }}
@@ -947,28 +999,52 @@ function EventFormModal({
   onClose,
   onSubmit,
 }: {
-  prompt: { fields: EventFormField[]; intro: string | null; error?: string; initial?: FormAnswers };
+  prompt: {
+    fields: EventFormField[];
+    intro: string | null;
+    error?: string;
+    initial?: FormAnswers;
+    roster?: SignupRoster | null;
+    approvalGated?: boolean;
+    initialDrafts?: EntryDraft[];
+    maxEntries?: number;
+    unitPriceCents?: number | null;
+    additionalCents?: number | null;
+    allowSameRosterTwice?: boolean;
+  };
   eventName: string;
   accessible: AccessibleProfile[];
   memberId: string | null;
   onMemberChange: (id: string) => void;
   onClose: () => void;
-  onSubmit: (answers: FormAnswers) => void;
+  onSubmit: (answers: FormAnswers, built: { payload: EntryPayload[]; drafts: EntryDraft[] } | null) => void;
 }) {
   const [answers, setAnswers] = useState<FormAnswers>(prompt.initial ?? {});
+  const [drafts, setDrafts] = useState<EntryDraft[]>(prompt.initialDrafts ?? [emptyEntry()]);
+  const perEntryFields = prompt.fields.filter((f) => f.perEntry);
+  const onceFields = prompt.fields.filter((f) => !f.perEntry);
   const [err, setErr] = useState(prompt.error ?? "");
   const who = accessible.find((a) => a.id === memberId) ?? accessible[0] ?? null;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    for (const f of prompt.fields) {
+    for (const f of onceFields) {
       const v = answers[f.id];
       if (f.required && (v === undefined || v === "" || v === false)) {
         setErr(`"${f.label}" is required`);
         return;
       }
     }
-    onSubmit(answers);
+    const built = entriesPayload(drafts, {
+      roster: prompt.roster ?? null,
+      perEntryFields,
+      allowSameRosterTwice: !!prompt.allowSameRosterTwice,
+    });
+    if (!built.ok) {
+      setErr(built.message);
+      return;
+    }
+    onSubmit(answers, built.entries.length > 0 ? { payload: built.entries, drafts } : null);
   }
 
   const inputCls = "w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-300";
@@ -997,7 +1073,18 @@ function EventFormModal({
             </div>
           )}
           {prompt.intro && <p className="text-sm text-stone-500 whitespace-pre-wrap">{prompt.intro}</p>}
-          {prompt.fields.map((f) => (
+          <EntriesEditor
+            value={drafts}
+            onChange={(v) => { setDrafts(v); setErr(""); }}
+            roster={prompt.roster ?? null}
+            perEntryFields={perEntryFields}
+            maxEntries={prompt.maxEntries ?? 1}
+            athleteName={who?.firstName ?? null}
+            approvalGated={!!prompt.approvalGated}
+            unitPriceCents={prompt.unitPriceCents ?? null}
+            additionalCents={prompt.additionalCents ?? null}
+          />
+          {onceFields.map((f) => (
             <div key={f.id}>
               <label className="block text-sm font-medium text-stone-700 mb-1">
                 {f.label}{f.required ? " *" : ""}

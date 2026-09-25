@@ -4938,3 +4938,75 @@ sends it any more.
 
 Not yet: slice 4 (billing centre → Advanced billing), the B14 Paused card "resumes {date}", and a Sync-from-Stripe check
 for a `pause_collection` set by hand. Nothing here charges a card today, so no checkbox names an amount.
+
+## 2026-09-24 — B16 slice 1: event requests in Approvals; question types; cheaper deploys
+
+- **Approvals inbox** (`/dashboard/members/approvals`, fed by `GET /api/approvals`) now lists every event registration
+  awaiting a coach (`approvalStatus = PENDING`, not canceled): who, which event and date, their answers ("Weight Class:
+  60 · Division: K6"), the money line ("$85 · saved card, charged Nov 14 if approved"), confirmation code. **Approve**
+  and **Decline…** (a reason the family reads, required) call the same `/api/events/[id]/registrations/[regId]/approve
+  | decline` routes the Attendees tab uses — no second set of rules. "Propose a change" links to the event. Visibility:
+  owner / events:edit see all; a coach without events:edit sees only events where they are the responsible coach
+  (same rule as `canDecideRegistrations`). A pending proposal disables Approve and says it's waiting on the family.
+- **Signup questions are types, not sport presets.** The event editor's chips are now + Dropdown, + Short answer,
+  + Long answer, + Checkbox, + Email, + Phone; the club writes the wording. Dropdowns are still stored as entry
+  categories, so coach proposals keep working. The event-type defaults editor lost its preset chips the same way.
+  Existing events are untouched (their questions load exactly as saved).
+- **Deploy credits:** Netlify charges per PRODUCTION deploy (15 credits; branch deploys, previews and failed builds are
+  free). `netlify.toml` now has an `ignore` rule: a push to main that changes only `web/docs` or files outside `web/`
+  skips the build. Working rhythm from here: one branch per phase, pushed as often as we like (free), merged to main
+  once per finished phase.
+
+## 2026-09-25 — B16 slice 2: roster positions, spot picker, the coach's grid
+
+Migration `20260926000000_event_roster_entries` (additive, RLS tenant policies like event_sessions): `event_rosters`
+(columns), `event_roster_positions` (rows, `capacity` per cell), `event_registration_entries` (the spot(s) a
+registration asked for — no money; ACTIVE | WAITLIST | DROPPED), and five `events` columns for slice 3
+(`allowMultipleEntries`, `maxEntries`, `additionalEntryPrice`, `allowSameRosterTwice`, `entriesOnPublicLink`) so B16
+needs no second migration.
+
+- Rules (`lib/eventRoster.ts`, pure, 34 tests `npm run test:event-roster`): capacity per cell; whether an entry holds its
+  cell is read off its registration with the capacityWhere rule, plus: a registration waiting on the coach holds
+  nothing unless holdSpotDuringReview — the coach chooses who fills a cell, the same philosophy as event capacity.
+  Full cell ⇒ WAITLIST on approval-gated events, refused on confirm-on-signup events.
+- Server (`lib/eventRosterServer.ts`): picks checked BEFORE a registration is written; entries written after, under a
+  per-cell advisory lock; `approveRegistration` re-checks every cell the registration asked for (`CELL_FULL` with the
+  spot named) and promotes its waitlisted entries when they fit. Removing a roster/position someone signed up for is
+  refused (like a paid-for session).
+- Both signup routes take `entries: [{ rosterId, positionId }]` (one until slice 3). Public GET and member events GET
+  return the roster with open counts only (never names). Every member-route path that writes a row places the spot.
+- UI: shared `components/events/SpotPicker.tsx` (roster chips → position tiles with "2 left / Full — waitlist") on the
+  public page and in the portal's registration modal; the editor's new **Roster positions** card (columns, rows,
+  capacity, paste many, set every capacity, "Build the roster from your dropdowns" for events like Finger Lakes);
+  `/dashboard/events/[id]/roster` grid (sticky position column, pending marked, waitlist + "signed up without a spot"
+  below) with **PDF** and **CSV** (`GET /api/events/[id]/roster/export`); "Roster grid" in each event's ⋯ menu; the
+  Approvals card shows "Spot: 60 · K6".
+
+Not in this slice: proposals that move an entry (slice 3), multiple entries (slice 3). Existing registrations made with
+the old dropdowns show under "signed up without a spot" — their answers are still on the registration.
+
+## 2026-09-25 — B16 slice 3: multiple entries, per-entry questions, entry proposals, dropdown conversion, duplicate
+
+No migration (the slice-2 migration carried the columns).
+
+- **Multiple entries** (`lib/eventEntries.ts`, pure): editor "Roster & entries" card — allow more than one entry,
+  max (blank = 5), extra entries cost the same or a different price, two entries in one roster (toggle), extra entries
+  on the public link (toggle). Questions get "Ask for each entry". Families see `components/events/EntriesEditor.tsx`:
+  one card per entry (spot + per-entry questions), "+ Add another entry for {athlete}" with "Same athlete, another
+  spot… Registering a different child is separate", and the live line "2 entries × $85.00 = $170.00" / "$85.00 + 1 more
+  at $40.00". Server: `checkEntries` (count, same spot, same roster, per-entry answers) in both signup routes; price =
+  entriesTotalCents before any discount; entries written with their answers.
+- **Repricing knows entries**: `PricingRegistration.entryCount` + `PricingEvent.additionalEntryPrice` in
+  `grossExpectedAmount`; the event PATCH preview, reprice route and bill-registrants attach live counts
+  (`withEntryCounts`), so a $170 two-entry row is not "stale" and never halved.
+- **Proposals move or drop an entry**: coach picks "Move to 64 · K6" / "Remove this entry" per entry in the review
+  queue (price change field allows negatives when dropping). Stored as `changes["entry:<id>"]` (human text) +
+  `entryMoves` (ids); accepting applies them to the entries, approval re-checks the new cells.
+- **Approvals cards** list each entry: "Entry 1: 60 · K6, Seed notes: …".
+- **"Build the roster from your dropdowns" places existing registrations**: `backfillFrom` on the roster PUT →
+  `backfillEntriesFromAnswers` (oldest first, capacity respected; no match ⇒ "signed up without a spot").
+- **Duplicate** copies session prices, roster + capacities, staff, event documents, entry rules; never people or money.
+  The public link is minted from the NEW name on the editor's first save; the editor opens on the copy with a
+  "This is a copy — change the name, dates, charge date" banner and Basics/Schedule/How people pay open.
+
+Tests: event-roster 34 → 59. Guards and event suites unchanged and green.

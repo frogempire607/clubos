@@ -131,7 +131,38 @@ type MembershipChangeApproval = {
   billingUrl: string;
 };
 
+// B16 slice 1 — an event registration waiting on the coach. Decided through
+// the same approve / decline routes the event's Attendees tab uses.
+type EventRegistrationApproval = {
+  id: string;
+  kind: "EVENT_REGISTRATION";
+  memberId: string;
+  memberName: string;
+  requestedAt: string;
+  registrationId: string;
+  eventId: string;
+  eventName: string;
+  eventStartsAt: string;
+  email: string | null;
+  confirmationCode: string | null;
+  amountDue: number | null;
+  paymentMethod: string | null;
+  chargeOn: string | null;
+  answers: { label: string; value: string }[];
+  hasProposal: boolean;
+};
+
+const EVENT_PAY_LABEL: Record<string, string> = {
+  AUTO_CARD: "saved card",
+  APPROVAL_CHARGE: "saved card, charged on approval",
+  INVOICE: "billed after approval",
+  CARD: "paid by card up front",
+  CASH: "cash at the event",
+  CHECK: "check at the event",
+};
+
 type Approval =
+  | EventRegistrationApproval
   | GuardianApproval
   | MembershipChangeApproval
   | CancelApproval
@@ -430,6 +461,48 @@ export default function MembersApprovalsPage() {
     load();
   }
 
+  // Event registrations: approve as submitted, or decline with a reason the
+  // family reads verbatim. Changing what they asked for is a proposal, made
+  // from the event's Attendees tab.
+  const [declining, setDeclining] = useState<Record<string, string>>({});
+  async function actEventRegistration(a: EventRegistrationApproval, decision: "APPROVE" | "DECLINE") {
+    const reason = (declining[a.id] ?? "").trim();
+    if (decision === "DECLINE" && !reason) {
+      setError("Give the family a reason before declining.");
+      return;
+    }
+    setBusyId(a.id);
+    setError("");
+    const res = await fetch(
+      `/api/events/${a.eventId}/registrations/${a.registrationId}/${decision === "APPROVE" ? "approve" : "decline"}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(decision === "APPROVE" ? {} : { reason }),
+      },
+    );
+    const d = await res.json().catch(() => ({}));
+    setBusyId(null);
+    if (!res.ok) {
+      setError(typeof d.message === "string" ? d.message : typeof d.error === "string" ? d.error : "Could not update the registration.");
+      load();
+      return;
+    }
+    setDeclining((m) => {
+      const n = { ...m };
+      delete n[a.id];
+      return n;
+    });
+    setNotice({
+      tone: "success",
+      text:
+        decision === "APPROVE"
+          ? `${a.memberName} approved for ${a.eventName}.${d.chargeError ? ` The card charge didn't go through: ${d.chargeError}` : ""}`
+          : `${a.memberName}'s registration for ${a.eventName} was declined — the family has been emailed.`,
+    });
+    load();
+  }
+
   async function actSplit(a: SplitApproval, decision: "APPROVE" | "DECLINE") {
     setBusyId(a.id);
     setError("");
@@ -599,7 +672,7 @@ export default function MembersApprovalsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-text-primary">Approvals</h1>
         <p className="text-sm text-text-muted mt-1">
-          Requests that need your sign-off — new membership billing, guardian access, and cancellations.
+          Requests that need your sign-off — new membership billing, guardian access, cancellations, and event registrations waiting on a coach.
         </p>
       </div>
 
@@ -868,6 +941,99 @@ export default function MembersApprovalsPage() {
                     >
                       Decline
                     </button>
+                  </div>
+                </div>
+              );
+            }
+
+            if (a.kind === "EVENT_REGISTRATION") {
+              const pay = a.paymentMethod ? EVENT_PAY_LABEL[a.paymentMethod] ?? a.paymentMethod.toLowerCase() : null;
+              const isDeclining = declining[a.id] !== undefined;
+              return (
+                <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
+                  <div className="min-w-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                      <UserCheck size={11} /> Event registration
+                    </span>
+                    <p className="text-sm text-text-primary">
+                      {a.memberId ? (
+                        <Link href={`/dashboard/members/${a.memberId}`} className="font-semibold underline underline-offset-2 hover:text-brand">
+                          {a.memberName}
+                        </Link>
+                      ) : (
+                        <strong>{a.memberName}</strong>
+                      )}{" "}
+                      wants to register for <strong>{a.eventName}</strong> ({fmtDateUTC(a.eventStartsAt)}).
+                    </p>
+                    {a.answers.length > 0 && (
+                      <p className="text-sm text-text-primary mt-1">
+                        {a.answers.map((x, i) => (
+                          <span key={i}>
+                            {i > 0 ? " · " : ""}
+                            <span className="text-text-muted">{x.label}:</span> {x.value}
+                          </span>
+                        ))}
+                      </p>
+                    )}
+                    <p className="text-xs text-text-muted mt-1">
+                      {a.amountDue != null && a.amountDue > 0 ? `${money(a.amountDue)}` : "Nothing owed"}
+                      {pay ? ` · ${pay}` : ""}
+                      {a.chargeOn ? `, charged ${fmtDateUTC(a.chargeOn)} if approved` : ""}
+                      {a.confirmationCode ? ` · #${a.confirmationCode}` : ""}
+                      {` · requested ${fmtDate(a.requestedAt)}`}
+                      {!a.memberId && a.email ? ` · ${a.email} (not linked to a member)` : ""}
+                    </p>
+                    {a.hasProposal && (
+                      <p className="text-xs text-amber-700 mt-1">You proposed a change — waiting on the family to accept or decline it.</p>
+                    )}
+                  </div>
+                  {isDeclining && (
+                    <textarea
+                      value={declining[a.id]}
+                      onChange={(e) => setDeclining((m) => ({ ...m, [a.id]: e.target.value }))}
+                      rows={2}
+                      placeholder="Reason — the family reads this in their email"
+                      className="w-full mt-3 px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary"
+                    />
+                  )}
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    {!isDeclining ? (
+                      <>
+                        <button
+                          onClick={() => actEventRegistration(a, "APPROVE")}
+                          disabled={busyId === a.id || a.hasProposal}
+                          className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                        >
+                          {busyId === a.id ? "Working…" : "Approve"}
+                        </button>
+                        <button
+                          onClick={() => setDeclining((m) => ({ ...m, [a.id]: "" }))}
+                          disabled={busyId === a.id}
+                          className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                        >
+                          Decline…
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => actEventRegistration(a, "DECLINE")}
+                          disabled={busyId === a.id}
+                          className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {busyId === a.id ? "Working…" : "Decline and email the family"}
+                        </button>
+                        <button
+                          onClick={() => setDeclining((m) => { const n = { ...m }; delete n[a.id]; return n; })}
+                          className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
+                        >
+                          Back
+                        </button>
+                      </>
+                    )}
+                    <Link href={`/dashboard/events?event=${a.eventId}`} className="text-sm text-brand hover:underline ml-auto">
+                      Propose a change on the event →
+                    </Link>
                   </div>
                 </div>
               );

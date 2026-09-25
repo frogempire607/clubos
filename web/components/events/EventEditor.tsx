@@ -19,13 +19,13 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ImageUpload from "@/components/ImageUpload";
 import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
+import { validateRosterDef } from "@/lib/eventRoster";
 import { ESCALATION_SCHEDULE_DAYS, type EscalationSchedule } from "@/lib/eventPayments";
 import {
-  CATEGORY_PRESETS,
   PARTICIPANT_FIELD_ID,
   categoryFieldsFromForm,
   fieldIdForKey,
@@ -50,6 +50,8 @@ export type EditorFormField = {
   type: "text" | "email" | "phone" | "textarea" | "select" | "checkbox";
   required: boolean;
   options?: string[];
+  /** B16 slice 3 — asked again for each entry. */
+  perEntry?: boolean;
 };
 
 export type EditorEventType = {
@@ -117,6 +119,11 @@ export type EditorEvent = {
   allowProposedChanges?: boolean | null;
   responsibleCoachUserId?: string | null;
   holdSpotDuringReview?: boolean;
+  allowMultipleEntries?: boolean;
+  maxEntries?: number | null;
+  additionalEntryPrice?: number | string | null;
+  allowSameRosterTwice?: boolean;
+  entriesOnPublicLink?: boolean;
   cancellationPolicyText?: string | null;
   paymentDueBy?: string | null;
   escalationEnabled?: boolean | null;
@@ -241,7 +248,7 @@ function Problem({ children }: { children: React.ReactNode }) {
 // ── The editor ────────────────────────────────────────────────────────────────
 
 export default function EventEditor({
-  event, clubEventTypes, memberships, staffList, onClose, onSaved,
+  event, clubEventTypes, memberships, staffList, onClose, onSaved, isCopy,
 }: {
   event: EditorEvent | null;
   clubEventTypes: EditorEventType[];
@@ -249,6 +256,8 @@ export default function EventEditor({
   staffList: EditorStaff[];
   onClose: () => void;
   onSaved: () => void;
+  /** B16 — opened on a fresh duplicate: say what to change first. */
+  isCopy?: boolean;
 }) {
   const isEdit = !!event;
   const ev = event;
@@ -322,14 +331,71 @@ export default function EventEditor({
   const initialForm: EditorFormField[] = Array.isArray(ev?.registrationForm) ? (ev!.registrationForm as EditorFormField[]) : [];
   const initialCategories = categoryFieldsFromForm(initialForm);
   const [formFields, setFormFields] = useState<EditorFormField[]>(initialForm.filter((f) => !categoryFieldsFromForm([f]).length));
-  const [categories, setCategories] = useState<{ key: string; label: string; optionsText: string; required: boolean }[]>(
-    initialCategories.map((c) => ({ key: c.key, label: c.label, optionsText: c.options.join("\n"), required: c.required ?? true })),
+  const [categories, setCategories] = useState<{ key: string; label: string; optionsText: string; required: boolean; perEntry?: boolean }[]>(
+    initialCategories.map((c) => ({
+      key: c.key, label: c.label, optionsText: c.options.join("\n"), required: c.required ?? true,
+      perEntry: initialForm.some((f) => f.label === c.label && f.perEntry === true),
+    })),
   );
   const [approvalMode, setApprovalMode] = useState<"" | "on" | "off">(ev?.requiresCoachApproval == null ? "" : ev.requiresCoachApproval ? "on" : "off");
   const [approvalIntent, setApprovalIntent] = useState<string>(ev?.approvalPaymentIntent || "");
   const [allowProposals, setAllowProposals] = useState<boolean>(!!ev?.allowProposedChanges);
   const [responsibleCoachUserId, setResponsibleCoachUserId] = useState<string>(ev?.responsibleCoachUserId || "");
   const [holdSpotDuringReview, setHoldSpotDuringReview] = useState<boolean>(!!ev?.holdSpotDuringReview);
+  // B16 slice 3 — more than one entry per athlete.
+  const [allowMultipleEntries, setAllowMultipleEntries] = useState<boolean>(!!ev?.allowMultipleEntries);
+  const [maxEntries, setMaxEntries] = useState<string>(ev?.maxEntries != null ? String(ev.maxEntries) : "");
+  const [extraEntryPriced, setExtraEntryPriced] = useState<boolean>(ev?.additionalEntryPrice != null);
+  const [additionalEntryPrice, setAdditionalEntryPrice] = useState<string>(ev?.additionalEntryPrice != null ? String(ev.additionalEntryPrice) : "");
+  const [allowSameRosterTwice, setAllowSameRosterTwice] = useState<boolean>(!!ev?.allowSameRosterTwice);
+  const [entriesOnPublicLink, setEntriesOnPublicLink] = useState<boolean>(!!ev?.entriesOnPublicLink);
+
+  // ── B16: roster positions (columns = rosters, rows = positions) ──
+  type RosterRowState = { id: string | null; label: string };
+  type PositionRowState = { id: string | null; label: string; capacity: string };
+  const [rosterCols, setRosterCols] = useState<RosterRowState[]>([]);
+  const [rosterRows, setRosterRows] = useState<PositionRowState[]>([]);
+  const [rosterDirty, setRosterDirty] = useState(false);
+  const [rosterLoaded, setRosterLoaded] = useState(!isEdit);
+  const [pasteRows, setPasteRows] = useState("");
+  // Set by "Build the roster from your dropdowns": the saved question ids whose
+  // answers place existing registrations on the new roster.
+  const [backfillFrom, setBackfillFrom] = useState<{ rosterFieldId: string; positionFieldId: string } | null>(null);
+  useEffect(() => {
+    if (!isEdit || !ev?.id) return;
+    let alive = true;
+    fetch(`/api/events/${ev.id}/roster`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d?.definition) { if (alive) setRosterLoaded(true); return; }
+        setRosterCols(d.definition.rosters.map((r: { id: string; label: string }) => ({ id: r.id, label: r.label })));
+        setRosterRows(d.definition.positions.map((p: { id: string; label: string; capacity: number | null }) => ({ id: p.id, label: p.label, capacity: p.capacity == null ? "" : String(p.capacity) })));
+        setRosterLoaded(true);
+      })
+      .catch(() => alive && setRosterLoaded(true));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const editRoster = (fn: () => void) => { fn(); setRosterDirty(true); };
+  // Two dropdowns already on the form (e.g. Weight Class + Division) can become
+  // the roster in one tap: the one with fewer choices becomes the columns.
+  function rosterFromDropdowns() {
+    const withOpts = categories.filter((c) => c.optionsText.split("\n").map((x) => x.trim()).filter(Boolean).length > 0);
+    if (withOpts.length < 2) return;
+    const [a, b] = withOpts;
+    const opts = (c: typeof a) => c.optionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+    const [cols, rows] = opts(a).length <= opts(b).length ? [a, b] : [b, a];
+    editRoster(() => {
+      setRosterCols(opts(cols).map((label) => ({ id: null, label })));
+      setRosterRows(opts(rows).map((label) => ({ id: null, label, capacity: "" })));
+      setCategories((cs) => cs.filter((c) => c.key !== cols.key && c.key !== rows.key));
+    });
+    // Only questions that were already saved can have answers to carry over.
+    const saved = new Set(initialCategories.map((c) => c.key));
+    if (saved.has(cols.key) && saved.has(rows.key)) {
+      setBackfillFrom({ rosterFieldId: fieldIdForKey(cols.key), positionFieldId: fieldIdForKey(rows.key) });
+    }
+  }
 
   // ── Capacity, dates & policy ──
   const [capacity, setCapacity] = useState(ev?.capacity?.toString() || "");
@@ -345,7 +411,7 @@ export default function EventEditor({
   // ── Staff ──
   const [staffUserIds, setStaffUserIds] = useState<string[]>((ev?.staffAssignments || []).map((a) => a.user.id));
 
-  const [open, setOpen] = useState<Record<string, boolean>>({ basics: !isEdit, schedule: !isEdit, money: !isEdit });
+  const [open, setOpen] = useState<Record<string, boolean>>({ basics: !isEdit || !!isCopy, schedule: !isEdit || !!isCopy, money: !isEdit, pay: !!isCopy });
   const toggle = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -462,6 +528,16 @@ export default function EventEditor({
     if (datesBad) { setError(`Ends before it starts. Pick an end after ${new Date(startsAt).toLocaleString()}.`); setOpen((o) => ({ ...o, schedule: true })); return; }
     if (badSessions) { setError(`${badSessions} session${badSessions === 1 ? "" : "s"} end${badSessions === 1 ? "s" : ""} before it starts.`); setOpen((o) => ({ ...o, schedule: true })); return; }
     if (!exclusions.paymentMethodsLocked && exclusions.paymentMethods.length === 0) { setError("Pick at least one way to pay, or make the event free."); setOpen((o) => ({ ...o, pay: true })); return; }
+    // Checked before the event is saved, so a bad roster never leaves a saved
+    // event behind with no roster (and a second Save creating a duplicate).
+    const rosterBody = {
+      rosters: rosterCols.map((r) => ({ id: r.id, label: r.label })),
+      positions: rosterRows.map((p) => ({ id: p.id, label: p.label, capacity: p.capacity.trim() === "" ? null : Number(p.capacity) })),
+    };
+    if (rosterDirty) {
+      const rc = validateRosterDef(rosterBody);
+      if (!rc.ok) { setError(rc.error); setOpen((o) => ({ ...o, roster: true })); return; }
+    }
     setSaving(true);
     const customEventTypeId = isCustom ? typeKey.replace("custom:", "") : null;
     const type = isCustom ? "OTHER" : (typeKey as EditorBuiltInType);
@@ -493,9 +569,12 @@ export default function EventEditor({
       registrationForm: [
         ...categories.filter((c) => c.label.trim()).map((c, i) => {
           const options = c.optionsText.split("\n").map((x) => x.trim()).filter(Boolean);
-          return { id: i === 0 ? PARTICIPANT_FIELD_ID : fieldIdForKey(c.key), label: c.label.trim(), type: (options.length > 0 ? "select" : "text") as "select" | "text", required: c.required, options };
+          return { id: i === 0 ? PARTICIPANT_FIELD_ID : fieldIdForKey(c.key), label: c.label.trim(), type: (options.length > 0 ? "select" : "text") as "select" | "text", required: c.required, options, ...(allowMultipleEntries && c.perEntry ? { perEntry: true } : {}) };
         }),
-        ...formFields.filter((f) => f.label.trim() && !categoryFieldsFromForm([f]).length).map((f) => ({ ...f, label: f.label.trim() })),
+        ...formFields.filter((f) => f.label.trim() && !categoryFieldsFromForm([f]).length).map((f) => {
+          const { perEntry, ...rest } = f;
+          return { ...rest, label: f.label.trim(), ...(allowMultipleEntries && perEntry ? { perEntry: true } : {}) };
+        }),
       ],
       variableCostEnabled: splitOn,
       variableCostMode: splitOn ? varCostMode : null,
@@ -506,6 +585,11 @@ export default function EventEditor({
       paymentMethods: exclusions.paymentMethodsLocked ? [] : exclusions.paymentMethods,
       autoChargeDate: exclusions.paymentMethods.includes("AUTO_CARD") && autoChargeDate ? new Date(`${autoChargeDate}T12:00:00Z`).toISOString() : null,
       requirePaymentBeforeCheckin,
+      allowMultipleEntries,
+      maxEntries: allowMultipleEntries && maxEntries ? Math.max(1, Math.min(20, parseInt(maxEntries, 10) || 1)) : null,
+      additionalEntryPrice: allowMultipleEntries && extraEntryPriced && additionalEntryPrice !== "" ? Math.max(0, parseFloat(additionalEntryPrice) || 0) : null,
+      allowSameRosterTwice: allowMultipleEntries ? allowSameRosterTwice : false,
+      entriesOnPublicLink: allowMultipleEntries && signupAccess === "PUBLIC_LINK" ? entriesOnPublicLink : false,
       ...(approvalAvailable
         ? {
             requiresCoachApproval: approvalMode === "" ? null : approvalMode === "on",
@@ -537,18 +621,43 @@ export default function EventEditor({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    setSaving(false);
     if (!res.ok) {
+      setSaving(false);
       const data = await res.json().catch(() => ({}));
       setError(typeof data.error === "string" ? data.error : Array.isArray(data.error) ? data.error.map((x: { message?: string }) => x.message).join("; ") : "Save failed");
       return;
     }
+    const saved = await res.json().catch(() => ({}));
+    const savedId: string | undefined = isEdit ? ev!.id : saved?.id;
+    if (rosterDirty && savedId) {
+      const rr = await fetch(`/api/events/${savedId}/roster`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...rosterBody, ...(backfillFrom ? { backfillFrom } : {}) }),
+      });
+      if (!rr.ok) {
+        setSaving(false);
+        const d = await rr.json().catch(() => ({}));
+        setError(`The event was saved, but the roster wasn't: ${typeof d.error === "string" ? d.error : "try again"}`);
+        setOpen((o) => ({ ...o, roster: true }));
+        if (!isEdit) onSaved(); // a new event exists now — don't let a second Save duplicate it
+        return;
+      }
+    }
+    setSaving(false);
     onSaved();
   }
 
   // ── Cards ─────────────────────────────────────────────────────────────────
   const cards = (
     <>
+      {isCopy && (
+        <div className="rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>This is a copy.</strong> Everything came over except people and money. Change the <strong>name</strong>, the{" "}
+          <strong>dates</strong>{payMethods.includes("AUTO_CARD") ? <>, and the <strong>saved-card charge date</strong></> : null} before you share it —
+          {signupAccess === "PUBLIC_LINK" ? " a new public link is made from the new name when you save." : " then save."}
+        </div>
+      )}
       <Card title="Basics" summary={`${typeLabel} · ${name || "untitled"}${imageUrl ? " · cover photo set" : ""}`} open={!!open.basics} onToggle={() => toggle("basics")}>
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required className={input} placeholder="Summer Intensive" /></Field>
         <div>
@@ -747,20 +856,26 @@ export default function EventEditor({
             <span className="text-[11px] text-text-muted">{categories.length + formFields.length}</span>
           </div>
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {CATEGORY_PRESETS.map((p) => (
-              <button key={p.key} type="button" onClick={() => addCategory(p)} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ {p.label}</button>
+            {/* B16 slice 1 — question TYPES, not sport-named presets. The club
+                writes its own wording. A dropdown is an entry category (a coach
+                can propose changing the answer); the rest are plain questions. */}
+            <button type="button" onClick={() => addCategory()} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ Dropdown</button>
+            {([["text", "Short answer"], ["textarea", "Long answer"], ["checkbox", "Checkbox"], ["email", "Email"], ["phone", "Phone"]] as [EditorFormField["type"], string][]).map(([t, l]) => (
+              <button key={t} type="button" onClick={() => setFormFields((f) => [...f, { id: `f${Date.now().toString(36)}`, label: "", type: t, required: false }])} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ {l}</button>
             ))}
-            <button type="button" onClick={() => addCategory()} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ Category</button>
-            <button type="button" onClick={() => setFormFields((f) => [...f, { id: `f${Date.now().toString(36)}`, label: "", type: "text", required: false }])} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ Question</button>
           </div>
           {categories.map((c, i) => (
             <div key={c.key} className="rounded-lg border border-app-border p-2.5 mb-2 space-y-1.5">
+              <span className="block text-[10px] uppercase tracking-wide text-text-muted">Dropdown</span>
               <div className="flex gap-2">
-                <input value={c.label} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="e.g. Division" className={input} />
+                <input value={c.label} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="Question — e.g. Division" className={input} />
                 <button type="button" onClick={() => setCategories((cs) => cs.filter((_, idx) => idx !== i))} className="text-xs text-red-600 px-2">Remove</button>
               </div>
-              <textarea value={c.optionsText} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, optionsText: e.target.value } : x)))} rows={2} placeholder={"One choice per line — leave empty for free text"} className={input} />
-              <label className="flex items-center gap-2 text-xs text-text-primary"><input type="checkbox" checked={c.required} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, required: e.target.checked } : x)))} /> Required</label>
+              <textarea value={c.optionsText} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, optionsText: e.target.value } : x)))} rows={2} placeholder={"Choices — one per line"} className={input} />
+              <div className="flex flex-wrap gap-x-4">
+                <label className="flex items-center gap-2 text-xs text-text-primary"><input type="checkbox" checked={c.required} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, required: e.target.checked } : x)))} /> Required</label>
+                {allowMultipleEntries && <label className="flex items-center gap-2 text-xs text-text-primary"><input type="checkbox" checked={!!c.perEntry} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, perEntry: e.target.checked } : x)))} /> Ask for each entry</label>}
+              </div>
             </div>
           ))}
           {formFields.map((f, i) => (
@@ -768,12 +883,15 @@ export default function EventEditor({
               <div className="flex gap-2">
                 <input value={f.label} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="Question" className={input} />
                 <select value={f.type} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, type: e.target.value as EditorFormField["type"] } : x)))} className="px-2 py-2 border border-app-border rounded-lg text-xs bg-surface">
-                  {["text", "textarea", "email", "phone", "select", "checkbox"].map((t) => <option key={t} value={t}>{t}</option>)}
+                  {([["text", "Short answer"], ["textarea", "Long answer"], ["checkbox", "Checkbox"], ["email", "Email"], ["phone", "Phone"], ["select", "Dropdown"]] as [string, string][]).map(([t, l]) => <option key={t} value={t}>{l}</option>)}
                 </select>
                 <button type="button" onClick={() => setFormFields((fs) => fs.filter((_, idx) => idx !== i))} className="text-xs text-red-600 px-2">Remove</button>
               </div>
               {f.type === "select" && <textarea value={(f.options ?? []).join("\n")} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, options: e.target.value.split("\n") } : x)))} rows={2} placeholder="One choice per line" className={input} />}
-              <label className="flex items-center gap-2 text-xs text-text-primary"><input type="checkbox" checked={f.required} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, required: e.target.checked } : x)))} /> Required</label>
+              <div className="flex flex-wrap gap-x-4">
+                <label className="flex items-center gap-2 text-xs text-text-primary"><input type="checkbox" checked={f.required} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, required: e.target.checked } : x)))} /> Required</label>
+                {allowMultipleEntries && <label className="flex items-center gap-2 text-xs text-text-primary"><input type="checkbox" checked={!!f.perEntry} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, perEntry: e.target.checked } : x)))} /> Ask for each entry</label>}
+              </div>
             </div>
           ))}
         </div>
@@ -813,6 +931,109 @@ export default function EventEditor({
           </div>
         ) : (
           <p className="text-[11px] text-text-muted">Coach approval is available on tournaments and on custom types with a policy (Events → Manage types).</p>
+        )}
+      </Card>
+
+      <Card
+        title="Roster & entries"
+        summary={`${!rosterLoaded ? "Loading…" : rosterCols.length && rosterRows.length ? `${rosterCols.length} roster${rosterCols.length === 1 ? "" : "s"} × ${rosterRows.length} position${rosterRows.length === 1 ? "" : "s"}` : "No roster"}${allowMultipleEntries ? ` · up to ${maxEntries || 5} entries each` : ""}`}
+        open={!!open.roster} onToggle={() => toggle("roster")}
+      >
+        <p className="text-[11px] text-text-muted">
+          Families pick one spot when they sign up. <strong>Rosters</strong> are the columns of your grid (e.g. divisions, skill levels);
+          <strong> positions</strong> are the rows (e.g. weights, positions). Capacity is per spot — a position&apos;s capacity applies inside each roster.
+          {approvalOn ? " A full spot can still be requested — it goes on the waitlist for you to decide." : " A full spot can't be picked."}
+        </p>
+        {rosterCols.length === 0 && rosterRows.length === 0 && categories.filter((c) => c.optionsText.trim()).length >= 2 && (
+          <button type="button" onClick={rosterFromDropdowns} className="w-full text-left rounded-xl border border-brand/40 bg-brand/5 px-3 py-2.5 text-xs text-text-primary">
+            <span className="font-medium text-brand">Build the roster from your dropdowns</span>
+            <span className="block text-text-muted mt-0.5">
+              Turns &quot;{categories.filter((c) => c.optionsText.trim())[0]?.label}&quot; and &quot;{categories.filter((c) => c.optionsText.trim())[1]?.label}&quot; into rosters and positions and removes them from the questions. Anyone already registered is placed on the grid from their answers when you save.
+            </span>
+          </button>
+        )}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-text-primary">Rosters (columns)</span>
+            <button type="button" onClick={() => editRoster(() => setRosterCols((c) => [...c, { id: null, label: "" }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Roster</button>
+          </div>
+          {rosterCols.map((r, i) => (
+            <div key={r.id ?? `new-${i}`} className="flex gap-2 mb-1.5">
+              <input value={r.label} onChange={(e) => editRoster(() => setRosterCols((c) => c.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x))))} placeholder="Roster name — e.g. Advanced" className={input} />
+              <button type="button" onClick={() => editRoster(() => setRosterCols((c) => c.filter((_, idx) => idx !== i)))} className="text-xs text-red-600 px-2">Remove</button>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-text-primary">Positions (rows)</span>
+            <button type="button" onClick={() => editRoster(() => setRosterRows((c) => [...c, { id: null, label: "", capacity: "" }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Position</button>
+          </div>
+          {rosterRows.length > 0 && (
+            <div className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center text-[10px] uppercase tracking-wide text-text-muted mb-1">
+              <span>Position</span><span>Capacity</span><span />
+            </div>
+          )}
+          {rosterRows.map((p, i) => (
+            <div key={p.id ?? `new-${i}`} className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center mb-1.5">
+              <input value={p.label} onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x))))} placeholder="Position name" className={input} />
+              <input value={p.capacity} inputMode="numeric" onChange={(e) => editRoster(() => setRosterRows((c) => c.map((x, idx) => (idx === i ? { ...x, capacity: e.target.value.replace(/[^0-9]/g, "") } : x))))} placeholder="No limit" className={input} />
+              <button type="button" onClick={() => editRoster(() => setRosterRows((c) => c.filter((_, idx) => idx !== i)))} className="text-xs text-red-600 px-2">Remove</button>
+            </div>
+          ))}
+          <details className="mt-1">
+            <summary className="text-[11px] text-brand cursor-pointer">Paste many positions at once</summary>
+            <textarea value={pasteRows} onChange={(e) => setPasteRows(e.target.value)} rows={4} placeholder={"One per line"} className={`${input} mt-1.5`} />
+            <button type="button" onClick={() => {
+              const labels = pasteRows.split("\n").map((x) => x.trim()).filter(Boolean);
+              if (!labels.length) return;
+              editRoster(() => setRosterRows((c) => [...c, ...labels.filter((l) => !c.some((x) => x.label.toLowerCase() === l.toLowerCase())).map((label) => ({ id: null, label, capacity: "" }))]));
+              setPasteRows("");
+            }} className="mt-1.5 text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary">Add these</button>
+          </details>
+          {rosterRows.length > 1 && (
+            <button type="button" onClick={() => {
+              const v = window.prompt("Capacity for every position (blank = no limit)", "1");
+              if (v === null) return;
+              const n = v.replace(/[^0-9]/g, "");
+              editRoster(() => setRosterRows((c) => c.map((x) => ({ ...x, capacity: n }))));
+            }} className="mt-1.5 ml-2 text-[11px] text-brand">Set every capacity…</button>
+          )}
+        </div>
+        <div className="rounded-xl border border-app-border p-3 space-y-2.5">
+          <Switch
+            on={allowMultipleEntries}
+            onChange={setAllowMultipleEntries}
+            label="Allow more than one entry per athlete"
+            sub="The family sees “+ Add another entry” for the same athlete — e.g. two divisions. Still one registration, one payment, one approval."
+          />
+          {allowMultipleEntries && (
+            <>
+              <Field label="Most entries per athlete" hint="Blank = 5">
+                <input value={maxEntries} inputMode="numeric" onChange={(e) => setMaxEntries(e.target.value.replace(/[^0-9]/g, ""))} placeholder="5" className={input} />
+              </Field>
+              <div>
+                <span className="block text-xs font-medium text-text-primary mb-1">Extra entries cost</span>
+                <div className="flex gap-1.5 flex-wrap">
+                  <button type="button" onClick={() => setExtraEntryPriced(false)} className={`text-xs px-2.5 py-1.5 rounded-lg border ${!extraEntryPriced ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary"}`}>The same as the first</button>
+                  <button type="button" onClick={() => setExtraEntryPriced(true)} className={`text-xs px-2.5 py-1.5 rounded-lg border ${extraEntryPriced ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary"}`}>A different price</button>
+                </div>
+                {extraEntryPriced && (
+                  <input value={additionalEntryPrice} inputMode="decimal" onChange={(e) => setAdditionalEntryPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="Price for each extra entry, e.g. 40" className={`${input} mt-1.5`} />
+                )}
+              </div>
+              {rosterCols.length > 0 && (
+                <Switch on={allowSameRosterTwice} onChange={setAllowSameRosterTwice} label="Allow two entries in the same roster" sub="Off: each entry must be in a different roster (e.g. one per division)." />
+              )}
+              {signupAccess === "PUBLIC_LINK" && (
+                <Switch on={entriesOnPublicLink} onChange={setEntriesOnPublicLink} label="Allow extra entries on the public link too" sub="Off: the public link takes one entry; families add more from their account." />
+              )}
+              <p className="text-[11px] text-text-muted">Questions marked “Ask for each entry” (in Who signs up) are asked again for every entry.</p>
+            </>
+          )}
+        </div>
+        {isEdit && rosterCols.length > 0 && rosterRows.length > 0 && !rosterDirty && (
+          <a href={`/dashboard/events/${ev!.id}/roster`} className="inline-block text-xs text-brand font-medium">Open the roster grid →</a>
         )}
       </Card>
 

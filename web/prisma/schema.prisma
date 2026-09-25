@@ -1637,6 +1637,14 @@ model Event {
   // (§5.4.2). Not null-means-inherit — capacity must have exactly one answer.
   holdSpotDuringReview   Boolean   @default(false)
 
+  // B16 — multiple entries per athlete (slice 3) and the roster rules.
+  allowMultipleEntries   Boolean   @default(false)
+  maxEntries             Int?
+  // Null = every entry costs the event price; set = entries after the first cost this.
+  additionalEntryPrice   Decimal?  @db.Decimal(10, 2)
+  allowSameRosterTwice   Boolean   @default(false)
+  entriesOnPublicLink    Boolean   @default(false)
+
   // Event payroll: when true, percentage compensation ignores refunds and
   // chargebacks — the owner has a strict no-refunds policy and pays helpers
   // on everything collected, even if some of it is later clawed back.
@@ -1653,6 +1661,9 @@ model Event {
   sessions         EventSession[]
   staffAssignments EventStaffAssignment[]
   registrations    EventRegistration[]
+  rosters          EventRoster[]
+  rosterPositions  EventRosterPosition[]
+  entries          EventRegistrationEntry[]
   bundleItems      EventBundleItem[]
   expenseItems     EventExpenseItem[]
   chatGroup        MessageGroup?
@@ -1706,6 +1717,65 @@ model EventSession {
 
   @@index([eventId])
   @@map("event_sessions")
+}
+
+// B16 — the coach's grid: rosters are columns, positions rows. Capacity is per
+// cell (a position inside one roster). Migration 20260926000000_event_roster_entries.
+model EventRoster {
+  id        String   @id @default(cuid())
+  eventId   String
+  label     String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event   Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  entries EventRegistrationEntry[]
+
+  @@index([eventId])
+  @@map("event_rosters")
+}
+
+model EventRosterPosition {
+  id        String   @id @default(cuid())
+  eventId   String
+  label     String
+  capacity  Int?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event   Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  entries EventRegistrationEntry[]
+
+  @@index([eventId])
+  @@map("event_roster_positions")
+}
+
+// One spot a registration asked for. Carries no money — EventRegistration is
+// the money spine. status: ACTIVE | WAITLIST | DROPPED.
+model EventRegistrationEntry {
+  id             String   @id @default(cuid())
+  registrationId String
+  eventId        String
+  clubId         String
+  rosterId       String?
+  positionId     String?
+  answers        Json     @default("{}")
+  status         String   @default("ACTIVE")
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  registration EventRegistration    @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  event        Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roster       EventRoster?         @relation(fields: [rosterId], references: [id], onDelete: SetNull)
+  position     EventRosterPosition? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
+  @@index([registrationId])
+  @@index([eventId, rosterId, positionId], map: "event_registration_entries_cell_idx")
+  @@index([clubId])
+  @@map("event_registration_entries")
 }
 
 // A signup for an Event. Covers BOTH non-member public registrations (via the
@@ -1825,6 +1895,7 @@ model EventRegistration {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
+  entries EventRegistrationEntry[]
   event  Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
   club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)

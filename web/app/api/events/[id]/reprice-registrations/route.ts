@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { withEntryCounts } from "@/lib/eventRosterServer";
 import { requirePermission } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { planReprice } from "@/lib/eventRepricing";
@@ -33,10 +34,14 @@ async function loadPlan(eventId: string, clubId: string) {
     where: { id: eventId, clubId, deletedAt: null },
   });
   if (!event) return null;
-  const registrations = await prisma.eventRegistration.findMany({
-    where: { eventId, status: { not: "CANCELED" } },
-    orderBy: { createdAt: "asc" },
-  });
+  // Entry counts ride along so a 2-entry registration is expected to owe 2
+  // entries' worth, not flagged as stale and halved (B16 slice 3).
+  const registrations = await withEntryCounts(
+    await prisma.eventRegistration.findMany({
+      where: { eventId, status: { not: "CANCELED" } },
+      orderBy: { createdAt: "asc" },
+    }),
+  );
   return { event, registrations, plan: planReprice(event, registrations) };
 }
 
