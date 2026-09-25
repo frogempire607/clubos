@@ -14,7 +14,6 @@ import EventEditor, { type EditorEvent } from "@/components/events/EventEditor";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
 import type { EventMoneySummary } from "@/lib/eventAttendees";
 import {
-  CATEGORY_PRESETS,
   DEFAULT_EXTRA_ENTRY_LABEL,
   proposalNotePlaceholder,
   labelForChangeKey,
@@ -695,25 +694,6 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
               </div>
             ))}
             <div className="flex flex-wrap gap-1.5 items-center">
-              {CATEGORY_PRESETS.map((preset) => (
-                <button
-                  key={preset.key}
-                  type="button"
-                  title={preset.hint}
-                  onClick={() =>
-                    setTypeCategories((cs) => {
-                      const taken = new Set(cs.map((c) => c.key));
-                      let key = preset.key;
-                      let n = 2;
-                      while (taken.has(key)) key = `${preset.key}${n++}`;
-                      return [...cs, { key, label: preset.label, optionsText: "" }];
-                    })
-                  }
-                  className="text-[10px] px-2 py-1 rounded-full border border-app-border hover:bg-app-bg"
-                >
-                  {preset.label}
-                </button>
-              ))}
               <button
                 type="button"
                 onClick={() =>
@@ -721,7 +701,7 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
                 }
                 className="text-[10px] px-2 py-1 rounded-full border border-app-border text-text-muted hover:bg-app-bg"
               >
-                + Custom
+                + Dropdown
               </button>
             </div>
             <input

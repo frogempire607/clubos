@@ -4938,3 +4938,21 @@ sends it any more.
 
 Not yet: slice 4 (billing centre → Advanced billing), the B14 Paused card "resumes {date}", and a Sync-from-Stripe check
 for a `pause_collection` set by hand. Nothing here charges a card today, so no checkbox names an amount.
+
+## 2026-09-24 — B16 slice 1: event requests in Approvals; question types; cheaper deploys
+
+- **Approvals inbox** (`/dashboard/members/approvals`, fed by `GET /api/approvals`) now lists every event registration
+  awaiting a coach (`approvalStatus = PENDING`, not canceled): who, which event and date, their answers ("Weight Class:
+  60 · Division: K6"), the money line ("$85 · saved card, charged Nov 14 if approved"), confirmation code. **Approve**
+  and **Decline…** (a reason the family reads, required) call the same `/api/events/[id]/registrations/[regId]/approve
+  | decline` routes the Attendees tab uses — no second set of rules. "Propose a change" links to the event. Visibility:
+  owner / events:edit see all; a coach without events:edit sees only events where they are the responsible coach
+  (same rule as `canDecideRegistrations`). A pending proposal disables Approve and says it's waiting on the family.
+- **Signup questions are types, not sport presets.** The event editor's chips are now + Dropdown, + Short answer,
+  + Long answer, + Checkbox, + Email, + Phone; the club writes the wording. Dropdowns are still stored as entry
+  categories, so coach proposals keep working. The event-type defaults editor lost its preset chips the same way.
+  Existing events are untouched (their questions load exactly as saved).
+- **Deploy credits:** Netlify charges per PRODUCTION deploy (15 credits; branch deploys, previews and failed builds are
+  free). `netlify.toml` now has an `ignore` rule: a push to main that changes only `web/docs` or files outside `web/`
+  skips the build. Working rhythm from here: one branch per phase, pushed as often as we like (free), merged to main
+  once per finished phase.

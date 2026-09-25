@@ -15,6 +15,8 @@ import {
   MEMBERSHIP_CHANGE_KIND,
 } from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
+import { eventFormFields } from "@/lib/eventForm";
+import { eventScheduledChargeAt } from "@/lib/eventPayments";
 
 // GET /api/approvals
 //
@@ -93,7 +95,16 @@ export async function GET() {
   if (isOwner || hasPermission(perms, "billing", "view")) {
     kinds.push(MEMBERSHIP_AUTOPAY_KIND, MEMBERSHIP_CHANGE_KIND);
   }
-  if (kinds.length === 0) return NextResponse.json({ approvals: [] });
+  // B16 slice 1 — event registrations awaiting a coach ride their own gate
+  // (events:edit, or the event's responsible coach), so they are gathered
+  // below even when none of the PendingApproval kinds above apply.
+  const eventRequests = await eventRegistrationRequests({
+    clubId: session.user.clubId,
+    userId: session.user.id ?? null,
+    isOwner,
+    canEditEvents: isOwner || hasPermission(perms, "events", "edit"),
+  });
+  if (kinds.length === 0) return NextResponse.json({ approvals: eventRequests });
 
   const clubId = session.user.clubId;
   const rows = await prisma.pendingApproval.findMany({
@@ -439,9 +450,98 @@ export async function GET() {
     }));
   }
 
-  const approvals = [...pendingApprovals, ...migrationApprovals, ...changeRequests].sort(
+  const approvals = [...pendingApprovals, ...migrationApprovals, ...changeRequests, ...eventRequests].sort(
     (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime(),
   );
 
   return NextResponse.json({ approvals });
+}
+
+// ── Event registrations awaiting coach review (B16 slice 1) ──────────────────
+// Every PENDING_REVIEW registration the viewer may decide: all of them for an
+// owner or anyone with events:edit; otherwise only events where the viewer is
+// the responsible coach (lib/eventApproval.canDecideRegistrations). Approve and
+// decline go through the same routes the event's Attendees tab uses, so the
+// rules (capacity, money, emails) live in one place.
+type EventRequestApproval = {
+  id: string;
+  kind: "EVENT_REGISTRATION";
+  memberId: string;
+  memberName: string;
+  requestedAt: Date;
+  registrationId: string;
+  eventId: string;
+  eventName: string;
+  eventStartsAt: Date;
+  email: string | null;
+  confirmationCode: string | null;
+  amountDue: number | null;
+  paymentMethod: string | null;
+  chargeOn: Date | null;
+  answers: { label: string; value: string }[];
+  hasProposal: boolean;
+};
+
+async function eventRegistrationRequests(args: {
+  clubId: string;
+  userId: string | null;
+  isOwner: boolean;
+  canEditEvents: boolean;
+}): Promise<EventRequestApproval[]> {
+  const coachOnly = !args.isOwner && !args.canEditEvents;
+  if (coachOnly && !args.userId) return [];
+  const rows = await prisma.eventRegistration.findMany({
+    where: {
+      clubId: args.clubId,
+      approvalStatus: "PENDING",
+      status: { not: "CANCELED" },
+      event: {
+        deletedAt: null,
+        ...(coachOnly ? { responsibleCoachUserId: args.userId } : {}),
+      },
+    },
+    orderBy: { approvalRequestedAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      memberId: true,
+      confirmationCode: true,
+      amountDue: true,
+      paymentMethod: true,
+      formResponses: true,
+      approvalRequestedAt: true,
+      createdAt: true,
+      proposedChange: true,
+      proposedChangeRespondedAt: true,
+      event: { select: { id: true, name: true, startsAt: true, autoChargeDate: true, registrationForm: true } },
+    },
+  });
+  return rows.map((r) => {
+    const fields = eventFormFields(r.event.registrationForm);
+    const responses = (r.formResponses ?? {}) as Record<string, unknown>;
+    const answers = fields
+      .filter((f) => responses[f.id] !== undefined && responses[f.id] !== "")
+      .map((f) => ({ label: f.label, value: responses[f.id] === true ? "Yes" : String(responses[f.id]) }));
+    return {
+      id: `event-registration:${r.id}`,
+      kind: "EVENT_REGISTRATION" as const,
+      memberId: r.memberId ?? "",
+      memberName: r.name,
+      requestedAt: r.approvalRequestedAt ?? r.createdAt,
+      registrationId: r.id,
+      eventId: r.event.id,
+      eventName: r.event.name,
+      eventStartsAt: r.event.startsAt,
+      email: r.email || null,
+      confirmationCode: r.confirmationCode,
+      amountDue: r.amountDue == null ? null : Number(r.amountDue),
+      paymentMethod: r.paymentMethod,
+      chargeOn: r.paymentMethod === "AUTO_CARD" ? eventScheduledChargeAt(r.event) : null,
+      answers,
+      // A proposal is out with the family — the coach waits for their answer.
+      hasProposal: r.proposedChange != null && r.proposedChangeRespondedAt == null,
+    };
+  });
 }

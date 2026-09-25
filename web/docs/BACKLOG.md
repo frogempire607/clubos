@@ -13,7 +13,9 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - **Julian, do first:** ship `claude/events-signin-and-questions` (below), then ask Titus's mom to register again from
   the link (she'll be sent to sign in, then asked weight class + division). Then the production looks from HANDOFF.md
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
-- **Next Claude session:** B13 slice 4 (billing centre → Advanced billing; B14 Paused card "resumes {date}") → B10 slice 3.
+- **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
+  Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
+- **Next Claude session:** B16 slice 2 (roster builder + grid PDF/CSV, migration) on `claude/b16-event-entries`, then slice 3; merge B16 to main once. B13 slice 4 after.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
@@ -246,7 +248,9 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   waitlist, same-roster-twice is a per-event toggle, entry price = same each OR separate extra-entry price (coach
   picks), whole-registration approval with proposals, event requests in the main Approvals inbox, discounts via B3,
   public link allowed per event. Slices: (1) approvals inbox + generic question types, (2) roster builder + grid
-  PDF/CSV (migration), (3) multiple entries, (4) discounts via B3. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
+  PDF/CSV (migration), (3) multiple entries, (4) discounts via B3.
+  SLICE 1 BUILT 2026-09-24 on branch `claude/b16-event-entries` (not merged — merge once with slice 2+): event requests
+  in the Approvals inbox (approve / decline with reason / link to propose), question-type chips replace sport presets. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
 
 ## C — Done, don't resurrect
 

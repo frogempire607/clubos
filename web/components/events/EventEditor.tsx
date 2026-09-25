@@ -25,7 +25,6 @@ import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
 import { ESCALATION_SCHEDULE_DAYS, type EscalationSchedule } from "@/lib/eventPayments";
 import {
-  CATEGORY_PRESETS,
   PARTICIPANT_FIELD_ID,
   categoryFieldsFromForm,
   fieldIdForKey,
@@ -747,19 +746,22 @@ export default function EventEditor({
             <span className="text-[11px] text-text-muted">{categories.length + formFields.length}</span>
           </div>
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {CATEGORY_PRESETS.map((p) => (
-              <button key={p.key} type="button" onClick={() => addCategory(p)} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ {p.label}</button>
+            {/* B16 slice 1 — question TYPES, not sport-named presets. The club
+                writes its own wording. A dropdown is an entry category (a coach
+                can propose changing the answer); the rest are plain questions. */}
+            <button type="button" onClick={() => addCategory()} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ Dropdown</button>
+            {([["text", "Short answer"], ["textarea", "Long answer"], ["checkbox", "Checkbox"], ["email", "Email"], ["phone", "Phone"]] as [EditorFormField["type"], string][]).map(([t, l]) => (
+              <button key={t} type="button" onClick={() => setFormFields((f) => [...f, { id: `f${Date.now().toString(36)}`, label: "", type: t, required: false }])} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ {l}</button>
             ))}
-            <button type="button" onClick={() => addCategory()} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ Category</button>
-            <button type="button" onClick={() => setFormFields((f) => [...f, { id: `f${Date.now().toString(36)}`, label: "", type: "text", required: false }])} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ Question</button>
           </div>
           {categories.map((c, i) => (
             <div key={c.key} className="rounded-lg border border-app-border p-2.5 mb-2 space-y-1.5">
+              <span className="block text-[10px] uppercase tracking-wide text-text-muted">Dropdown</span>
               <div className="flex gap-2">
-                <input value={c.label} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="e.g. Division" className={input} />
+                <input value={c.label} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="Question — e.g. Division" className={input} />
                 <button type="button" onClick={() => setCategories((cs) => cs.filter((_, idx) => idx !== i))} className="text-xs text-red-600 px-2">Remove</button>
               </div>
-              <textarea value={c.optionsText} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, optionsText: e.target.value } : x)))} rows={2} placeholder={"One choice per line — leave empty for free text"} className={input} />
+              <textarea value={c.optionsText} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, optionsText: e.target.value } : x)))} rows={2} placeholder={"Choices — one per line"} className={input} />
               <label className="flex items-center gap-2 text-xs text-text-primary"><input type="checkbox" checked={c.required} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, required: e.target.checked } : x)))} /> Required</label>
             </div>
           ))}
@@ -768,7 +770,7 @@ export default function EventEditor({
               <div className="flex gap-2">
                 <input value={f.label} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="Question" className={input} />
                 <select value={f.type} onChange={(e) => setFormFields((fs) => fs.map((x, idx) => (idx === i ? { ...x, type: e.target.value as EditorFormField["type"] } : x)))} className="px-2 py-2 border border-app-border rounded-lg text-xs bg-surface">
-                  {["text", "textarea", "email", "phone", "select", "checkbox"].map((t) => <option key={t} value={t}>{t}</option>)}
+                  {([["text", "Short answer"], ["textarea", "Long answer"], ["checkbox", "Checkbox"], ["email", "Email"], ["phone", "Phone"], ["select", "Dropdown"]] as [string, string][]).map(([t, l]) => <option key={t} value={t}>{l}</option>)}
                 </select>
                 <button type="button" onClick={() => setFormFields((fs) => fs.filter((_, idx) => idx !== i))} className="text-xs text-red-600 px-2">Remove</button>
               </div>
