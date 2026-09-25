@@ -14,6 +14,7 @@ import {
   sendMembershipActivatedEmail,
   sendPaymentFailedEmail,
   sendPaymentReceiptEmail,
+  receiptDiscountLine,
 } from "@/lib/email";
 import type Stripe from "stripe";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -1021,6 +1022,7 @@ export async function POST(req: Request) {
                   amountPaid: `$${amount.toFixed(2)}`,
                   paidAt: new Date(),
                   portalUrl: `${getAppBaseUrl()}/member`,
+                  discountLine: receiptDiscountLine(reg.discountLabel ?? reg.discountCode, reg.discountAmount),
                 });
               } catch (e) {
                 console.error("event registration receipt failed", e);
@@ -1179,9 +1181,9 @@ export async function POST(req: Request) {
             stripeSubscriptionId: subscriptionId,
             // Discount identity carried by the subscription (first charge AND
             // every renewal keeps reporting which discount priced it).
-            ...(memberSub?.discountCode
+            ...(memberSub?.discountCode || memberSub?.discountLabel
               ? {
-                  discountCode: memberSub.discountCode,
+                  discountCode: memberSub.discountCode ?? memberSub.discountLabel,
                   discountAmount: memberSub.discountAmount != null ? Number(memberSub.discountAmount) : null,
                 }
               : {}),
@@ -1278,6 +1280,7 @@ export async function POST(req: Request) {
               amountPaid: `$${amountPaid.toFixed(2)}`,
               paidAt: new Date(),
               portalUrl: `${BASE_URL}/member/profile`,
+              discountLine: receiptDiscountLine(memberSub?.discountLabel ?? memberSub?.discountCode, memberSub?.discountAmount),
             });
           });
         }

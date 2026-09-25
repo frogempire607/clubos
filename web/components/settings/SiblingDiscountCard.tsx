@@ -137,7 +137,7 @@ export default function SiblingDiscountCard() {
 
       {review.length > 0 && (
         <div className="pt-3 border-t border-app-border">
-          <h4 className="text-xs font-semibold text-text-primary mb-1.5">To review ({review.length})</h4>
+          <h4 className="text-xs font-semibold text-text-primary mb-1.5">Membership discounts to review — sibling and group rates ({review.length})</h4>
           <div className="space-y-1">
             {review.map((r) => (
               <div key={r.subId} className="flex items-center justify-between gap-3 text-xs">
@@ -145,7 +145,7 @@ export default function SiblingDiscountCard() {
                   <strong>{r.name}</strong> —{" "}
                   {r.drift === "DOWN"
                     ? `${r.label}: ${money(r.price)} → ${money(r.expected ?? r.price)}`
-                    : `carries a sibling discount it no longer earns (${money(r.price)}; list ${money(r.expected ?? r.price)})`}
+                    : `carries a discount it no longer earns (${money(r.price)}; would be ${money(r.expected ?? r.price)})`}
                 </span>
                 <Link href={`/dashboard/members/${r.memberId}`} className="text-brand hover:underline shrink-0">Open profile →</Link>
               </div>

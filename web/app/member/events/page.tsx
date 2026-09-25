@@ -112,6 +112,11 @@ export default function MemberEventsPage() {
   const [info, setInfo] = useState("");
   const [bundles, setBundles] = useState<BundleCard[]>([]);
   const [discountCode, setDiscountCode] = useState("");
+  // B3 slice 3 — each athlete's club group answers (for pre-filling an event's group question).
+  const [myGroupValues, setMyGroupValues] = useState<Record<string, Record<string, string>>>({});
+  useEffect(() => {
+    fetch("/api/member/group-values").then((r) => (r.ok ? r.json() : null)).then((d) => d && setMyGroupValues(d.values ?? {})).catch(() => undefined);
+  }, []);
   const [payPrompt, setPayPrompt] = useState<null | {
     kind: "event" | "bundle";
     eventId?: string;
@@ -267,7 +272,12 @@ export default function MemberEventsPage() {
     });
     const asksGroup = !!ev?.autoDiscounts?.group;
     if (((fields.some((f) => !f.perEntry) || asksGroup) && !answers) || (needsEntries && !built)) {
-      setFormPrompt({ eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null, initial: answers, ...promptExtras() });
+      // B3 slice 3 — an event group rate copied from a club group: pre-fill the
+      // athlete's answer from their profile.
+      const rateId = ev?.autoDiscounts?.group?.clubRateId;
+      const known = rateId && selectedMemberId ? myGroupValues[selectedMemberId]?.[rateId] : undefined;
+      const initial = answers ?? (known ? { [GROUP_KEY]: known } : undefined);
+      setFormPrompt({ eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null, initial, ...promptExtras() });
       return;
     }
     setBusy(eventId);

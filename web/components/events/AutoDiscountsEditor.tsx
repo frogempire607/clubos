@@ -4,6 +4,7 @@
 // group rate, both applied automatically at signup. Controlled; the parent
 // sends `value` as Event.autoDiscounts and the server validates it.
 
+import { useEffect, useState } from "react";
 import {
   autoDiscountSummary,
   ordinalWord,
@@ -45,7 +46,12 @@ export default function AutoDiscountsEditor({
   onChange: (v: AutoDiscounts) => void;
 }) {
   const sib = value.sibling ?? { on: false, shape: "EACH_ADDITIONAL" as const };
-  const grp = value.group ?? { on: false, label: "School", threshold: 3, amount: { type: "PERCENT" as const, value: 10 }, options: [] };
+  const grp = value.group ?? { on: false, label: "", threshold: 3, amount: { type: "PERCENT" as const, value: 10 }, options: [], clubRateId: null };
+  // B3 slice 3 — the club's membership group rates, to copy one's question.
+  const [clubRates, setClubRates] = useState<{ id: string; label: string; options: string[] }[]>([]);
+  useEffect(() => {
+    fetch("/api/club/group-rates").then((r) => (r.ok ? r.json() : null)).then((d) => d && setClubRates((d.rates ?? []).map((x: { id: string; label: string; options: string[] }) => ({ id: x.id, label: x.label, options: x.options })))).catch(() => undefined);
+  }, []);
   const setSib = (p: Partial<typeof sib>) => onChange({ ...value, sibling: { ...sib, ...p } });
   const setGrp = (p: Partial<typeof grp>) => onChange({ ...value, group: { ...grp, ...p } });
   const tiers = sib.tiers?.length ? sib.tiers : [{ type: "FIXED" as const, value: 0 }];
@@ -116,9 +122,26 @@ export default function AutoDiscountsEditor({
         </label>
         {grp.on && (
           <>
+            {clubRates.length > 0 && (
+              <label className="block">
+                <span className="block text-xs font-medium text-text-primary mb-1">Use one of the club&apos;s groups (optional)</span>
+                <select
+                  value={grp.clubRateId ?? ""}
+                  onChange={(e) => {
+                    const r = clubRates.find((x) => x.id === e.target.value);
+                    setGrp(r ? { clubRateId: r.id, label: r.label, options: r.options } : { clubRateId: null });
+                  }}
+                  className={input}
+                >
+                  <option value="">— Its own question —</option>
+                  {clubRates.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+                <span className="block text-[11px] text-text-muted mt-1">Families signed in get their athlete&apos;s answer filled in from their profile.</span>
+              </label>
+            )}
             <label className="block">
               <span className="block text-xs font-medium text-text-primary mb-1">What they share (the question families see)</span>
-              <input value={grp.label} maxLength={40} onChange={(e) => setGrp({ label: e.target.value })} placeholder="School" className={input} />
+              <input value={grp.label} maxLength={40} onChange={(e) => setGrp({ label: e.target.value, clubRateId: null })} placeholder="e.g. Team, School, Club" className={input} />
             </label>
             <label className="block">
               <span className="block text-xs font-medium text-text-primary mb-1">How many before the rate starts</span>

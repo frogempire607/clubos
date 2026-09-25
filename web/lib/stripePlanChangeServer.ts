@@ -82,7 +82,7 @@ type Ctx = {
 
 /** B3 slice 2 — a discount carried onto the new price (the sibling
  *  membership discount, applied from its recommendation). */
-export type PlanChangeDiscount = { source: "SIBLING"; type: "PERCENT" | "FIXED"; value: number; label: string };
+export type PlanChangeDiscount = { source: "SIBLING" | "GROUP"; type: "PERCENT" | "FIXED"; value: number; label: string };
 
 function discountOption(option: MembershipOption, d: PlanChangeDiscount | null | undefined): MembershipOption {
   if (!d) return option;
