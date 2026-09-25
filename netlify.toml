@@ -1,6 +1,11 @@
 [build]
   base = "web"
   command = "npm run build"
+  # Skip the production build (and its deploy credits) when nothing that ships
+  # changed: only docs, or only files outside web/. Netlify runs this from the
+  # base directory; exit 0 = skip, anything else = build. First builds (no
+  # cached ref) make git diff fail, so they always build.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)docs'"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
