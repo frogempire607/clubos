@@ -57,7 +57,8 @@
     "test:member-ui": "tsx --tsconfig scripts/tsconfig.render.json scripts/member-ui-tests.ts",
     "test:product-bulk-pricing": "tsx scripts/product-bulk-pricing-tests.ts",
     "test:reports-mobile": "TZ=America/New_York tsx scripts/reports-mobile-guard.ts",
-    "test:accepted-plans": "tsx scripts/accepted-plans-tests.ts"
+    "test:accepted-plans": "tsx scripts/accepted-plans-tests.ts",
+    "test:member-duplicates": "tsx scripts/member-duplicates-tests.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^1.0.0",

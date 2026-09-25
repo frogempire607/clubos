@@ -5204,3 +5204,20 @@ Tests: new `test:membership-group-rates` (24). sibling 32, event-auto-discounts 
 - Collapse script steps 6–9 implemented; not run. Owner confirmations from 08-24 still hold (two repoints then —
   now THREE: Blake Decker was sold on the commitment plan after that count).
 - Tests: accepted-plans 33, entitlements 55, membership-options 135, member-tracks 195. tsc clean.
+
+---
+
+### 2026-09-25 — Member merge 500 fixed + duplicate detector widened (branch `claude/merge-fix-duplicates`)
+
+- **Root cause of "Merge failed (500)":** `parental_consents` is append-only (BEFORE UPDATE/DELETE row triggers), and
+  the merge bulk-UPDATEd it. Any duplicate child with a consent on file (Dean Vargason's copy has one) aborted the
+  whole transaction. Reproduced with a rolled-back DO block against production, then re-run clean with the fix.
+  Consents are now COPIED to the survivor as new rows (`source: "MERGE"`, original acceptedAt/text/versions); the
+  originals stay on the archived duplicate. Also: the route now repoints `product_bookings.memberId`,
+  `transactions.athleteMemberId`, `email_sends.recipientMemberId`, `membership_transfers.from/toMemberId`,
+  `stripe_reconciliations.resolved/suggestedMemberId` (found by an information_schema audit), the transaction gets
+  a 30s timeout, and a failure returns the real reason instead of a bare 500.
+- **Duplicates missed:** nine real pairs (Zach/Zachary Boudreau, Russell/Rusty Chandler, Adam/Adam (AJ) Dorn with the
+  birth year mistyped, and six same-name pairs where one copy has no birthday). `lib/memberDuplicates` now matches on a
+  canonical first name (nicknames, parentheticals stripped), adds "same name & birthday, different year" and "same
+  name, one has no birthday". Siblings/twins still never cluster. `npm run test:member-duplicates` (21).

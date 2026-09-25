@@ -66,7 +66,7 @@ export type DuplicateCandidate = {
   guardianContacts?: (string | null)[];
 };
 
-export type DuplicateKeyPrefix = "email" | "namedob" | "phone";
+export type DuplicateKeyPrefix = "email" | "namedob" | "phone" | "nameyear" | "namenodob";
 
 /**
  * Why a contact value was NOT used as a key. Returned by the diagnostics
@@ -78,6 +78,40 @@ export type SkippedKeyReason = { field: "email" | "phone"; reason: "matches-guar
 const norm = (s: string | null) => (s ? s.trim().toLowerCase() : "");
 const digits = (s: string | null) => (s || "").replace(/\D/g, "");
 const dobKey = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+
+// ── First names: nicknames and notes are the same person ────────────────────
+// Measured 2026-09-25: the rules above missed nine real duplicate pairs, all of
+// them a first name typed two ways — "Zach"/"Zachary" and "Russell"/"Rusty" on
+// the same birthday, "Adam (AJ)"/"Adam" with the birth YEAR mistyped, and
+// several "Ben Lamson"-style pairs where one copy has no birthday at all.
+// Siblings never share a first name, so a normalised first name + surname stays
+// high-precision; the guardian-contact rule is untouched.
+const NICKNAMES: Record<string, string> = {
+  zach: "zachary", zack: "zachary", zac: "zachary", zachery: "zachary", zackary: "zachary",
+  alex: "alexander", xander: "alexander",
+  mike: "michael", mikey: "michael", mick: "michael",
+  matt: "matthew", matty: "matthew", nick: "nicholas", nicky: "nicholas", nico: "nicholas",
+  chris: "christopher", topher: "christopher", tony: "anthony", ant: "anthony",
+  will: "william", bill: "william", billy: "william",
+  rob: "robert", robbie: "robert", bob: "robert", bobby: "robert", bert: "robert",
+  jim: "james", jimmy: "james", jamie: "james", joe: "joseph", joey: "joseph",
+  dan: "daniel", danny: "daniel", dave: "david", davey: "david",
+  sam: "samuel", sammy: "samuel", ben: "benjamin", benny: "benjamin", benji: "benjamin",
+  jake: "jacob", josh: "joshua", andy: "andrew", drew: "andrew",
+  tom: "thomas", tommy: "thomas", rusty: "russell", russ: "russell",
+  nate: "nathan", gabe: "gabriel", ty: "tyler", ed: "edward", eddie: "edward",
+  ted: "theodore", teddy: "theodore", theo: "theodore", greg: "gregory",
+  jon: "jonathan", johnny: "john", jack: "jack", charlie: "charles", chuck: "charles",
+  kate: "katherine", katie: "katherine", kat: "katherine", liz: "elizabeth", lizzy: "elizabeth",
+  beth: "elizabeth", abby: "abigail", maddie: "madison", maddy: "madison", izzy: "isabella",
+  bella: "isabella", ellie: "eleanor", sophie: "sophia", becca: "rebecca", jess: "jessica",
+};
+
+/** "Adam (AJ)" → "adam", "Zach" → "zachary", "Mary-Kate" → "marykate". */
+export function canonicalFirstName(raw: string | null | undefined): string {
+  const bare = (raw ?? "").replace(/\(.*?\)/g, " ").toLowerCase().replace(/[^a-z]/g, "");
+  return NICKNAMES[bare] ?? bare;
+}
 
 /** Every address that belongs to one of this member's guardians. */
 function guardianContactSets(m: DuplicateCandidate): { emails: Set<string>; phones: Set<string> } {
@@ -115,10 +149,16 @@ export function duplicateKeyDiagnostics(
     else keys.push("email:" + email);
   }
 
-  const first = norm(m.firstName);
-  const last = norm(m.lastName);
+  const first = canonicalFirstName(m.firstName);
+  const last = norm(m.lastName).replace(/\s+/g, " ");
   const dk = dobKey(m.dateOfBirth);
-  if (first && last && dk) keys.push("namedob:" + first + "|" + last + "|" + dk);
+  if (first && last && dk) {
+    keys.push("namedob:" + first + "|" + last + "|" + dk);
+    // Same name, same day and month, different YEAR — a mistyped birth year.
+    // Twins share a birthday but never a first name, so this cannot fire on
+    // siblings.
+    keys.push("nameyear:" + first + "|" + last + "|" + dk.slice(5));
+  }
 
   const phone = digits(m.phone);
   if (phone.length >= 10 && last) {
@@ -169,6 +209,31 @@ export function groupDuplicates<T extends DuplicateCandidate>(members: T[]): Dup
     }
   }
 
+  // Same first + last name where at least ONE copy has no birthday: the
+  // birthday cannot tell them apart, and siblings never share a first name, so
+  // cluster them. (Two same-named people who BOTH have different birthdays are
+  // left alone — the birthday already says they are different people.)
+  const byName = new Map<string, T[]>();
+  for (const m of members) {
+    const first = canonicalFirstName(m.firstName);
+    const last = norm(m.lastName).replace(/\s+/g, " ");
+    if (!first || !last) continue;
+    const k = first + "|" + last;
+    byName.set(k, [...(byName.get(k) ?? []), m]);
+  }
+  for (const g of byName.values()) {
+    if (g.length < 2) continue;
+    const noDob = g.filter((m) => !dobKey(m.dateOfBirth));
+    if (noDob.length === 0) continue;
+    for (const m of g) {
+      if (m === noDob[0]) continue;
+      if (find(m.id) !== find(noDob[0].id)) {
+        union(noDob[0].id, m.id);
+        collisions.push({ prefix: "namenodob", member: m.id });
+      }
+    }
+  }
+
   const byRoot = new Map<string, T[]>();
   for (const m of members) {
     const root = find(m.id);
@@ -194,5 +259,7 @@ export function duplicateReasonLabel(reasons: Set<DuplicateKeyPrefix> | undefine
   if (reasons?.has("email")) parts.push("same email");
   if (reasons?.has("namedob")) parts.push("same name & date of birth");
   if (reasons?.has("phone")) parts.push("same phone & last name");
+  if (reasons?.has("nameyear") && !reasons?.has("namedob")) parts.push("same name & birthday, different year");
+  if (reasons?.has("namenodob")) parts.push("same name, one has no birthday");
   return parts.join(" · ") || "possible duplicate";
 }

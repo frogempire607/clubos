@@ -58,13 +58,29 @@ const SAFE_MEMBER_ID_TABLES = [
   "member_subscription_events",
   "member_subscriptions",
   "membership_reactivations",
-  "parental_consents",
+  // parental_consents is NOT here: it is append-only (a DB trigger rejects any
+  // UPDATE), so a consent row can never be repointed. That trigger is what made
+  // every merge of a child with a consent on file fail with a bare 500. Consents
+  // are COPIED onto the survivor as new rows instead — see below.
   "pending_approvals",
   "private_booking_partners",
   "private_bookings",
   "private_credit_ledger",
   "product_sales",
+  "product_bookings",
   "transactions",
+];
+
+// Other columns that name a member by id without being called "memberId".
+// Found by auditing information_schema (2026-09-25): these were left pointing
+// at the archived duplicate after a merge.
+const OTHER_MEMBER_COLUMNS: { table: string; column: string }[] = [
+  { table: "transactions", column: "athleteMemberId" },
+  { table: "email_sends", column: "recipientMemberId" },
+  { table: "membership_transfers", column: "fromMemberId" },
+  { table: "membership_transfers", column: "toMemberId" },
+  { table: "stripe_reconciliations", column: "resolvedMemberId" },
+  { table: "stripe_reconciliations", column: "suggestedMemberId" },
 ];
 
 // Tables with a UNIQUE constraint (otherCol, memberId): drop the loser's
@@ -185,6 +201,11 @@ export async function POST(req: Request) {
     }
   }
 
+  // Consents on the duplicate, read before the transaction so the copies below
+  // carry exactly what was accepted.
+  const loserConsents = await prisma.parentalConsent.findMany({ where: { memberId: loserId } });
+
+  try {
   await prisma.$transaction(async (tx) => {
     // Preserve a login: if only the duplicate has one, move it to the survivor.
     // Clear the loser FIRST so the global members_userId unique index never sees
@@ -216,6 +237,40 @@ export async function POST(req: Request) {
         winnerId,
         loserId,
       );
+    }
+
+    for (const { table, column } of OTHER_MEMBER_COLUMNS) {
+      await tx.$executeRawUnsafe(
+        `UPDATE "${table}" SET "${column}" = $1 WHERE "${column}" = $2`,
+        winnerId,
+        loserId,
+      );
+    }
+
+    // Parental consent is append-only, so it cannot move. The same guardian
+    // consented for the same child, so the survivor gets a NEW row carrying the
+    // identical statement, versions and original acceptedAt; the original stays
+    // on the archived duplicate untouched. source "MERGE" marks the copy.
+    for (const c of loserConsents) {
+      await tx.parentalConsent.create({
+        data: {
+          clubId: c.clubId,
+          memberId: winnerId,
+          childUserId: c.childUserId,
+          guardianUserId: c.guardianUserId,
+          guardianName: c.guardianName,
+          guardianEmail: c.guardianEmail,
+          relationship: c.relationship,
+          termsVersion: c.termsVersion,
+          privacyVersion: c.privacyVersion,
+          consentVersion: c.consentVersion,
+          consentText: c.consentText,
+          ipAddress: c.ipAddress,
+          userAgent: c.userAgent,
+          source: "MERGE",
+          acceptedAt: c.acceptedAt,
+        },
+      });
     }
 
     // Bundle purchases: the live-clash case was refused above, so anything left
@@ -281,7 +336,22 @@ export async function POST(req: Request) {
         notes: `${winner.notes ? winner.notes + " " : ""}[merged duplicate ${loser.firstName} ${loser.lastName} (${loserId}) on ${today}]`,
       },
     });
-  });
+  // ~40 statements in one transaction: Prisma's 5s default is too tight from a
+  // serverless function to the database, so give it room.
+  }, { maxWait: 10_000, timeout: 30_000 });
+  } catch (err) {
+    // Everything above is one transaction, so a failure means NOTHING moved.
+    // Say why, instead of a bare "Merge failed (500)".
+    console.error("[members/merge] failed", { winnerId, loserId, err });
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      {
+        error: `Merge didn't go through and nothing was changed. ${msg.split("\n").slice(-1)[0].slice(0, 300)}`,
+        code: "MERGE_FAILED",
+      },
+      { status: 500 },
+    );
+  }
 
   // §6A — "Add audit logs for … merges". The breadcrumb in `notes` is for a
   // human reading the profile; this is the queryable record. A merge moves
