@@ -5,12 +5,14 @@ import { CalendarDays } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import { todayLocalISO } from "@/lib/datetime";
+import { parseOptions, describeDays } from "@/lib/membershipOptions";
+import { pricingRowFor } from "@/lib/acceptedPlans";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
-  | { type: "membership"; membershipId: string };
+  | { type: "membership"; membershipId: string; optionIds?: string[] };
 
 type DayOverride = { dayOfWeek: number; startTime: string; endTime: string };
 
@@ -37,7 +39,7 @@ type RecurringClass = {
 };
 
 type Location = { id: string; name: string };
-type Membership = { id: string; name: string; active: boolean };
+type Membership = { id: string; name: string; active: boolean; options?: unknown };
 type Staff = { id: string; firstName: string; lastName: string };
 
 type ClassSession = {
@@ -115,6 +117,8 @@ type FormData = {
   dropinPriceEnabled: boolean;
   dropinPrice: string;
   allowedMembershipIds: string[];
+  /** B7 — per accepted plan: null = every option, else only these option ids. */
+  optionSelections: Record<string, string[] | null>;
   assignedStaffIds: string[];
   color: string;
   textColor: string;
@@ -139,6 +143,7 @@ const emptyForm = (): FormData => ({
   dropinPriceEnabled: false,
   dropinPrice: "",
   allowedMembershipIds: [],
+  optionSelections: {},
   assignedStaffIds: [],
   color: "",
   textColor: "",
@@ -171,6 +176,9 @@ function formFromClass(c: RecurringClass): FormData {
     dropinPriceEnabled: !!dropin,
     dropinPrice: dropin?.price.toString() ?? "",
     allowedMembershipIds: opts.filter((o) => o.type === "membership").map((o) => o.membershipId),
+    optionSelections: Object.fromEntries(
+      opts.flatMap((o) => (o.type === "membership" ? [[o.membershipId, o.optionIds?.length ? o.optionIds : null] as const] : [])),
+    ),
     assignedStaffIds: c.assignedStaffIds ?? [],
     color: c.color ?? "",
     textColor: c.textColor ?? "",
@@ -225,7 +233,17 @@ function ClassModal({
     if (form.dropinPriceEnabled && form.dropinPrice)
       pricingOptions.push({ type: "dropin", price: parseFloat(form.dropinPrice) });
     for (const membershipId of form.allowedMembershipIds) {
-      pricingOptions.push({ type: "membership", membershipId });
+      // B7 — "every option" saves the plain plan row, so options added to the
+      // plan later are included; a subset saves optionIds.
+      const plan = memberships.find((m) => m.id === membershipId);
+      const planOptionIds = parseOptions(plan?.options).map((o) => o.id).filter((x): x is string => !!x);
+      const sel = form.optionSelections[membershipId] ?? null;
+      if (sel && sel.filter((id) => planOptionIds.includes(id)).length === 0) {
+        setSaving(false);
+        setError(`Pick at least one ${plan?.name ?? "membership"} option, or untick the plan.`);
+        return;
+      }
+      pricingOptions.push(pricingRowFor(membershipId, sel, planOptionIds));
     }
 
     // Only send overrides for currently-selected days; drop empty/invalid rows.
@@ -516,7 +534,7 @@ function ClassModal({
               Accepted Memberships / Purchase Options
             </label>
             <p className="text-[11px] text-text-muted mb-2">
-              Members on any selected plan can register at no extra cost. Others pay the prices above.
+              Members on any selected plan can register at no extra cost. Others pay the prices above. For a plan with several options you can include only some of them (e.g. the full membership but not the 2-day one).
             </p>
             {memberships.length === 0 ? (
               <div className="border border-dashed border-app-border rounded-lg p-3 text-xs text-text-muted">
@@ -526,17 +544,58 @@ function ClassModal({
                 </a>
               </div>
             ) : (
-              <div className="border border-app-border rounded-lg p-3 space-y-1.5 max-h-40 overflow-y-auto">
-                {memberships.map((m) => (
-                  <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.allowedMembershipIds.includes(m.id)}
-                      onChange={() => set("allowedMembershipIds", form.allowedMembershipIds.includes(m.id) ? form.allowedMembershipIds.filter((id) => id !== m.id) : [...form.allowedMembershipIds, m.id])}
-                    />
-                    {m.name}
-                  </label>
-                ))}
+              <div className="border border-app-border rounded-lg p-3 space-y-1.5 max-h-72 overflow-y-auto">
+                {memberships.map((m) => {
+                  const on = form.allowedMembershipIds.includes(m.id);
+                  const planOpts = parseOptions(m.options).filter((o) => !!o.id);
+                  const sel = form.optionSelections[m.id] ?? null;
+                  const setSel = (next: string[] | null) =>
+                    set("optionSelections", { ...form.optionSelections, [m.id]: next });
+                  return (
+                    <div key={m.id}>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => set("allowedMembershipIds", on ? form.allowedMembershipIds.filter((id) => id !== m.id) : [...form.allowedMembershipIds, m.id])}
+                        />
+                        {m.name}
+                        {on && planOpts.length > 1 && (
+                          <span className="text-[11px] text-text-muted">
+                            · {sel ? `${sel.filter((id) => planOpts.some((o) => o.id === id)).length} of ${planOpts.length} options` : "all options"}
+                          </span>
+                        )}
+                      </label>
+                      {/* B7 — which of this plan's options get in. Day limits on an
+                          option (e.g. Tue/Thu) still apply on top of this. */}
+                      {on && planOpts.length > 1 && (
+                        <div className="ml-6 mt-1 mb-1.5 space-y-1">
+                          <div className="flex gap-3 text-[12px]">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="radio" name={`opts-${m.id}`} checked={sel === null} onChange={() => setSel(null)} />
+                              Every option
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="radio" name={`opts-${m.id}`} checked={sel !== null} onChange={() => setSel(planOpts.map((o) => o.id!))} />
+                              Only some
+                            </label>
+                          </div>
+                          {sel !== null && planOpts.map((o) => (
+                            <label key={o.id} className="flex items-center gap-2 text-[12.5px] cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={sel.includes(o.id!)}
+                                onChange={() => setSel(sel.includes(o.id!) ? sel.filter((x) => x !== o.id) : [...sel, o.id!])}
+                              />
+                              <span>{o.label}</span>
+                              <span className="text-text-muted">${o.price}{o.entitlement.kind === "DAYS" ? ` · ${describeDays(o.entitlement.days)} only` : ""}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {form.allowedMembershipIds.length > 0 && (
@@ -884,7 +943,13 @@ export default function ClassesPage() {
                         </div>
                         {(cls.pricingOptions || []).filter((o) => o.type === "membership").length > 0 && (
                           <div className="text-[10px] text-text-muted mt-0.5">
-                            Options: {(cls.pricingOptions || []).filter((o) => o.type === "membership").map((o) => memberships.find((m) => m.id === o.membershipId)?.name).filter(Boolean).join(", ")}
+                            Options: {(cls.pricingOptions || []).filter((o): o is Extract<PricingOption, { type: "membership" }> => o.type === "membership").map((o) => {
+                              const m = memberships.find((x) => x.id === o.membershipId);
+                              if (!m) return null;
+                              if (!o.optionIds?.length) return m.name;
+                              const labels = parseOptions(m.options).filter((x) => x.id && o.optionIds!.includes(x.id)).map((x) => x.label);
+                              return `${m.name} (${labels.join(", ") || "no current options"})`;
+                            }).filter(Boolean).join(", ")}
                           </div>
                         )}
                       </td>

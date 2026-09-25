@@ -5190,3 +5190,17 @@ Tests: new `test:membership-group-rates` (24). sibling 32, event-auto-discounts 
   `/api/public/media/[kind]/[ownerId]/[fileId]`; `storeView` rewrites every product photo; public event API rewrites
   the cover. Bulk pricing (`quantityBreaks`) added — pure helpers in `lib/productSettings.ts`, 39 tests.
 - Open: real-device pass at 375/414/768 with an owner session.
+
+
+---
+
+### 2026-09-25 — B7: option-aware class acceptance + collapse steps 6–9 (branch `claude/b7-option-acceptance`)
+
+- The blocker: a class accepted PLANS, so once MS/HS holds six options there was no way to say "the full membership
+  but not the two-day one". pricingOptions rows may now carry `optionIds`; absent/empty = every option (all existing
+  classes unchanged). Resolved per subscription via `resolveSubscriptionOption` (stamped id, else unique
+  period+price); an unidentifiable option fails OPEN, same asymmetry as §8.4.1. Day entitlements stack on top.
+- Verdict `OPTION_NOT_ACCEPTED` ranks between DAY_NOT_INCLUDED and TERM_ENDED and warns (shouldWarn).
+- Collapse script steps 6–9 implemented; not run. Owner confirmations from 08-24 still hold (two repoints then —
+  now THREE: Blake Decker was sold on the commitment plan after that count).
+- Tests: accepted-plans 33, entitlements 55, membership-options 135, member-tracks 195. tsc clean.

@@ -30,7 +30,7 @@ const createSchema = z.object({
   pricingOptions: z
     .array(z.union([
       z.object({ type: z.enum(["member", "nonmember", "dropin"]), price: z.number() }),
-      z.object({ type: z.literal("membership"), membershipId: z.string() }),
+      z.object({ type: z.literal("membership"), membershipId: z.string(), optionIds: z.array(z.string().max(64)).max(50).optional() }),
     ]))
     .default([]),
   assignedStaffIds: z.array(z.string()).default([]),

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { acceptedPlansFrom, subscriptionAccepted, type AcceptedPlan } from "@/lib/acceptedPlans";
+import { parseOptions } from "@/lib/membershipOptions";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
@@ -37,6 +39,7 @@ type Target =
       windowStartsAt: Date;
       windowEndsAt: Date;
       acceptedMembershipIds: string[];
+      acceptedPlans: AcceptedPlan[];
     }
   | {
       kind: "event";
@@ -75,6 +78,8 @@ async function resolveTarget(id: string, clubId: string): Promise<Target | null>
       acceptedMembershipIds: opts
         .filter((o) => o?.type === "membership" && !!o.membershipId)
         .map((o) => o.membershipId as string),
+      // B7 — with each plan's option restriction.
+      acceptedPlans: acceptedPlansFrom(opts),
     };
   }
   const ev = await prisma.event.findFirst({
@@ -303,12 +308,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const activeSubs = await prisma.memberSubscription.findMany({
     where: { memberId: member.id, status: "active" },
-    select: { membershipId: true },
+    select: { membershipId: true, optionId: true, billingPeriod: true, price: true, membership: { select: { options: true } } },
   });
   const hasAnySub = activeSubs.length > 0;
   let covered = hasAnySub;
   if (target.kind === "class" && target.acceptedMembershipIds.length > 0) {
-    covered = activeSubs.some((s) => target.acceptedMembershipIds.includes(s.membershipId));
+    // B7 — option-aware: the plan must be accepted AND (when the class names
+    // options) this subscription's option must be one of them.
+    covered = activeSubs.some((s) =>
+      subscriptionAccepted(target.acceptedPlans, s, parseOptions(s.membership?.options)).accepted);
   }
   const status = covered ? "PRESENT" : "TRIAL";
 
