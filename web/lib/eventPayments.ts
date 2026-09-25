@@ -559,3 +559,68 @@ export function normalizeDefaultPolicy(input: unknown): Record<string, unknown> 
     out.extraEntryLabel !== undefined;
   return meaningful ? out : null;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Who can sign up where (2026-09-24, Finger Lakes Duals)
+//
+// An event whose only way to pay is AUTO_CARD ("saved card, charged later")
+// cannot be completed on the anonymous public link: a saved card needs an
+// account. The public route used to answer that with "Online payment isn't
+// set up for this event yet", which sent a paying family to the club. It is
+// not a setup problem — the family has to sign in, and the page now says so.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * True when money is owed at signup, the public link can offer none of the
+ * event's methods, and the event takes a saved card — i.e. the answer is
+ * "sign in", not "contact the club".
+ */
+export function publicSignupRequiresAccount(args: {
+  allowed: EventPaymentMethod[];
+  stripeReady: boolean;
+  owesMoney: boolean;
+  billOnApproval: boolean;
+}): boolean {
+  if (!args.owesMoney || args.billOnApproval) return false;
+  const publicMethods = args.allowed.filter((m) => m !== "AUTO_CARD" && (m !== "CARD" || args.stripeReady));
+  return publicMethods.length === 0 && args.allowed.includes("AUTO_CARD");
+}
+
+/**
+ * What a signed-in member may choose on an approval-gated event whose owner
+ * did NOT set an approval payment intent (the event editor's default).
+ *
+ * The event's own "How people pay" menu is the answer: an owner who picked
+ * only "Saved card, charged later" with a charge date meant exactly that, and
+ * offering "Bill later" instead (what this path did before) turned a
+ * card-on-11/14 tournament into an invoice. INVOICE is offered only when the
+ * event's menu leaves the family nothing they can complete.
+ *
+ * `[]` means the only way to pay is a saved card and none is on file — the
+ * caller asks the family to add one (PAYMENT_SETUP_REQUIRED).
+ */
+export function approvalOptionsFromEventMethods(
+  allowed: EventPaymentMethod[],
+  savedCardAvailable: boolean,
+): string[] {
+  const out: string[] = [];
+  if (allowed.includes("AUTO_CARD") && savedCardAvailable) out.push("AUTO_CARD");
+  if (allowed.includes("CARD")) out.push("CARD");
+  if (allowed.includes("CASH")) out.push("CASH");
+  if (allowed.includes("CHECK")) out.push("CHECK");
+  if (out.length > 0) return out;
+  if (allowed.includes("AUTO_CARD")) return [];
+  return ["INVOICE"];
+}
+
+/**
+ * When an approved AUTO_CARD registration is charged: the event's charge date,
+ * or now if the coach approves after that date has passed.
+ */
+export function approvedAutoCardChargeAt(
+  event: { autoChargeDate?: Date | null; startsAt: Date },
+  now: Date,
+): Date {
+  const at = eventScheduledChargeAt(event);
+  return at.getTime() > now.getTime() ? at : now;
+}

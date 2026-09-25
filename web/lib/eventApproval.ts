@@ -42,7 +42,7 @@ import { computeNextReminderAt } from "@/lib/eventReminders";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { amountToCollect } from "@/lib/eventRepricing";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
-import { ACTIVE_REGISTRATION_STATUSES, resolveEventPolicy } from "@/lib/eventPayments";
+import { ACTIVE_REGISTRATION_STATUSES, resolveEventPolicy, approvedAutoCardChargeAt } from "@/lib/eventPayments";
 import { proposableKeys, resolveCategoryFields, resolveExtraEntryLabel } from "@/lib/eventCategories";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { stripe } from "@/lib/stripe";
@@ -242,6 +242,14 @@ export async function approveRegistration(args: {
       nextStatus = "SCHEDULED";
       scheduledChargeAt = now;
       amountDue = owed;
+    } else if (reg.paymentMethod === "AUTO_CARD" && reg.status === "PENDING_REVIEW") {
+      // Saved card, charged on the event's charge date — consented at signup,
+      // held back until now. SCHEDULED at that date is the shape the charge
+      // engine already sweeps; approving after the date has passed schedules
+      // it for now and the money block below runs it straight away.
+      nextStatus = "SCHEDULED";
+      scheduledChargeAt = approvedAutoCardChargeAt(reg.event, now);
+      amountDue = owed;
     } else if (reg.paymentMethod === "INVOICE") {
       nextStatus = "REGISTERED";
       amountDue = owed;
@@ -318,7 +326,11 @@ export async function approveRegistration(args: {
   };
 
   // ── Money, after the lock is released ────────────────────────────────────
-  if (reg.paymentMethod === "APPROVAL_CHARGE") {
+  const autoCardDueNow =
+    reg.paymentMethod === "AUTO_CARD" &&
+    nextStatus === "SCHEDULED" &&
+    approvedAutoCardChargeAt(reg.event, now).getTime() <= now.getTime();
+  if (reg.paymentMethod === "APPROVAL_CHARGE" || autoCardDueNow) {
     try {
       const charge = await chargeEventRegistration(reg.id);
       result.chargeOutcome = charge.outcome;
