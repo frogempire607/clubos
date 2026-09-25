@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollTable } from "@/components/reports/responsive";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Info } from "lucide-react";
@@ -152,7 +153,7 @@ function ByItemCard({ rows }: { rows: ByItem[] }) {
       ) : (
         <>
           {/* Desktop: table */}
-          <div className="hidden md:block overflow-x-auto">
+          <ScrollTable className="hidden md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
@@ -177,7 +178,7 @@ function ByItemCard({ rows }: { rows: ByItem[] }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollTable>
           {/* Mobile: card list */}
           <ul className="md:hidden space-y-2">
             {rows.map((r) => (

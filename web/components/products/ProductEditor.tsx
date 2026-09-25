@@ -33,6 +33,8 @@ import {
   stockBehaviour,
   storefrontsFor,
   tierRange,
+  parseQuantityBreaks,
+  MAX_QTY_BREAKS,
   variantLedger,
   variantStatus,
   type OptionGroup,
@@ -148,6 +150,10 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
     return base;
   });
   const patch = (p: Partial<ProductSettings>) => setS((prev) => ({ ...prev, ...p }));
+  // Bulk pricing rows as typed (strings), cleaned by parseQuantityBreaks on save.
+  const [breaks, setBreaks] = useState<{ minQty: string; price: string }[]>(() =>
+    normalizeProductSettings(product?.settings).quantityBreaks.map((b) => ({ minQty: String(b.minQty), price: String(b.price) })));
+  const cleanBreaks = parseQuantityBreaks(breaks.map((b) => ({ minQty: Number(b.minQty), price: b.price === "" ? null : Number(b.price) })));
   const [open, setOpen] = useState<Record<string, boolean>>({ basics: !isEdit, pricing: false, inventory: false, booking: false, digital: false, sold: false, advanced: false });
   const toggle = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   const [error, setError] = useState("");
@@ -164,7 +170,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
   // Derived summaries — the collapsed card states its own answer.
   const pricingSummary = s.tiersEnabled && s.tiers.length
     ? `${s.tiers.length} tier${s.tiers.length === 1 ? "" : "s"}${range ? ` · ${money(range.min)} to ${money(range.max)}` : ""}`
-    : `${price ? money(basePrice) : "No price yet"}${s.memberPrice != null ? ` · members ${money(s.memberPrice)}` : ""}${taxable ? " · taxable" : ""}`;
+    : `${price ? money(basePrice) : "No price yet"}${s.memberPrice != null ? ` · members ${money(s.memberPrice)}` : ""}${cleanBreaks.length ? ` · bulk ${cleanBreaks.map((b) => `${b.minQty}+ ${money(b.price)}`).join(", ")}` : ""}${taxable ? " · taxable" : ""}`;
   const inventorySummary = !stock.holdsStock
     ? "No stock — " + (bookable ? "booked into slots" : "nothing to count")
     : !trackInventory
@@ -219,6 +225,8 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
       durations: bookable ? s.durations.filter((d) => d.mins > 0) : [],
       addOns: bookable ? s.addOns.filter((a) => a.label.trim()) : [],
       questions: s.questions.filter((q) => q.label.trim()),
+      // Bulk pricing is for things sold by the unit, not time slots.
+      quantityBreaks: bookable ? [] : cleanBreaks,
       depositAmount: s.depositMode === "DEPOSIT" ? s.depositAmount : null,
     };
     const payload = {
@@ -339,6 +347,34 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                   <button type="button" onClick={() => patch({ tiers: [...s.tiers, { name: "", includes: "", length: "", price: null }] })} className="text-[12.5px] font-medium text-brand inline-flex items-center gap-1"><Plus size={13} /> Add tier</button>
                   <span className="text-[12px] text-text-muted">{range ? `Families choose one at checkout · ${money(range.min)} to ${money(range.max)}` : "Add a price to each tier"}</span>
                 </div>
+              </div>
+            )}
+            {!bookable && (
+              <div className="rounded-xl border border-app-border px-3 py-2.5 space-y-2">
+                <div>
+                  <div className="text-sm font-medium text-text-primary">Bulk pricing</div>
+                  <div className="text-[11.5px] text-text-muted">Buy more, pay less per item — e.g. 2+ at $35 each, 3+ at $30 each. Applies in one checkout, to members, the public link and the front desk. Never raises a price that is already lower (member or size price).</div>
+                </div>
+                {breaks.map((b, i) => {
+                  const q = Number(b.minQty), pr = b.price === "" ? NaN : Number(b.price);
+                  const warn = Number.isFinite(pr) && basePrice > 0 && pr >= basePrice ? "Not lower than the price — won't change anything." : Number.isFinite(q) && b.minQty !== "" && q < 2 ? "Starts at 2 or more." : "";
+                  return (
+                    <div key={i}>
+                      <div className="flex items-center gap-2 text-sm text-text-primary">
+                        <span>Buy</span>
+                        <input aria-label="Minimum quantity" type="number" min="2" step="1" value={b.minQty} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, minQty: e.target.value } : x)))} className={`${dense.replace("w-full", "w-16")} tabular-nums`} />
+                        <span>or more →</span>
+                        <input aria-label="Price each" type="number" min="0" step="0.01" value={b.price} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} placeholder="$" className={`${dense.replace("w-full", "w-24")} tabular-nums`} />
+                        <span>each</span>
+                        <button type="button" aria-label="Remove bulk price" onClick={() => setBreaks(breaks.filter((_, j) => j !== i))} className="ml-auto w-7 h-7 rounded-lg hover:bg-app-bg text-text-muted flex items-center justify-center"><Trash2 size={14} /></button>
+                      </div>
+                      {warn && <p className="text-[11.5px] text-amber-700 mt-0.5">{warn}</p>}
+                    </div>
+                  );
+                })}
+                {breaks.length < MAX_QTY_BREAKS && (
+                  <button type="button" onClick={() => { const last = cleanBreaks[cleanBreaks.length - 1]; setBreaks([...breaks, { minQty: String(last ? last.minQty + 1 : 2), price: "" }]); }} className="text-[12.5px] font-medium text-brand inline-flex items-center gap-1"><Plus size={13} /> Add bulk price</button>
+                )}
               </div>
             )}
           </Card>

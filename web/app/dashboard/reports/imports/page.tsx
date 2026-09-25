@@ -59,7 +59,7 @@ export default function ImportsHistoryPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+    <div className="reports-touch p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto min-w-0">
       <Link href="/dashboard/reports?tab=imports" className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary mb-3">
         <ArrowLeft size={13} /> Back to Reports
       </Link>

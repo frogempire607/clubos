@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ScrollTable, useBodyScrollLock } from "@/components/reports/responsive";
 import { AlertTriangle, Download, FileText, X } from "lucide-react";
 import Link from "next/link";
 import { SkeletonCard } from "@/components/LoadingSkeleton";
@@ -115,7 +116,7 @@ export default function PnlTab({ range, customFrom, customTo }: { range: RangeKe
       )}
 
       {/* Desktop table */}
-      <div className="hidden md:block bg-surface border border-app-border rounded-xl overflow-x-auto">
+      <ScrollTable stickyFirst={false} className="hidden md:block bg-surface border border-app-border rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border bg-app-bg">
@@ -168,54 +169,10 @@ export default function PnlTab({ range, customFrom, customTo }: { range: RangeKe
             )}
           </tbody>
         </table>
-      </div>
+      </ScrollTable>
 
-      {/* Mobile stacked card layout */}
-      <div className="md:hidden space-y-3">
-        {data.sections.map((section) => (
-          <div key={section.key} className="bg-surface border border-app-border rounded-xl overflow-hidden">
-            <div className="bg-app-bg px-3 py-2 text-[11px] uppercase tracking-wide font-semibold text-text-muted">
-              {section.label}
-            </div>
-            <ul className="divide-y divide-app-border">
-              {section.lines.map((line) => (
-                <li key={line.key} className="p-3">
-                  <p className="text-sm text-text-primary mb-1">{line.label}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {data.columns.map((col, i) => (
-                      <button
-                        key={col.key}
-                        onClick={() => setDrill({ lineKey: line.key, columnKey: col.key, lineLabel: line.label, columnLabel: col.label })}
-                        className="text-left border border-app-border rounded p-2 hover:bg-app-bg min-h-[44px]"
-                      >
-                        <p className="text-[10px] text-text-muted">
-                          {col.label}
-                          {col.isPartial && <span className="ml-1 text-orange-accent">*</span>}
-                        </p>
-                        <p className="text-sm font-semibold text-text-primary tabular-nums">{fmtMoney(line.values[i] ?? 0)}</p>
-                      </button>
-                    ))}
-                  </div>
-                </li>
-              ))}
-              <li className="p-3 bg-app-bg font-semibold text-sm text-text-primary">
-                <div className="flex items-center justify-between">
-                  <span>{section.total.label}</span>
-                  <span className="tabular-nums">{fmtMoney(section.total.values[data.columns.length - 1] ?? 0)}</span>
-                </div>
-                <p className="text-[10px] text-text-muted mt-1">Latest column shown; use desktop for the full grid.</p>
-              </li>
-            </ul>
-          </div>
-        ))}
-        <div className="bg-lime-accent/15 border-2 border-charcoal rounded-xl p-4">
-          <div className="flex items-center justify-between text-base font-bold text-text-primary">
-            <span>Net profit</span>
-            <span className="tabular-nums">{fmtMoney(data.summary[data.summary.length - 1]?.netProfit ?? 0)}</span>
-          </div>
-          <p className="text-xs text-text-muted mt-1">Margin {fmtPercent(data.summary[data.summary.length - 1]?.profitMarginPercent ?? null)}</p>
-        </div>
-      </div>
+      {/* Phones: one period at a time, label/value rows (2.5.12.4). */}
+      <MobilePnl data={data} onDrill={(lineKey, lineLabel, columnKey, columnLabel) => setDrill({ lineKey, columnKey, lineLabel, columnLabel })} />
 
       {drill && (
         <DrillSheet
@@ -230,6 +187,72 @@ export default function PnlTab({ range, customFrom, customTo }: { range: RangeKe
           onClose={() => setDrill(null)}
         />
       )}
+    </div>
+  );
+}
+
+function MobilePnl({ data, onDrill }: { data: PnlResponse; onDrill: (lineKey: string, lineLabel: string, columnKey: string, columnLabel: string) => void }) {
+  // Default to the latest column; the chip row picks another period. The
+  // chosen chip scrolls into view so the latest month is visible on open.
+  const last = Math.max(0, data.columns.length - 1);
+  const [col, setCol] = useState(last);
+  useEffect(() => { setCol(Math.max(0, data.columns.length - 1)); }, [data.columns.length]);
+  const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  useEffect(() => { chipRefs.current[col]?.scrollIntoView({ block: "nearest", inline: "center" }); }, [col]);
+  const c = data.columns[col];
+  if (!c) return <p className="md:hidden text-sm text-text-muted">No periods in this range.</p>;
+  const sum = data.summary[col];
+  return (
+    <div className="md:hidden space-y-3">
+      {data.columns.length > 1 && (
+        <div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1" style={{ WebkitOverflowScrolling: "touch" }} role="tablist" aria-label="Period">
+          {data.columns.map((cc, i) => (
+            <button
+              key={cc.key}
+              ref={(el) => { chipRefs.current[i] = el; }}
+              role="tab"
+              aria-selected={i === col}
+              onClick={() => setCol(i)}
+              className={`shrink-0 px-3 min-h-[44px] rounded-full border text-sm whitespace-nowrap ${i === col ? "bg-charcoal text-white border-charcoal font-semibold" : "bg-surface border-app-border text-text-primary"}`}
+            >
+              {cc.label}{cc.isPartial && <span className="ml-0.5 text-orange-accent">*</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {c.isPartial && <p className="text-[11px] text-orange-accent">* {c.label} is still in progress.</p>}
+      {data.sections.map((section) => (
+        <div key={section.key} className="bg-surface border border-app-border rounded-xl overflow-hidden">
+          <div className="bg-app-bg px-3 py-2 text-[11px] uppercase tracking-wide font-semibold text-text-muted">{section.label}</div>
+          <ul className="divide-y divide-app-border">
+            {section.lines.map((line) => (
+              <li key={line.key}>
+                <button
+                  onClick={() => onDrill(line.key, line.label, c.key, c.label)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2.5 min-h-[44px] text-left hover:bg-app-bg"
+                >
+                  <span className="text-sm text-text-primary min-w-0 break-words">{line.label}</span>
+                  <span className={`text-sm font-semibold tabular-nums shrink-0 ${(line.values[col] ?? 0) < 0 ? "text-red-700" : "text-text-primary"}`}>{fmtMoney(line.values[col] ?? 0)}</span>
+                </button>
+              </li>
+            ))}
+            <li className="px-3 py-2.5 bg-app-bg flex items-center justify-between gap-3 text-sm font-semibold text-text-primary">
+              <span className="min-w-0">{section.total.label}</span>
+              <span className="tabular-nums shrink-0">{fmtMoney(section.total.values[col] ?? 0)}</span>
+            </li>
+          </ul>
+        </div>
+      ))}
+      <div className="bg-lime-accent/15 border-2 border-charcoal rounded-xl p-4">
+        <div className="flex items-center justify-between gap-3 text-base font-bold text-text-primary">
+          <span>Net profit · {c.label}</span>
+          <span className={`tabular-nums shrink-0 ${(sum?.netProfit ?? 0) < 0 ? "text-red-700" : ""}`}>{fmtMoney(sum?.netProfit ?? 0)}</span>
+        </div>
+        <p className="text-xs text-text-muted mt-1">Margin {fmtPercent(sum?.profitMarginPercent ?? null)}</p>
+        {data.rollingAverage && (data.rollingAverage.values[col] ?? 0) !== 0 && (
+          <p className="text-xs text-text-muted mt-0.5 italic">{data.rollingAverage.label}: {fmtMoney(data.rollingAverage.values[col])}</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -332,6 +355,12 @@ function DrillSheet({
 }) {
   const [data, setData] = useState<DrillResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  useBodyScrollLock(true);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   useEffect(() => {
     const params = new URLSearchParams({ line: lineKey, period, range });
@@ -346,10 +375,11 @@ function DrillSheet({
   }, [lineKey, columnKey, period, range, customFrom, customTo]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-stretch sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label={lineLabel}>
+      {/* Phones: full-screen sheet (2.5.12.5); larger screens: centered panel. */}
       <div
-        className="bg-surface w-full sm:max-w-2xl h-[92vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl flex flex-col overflow-hidden"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        className="bg-surface w-full sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] rounded-none sm:rounded-xl flex flex-col overflow-hidden"
+        style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div className="min-w-0">

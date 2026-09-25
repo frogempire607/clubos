@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. Order: B5 Reports mobile → B7 once class "Accepted Memberships" is option-aware. B2 waits on A3.
+- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. Order: (B5 built 09-25) → B7 once class "Accepted Memberships" is option-aware. B2 waits on A3.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
@@ -176,7 +176,19 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   queue exists. (a) point at `?queue=endingSoon` (120-day window), (b) build a `renewingSoon`
   queue, (c) leave bare. Write-up in docs/improvement/PROGRESS.md (2026-09-14, second entry).
 
-- [ ] **B5 · 2.5.12 Reports — mobile + accessibility** · ready
+- [x] **B5 · 2.5.12 Reports — mobile + accessibility** · BUILT 2026-09-25 on `claude/b5-reports-mobile` (no migration).
+  Shared `components/reports/responsive.tsx` (live `useMediaQuery`/`usePhone`, `useBodyScrollLock`, `ScrollTable` =
+  momentum scroll + pinned first column + right-edge fade) on every wide table; P&L on phones = one period at a time
+  (chip row, label/value rows, tap → drill); P&L drill = full-screen sheet on phones; reliability strip wraps one row
+  per section, 44px rows; range sheet locks page scroll, custom dates stacked; KPI 4→2→1 (Unit economics); cash-flow
+  waterfall fits 375px; unlayered `@media (pointer: coarse)` rule makes every control in `.reports-touch` ≥ 44×44.
+  Bugs fixed: Snapshot bars were labelled a month early in US time zones (`new Date("YYYY-MM-01")` is UTC) and the
+  Snapshot/churn bar charts' % heights had no definite parent height. Guard `npm run test:reports-mobile` (58).
+  Not done here: a real-device pixel pass at 375/414/768 — needs Julian signed in; I couldn't reach a logged-in browser.
+  Same branch: **products** — bulk pricing (`settings.quantityBreaks`, "2+ $35 each", never raises a lower
+  member/size price, applied in member buy, public link and front-desk sell) + product photos and event covers load
+  for logged-out buyers via `/api/public/media/{product|event}/{ownerId}/{fileId}` (only files that owner uses; IMAGE
+  only; club logo on /p now uses the public logo route). Tests `npm run test:product-bulk-pricing` (39).
 
 - [ ] **B6 · Phase 4.5 backlog: 13 partial, 16 missing** · needs Capacitor shell
   Mostly the mobile-native layer.

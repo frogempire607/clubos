@@ -126,9 +126,10 @@ function Waterfall({
   ];
   return (
     <div className="overflow-x-auto">
-      <div className="flex items-end justify-around gap-3 min-w-[480px] py-2">
+      {/* Fits a 375px phone (5 × 56px); wider screens get roomier columns. */}
+      <div className="flex items-end justify-around gap-2 sm:gap-3 sm:min-w-[480px] py-2">
         {items.map((it) => (
-          <div key={it.label} className="flex-1 flex flex-col items-center gap-1.5 min-w-[70px]">
+          <div key={it.label} className="flex-1 flex flex-col items-center gap-1.5 min-w-[56px] sm:min-w-[70px]">
             {it.value == null ? (
               <div className="w-full h-8 border-dashed border-2 border-app-border rounded flex items-center justify-center text-[10px] text-text-muted">
                 needs bank
@@ -138,12 +139,12 @@ function Waterfall({
                 className={`w-full rounded ${it.bg} flex items-center justify-center px-1`}
                 style={{ height: `${h(Math.abs(it.value))}px` }}
               >
-                <span className={`text-xs font-semibold ${it.text} tabular-nums text-center`}>
+                <span className={`text-[11px] sm:text-xs font-semibold ${it.text} tabular-nums text-center leading-tight break-all`}>
                   {it.value < 0 ? `−${money(Math.abs(it.value))}` : money(it.value)}
                 </span>
               </div>
             )}
-            <span className="text-[11px] text-text-muted uppercase tracking-wide font-semibold">{it.label}</span>
+            <span className="text-[10px] sm:text-[11px] text-text-muted uppercase tracking-wide font-semibold">{it.label}</span>
           </div>
         ))}
       </div>

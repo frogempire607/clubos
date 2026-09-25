@@ -1,5 +1,6 @@
 "use client";
 
+import { useBodyScrollLock } from "@/components/reports/responsive";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Bell, CheckCircle2, ChevronRight, Info, Sliders, X } from "lucide-react";
@@ -75,6 +76,7 @@ export default function AlertsDrawer({ open, onClose }: { open: boolean; onClose
     return () => document.removeEventListener("keydown", onEsc);
   }, [open, onClose]);
 
+  useBodyScrollLock(open);
   if (!open) return null;
 
   const triggered = data?.alerts.filter((a) => a.state === "TRIGGERED") ?? [];
@@ -108,7 +110,7 @@ export default function AlertsDrawer({ open, onClose }: { open: boolean; onClose
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-stretch justify-end p-0 sm:p-0">
       <div
-        className="bg-surface w-full sm:max-w-md h-[92vh] sm:h-full rounded-t-2xl sm:rounded-none flex flex-col overflow-hidden"
+        className="bg-surface w-full sm:max-w-md h-[92dvh] sm:h-full rounded-t-2xl sm:rounded-none flex flex-col overflow-hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-app-border flex items-center justify-between">

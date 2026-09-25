@@ -6,7 +6,7 @@ import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem } from "@/lib/fees";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
-import { checkStock, findVariant, isBookable, normalizeProductSettings, stockMessage, unitPriceFor } from "@/lib/productSettings";
+import { checkStock, findVariant, isBookable, normalizeProductSettings, stockMessage, unitPriceFor, unitPriceAtQuantity } from "@/lib/productSettings";
 import { onPublicLink } from "@/lib/productPublic";
 import { createProductBooking } from "@/lib/productBookingServer";
 
@@ -71,7 +71,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   const stock = checkStock(settings, product, body.variantId, body.quantity);
   if (!stock.ok) return NextResponse.json({ error: stockMessage(stock), code: stock.reason }, { status: 400 });
   // The public link is the non-member price (a member signs in for theirs).
-  const unitPrice = unitPriceFor(settings, Number(product.price), variant, "PUBLIC");
+  // Bulk pricing applies on the public link too.
+  const unitPrice = unitPriceAtQuantity(settings.quantityBreaks, unitPriceFor(settings, Number(product.price), variant, "PUBLIC"), body.quantity).unit;
   const totalCents = Math.round(unitPrice * 100) * body.quantity;
   if (totalCents < 50) return NextResponse.json({ error: "This can't be paid online — contact the club." }, { status: 400 });
   const sale = await prisma.productSale.create({

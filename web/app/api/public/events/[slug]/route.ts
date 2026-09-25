@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicMediaUrl } from "@/lib/publicMedia";
 import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
@@ -164,7 +165,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     description: event.description,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
-    imageUrl: event.imageUrl,
+    // Session-free image path — /api/files 401s for a logged-out visitor.
+    imageUrl: publicMediaUrl("event", event.id, event.imageUrl),
     imagePositionX: event.imagePositionX,
     imagePositionY: event.imagePositionY,
     location: event.location,
