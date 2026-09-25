@@ -20,7 +20,11 @@ import {
   REGISTRATION_STATUS_LABELS,
   REGISTRATION_STATUSES,
   isEventPaymentMethod,
+  publicSignupRequiresAccount,
+  approvalOptionsFromEventMethods,
+  approvedAutoCardChargeAt,
 } from "../lib/eventPayments";
+import { eventFormFields, validateFormResponses } from "../lib/eventForm";
 
 let pass = 0;
 let fail = 0;
@@ -172,6 +176,82 @@ console.log("\n— bundle payment decision —");
   );
   const distinct = new Set([bundleOfflineStatus("CASH"), bundleOfflineStatus("CHECK"), bundleOfflineStatus("PAY_LATER")]);
   check("offline statuses are all distinct", distinct.size === 3);
+}
+
+console.log("\n— public link: sign in vs contact the club (Finger Lakes Duals, 2026-09-24) —");
+{
+  const base = { stripeReady: true, owesMoney: true, billOnApproval: false };
+  check("saved-card-only event ⇒ sign in", publicSignupRequiresAccount({ ...base, allowed: ["AUTO_CARD"] }) === true);
+  check("saved card + cash ⇒ public can pay cash", publicSignupRequiresAccount({ ...base, allowed: ["AUTO_CARD", "CASH"] }) === false);
+  check("saved card + card ⇒ public can pay by card", publicSignupRequiresAccount({ ...base, allowed: ["AUTO_CARD", "CARD"] }) === false);
+  check(
+    "saved card + card, Stripe not connected ⇒ sign in (card unusable publicly)",
+    publicSignupRequiresAccount({ ...base, stripeReady: false, allowed: ["AUTO_CARD", "CARD"] }) === true,
+  );
+  check(
+    "card only, Stripe not connected ⇒ NOT sign in (a real setup problem)",
+    publicSignupRequiresAccount({ ...base, stripeReady: false, allowed: ["CARD"] }) === false,
+  );
+  check("free ⇒ never", publicSignupRequiresAccount({ ...base, owesMoney: false, allowed: ["AUTO_CARD"] }) === false);
+  check("bill on approval ⇒ never", publicSignupRequiresAccount({ ...base, billOnApproval: true, allowed: ["AUTO_CARD"] }) === false);
+}
+
+console.log("\n— approval with no intent set follows the event's menu —");
+{
+  check("saved card only, card on file ⇒ AUTO_CARD", JSON.stringify(approvalOptionsFromEventMethods(["AUTO_CARD"], true)) === '["AUTO_CARD"]');
+  check("saved card only, NO card ⇒ [] (add a card)", approvalOptionsFromEventMethods(["AUTO_CARD"], false).length === 0);
+  check("never invoice when the owner picked saved card", !approvalOptionsFromEventMethods(["AUTO_CARD"], true).includes("INVOICE"));
+  check(
+    "saved card + cash, no card on file ⇒ cash",
+    JSON.stringify(approvalOptionsFromEventMethods(["AUTO_CARD", "CASH"], false)) === '["CASH"]',
+  );
+  check(
+    "card + cash + check keep their order",
+    JSON.stringify(approvalOptionsFromEventMethods(["CHECK", "CASH", "CARD"], false)) === '["CARD","CASH","CHECK"]',
+  );
+}
+
+console.log("\n— approved saved-card charge date —");
+{
+  const now = new Date("2026-10-01T15:00:00Z");
+  const ev = { autoChargeDate: new Date("2026-11-14T12:00:00Z"), startsAt: new Date("2026-11-21T13:00:00Z") };
+  check("approved before the date ⇒ the charge date", approvedAutoCardChargeAt(ev, now).toISOString() === "2026-11-14T12:00:00.000Z");
+  const late = new Date("2026-11-16T15:00:00Z");
+  check("approved after the date ⇒ now", approvedAutoCardChargeAt(ev, late).getTime() === late.getTime());
+  check(
+    "no charge date ⇒ event start",
+    approvedAutoCardChargeAt({ autoChargeDate: null, startsAt: ev.startsAt }, now).getTime() === ev.startsAt.getTime(),
+  );
+}
+
+console.log("\n— event questions (one validator for public + portal) —");
+{
+  const fields = eventFormFields([
+    { id: "participant_category", type: "select", label: "Weight Class", options: ["56 (K4/K6)", "60 (K4/K6)"], required: true },
+    { id: "participant_category:division", type: "select", label: "Division", options: ["K4", "K6", "K8"], required: true },
+    { id: "notes", type: "textarea", label: "Notes", required: false },
+    { id: "photo", type: "checkbox", label: "Photo ok", required: false },
+    "garbage",
+    { label: "no id" },
+  ]);
+  check("malformed entries dropped", fields.length === 4);
+  const ok = validateFormResponses(fields, { participant_category: "60 (K4/K6)", "participant_category:division": " K6 ", notes: "" });
+  check("valid answers pass, trimmed", ok.ok && ok.answers["participant_category:division"] === "K6");
+  check("empty optional answer not stored", ok.ok && !("notes" in ok.answers));
+  const missing = validateFormResponses(fields, { participant_category: "60 (K4/K6)" });
+  check("missing required ⇒ names the field", !missing.ok && missing.message.includes("Division"));
+  const bad = validateFormResponses(fields, { participant_category: "999", "participant_category:division": "K6" });
+  check("select answer outside the list refused", !bad.ok && bad.fieldId === "participant_category");
+  const injected = validateFormResponses(fields, {
+    participant_category: "56 (K4/K6)",
+    "participant_category:division": "K4",
+    __documentsAcknowledged: "forged",
+  });
+  check("unknown keys dropped (server-written keys can't be forged)", injected.ok && !("__documentsAcknowledged" in injected.answers));
+  check("no form ⇒ always ok, nothing stored", (() => { const r = validateFormResponses([], { x: "y" }); return r.ok && Object.keys(r.answers).length === 0; })());
+  const box = eventFormFields([{ id: "w", type: "checkbox", label: "Waiver", required: true }]);
+  check("required checkbox unticked refused", !validateFormResponses(box, { w: false }).ok);
+  check("required checkbox ticked stored as true", (() => { const r = validateFormResponses(box, { w: true }); return r.ok && r.answers.w === true; })());
 }
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);

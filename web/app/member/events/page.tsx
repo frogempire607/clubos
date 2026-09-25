@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarRange, MessageCircle, Package } from "lucide-react";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
+import { eventFormFields, type EventFormField } from "@/lib/eventForm";
 
 type EventCard = {
   id: string;
@@ -28,7 +29,12 @@ type EventCard = {
   pricingModel?: string | null;
   _count: { bookings: number };
   autoChargeDate?: string | null;
+  // The event's questions (weight class, division, …) and the owner's note.
+  registrationForm?: unknown;
+  publicFormIntro?: string | null;
 };
+
+type FormAnswers = Record<string, string | boolean>;
 
 type BookingRef = { eventId: string; status: string };
 
@@ -102,6 +108,32 @@ export default function MemberEventsPage() {
     }[];
   }>(null);
 
+  // The event's questions, asked once per athlete per event before anything
+  // else and re-sent with every retry of that registration (payment choice,
+  // document acknowledgement) so they're never asked twice.
+  const answersRef = useRef<Record<string, FormAnswers>>({});
+  const answerKey = (eventId: string) => `${eventId}:${selectedMemberId ?? ""}`;
+  const [formPrompt, setFormPrompt] = useState<null | {
+    eventId: string;
+    pricingType: "MEMBER" | "NON_MEMBER" | "DROP_IN";
+    sessionIds?: string[];
+    fields: EventFormField[];
+    intro: string | null;
+    error?: string;
+    initial?: FormAnswers;
+  }>(null);
+
+  // Deep link from the public event page (/e/[slug] → sign in → here):
+  // ?event=<id> opens that event's registration for the current athlete.
+  const deepLinkRef = useRef<{ id: string | null; handled: boolean }>({ id: null, handled: false });
+  useEffect(() => {
+    try {
+      deepLinkRef.current.id = new URLSearchParams(window.location.search).get("event");
+    } catch {
+      /* no location — nothing to open */
+    }
+  }, []);
+
   function load() {
     setLoading(true);
     const mq = selectedMemberId ? `?memberId=${encodeURIComponent(selectedMemberId)}` : "";
@@ -117,6 +149,19 @@ export default function MemberEventsPage() {
         setHasMemberProfile(d.hasMemberProfile);
         setAccessible(d.accessible || []);
         if (!selectedMemberId && d.contextMemberId) setSelectedMemberId(d.contextMemberId);
+        const link = deepLinkRef.current;
+        if (link.id && !link.handled) {
+          link.handled = true;
+          const target = (d.events || []).find((x: EventCard) => x.id === link.id);
+          const booked = (d.bookings || []).some((b: BookingRef) => b.eventId === link.id);
+          if (!target) {
+            setError("That event isn't open for registration from your account. Contact your club if you think it should be.");
+          } else if (booked) {
+            setInfo(`You're already registered for ${target.name}.`);
+          } else {
+            setPendingDeepLink(target.id);
+          }
+        }
       }
       setBundles(Array.isArray(b) ? b : []);
       setLoading(false);
@@ -124,6 +169,17 @@ export default function MemberEventsPage() {
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [selectedMemberId]);
+
+  // Start the deep-linked registration once `events` holds it (register reads
+  // the event from state for its questions).
+  const [pendingDeepLink, setPendingDeepLink] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingDeepLink || !events.some((e) => e.id === pendingDeepLink)) return;
+    const id = pendingDeepLink;
+    setPendingDeepLink(null);
+    register(id, "MEMBER");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDeepLink, events]);
 
   async function openEventChat(eventId: string) {
     setBusy(`chat:${eventId}`);
@@ -150,6 +206,15 @@ export default function MemberEventsPage() {
     acknowledgeDocuments?: boolean,
     sessionIds?: string[],
   ) {
+    // Ask the event's questions first (weight class, division, …). The server
+    // enforces them too (FORM_REQUIRED) — this just asks before a round trip.
+    const ev = events.find((x) => x.id === eventId);
+    const fields = eventFormFields(ev?.registrationForm);
+    const answers = answersRef.current[answerKey(eventId)];
+    if (fields.length > 0 && !answers) {
+      setFormPrompt({ eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null });
+      return;
+    }
     setBusy(eventId);
     setError("");
     setInfo("");
@@ -169,10 +234,26 @@ export default function MemberEventsPage() {
           ? { autoChargeConsent: { agreed: true, buttonLabel: payment.consentLabel } }
           : {}),
         ...(acknowledgeDocuments ? { acknowledgeDocuments: true } : {}),
+        ...(answers ? { formResponses: answers } : {}),
       }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
+    // The server has questions this page didn't know about, or an answer it
+    // won't take — ask (again), keeping what was typed.
+    if (res.status === 400 && (d.error === "FORM_REQUIRED" || d.error === "FORM_INVALID")) {
+      setFormPrompt({
+        eventId,
+        pricingType,
+        sessionIds,
+        fields: d.fields ? eventFormFields(d.fields) : fields,
+        intro: d.intro ?? ev?.publicFormIntro ?? null,
+        error: d.error === "FORM_INVALID" ? d.message : undefined,
+        initial: answers,
+      });
+      delete answersRef.current[answerKey(eventId)];
+      return;
+    }
     // The event offers more than one way to pay — ask, then re-submit. The
     // server decides what's offerable (incl. whether a saved card exists), so
     // the choice can't drift from what it will accept.
@@ -566,6 +647,25 @@ export default function MemberEventsPage() {
         </div>
       )}
 
+      {formPrompt && (
+        <EventFormModal
+          prompt={formPrompt}
+          eventName={events.find((e) => e.id === formPrompt.eventId)?.name ?? "Event"}
+          accessible={accessible}
+          memberId={selectedMemberId}
+          onMemberChange={(id) => {
+            setSelectedMemberId(id);
+          }}
+          onClose={() => setFormPrompt(null)}
+          onSubmit={(answers) => {
+            const p = formPrompt;
+            answersRef.current[answerKey(p.eventId)] = answers;
+            setFormPrompt(null);
+            register(p.eventId, p.pricingType, undefined, undefined, p.sessionIds);
+          }}
+        />
+      )}
+
       {payPrompt && (
         <PaymentChoiceModal
           prompt={payPrompt}
@@ -648,10 +748,15 @@ function PaymentChoiceModal({
       hint: `${cardTotal ? `${cardTotal} is` : "You're"} charged immediately${feeNote}.`,
     },
     CARD: { label: "Pay now by card", hint: `You'll be taken to a secure checkout page${cardTotal ? ` — total ${cardTotal}${feeNote}` : ""}.` },
-    AUTO_CARD: {
-      label: "Charge my saved card on the event date",
-      hint: `Nothing is charged today. ${cardTotal ? `${cardTotal} is` : "Your card on file is"} charged on ${chargeDayLabel}.`,
-    },
+    AUTO_CARD: prompt.requiresCoachApproval
+      ? {
+          label: `Charge my saved card on ${chargeDayLabel} if approved${prompt.savedCard ? ` — ${prompt.savedCard.label}` : ""}`,
+          hint: `Nothing is charged today. If your coach approves, ${cardTotal || "the total"} is charged on ${chargeDayLabel}${feeNote}. If they don't, nothing is charged.`,
+        }
+      : {
+          label: "Charge my saved card on the event date",
+          hint: `Nothing is charged today. ${cardTotal ? `${cardTotal} is` : "Your card on file is"} charged on ${chargeDayLabel}.`,
+        },
     CASH: { label: prompt.kind === "bundle" ? "Pay cash at the club" : "Pay cash at the event", hint: `Bring ${offlineTotal || "it"} with you — the club records it when received.` },
     CHECK: { label: prompt.kind === "bundle" ? "Pay by check at the club" : "Pay by check at the event", hint: `Bring a check for ${offlineTotal || "the amount"} — the club records it when received.` },
     PAY_LATER: {
@@ -677,7 +782,7 @@ function PaymentChoiceModal({
 
   const consentLabel =
     method === "AUTO_CARD"
-      ? `I authorize the charge of ${cardTotal || "the total"} on ${chargeDayLabel}`
+      ? `I authorize the charge of ${cardTotal || "the total"} on ${chargeDayLabel}${prompt.requiresCoachApproval ? " if my coach approves" : ""}`
       : method === "APPROVAL_CHARGE"
         ? `I authorize the charge of ${cardTotal || "the total"} if my coach approves`
         : undefined;
@@ -809,7 +914,9 @@ function PaymentChoiceModal({
               : method === "CARD"
                 ? `Continue to payment${cardTotal ? ` — ${cardTotal}` : ""}`
                 : method === "AUTO_CARD"
-                  ? `Confirm — ${cardTotal || "charged"} on ${chargeDayLabel}`
+                  ? prompt.requiresCoachApproval
+                    ? `Register — charged ${cardTotal || "the total"} on ${chargeDayLabel} if approved`
+                    : `Confirm — ${cardTotal || "charged"} on ${chargeDayLabel}`
                   : // §5.3.3: the button states the exact server-computed
                     // amount and when it moves, so nobody agrees to a number
                     // they were never shown.
@@ -823,6 +930,115 @@ function PaymentChoiceModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// The event's own questions (Event.registrationForm), asked before payment.
+// Same fields the public link shows, validated again on the server by
+// lib/eventForm. Names who is being registered, with a switch for families
+// with more than one athlete.
+function EventFormModal({
+  prompt,
+  eventName,
+  accessible,
+  memberId,
+  onMemberChange,
+  onClose,
+  onSubmit,
+}: {
+  prompt: { fields: EventFormField[]; intro: string | null; error?: string; initial?: FormAnswers };
+  eventName: string;
+  accessible: AccessibleProfile[];
+  memberId: string | null;
+  onMemberChange: (id: string) => void;
+  onClose: () => void;
+  onSubmit: (answers: FormAnswers) => void;
+}) {
+  const [answers, setAnswers] = useState<FormAnswers>(prompt.initial ?? {});
+  const [err, setErr] = useState(prompt.error ?? "");
+  const who = accessible.find((a) => a.id === memberId) ?? accessible[0] ?? null;
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    for (const f of prompt.fields) {
+      const v = answers[f.id];
+      if (f.required && (v === undefined || v === "" || v === false)) {
+        setErr(`"${f.label}" is required`);
+        return;
+      }
+    }
+    onSubmit(answers);
+  }
+
+  const inputCls = "w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-300";
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <form onSubmit={submit} className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md border border-stone-200 max-h-[90vh] overflow-y-auto">
+        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-stone-900">Register for {eventName}</h2>
+            {who && accessible.length <= 1 && (
+              <p className="text-xs text-stone-500 truncate">Registering {who.firstName} {who.lastName}</p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-700 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          {accessible.length > 1 && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Who are you registering?</label>
+              <select value={who?.id ?? ""} onChange={(e) => onMemberChange(e.target.value)} className={inputCls}>
+                {accessible.map((a) => (
+                  <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {prompt.intro && <p className="text-sm text-stone-500 whitespace-pre-wrap">{prompt.intro}</p>}
+          {prompt.fields.map((f) => (
+            <div key={f.id}>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                {f.label}{f.required ? " *" : ""}
+              </label>
+              {f.type === "select" ? (
+                <select
+                  value={(answers[f.id] as string) || ""}
+                  onChange={(e) => { setAnswers((a) => ({ ...a, [f.id]: e.target.value })); setErr(""); }}
+                  className={inputCls}
+                >
+                  <option value="">Select…</option>
+                  {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : f.type === "checkbox" ? (
+                <label className="flex items-center gap-2 text-sm text-stone-700 min-h-[44px]">
+                  <input type="checkbox" checked={!!answers[f.id]} onChange={(e) => { setAnswers((a) => ({ ...a, [f.id]: e.target.checked })); setErr(""); }} />
+                  Yes
+                </label>
+              ) : f.type === "textarea" ? (
+                <textarea
+                  rows={3}
+                  value={(answers[f.id] as string) || ""}
+                  onChange={(e) => { setAnswers((a) => ({ ...a, [f.id]: e.target.value })); setErr(""); }}
+                  className={inputCls}
+                />
+              ) : (
+                <input
+                  type={f.type === "email" ? "email" : f.type === "phone" ? "tel" : "text"}
+                  value={(answers[f.id] as string) || ""}
+                  onChange={(e) => { setAnswers((a) => ({ ...a, [f.id]: e.target.value })); setErr(""); }}
+                  className={inputCls}
+                />
+              )}
+            </div>
+          ))}
+          {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
+          <button type="submit" className="w-full py-3 rounded-lg bg-stone-900 text-white text-sm font-semibold">
+            Continue
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
-import { eventAllowedPaymentMethods, capacityWhere, resolveEventPolicy } from "@/lib/eventPayments";
+import {
+  eventAllowedPaymentMethods,
+  capacityWhere,
+  resolveEventPolicy,
+  publicSignupRequiresAccount,
+} from "@/lib/eventPayments";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { documentsForEvent } from "@/lib/eventDocuments";
 
@@ -42,6 +47,11 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       variableCostEstimatedSignups: true,
       variableCostEstimatedTotal: true,
       paymentMethods: true,
+      autoChargeDate: true,
+      // Whether the portal can register for it too (same filter the member
+      // events route and register route apply).
+      visibility: true,
+      purchaseAccess: true,
       // Phase 5 §5.3.3 — the public page must say, before the pay picker, that
       // a coach still has to review this. Resolved through the policy walker,
       // never read off the column directly.
@@ -54,7 +64,19 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       deletedAt: true,
       registrationDeadline: true,
       location: { select: { name: true, address: true, latitude: true, longitude: true } },
-      club: { select: { id: true, name: true, logoUrl: true, primaryColor: true } },
+      // Stripe fields are read to decide what the page can offer and are never
+      // returned — the response names each club field it sends.
+      club: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          logoUrl: true,
+          primaryColor: true,
+          stripeAccountId: true,
+          stripeChargesEnabled: true,
+        },
+      },
       // Spot-holding registrations only — see capacityWhere: an in-flight
       // card checkout still holds its spot, an abandoned one has released it.
       _count: {
@@ -137,7 +159,13 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     imagePositionY: event.imagePositionY,
     location: event.location,
     // Public page — rewrite the session-gated logo path to the public endpoint.
-    club: { ...event.club, logoUrl: publicClubLogoUrl(event.club.id, event.club.logoUrl) },
+    club: {
+      id: event.club.id,
+      name: event.club.name,
+      slug: event.club.slug,
+      primaryColor: event.club.primaryColor,
+      logoUrl: publicClubLogoUrl(event.club.id, event.club.logoUrl),
+    },
     isTournament: event.isTournament,
     tournamentMode: event.tournamentMode,
     publicFormIntro: event.publicFormIntro,
@@ -165,6 +193,22 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
         publicPolicy.approvalPaymentIntent === "APPROVAL_CHARGE"),
     cancellationPolicyText: publicPolicy.cancellationPolicyText,
     documents,
+    autoChargeDate: event.autoChargeDate,
+    // The only way to pay is a card saved on an account (AUTO_CARD), so the
+    // family signs in and registers from the portal. Same rule the register
+    // route answers ACCOUNT_REQUIRED with — lib/eventPayments.
+    accountRequired: publicSignupRequiresAccount({
+      allowed: eventAllowedPaymentMethods(event),
+      stripeReady: !!event.club.stripeAccountId && !!event.club.stripeChargesEnabled,
+      owesMoney: !event.variableCostEnabled && registrationListPrice(event) > 0,
+      billOnApproval:
+        publicPolicy.requiresCoachApproval &&
+        (publicPolicy.approvalPaymentIntent === "INVOICE" || publicPolicy.approvalPaymentIntent === "APPROVAL_CHARGE"),
+    }),
+    // The portal lists and registers events with these two settings; when
+    // either is off, "sign in to register" would lead nowhere.
+    portalAvailable:
+      (event.visibility === "PUBLIC" || event.visibility === "MEMBERS_ONLY") && event.purchaseAccess === "ANYONE",
     // Slice 2: signupAccess is the answer; STAFF_ONLY closes the link even on a
     // hosted tournament, PUBLIC_LINK opens it. The legacy flag is kept in sync
     // by every write, so this reads the same as before for untouched events.

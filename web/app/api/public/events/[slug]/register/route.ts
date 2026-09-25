@@ -16,7 +16,9 @@ import {
   capacityWhere,
   resolveEventPolicy,
   EVENT_PAYMENT_METHOD_LABELS,
+  publicSignupRequiresAccount,
 } from "@/lib/eventPayments";
+import { eventFormFields, validateFormResponses } from "@/lib/eventForm";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
@@ -123,16 +125,14 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({ error: "This event is full" }, { status: 409 });
   }
 
-  // Validate required custom-form fields.
-  const form = (event.registrationForm as Array<{ id: string; label: string; required: boolean }> | null) ?? [];
-  for (const f of form) {
-    if (f.required) {
-      const v = body.formResponses[f.id];
-      if (v === undefined || v === "" || v === false) {
-        return NextResponse.json({ error: `"${f.label}" is required` }, { status: 400 });
-      }
-    }
+  // The event's questions — the one validator the portal uses too
+  // (lib/eventForm): required answered, select answers from the list, and
+  // only the event's own keys kept.
+  const formCheck = validateFormResponses(eventFormFields(event.registrationForm), body.formResponses);
+  if (!formCheck.ok) {
+    return NextResponse.json({ error: formCheck.message }, { status: 400 });
   }
+  const formAnswers = formCheck.answers;
 
   // Event documents: anything above INFO requires an explicit acknowledgement
   // tick before the registration is accepted.
@@ -230,6 +230,17 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
 
   let method: "CARD" | "CASH" | "CHECK" | null = null;
   if (needsDecision) {
+    // Saved card only — that needs an account, so the answer is "sign in",
+    // not "contact the club" (Finger Lakes Duals, 2026-09-24).
+    if (publicSignupRequiresAccount({ allowed: eventAllowedPaymentMethods(event), stripeReady, owesMoney: true, billOnApproval })) {
+      return NextResponse.json(
+        {
+          error: "ACCOUNT_REQUIRED",
+          message: "This event charges a card saved on your family's account. Sign in to register.",
+        },
+        { status: 409 },
+      );
+    }
     if (selectable.length === 0) {
       // Owner allows only card but hasn't connected Stripe — don't strand the
       // registrant in a half-state; tell them to contact the club.
@@ -266,7 +277,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       email: body.email.toLowerCase(),
       phone: body.phone || null,
       formResponses: {
-        ...body.formResponses,
+        ...formAnswers,
         ...(gatedDocs.length > 0
           ? { __documentsAcknowledged: `${new Date().toISOString()} — ${gatedDocs.map((d) => d.title).join("; ")}` }
           : {}),

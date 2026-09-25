@@ -25,7 +25,7 @@ type PublicEvent = {
   imagePositionX: number;
   imagePositionY: number;
   location: { name: string; address: string | null; latitude: number | null; longitude: number | null } | null;
-  club: { name: string; logoUrl: string | null; primaryColor: string | null };
+  club: { name: string; slug?: string | null; logoUrl: string | null; primaryColor: string | null };
   isTournament: boolean;
   tournamentMode: string | null;
   publicFormIntro: string | null;
@@ -42,6 +42,12 @@ type PublicEvent = {
   billOnApproval?: boolean;
   cancellationPolicyText?: string | null;
   documents?: { id: string; title: string; type: string; body: string | null; requirement: string }[];
+  autoChargeDate?: string | null;
+  // The only way to pay is a card saved on an account — sign in instead of
+  // filling the anonymous form (lib/eventPayments.publicSignupRequiresAccount).
+  accountRequired?: boolean;
+  // The portal can register for this event (visibility + purchase access).
+  portalAvailable?: boolean;
 };
 
 // What each public payment choice means to the registrant. AUTO_CARD is
@@ -188,7 +194,13 @@ export default function PublicEventPage() {
     const d = await res.json().catch(() => ({}));
     setSubmitting(false);
     if (!res.ok) {
-      setError(typeof d.error === "string" ? d.error : "Registration failed");
+      setError(
+        d.error === "ACCOUNT_REQUIRED" && typeof d.message === "string"
+          ? d.message
+          : typeof d.error === "string"
+            ? d.error
+            : "Registration failed",
+      );
       return;
     }
     if (d.url) {
@@ -212,6 +224,17 @@ export default function PublicEventPage() {
   }
 
   const accent = event?.club.primaryColor || "#534AB7";
+
+  // Signing in from this page lands on the portal's registration for THIS
+  // event (the login page only honours /member paths — a /e/ callback was
+  // dropped, which is why signing in used to strand families on the portal
+  // home). When the portal can't register for it, sign-in comes back here.
+  const portalHref = event?.portalAvailable ? `/member/events?event=${encodeURIComponent(event.id)}` : null;
+  const signInHref = `/login?role=member${event?.club.slug ? `&club=${encodeURIComponent(event.club.slug)}` : ""}&callbackUrl=${encodeURIComponent(portalHref ?? `/e/${slug}`)}`;
+  const signedInMember = session?.user?.role === "MEMBER";
+  const chargeDayLabel = event?.autoChargeDate
+    ? new Date(event.autoChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
+    : null;
 
   if (loading) {
     return <div className="min-h-screen bg-stone-50 flex items-center justify-center text-stone-400 text-sm">Loading…</div>;
@@ -252,7 +275,7 @@ export default function PublicEventPage() {
               </Link>
             ) : (
               <Link
-                href={`/login?callbackUrl=${encodeURIComponent(`/e/${slug}`)}`}
+                href={signInHref}
                 className="text-xs px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50"
               >
                 Member sign in
@@ -327,21 +350,17 @@ export default function PublicEventPage() {
           {session?.user?.role === "MEMBER" ? (
             <div className="mt-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 flex items-center justify-between gap-2">
               <span>You&apos;re signed in. Register from your member portal to use member pricing or your active membership.</span>
-              <Link href="/member/events" className="inline-flex items-center gap-1 underline whitespace-nowrap" style={{ color: accent }}>
+              <Link href={portalHref ?? "/member/events"} className="inline-flex items-center gap-1 underline whitespace-nowrap" style={{ color: accent }}>
                 Open portal <ArrowRight className="h-3 w-3" strokeWidth={2.5} />
               </Link>
             </div>
           ) : !session?.user ? (
             <div className="mt-3 rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700">
               Already a member of {event.club.name}?{" "}
-              <Link
-                href={`/login?callbackUrl=${encodeURIComponent(`/e/${slug}`)}`}
-                className="underline"
-                style={{ color: accent }}
-              >
+              <Link href={signInHref} className="underline" style={{ color: accent }}>
                 Sign in
               </Link>{" "}
-              to use your member pricing.
+              to register from your account{event.accountRequired ? "" : " with your member pricing"}.
             </div>
           ) : null}
         </div>
@@ -369,6 +388,45 @@ export default function PublicEventPage() {
                 been in a position to know that. */}
             <p className="text-sm text-stone-500">
               Check your inbox at {email} — and your club can always look this up for you.
+            </p>
+          </div>
+        ) : event.registrationOpen && signedInMember && portalHref ? (
+          <div className="bg-white rounded-xl border border-stone-200 p-6 text-center">
+            <h2 className="text-base font-semibold text-stone-900 mb-1">You&apos;re signed in</h2>
+            <p className="text-sm text-stone-500 mb-4">
+              Register from your account — it knows who you are, your member price, and your saved card.
+            </p>
+            <Link
+              href={portalHref}
+              className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg text-white text-sm font-semibold"
+              style={{ background: accent }}
+            >
+              Continue to register <ArrowRight className="h-4 w-4" strokeWidth={2.5} />
+            </Link>
+          </div>
+        ) : event.registrationOpen && event.accountRequired ? (
+          <div className="bg-white rounded-xl border border-stone-200 p-6">
+            <h2 className="text-base font-semibold text-stone-900 mb-1">Register from your family&apos;s account</h2>
+            {event.publicFormIntro && (
+              <p className="text-sm text-stone-500 mt-1 mb-3 whitespace-pre-wrap">{event.publicFormIntro}</p>
+            )}
+            <p className="text-sm text-stone-700 mb-4">
+              This event charges the card saved on your account{chargeDayLabel ? ` on ${chargeDayLabel}` : " later"} — nothing is
+              charged today. Sign in and you&apos;ll go straight to the registration.
+            </p>
+            {portalHref ? (
+              <Link
+                href={signInHref}
+                className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg text-white text-sm font-semibold"
+                style={{ background: accent }}
+              >
+                Sign in to register <ArrowRight className="h-4 w-4" strokeWidth={2.5} />
+              </Link>
+            ) : (
+              <p className="text-sm text-stone-500">Contact {event.club.name} to register.</p>
+            )}
+            <p className="text-xs text-stone-500 mt-3">
+              No account with {event.club.name} yet? Contact the club and they&apos;ll send you an invite.
             </p>
           </div>
         ) : !event.registrationOpen ? (

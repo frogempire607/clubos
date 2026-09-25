@@ -148,6 +148,8 @@ export type RenderEvent = PricingEvent & {
   registrationDeadline?: Date | null;
   cancellationPolicyText?: string | null;
   variableCostMode?: string | null;
+  /** AUTO_CARD's charge date when the owner set one; else the event start. */
+  autoChargeDate?: Date | string | null;
 };
 
 export type RenderInput = {
@@ -435,6 +437,8 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
           ? `Nothing charged yet. ${cardLabel ? `Your ${cardLabel}` : "Your saved card"} will be charged ${amt} the moment your coach approves.`
           : reg.paymentMethod === "INVOICE"
             ? "Nothing charged yet — no card required. Your club will send a payment link once your coach approves."
+            : reg.paymentMethod === "AUTO_CARD"
+              ? `Nothing charged yet. If your coach approves, ${cardLabel ? `your ${cardLabel}` : "your saved card"} is charged ${amt} on ${fmtDay(toDate(event.autoChargeDate) ?? event.startsAt, tz)}. If they don't, nothing is charged.`
             : reg.paymentMethod === "CASH" || reg.paymentMethod === "CHECK"
               ? `You'll bring ${amt} in ${reg.paymentMethod.toLowerCase()} if your coach approves.`
               : reg.status === "PAID" || (amountPaid ?? 0) > 0
@@ -464,7 +468,7 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
     case "SCHEDULED_EVENT_DATE": {
       headline = "You're registered";
       chargeTiming = chargeDate
-        ? `${cardLabel ? `Your ${cardLabel}` : "Your saved card"} will be charged ${money(owed)} on ${fmtDay(chargeDate, tz)} (event day).`
+        ? `${cardLabel ? `Your ${cardLabel}` : "Your saved card"} will be charged ${money(owed)} on ${fmtDay(chargeDate, tz)}${event.autoChargeDate ? "" : " (event day)"}.`
         : `${cardLabel ? `Your ${cardLabel}` : "Your saved card"} will be charged ${money(owed)} on the event date.`;
       primary = calendar;
       break;

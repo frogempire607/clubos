@@ -574,7 +574,13 @@ export async function POST(req: Request) {
         }
 
         // ── Event charge checkout ────────────────────────────────────────────
-        if (memberId && eventId) {
+        // Registration-backed checkouts (eventRegistrationId set) are settled
+        // by their own branch below. The portal's approval CARD path puts
+        // memberId + eventId in the metadata too, so without this guard one
+        // payment wrote TWO Transactions and booked a spot the coach had not
+        // approved. Never happened in production (checked 2026-09-24: zero
+        // such registrations) — closed before it could.
+        if (memberId && eventId && !eventRegistrationId) {
           await prisma.transaction.create({
             data: {
               clubId,

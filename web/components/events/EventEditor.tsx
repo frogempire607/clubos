@@ -756,7 +756,7 @@ export default function EventEditor({
           {categories.map((c, i) => (
             <div key={c.key} className="rounded-lg border border-app-border p-2.5 mb-2 space-y-1.5">
               <div className="flex gap-2">
-                <input value={c.label} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="Weight class" className={input} />
+                <input value={c.label} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))} placeholder="e.g. Division" className={input} />
                 <button type="button" onClick={() => setCategories((cs) => cs.filter((_, idx) => idx !== i))} className="text-xs text-red-600 px-2">Remove</button>
               </div>
               <textarea value={c.optionsText} onChange={(e) => setCategories((cs) => cs.map((x, idx) => (idx === i ? { ...x, optionsText: e.target.value } : x)))} rows={2} placeholder={"One choice per line — leave empty for free text"} className={input} />
