@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. Order: (B5 built 09-25) → B7 once class "Accepted Memberships" is option-aware. B2 waits on A3.
+- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. Order: (B5 built 09-25) → (B7 code built 09-25; Julian runs collapse steps 6–9). B2 waits on A3.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
@@ -193,9 +193,21 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [ ] **B6 · Phase 4.5 backlog: 13 partial, 16 missing** · needs Capacitor shell
   Mostly the mobile-native layer.
 
-- [ ] **B7 · Phase 8 Steps 6–7 — collapse the two MS/HS plans** · BLOCKED: class "Accepted
-  Memberships" must become option-aware first
-  Maximus, Chase and Blake need repointing once merged.
+- [ ] **B7 · Phase 8 Steps 6–9 — collapse the commitment plans** · CODE BUILT 2026-09-25 on `claude/b7-option-acceptance`
+  (no migration); DATA STEPS are Julian's (dry run → review → --apply, one step per run).
+  Unblocker shipped: class "Accepted Memberships" is option-aware — a pricingOptions row may carry `optionIds`
+  (absent = every option, so every existing class means what it meant). `lib/acceptedPlans.ts` (pure) +
+  `resolveSessionCoverage({acceptedPlans})` → new reason `OPTION_NOT_ACCEPTED` (warns, drop-in quoted), wired through
+  coverageQuery (attendance panel, staff charge, member booking), member schedule, and self check-in. Class editor:
+  per plan "Every option / Only some" with option checkboxes (shows day limits). Tests `npm run test:accepted-plans` (33).
+  `scripts/collapse-membership-plans.ts` now has steps 6 (repoint subs + equal-amount PLAN_CHANGED, Stripe untouched),
+  7 (Member.membershipId), 8 (active=false + remove from class/event pricingOptions; refuses while live subs remain),
+  9 (verify, read-only). Commitment plans are looked up incl. soft-deleted.
+  Live data 09-25: Maximus (12 months $150 → MS/HS opt_3xh5n1p2ax, endDate 2027-08-09 kept), Blake (3 Months $160,
+  optionId null → opt_yci81fy0r7, no member pointer), chase (Jr Frogs 3 months $90 → opt_ol0m4moqyy) — chase's plan
+  "Jr Frogs Monthly Commitment" was SOFT-DELETED 08-25 while his Stripe sub still pointed at it. Coverage unchanged
+  for all three (Step 0 stopgap had the commitment plans on the same classes as their parents).
+  Not in scope: Jr Frogs has no "12 months $80" option any more (nobody on it); minimumTermEndsAt is null on all three.
 
 - [x] **B8 · Review `claude/elated-noether-46e7d6`** · DONE — branch deleted (confirmed gone 2026-09-22). Was:
   `cd ~/Desktop/clubos && git worktree remove --force web/.claude/worktrees/nifty-pasteur-1ecb47 && git branch -D claude/elated-noether-46e7d6 && git worktree prune`

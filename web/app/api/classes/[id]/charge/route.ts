@@ -149,7 +149,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                 entitledDays: verdict?.entitledDays ?? null,
                 dropIn: verdict?.dropIn ?? null,
               }
-            : { error: "Member does not have an active accepted membership" },
+            : verdict?.reason === "OPTION_NOT_ACCEPTED"
+              ? {
+                  error: `${member.firstName}'s ${verdict.optionLabel ?? "option"} isn't included in this class. Charge a drop-in instead.`,
+                  code: "OPTION_NOT_ACCEPTED",
+                  dropIn: verdict.dropIn ?? null,
+                }
+              : { error: "Member does not have an active accepted membership" },
           { status: 400 },
         );
       }

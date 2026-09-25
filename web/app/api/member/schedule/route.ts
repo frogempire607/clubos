@@ -13,6 +13,7 @@ import { FAMILY_SCOPE } from "@/lib/activeProfile";
 import { parseOptions } from "@/lib/membershipOptions";
 import { resolveSessionCoverage, type CoverageSubscription } from "@/lib/entitlements";
 import { dropInFrom, sessionWeekday } from "@/lib/coverageQuery";
+import { acceptedPlansFrom } from "@/lib/acceptedPlans";
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
@@ -446,6 +447,7 @@ export async function GET(req: Request) {
         const verdict = resolveSessionCoverage({
           subscriptions: st.coverageSubs,
           acceptedMembershipIds,
+          acceptedPlans: acceptedPlansFrom(sessionItem.recurringClass.pricingOptions),
           sessionWeekday: sessionWeekday(sessionItem.date),
           sessionAt: sessionItem.startsAt,
           dropIn: dropInFrom(sessionItem.recurringClass.pricingOptions),

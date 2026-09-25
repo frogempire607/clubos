@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { parseOptions } from "@/lib/membershipOptions";
+import { acceptedPlansFrom, type AcceptedPlan } from "@/lib/acceptedPlans";
 import {
   resolveSessionCoverage,
   shouldWarn,
@@ -24,7 +25,7 @@ export type CoverageVerdictWire = CoverageVerdict & { warn: boolean };
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
-  | { type: "membership"; membershipId: string };
+  | { type: "membership"; membershipId: string; optionIds?: string[] };
 
 export function parsePricingOptions(raw: unknown): PricingOption[] {
   return (raw as PricingOption[] | null) || [];
@@ -68,6 +69,8 @@ export function sessionWeekday(date: Date): number {
 
 export type SessionCoverageContext = {
   acceptedMembershipIds: string[];
+  /** B7 — with each plan's option restriction. */
+  acceptedPlans: AcceptedPlan[];
   weekday: number;
   startsAt: Date;
   dropIn: { amount: number; source: "dropin" | "nonmember" } | null;
@@ -90,6 +93,7 @@ export async function loadSessionCoverageContext(
   const raw = cs.recurringClass.pricingOptions;
   return {
     acceptedMembershipIds: acceptedMembershipIdsFrom(raw),
+    acceptedPlans: acceptedPlansFrom(raw),
     weekday: sessionWeekday(cs.date),
     startsAt: cs.startsAt,
     dropIn: dropInFrom(raw),
@@ -159,6 +163,7 @@ export async function coverageForMembers(
     const verdict = resolveSessionCoverage({
       subscriptions: byMember.get(memberId) ?? [],
       acceptedMembershipIds: ctx.acceptedMembershipIds,
+      acceptedPlans: ctx.acceptedPlans,
       sessionWeekday: ctx.weekday,
       sessionAt: ctx.startsAt,
       dropIn: ctx.dropIn,

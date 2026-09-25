@@ -12,7 +12,6 @@
  *   3  Append the commitment options to the parent plan (MS/HS, Jr Frogs)
  *   4  Set per-option contractMonths, and clear the plan-level fallback
  *   5  Set per-option entitlements (which DAYS an option buys)
- *   5  Set per-option entitlements
  *   6  Repoint live subscriptions onto the parent plan + its new option ids
  *   7  Repoint Member.membershipId for those members
  *   8  Deactivate the commitment plans AND remove them from class pricingOptions
@@ -26,6 +25,7 @@
  */
 import { prisma } from "../lib/prisma";
 import { acceptedMembershipIdsFrom } from "../lib/coverageQuery";
+import { acceptedPlansFrom, removePlanFromPricing, subscriptionAccepted } from "../lib/acceptedPlans";
 import {
   ENTITLEMENT_ALL,
   describeDays,
@@ -638,6 +638,216 @@ async function step5() {
   }
 }
 
+// ── Steps 6–9 (B7) ──────────────────────────────────────────────────────────
+//
+// The commitment plans are looked up INCLUDING soft-deleted rows: "Jr Frogs
+// Monthly Commitment" was soft-deleted from the UI on 2026-08-25 while chase
+// Robertson's live Stripe subscription still pointed at it — exactly the
+// stranded row these steps exist to fix.
+//
+// Nothing here touches Stripe. A repoint changes which LOCAL plan row a
+// subscription points at; price, billing period, stripeSubscriptionId, anchor
+// and endDate are untouched, and the PLAN_CHANGED event carries equal amounts
+// so Reports never reads it as a price movement.
+
+const LIVE = ["active", "pending", "past_due", "paused"];
+
+async function commitmentByName(name: string) {
+  const rows = await prisma.membership.findMany({
+    where: { name, club: { name: CLUB_NAME } },
+    select: { id: true, name: true, options: true, active: true, deletedAt: true, clubId: true },
+  });
+  if (rows.length !== 1) throw new Error(`Expected exactly one plan named "${name}" (any state), found ${rows.length}. Refusing.`);
+  return rows[0];
+}
+
+/** Parent option for a commitment subscription: exact label+period+price, else unique period+price. */
+function targetOption(parentOpts: MembershipOption[], s: { optionLabel: string | null; price: unknown; billingPeriod: string | null }) {
+  const price = Number(s.price);
+  const byLabel = parentOpts.filter((o) => o.label === s.optionLabel && o.billingPeriod === s.billingPeriod && o.price === price);
+  if (byLabel.length === 1) return { option: byLabel[0], how: "label" as const };
+  const byShape = parentOpts.filter((o) => o.billingPeriod === s.billingPeriod && o.price === price);
+  if (byShape.length === 1) return { option: byShape[0], how: "price" as const };
+  return null;
+}
+
+async function ownerId(clubId: string) {
+  const u = await prisma.user.findFirst({ where: { clubId, role: "OWNER" }, select: { id: true }, orderBy: { createdAt: "asc" } });
+  return u?.id ?? null;
+}
+
+async function step6() {
+  console.log("STEP 6 — repoint live subscriptions onto the parent plan + its option ids\n");
+  console.log("Writes:  member_subscriptions.membershipId / optionId / optionLabel, and one");
+  console.log("         PLAN_CHANGED member_subscription_events row each (equal amounts).");
+  console.log("Does NOT touch: Stripe, price, billing period, endDate, minimumTermEndsAt.\n");
+  let blocked = false;
+  for (const c of COLLAPSES) {
+    const parent = await planByName(c.parent);
+    const commit = await commitmentByName(c.commitment);
+    const parentOpts = parseOptions(parent.options);
+    const subs = await prisma.memberSubscription.findMany({
+      where: { membershipId: commit.id, status: { in: LIVE } },
+      select: {
+        id: true, status: true, optionId: true, optionLabel: true, price: true, billingPeriod: true,
+        stripeSubscriptionId: true, endDate: true,
+        member: { select: { id: true, firstName: true, lastName: true, deletedAt: true } },
+      },
+    });
+    console.log(`── ${commit.name} → ${parent.name}   (${subs.length} live${commit.deletedAt ? ", commitment plan is SOFT-DELETED" : ""})`);
+    if (subs.length === 0) { console.log("   nothing to repoint.\n"); continue; }
+    const plan: Array<{ s: (typeof subs)[number]; to: MembershipOption }> = [];
+    for (const s of subs) {
+      const who = `${s.member.firstName} ${s.member.lastName}${s.member.deletedAt ? " (ARCHIVED member)" : ""}`;
+      const t = targetOption(parentOpts, s);
+      if (!t || !t.option.id) {
+        console.error(`   ✗ ${who}: "${s.optionLabel}" $${Number(s.price)} ${s.billingPeriod} has no unique match on ${parent.name}. Refusing.`);
+        blocked = true; process.exitCode = 1; continue;
+      }
+      console.log(`   ${who}  [${s.status}${s.stripeSubscriptionId ? `, Stripe ${s.stripeSubscriptionId}` : ", offline"}]`);
+      console.log(`     "${s.optionLabel}" $${Number(s.price)} ${s.billingPeriod}  optionId ${s.optionId ?? "null"}`);
+      console.log(`     → ${parent.name} · ${t.option.label} (${t.option.id})${t.how === "price" ? "  ! matched by price, not label" : ""}`);
+      console.log(`     endDate ${s.endDate ? s.endDate.toISOString().slice(0, 10) : "none"} — unchanged`);
+      plan.push({ s, to: t.option });
+    }
+    console.log("");
+    if (APPLY && !blocked) {
+      const actor = await ownerId(parent.clubId);
+      for (const { s, to } of plan) {
+        await prisma.$transaction(async (tx) => {
+          await tx.memberSubscription.update({
+            where: { id: s.id },
+            data: { membershipId: parent.id, optionId: to.id, optionLabel: to.label },
+          });
+          await tx.memberSubscriptionEvent.create({
+            data: {
+              clubId: parent.clubId, memberSubscriptionId: s.id, memberId: s.member.id,
+              kind: "PLAN_CHANGED", fromPlan: commit.name, toPlan: parent.name,
+              fromAmount: String(Number(s.price)), toAmount: String(Number(s.price)),
+              actorUserId: actor, source: "OWNER_ACTION",
+              detail: { reason: "plan collapse (B7)", stripeUntouched: true, fromMembershipId: commit.id, toMembershipId: parent.id, fromOptionId: s.optionId, toOptionId: to.id } as never,
+            },
+          });
+        });
+        const back = await prisma.memberSubscription.findUnique({ where: { id: s.id }, select: { membershipId: true, optionId: true, price: true, billingPeriod: true, stripeSubscriptionId: true } });
+        const ok = back?.membershipId === parent.id && back.optionId === to.id && Number(back.price) === Number(s.price)
+          && back.billingPeriod === s.billingPeriod && back.stripeSubscriptionId === s.stripeSubscriptionId;
+        console.log(`   ${ok ? "WROTE" : "WROTE, READ-BACK DISAGREES — INVESTIGATE"}: ${s.member.firstName} ${s.member.lastName}`);
+        if (!ok) process.exitCode = 1;
+      }
+      console.log("");
+    }
+  }
+  console.log(APPLY ? (blocked ? "Step 6 refused — nothing written." : "Step 6 done. Next: --step 7 (dry run).")
+    : blocked ? "── DRY RUN ── --apply would refuse. See ✗ lines." : "── DRY RUN ── nothing written. Re-run with --apply.");
+}
+
+async function step7() {
+  console.log("STEP 7 — repoint Member.membershipId (the 'current plan' pointer)\n");
+  console.log("Writes:  members.membershipId only. Pointers at the commitment plan move to the");
+  console.log("         parent; a member whose live sub is on the parent but has NO pointer gets");
+  console.log("         the parent too (renewal quotes read it). Anything else is left alone.\n");
+  for (const c of COLLAPSES) {
+    const parent = await planByName(c.parent);
+    const commit = await commitmentByName(c.commitment);
+    const stale = await prisma.member.findMany({
+      where: { membershipId: commit.id },
+      select: { id: true, firstName: true, lastName: true, deletedAt: true },
+    });
+    const repointedSubs = await prisma.memberSubscriptionEvent.findMany({
+      where: { kind: "PLAN_CHANGED", fromPlan: commit.name, toPlan: parent.name },
+      select: { memberId: true },
+    });
+    const nullPtr = repointedSubs.length
+      ? await prisma.member.findMany({
+          where: { id: { in: repointedSubs.map((r) => r.memberId) }, membershipId: null },
+          select: { id: true, firstName: true, lastName: true, deletedAt: true },
+        })
+      : [];
+    const todo = [...stale, ...nullPtr.filter((n) => !stale.some((x) => x.id === n.id))];
+    console.log(`── ${commit.name} → ${parent.name}: ${stale.length} pointing at the commitment, ${nullPtr.length} with no pointer`);
+    for (const m of todo) console.log(`   ${m.firstName} ${m.lastName}${m.deletedAt ? " (archived)" : ""} → ${parent.name}`);
+    if (APPLY && todo.length) {
+      await prisma.member.updateMany({ where: { id: { in: todo.map((m) => m.id) } }, data: { membershipId: parent.id } });
+      const left = await prisma.member.count({ where: { membershipId: commit.id } });
+      console.log(`   WROTE. ${left} member(s) still point at ${commit.name}.`);
+      if (left) process.exitCode = 1;
+    }
+    console.log("");
+  }
+  console.log(APPLY ? "Step 7 done. Next: --step 8 (dry run)." : "── DRY RUN ── nothing written. Re-run with --apply.");
+}
+
+async function step8() {
+  console.log("STEP 8 — deactivate the commitment plans and remove them from every class/event\n");
+  console.log("Writes:  memberships.active = false (NOT deletedAt — history must stay readable),");
+  console.log("         and drops their rows from recurring_classes / events pricingOptions.");
+  console.log("Refuses while any live subscription still points at a commitment plan.\n");
+  let blocked = false;
+  for (const c of COLLAPSES) {
+    const commit = await commitmentByName(c.commitment);
+    const live = await prisma.memberSubscription.count({ where: { membershipId: commit.id, status: { in: LIVE } } });
+    const history = await prisma.memberSubscription.count({ where: { membershipId: commit.id } });
+    console.log(`── ${commit.name} (${commit.id})  active=${commit.active}${commit.deletedAt ? ", soft-deleted" : ""}`);
+    console.log(`   ${live} live subscription(s), ${history} in total (history stays attached)`);
+    if (live > 0) { console.error("   ✗ REFUSING: run step 6 first."); blocked = true; process.exitCode = 1; console.log(""); continue; }
+    const classes = await prisma.recurringClass.findMany({ where: { clubId: commit.clubId }, select: { id: true, name: true, deletedAt: true, pricingOptions: true } });
+    const events = await prisma.event.findMany({ where: { clubId: commit.clubId }, select: { id: true, name: true, pricingOptions: true } });
+    const classHits = classes.map((k) => ({ k, r: removePlanFromPricing(k.pricingOptions, commit.id) })).filter((x) => x.r.removed > 0);
+    const eventHits = events.map((e) => ({ e, r: removePlanFromPricing(e.pricingOptions, commit.id) })).filter((x) => x.r.removed > 0);
+    for (const { k } of classHits) console.log(`   class: remove from ${k.name}${k.deletedAt ? " (deleted class)" : ""}`);
+    for (const { e } of eventHits) console.log(`   event: remove from ${e.name}`);
+    if (!classHits.length && !eventHits.length) console.log("   not listed on any class or event");
+    console.log(`   plan: active ${commit.active} → false`);
+    if (APPLY) {
+      await prisma.$transaction(async (tx) => {
+        for (const { k, r } of classHits) await tx.recurringClass.update({ where: { id: k.id }, data: { pricingOptions: r.next as never } });
+        for (const { e, r } of eventHits) await tx.event.update({ where: { id: e.id }, data: { pricingOptions: r.next as never } });
+        await tx.membership.update({ where: { id: commit.id }, data: { active: false } });
+      });
+      console.log("   WROTE.");
+    }
+    console.log("");
+  }
+  console.log(APPLY ? (blocked ? "Step 8 refused for the plan(s) above." : "Step 8 done. Next: --step 9 to verify.")
+    : blocked ? "── DRY RUN ── --apply would refuse. See ✗ lines." : "── DRY RUN ── nothing written. Re-run with --apply.");
+}
+
+async function step9() {
+  console.log("STEP 9 — verify (reads only)\n");
+  for (const c of COLLAPSES) {
+    const parent = await planByName(c.parent);
+    const commit = await commitmentByName(c.commitment);
+    const live = await prisma.memberSubscription.count({ where: { membershipId: commit.id, status: { in: LIVE } } });
+    const ptr = await prisma.member.count({ where: { membershipId: commit.id } });
+    const classes = await prisma.recurringClass.findMany({
+      where: { clubId: parent.clubId, deletedAt: null, active: true },
+      select: { name: true, daysOfWeek: true, pricingOptions: true },
+    });
+    const stillListed = classes.filter((k) => acceptedMembershipIdsFrom(k.pricingOptions).includes(commit.id)).map((k) => k.name);
+    const ok = live === 0 && ptr === 0 && stillListed.length === 0 && !commit.active;
+    console.log(`── ${commit.name}: ${ok ? "✓ fully collapsed" : "✗ NOT fully collapsed"}`);
+    console.log(`   live subs ${live} · member pointers ${ptr} · still on classes: ${stillListed.join(", ") || "none"} · active ${commit.active}`);
+    // What each repointed member is covered for now — the D4 check.
+    const moved = await prisma.memberSubscriptionEvent.findMany({
+      where: { kind: "PLAN_CHANGED", fromPlan: commit.name, toPlan: parent.name },
+      select: { memberSubscriptionId: true },
+    });
+    const parentOpts = parseOptions(parent.options);
+    for (const m of moved) {
+      const s = await prisma.memberSubscription.findUnique({
+        where: { id: m.memberSubscriptionId },
+        select: { membershipId: true, optionId: true, billingPeriod: true, price: true, status: true, member: { select: { firstName: true, lastName: true } } },
+      });
+      if (!s) continue;
+      const opt = parentOpts.find((o) => o.id === s.optionId);
+      const covers = classes.filter((k) => subscriptionAccepted(acceptedPlansFrom(k.pricingOptions), s, parentOpts).accepted && acceptedMembershipIdsFrom(k.pricingOptions).includes(s.membershipId));
+      console.log(`   ${s.member.firstName} ${s.member.lastName}: ${opt?.label ?? "?"} (${opt ? (opt.entitlement.kind === "DAYS" ? describeDays(opt.entitlement.days) : "all days") : "?"}) — accepted for ${covers.map((k) => k.name).join(", ") || "NO class"}`);
+    }
+    console.log("");
+  }
+}
+
 async function main() {
   if (!Number.isInteger(STEP)) {
     console.error("Refusing: --step <n> is required. One step per run, approved before it runs.");
@@ -647,8 +857,12 @@ async function main() {
     case 3: await step3(); break;
     case 4: await step4(); break;
     case 5: await step5(); break;
+    case 6: await step6(); break;
+    case 7: await step7(); break;
+    case 8: await step8(); break;
+    case 9: await step9(); break;
     default:
-      console.error(`Step ${STEP} is not implemented yet. Steps 6-9 land as they are approved.`);
+      console.error(`Step ${STEP} is not a step. Use 3–9.`);
       process.exit(1);
   }
 }

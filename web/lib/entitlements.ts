@@ -37,12 +37,15 @@ import {
   describeDays,
   type MembershipOption,
 } from "@/lib/membershipOptions";
+import { subscriptionAccepted, type AcceptedPlan } from "@/lib/acceptedPlans";
 
 export type CoverageReason =
   | "COVERED"
   | "NO_ACTIVE_MEMBERSHIP"
   | "PLAN_NOT_ACCEPTED"
   | "DAY_NOT_INCLUDED"
+  /** B7 — the plan is accepted, but only some of its options, and not this one. */
+  | "OPTION_NOT_ACCEPTED"
   | "TERM_ENDED"
   | "OPTION_UNIDENTIFIED"
   | "NO_ACCEPTED_PLANS";
@@ -81,6 +84,11 @@ export type CoverageInput = {
   subscriptions: CoverageSubscription[];
   /** membershipIds the class/event accepts. Empty = the class accepts no plan. */
   acceptedMembershipIds: string[];
+  /**
+   * B7 — the same list with each plan's option restriction (lib/acceptedPlans).
+   * Omitted = every option of every accepted plan (the pre-B7 meaning).
+   */
+  acceptedPlans?: AcceptedPlan[];
   /**
    * The session's weekday, 0=Sun.
    *
@@ -186,6 +194,27 @@ export function resolveSessionCoverage(input: CoverageInput): CoverageVerdict {
       continue;
     }
 
+    // B7 — the class may accept only some of this plan's options. Checked
+    // before the day, because "your option isn't accepted here" is the more
+    // fundamental answer. An unidentifiable option fails open (acceptedPlans).
+    if (input.acceptedPlans) {
+      const acc = subscriptionAccepted(input.acceptedPlans, sub, options);
+      if (!acc.accepted && acc.why === "OPTION_NOT_ACCEPTED") {
+        best = better(best, {
+          ...base,
+          covered: false,
+          reason: "OPTION_NOT_ACCEPTED",
+          planName,
+          optionLabel: acc.optionLabel,
+          optionResolution: res.resolution === "unresolved" ? "unresolved" : res.resolution,
+          message:
+            `${acc.optionLabel ?? "Their option"} (${planName ?? "membership"}) isn't included in this class. ` +
+            (dropIn ? `Drop-in $${fmt(dropIn.amount)}.` : "No drop-in price is set on this class."),
+        });
+        continue;
+      }
+    }
+
     // Cannot identify the option ⇒ cannot judge the day. Fail OPEN and say so.
     // These are exactly the rows whose billing is already unusual (a $0 comp, a
     // legacy rate, a quarterly sum on a monthly row); warning on them would
@@ -258,6 +287,7 @@ const dateStr = (d: Date) =>
 const RANK: Record<CoverageReason, number> = {
   COVERED: 100,
   DAY_NOT_INCLUDED: 40,
+  OPTION_NOT_ACCEPTED: 35,
   TERM_ENDED: 30,
   OPTION_UNIDENTIFIED: 20,
   PLAN_NOT_ACCEPTED: 10,
@@ -287,5 +317,5 @@ function better(current: CoverageVerdict | null, candidate: CoverageVerdict): Co
  * valid, accepted membership that does not reach this day.
  */
 export function shouldWarn(v: CoverageVerdict): boolean {
-  return v.reason === "DAY_NOT_INCLUDED" || v.reason === "TERM_ENDED";
+  return v.reason === "DAY_NOT_INCLUDED" || v.reason === "OPTION_NOT_ACCEPTED" || v.reason === "TERM_ENDED";
 }
