@@ -1821,6 +1821,10 @@ model EventRegistration {
   paymentUrl              String?
   stripeCheckoutSessionId String?
   stripePaymentIntentId   String?
+  // A public-link registrant's saved card (no account ⇒ no member to hold it).
+  // Charged by lib/eventAutoCharge when the registration has no member card.
+  guestStripeCustomerId      String?
+  guestStripePaymentMethodId String?
   // Mass-invoice tracking: when the most recent invoice/payment link was sent
   // and how many times this registrant has been invoiced.
   invoicedAt              DateTime?

@@ -21,6 +21,7 @@ import {
   REGISTRATION_STATUSES,
   isEventPaymentMethod,
   publicSignupRequiresAccount,
+  publicPaymentMethods,
   approvalOptionsFromEventMethods,
   approvedAutoCardChargeAt,
 } from "../lib/eventPayments";
@@ -181,13 +182,16 @@ console.log("\n— bundle payment decision —");
 console.log("\n— public link: sign in vs contact the club (Finger Lakes Duals, 2026-09-24) —");
 {
   const base = { stripeReady: true, owesMoney: true, billOnApproval: false };
-  check("saved-card-only event ⇒ sign in", publicSignupRequiresAccount({ ...base, allowed: ["AUTO_CARD"] }) === true);
+  check("saved-card-only event, Stripe connected ⇒ NO sign-in needed (guests save a card)", publicSignupRequiresAccount({ ...base, allowed: ["AUTO_CARD"] }) === false);
+  check("saved-card-only event, Stripe NOT connected ⇒ sign in", publicSignupRequiresAccount({ ...base, stripeReady: false, allowed: ["AUTO_CARD"] }) === true);
   check("saved card + cash ⇒ public can pay cash", publicSignupRequiresAccount({ ...base, allowed: ["AUTO_CARD", "CASH"] }) === false);
   check("saved card + card ⇒ public can pay by card", publicSignupRequiresAccount({ ...base, allowed: ["AUTO_CARD", "CARD"] }) === false);
   check(
-    "saved card + card, Stripe not connected ⇒ sign in (card unusable publicly)",
+    "saved card + card, Stripe not connected ⇒ sign in (neither usable publicly)",
     publicSignupRequiresAccount({ ...base, stripeReady: false, allowed: ["AUTO_CARD", "CARD"] }) === true,
   );
+  check("public methods: saved card offered when Stripe is connected", JSON.stringify(publicPaymentMethods(["AUTO_CARD", "CASH"], true)) === '["AUTO_CARD","CASH"]');
+  check("public methods: card + saved card dropped without Stripe", JSON.stringify(publicPaymentMethods(["AUTO_CARD", "CARD", "CASH"], false)) === '["CASH"]');
   check(
     "card only, Stripe not connected ⇒ NOT sign in (a real setup problem)",
     publicSignupRequiresAccount({ ...base, stripeReady: false, allowed: ["CARD"] }) === false,

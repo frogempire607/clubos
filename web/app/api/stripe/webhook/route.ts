@@ -16,6 +16,7 @@ import {
 import type Stripe from "stripe";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
+import { resolveEventPolicy, eventScheduledChargeAt } from "@/lib/eventPayments";
 import { settleBundlePurchase } from "@/lib/bundlePurchases";
 import {
   invoiceSubscriptionId,
@@ -404,6 +405,59 @@ export async function POST(req: Request) {
         // SETUP-mode checkout with NO charge and NO membership/migration side
         // effects: just persist the customer + payment method on the member so
         // future purchases and the billing portal can use it.
+        // ── Guest saved card on a public event link (2026-09-25) ─────────────
+        // The registrant has no account; the card is stored on the
+        // registration and the row moves to what a member's saved-card signup
+        // would have been: awaiting the coach (approval events) or a charge
+        // scheduled for the event's charge date. Nothing is charged here.
+        // Idempotent: only a row still PENDING_PAYMENT with paymentMethod
+        // AUTO_CARD moves.
+        if (session.metadata?.guestCardRegistrationId && session.mode === "setup") {
+          const regId = session.metadata.guestCardRegistrationId;
+          try {
+            const reg = await prisma.eventRegistration.findUnique({
+              where: { id: regId },
+              include: {
+                club: { select: { stripeAccountId: true } },
+                event: { select: { autoChargeDate: true, startsAt: true, requiresCoachApproval: true, customEventType: { select: { defaultPolicy: true } } } },
+              },
+            });
+            if (reg && reg.status === "PENDING_PAYMENT" && reg.paymentMethod === "AUTO_CARD") {
+              let pmId: string | null = null;
+              const siId = session.setup_intent as string | null;
+              if (siId && reg.club.stripeAccountId) {
+                try {
+                  const si = await stripe.setupIntents.retrieve(siId, { stripeAccount: reg.club.stripeAccountId });
+                  pmId = (si.payment_method as string) || null;
+                } catch (e) {
+                  console.error("Guest card SetupIntent retrieve failed:", e);
+                }
+              }
+              const gated = resolveEventPolicy(reg.event).requiresCoachApproval;
+              const now = new Date();
+              const chargeAt = eventScheduledChargeAt(reg.event);
+              await prisma.eventRegistration.update({
+                where: { id: reg.id },
+                data: {
+                  guestStripeCustomerId: (session.customer as string) || reg.guestStripeCustomerId,
+                  ...(pmId ? { guestStripePaymentMethodId: pmId } : {}),
+                  ...(gated
+                    ? { status: "PENDING_REVIEW", approvalStatus: "PENDING", approvalRequestedAt: now, scheduledChargeAt: null }
+                    : { status: "SCHEDULED", scheduledChargeAt: chargeAt.getTime() > now.getTime() ? chargeAt : now }),
+                },
+              });
+              try {
+                await sendRegistrationLifecycleEmail({ registrationId: reg.id, transition: "CONFIRMATION" });
+              } catch (e) {
+                console.error("Guest card confirmation email failed:", e);
+              }
+            }
+          } catch (e) {
+            console.error("Guest card webhook handling failed:", e);
+          }
+          break;
+        }
+
         if (session.metadata?.saveCardMemberId && session.mode === "setup") {
           const saveMemberId = session.metadata.saveCardMemberId;
           try {

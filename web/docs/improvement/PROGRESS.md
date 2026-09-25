@@ -5010,3 +5010,23 @@ No migration (the slice-2 migration carried the columns).
   "This is a copy — change the name, dates, charge date" banner and Basics/Schedule/How people pay open.
 
 Tests: event-roster 34 → 59. Guards and event suites unchanged and green.
+
+## 2026-09-25 — Guests can save a card on a public event link
+
+Julian, looking at the live Finger Lakes page: a family with no account (or a non-member) shouldn't have to contact
+the club to register. Decided: **save a card, charge later** — same promise a member gets.
+
+- Migration `20260927000000_guest_saved_card`: `event_registrations.guestStripeCustomerId`,
+  `guestStripePaymentMethodId` (a guest has no member row to hold the card).
+- `lib/eventPayments.publicPaymentMethods`: AUTO_CARD is a public method whenever Stripe is connected;
+  `publicSignupRequiresAccount` is now true only when Stripe isn't connected (tests 81 → 84).
+- Public POST: AUTO_CARD needs the ticked consent (stored as `autoChargeConsent` kind GUEST_SAVED_CARD with amount,
+  charge date, afterApproval). The row starts PENDING_PAYMENT with NO approval request, a Stripe customer is created on
+  the club's account, and the response is a Stripe **setup** Checkout (nothing charged).
+- Webhook (`metadata.guestCardRegistrationId`, mode setup): stores customer + payment method on the row, then
+  approval events → PENDING_REVIEW + approvalStatus PENDING (reaches Approvals only now, so abandoned card pages never
+  do); other events → SCHEDULED at the charge date. Sends the confirmation email. Idempotent on status.
+- `lib/eventAutoCharge`: a registration's own guest card wins over the member's; approval of an AUTO_CARD row already
+  schedules the charge date (slice from 09-24).
+- Public page: "Save a card — charged later" with the date and "only if the coach approves", a consent checkbox in
+  plain words, button "Save card & register — nothing charged today". Members can still sign in instead.

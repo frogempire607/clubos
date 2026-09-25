@@ -57,10 +57,12 @@ type PublicEvent = {
   entryRules?: { max: number; additionalEntryPrice: number | null; allowSameRosterTwice: boolean };
 };
 
-// What each public payment choice means to the registrant. AUTO_CARD is
-// member-only and never offered here.
+// What each public payment choice means to the registrant. AUTO_CARD (since
+// 2026-09-25): a guest saves a card on Stripe's secure page and is charged on
+// the event's charge date — its hint is written with that date at render.
 const PAY_CHOICES: Record<string, { label: string; hint: string }> = {
   CARD: { label: "Pay now by card", hint: "You'll be sent to a secure checkout page." },
+  AUTO_CARD: { label: "Save a card — charged later", hint: "Nothing is charged today." },
   CASH: { label: "Pay cash at the event", hint: "Bring the exact amount to the event." },
   CHECK: { label: "Pay by check at the event", hint: "Bring your check to the event." },
 };
@@ -82,6 +84,8 @@ export default function PublicEventPage() {
   const [done, setDone] = useState<null | { message: string }>(null);
   const [payMethod, setPayMethod] = useState<string>("");
   const [docsAcknowledged, setDocsAcknowledged] = useState(false);
+  // AUTO_CARD: the guest authorizes the later charge, in these words.
+  const [cardConsent, setCardConsent] = useState(false);
   // Discount code. `applied` is the server's verdict — the page never does its
   // own discount math, so what's shown here is what the register route will
   // charge. Typing again clears it, so a stale total can't sit on screen.
@@ -189,6 +193,10 @@ export default function PublicEventPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (needsPayChoice && payMethod === "AUTO_CARD" && !cardConsent) {
+      setError("Please confirm you authorize the charge.");
+      return;
+    }
     if (needsPayChoice && !payMethod) {
       setError("Please choose how you'd like to pay.");
       return;
@@ -219,6 +227,7 @@ export default function PublicEventPage() {
         formResponses: responses,
         ...(built.entries.length > 0 ? { entries: built.entries } : {}),
         ...(needsPayChoice ? { paymentMethod: payMethod } : {}),
+        ...(needsPayChoice && payMethod === "AUTO_CARD" && cardConsent ? { autoChargeConsent: { agreed: true, buttonLabel: cardConsentLabel } } : {}),
         ...(applied ? { discountCode: applied.code } : {}),
         ...(gatedDocs.length > 0 ? { acknowledgeDocuments: docsAcknowledged } : {}),
       }),
@@ -256,6 +265,10 @@ export default function PublicEventPage() {
   }
 
   const accent = event?.club.primaryColor || "#534AB7";
+  const cardChargeWhen = event?.autoChargeDate
+    ? `on ${new Date(event.autoChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}`
+    : "on the event date";
+  const cardConsentLabel = `I authorize ${event?.club.name ?? "the club"} to charge my card $${payableNow.toFixed(2)} (plus any card processing fee) ${cardChargeWhen}${event?.requiresCoachApproval ? " if the coach approves this registration" : ""}`;
 
   // Signing in from this page lands on the portal's registration for THIS
   // event (the login page only honours /member paths — a /e/ callback was
@@ -647,11 +660,21 @@ export default function PublicEventPage() {
                         <span className="block text-sm text-stone-900 font-medium">
                           {PAY_CHOICES[m].label}
                         </span>
-                        <span className="block text-xs text-stone-500">{PAY_CHOICES[m].hint}</span>
+                        <span className="block text-xs text-stone-500">
+                          {m === "AUTO_CARD"
+                            ? `Nothing is charged today. You'll save a card on a secure page; it's charged ${cardChargeWhen}${event.requiresCoachApproval ? " — only if the coach approves" : ""}.`
+                            : PAY_CHOICES[m].hint}
+                        </span>
                       </span>
                     </label>
                   ))}
                 </div>
+                {payMethod === "AUTO_CARD" && (
+                  <label className="flex items-start gap-2.5 mt-2 p-3 rounded-lg bg-stone-50 border border-stone-200 cursor-pointer">
+                    <input type="checkbox" checked={cardConsent} onChange={(e) => setCardConsent(e.target.checked)} className="mt-0.5" />
+                    <span className="text-xs text-stone-700">{cardConsentLabel}.</span>
+                  </label>
+                )}
               </div>
             )}
 
@@ -764,6 +787,8 @@ export default function PublicEventPage() {
                     ? "Register — no payment due"
                     : payMethod === "CASH" || payMethod === "CHECK"
                       ? `Register — pay $${payableNow.toFixed(2)} at the event`
+                      : payMethod === "AUTO_CARD"
+                        ? `Save card & register — nothing charged today`
                       : `Register & pay $${(entryCount > 1 ? payableNow : applied?.total ?? payableNow).toFixed(2)}`}
             </button>
             <p className="text-[11px] text-stone-400 text-center">
