@@ -55,6 +55,8 @@ type PublicEvent = {
   // B16 — pick a spot on the roster (labels + open counts), or null.
   roster?: SignupRoster | null;
   entryRules?: { max: number; additionalEntryPrice: number | null; allowSameRosterTwice: boolean };
+  // B3 slice 1 — sibling / group-rate lines, and the group question.
+  autoDiscounts?: { lines: string[]; group: { label: string; options: string[] } | null };
 };
 
 // What each public payment choice means to the registrant. AUTO_CARD (since
@@ -90,6 +92,7 @@ export default function PublicEventPage() {
   // own discount math, so what's shown here is what the register route will
   // charge. Typing again clears it, so a stale total can't sit on screen.
   const [codeInput, setCodeInput] = useState("");
+  const [groupValue, setGroupValue] = useState("");
   const [codeChecking, setCodeChecking] = useState(false);
   const [codeError, setCodeError] = useState("");
   const [applied, setApplied] = useState<null | {
@@ -229,6 +232,7 @@ export default function PublicEventPage() {
         ...(needsPayChoice ? { paymentMethod: payMethod } : {}),
         ...(needsPayChoice && payMethod === "AUTO_CARD" && cardConsent ? { autoChargeConsent: { agreed: true, buttonLabel: cardConsentLabel } } : {}),
         ...(applied ? { discountCode: applied.code } : {}),
+        ...(event?.autoDiscounts?.group && groupValue.trim() ? { groupValue: groupValue.trim() } : {}),
         ...(gatedDocs.length > 0 ? { acknowledgeDocuments: docsAcknowledged } : {}),
       }),
     });
@@ -268,7 +272,8 @@ export default function PublicEventPage() {
   const cardChargeWhen = event?.autoChargeDate
     ? `on ${new Date(event.autoChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}`
     : "on the event date";
-  const cardConsentLabel = `I authorize ${event?.club.name ?? "the club"} to charge my card $${payableNow.toFixed(2)} (plus any card processing fee) ${cardChargeWhen}${event?.requiresCoachApproval ? " if the coach approves this registration" : ""}`;
+  const hasAutoDiscounts = (event?.autoDiscounts?.lines.length ?? 0) > 0;
+  const cardConsentLabel = `I authorize ${event?.club.name ?? "the club"} to charge my card ${hasAutoDiscounts ? "up to " : ""}$${payableNow.toFixed(2)} (plus any card processing fee${hasAutoDiscounts ? ", less any sibling or group discount" : ""}) ${cardChargeWhen}${event?.requiresCoachApproval ? " if the coach approves this registration" : ""}`;
 
   // Signing in from this page lands on the portal's registration for THIS
   // event (the login page only honours /member paths — a /e/ callback was
@@ -514,6 +519,34 @@ export default function PublicEventPage() {
                 />
               </div>
             </div>
+
+            {event.autoDiscounts?.group && (
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">{event.autoDiscounts.group.label}</label>
+                {event.autoDiscounts.group.options.length > 0 ? (
+                  <select
+                    value={groupValue}
+                    onChange={(e) => setGroupValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2"
+                  >
+                    <option value="">None / not listed</option>
+                    {event.autoDiscounts.group.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    type="text" maxLength={80} value={groupValue} onChange={(e) => setGroupValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2"
+                  />
+                )}
+                <p className="text-xs text-stone-500 mt-1">Used for the group rate. Leave blank if it doesn&apos;t apply.</p>
+              </div>
+            )}
+            {hasAutoDiscounts && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-800 space-y-0.5">
+                {event.autoDiscounts!.lines.map((l) => <p key={l}>{l}</p>)}
+                <p className="text-emerald-700">Applied automatically when you register each athlete with the same email — it shows on your confirmation.</p>
+              </div>
+            )}
 
             <EntriesEditor
               value={entryDrafts}

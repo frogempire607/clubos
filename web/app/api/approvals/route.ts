@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { autoDiscountView } from "@/lib/eventAutoDiscounts";
+import { registrationDiscountName } from "@/lib/eventDiscounts";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -480,6 +482,11 @@ type EventRequestApproval = {
   chargeOn: Date | null;
   answers: { label: string; value: string }[];
   hasProposal: boolean;
+  // B3 slice 1 — the one discount on it (code, sibling, group or coach), and
+  // whether this viewer may change it (the discount route needs events:edit).
+  discountLabel: string | null;
+  discountAmount: number | null;
+  canDiscount: boolean;
 };
 
 async function eventRegistrationRequests(args: {
@@ -515,7 +522,11 @@ async function eventRegistrationRequests(args: {
       createdAt: true,
       proposedChange: true,
       proposedChangeRespondedAt: true,
-      event: { select: { id: true, name: true, startsAt: true, autoChargeDate: true, registrationForm: true } },
+      discountCode: true,
+      discountLabel: true,
+      discountAmount: true,
+      groupValue: true,
+      event: { select: { id: true, name: true, startsAt: true, autoChargeDate: true, registrationForm: true, autoDiscounts: true } },
       // B16 — the roster spot(s) asked for.
       entries: {
         where: { status: { not: "DROPPED" } },
@@ -543,6 +554,8 @@ async function eventRegistrationRequests(args: {
       if (parts.length) entryLines.push({ label: prefix, value: parts.join(", ") });
     });
     answers.unshift(...entryLines);
+    const grp = autoDiscountView(r.event.autoDiscounts).group;
+    if (r.groupValue) answers.push({ label: grp?.label ?? "Group", value: r.groupValue });
     return {
       id: `event-registration:${r.id}`,
       kind: "EVENT_REGISTRATION" as const,
@@ -561,6 +574,9 @@ async function eventRegistrationRequests(args: {
       answers,
       // A proposal is out with the family — the coach waits for their answer.
       hasProposal: r.proposedChange != null && r.proposedChangeRespondedAt == null,
+      discountLabel: registrationDiscountName(r),
+      discountAmount: r.discountAmount == null ? null : Number(r.discountAmount),
+      canDiscount: args.isOwner || args.canEditEvents,
     };
   });
 }

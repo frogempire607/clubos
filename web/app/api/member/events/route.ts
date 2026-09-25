@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { rosterForSignup } from "@/lib/eventRosterServer";
+import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 
 // GET /api/member/events
@@ -75,7 +76,14 @@ export async function GET(req: Request) {
       const customEventType = e.customEventType
         ? { id: e.customEventType.id, name: e.customEventType.name, color: e.customEventType.color, textColor: e.customEventType.textColor }
         : null;
-      return { ...e, customEventType, approvalGated, roster: await rosterForSignup(e.id, e.holdSpotDuringReview) };
+      return {
+        ...e,
+        customEventType,
+        approvalGated,
+        roster: await rosterForSignup(e.id, e.holdSpotDuringReview),
+        // B3 slice 1 — the rule lines + group question, never the raw blob.
+        autoDiscounts: autoDiscountView(e.autoDiscounts),
+      };
     }),
   );
 

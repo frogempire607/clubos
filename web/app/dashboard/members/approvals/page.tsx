@@ -150,6 +150,9 @@ type EventRegistrationApproval = {
   chargeOn: string | null;
   answers: { label: string; value: string }[];
   hasProposal: boolean;
+  discountLabel?: string | null;
+  discountAmount?: number | null;
+  canDiscount?: boolean;
 };
 
 const EVENT_PAY_LABEL: Record<string, string> = {
@@ -465,6 +468,37 @@ export default function MembersApprovalsPage() {
   // family reads verbatim. Changing what they asked for is a proposal, made
   // from the event's Attendees tab.
   const [declining, setDeclining] = useState<Record<string, string>>({});
+  // B3 slice 1 — the coach's own discount, set before approving.
+  const [discounting, setDiscounting] = useState<Record<string, { type: "FIXED" | "PERCENT"; value: string; label: string }>>({});
+  async function applyEventDiscount(a: EventRegistrationApproval, clear = false) {
+    const d = discounting[a.id];
+    const value = parseFloat(d?.value ?? "");
+    if (!clear && !(value > 0)) {
+      setError("Enter an amount above 0.");
+      return;
+    }
+    setBusyId(a.id);
+    setError("");
+    const res = await fetch(`/api/events/${a.eventId}/registrations/${a.registrationId}/discount`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(clear ? { discountCode: null } : { custom: { type: d.type, value, label: d.label.trim() || null } }),
+    });
+    const out = await res.json().catch(() => ({}));
+    setBusyId(null);
+    if (!res.ok) {
+      setError(typeof out.message === "string" ? out.message : typeof out.error === "string" ? out.error : "Could not change the discount.");
+      return;
+    }
+    setDiscounting((m) => { const n = { ...m }; delete n[a.id]; return n; });
+    setNotice({
+      tone: "success",
+      text: clear
+        ? `Discount removed — ${a.memberName} now owes ${money(Number(out.amountDue ?? 0))}.`
+        : `${out.discountLabel ?? "Discount"} applied — ${a.memberName} now owes ${money(Number(out.amountDue ?? 0))}. Approve when ready.`,
+    });
+    load();
+  }
   async function actEventRegistration(a: EventRegistrationApproval, decision: "APPROVE" | "DECLINE") {
     const reason = (declining[a.id] ?? "").trim();
     if (decision === "DECLINE" && !reason) {
@@ -983,10 +1017,57 @@ export default function MembersApprovalsPage() {
                       {` · requested ${fmtDate(a.requestedAt)}`}
                       {!a.memberId && a.email ? ` · ${a.email} (not linked to a member)` : ""}
                     </p>
+                    {a.discountLabel && (a.discountAmount ?? 0) > 0 && (
+                      <p className="text-xs text-emerald-700 mt-1">{a.discountLabel} — {money(a.discountAmount ?? 0)} off (already in the amount above)</p>
+                    )}
                     {a.hasProposal && (
                       <p className="text-xs text-amber-700 mt-1">You proposed a change — waiting on the family to accept or decline it.</p>
                     )}
                   </div>
+                  {discounting[a.id] && (
+                    <div className="mt-3 rounded-lg border border-app-border p-3 space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {(["FIXED", "PERCENT"] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setDiscounting((m) => ({ ...m, [a.id]: { ...m[a.id], type: t } }))}
+                            className={`text-xs px-2.5 py-1.5 rounded-lg border ${discounting[a.id].type === t ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary"}`}
+                          >
+                            {t === "FIXED" ? "$ off" : "% off"}
+                          </button>
+                        ))}
+                        <input
+                          inputMode="decimal"
+                          value={discounting[a.id].value}
+                          onChange={(e) => setDiscounting((m) => ({ ...m, [a.id]: { ...m[a.id], value: e.target.value.replace(/[^0-9.]/g, "") } }))}
+                          placeholder="Amount"
+                          className="w-24 px-2 py-1.5 border border-app-border rounded-lg text-sm bg-surface text-text-primary"
+                        />
+                        <input
+                          value={discounting[a.id].label}
+                          maxLength={60}
+                          onChange={(e) => setDiscounting((m) => ({ ...m, [a.id]: { ...m[a.id], label: e.target.value } }))}
+                          placeholder="Name the family sees — Coach discount"
+                          className="flex-1 min-w-[160px] px-2 py-1.5 border border-app-border rounded-lg text-sm bg-surface text-text-primary"
+                        />
+                      </div>
+                      <p className="text-[11px] text-text-muted">Replaces any discount already on it. Nothing is charged until you approve.</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => applyEventDiscount(a)} disabled={busyId === a.id} className="text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
+                          {busyId === a.id ? "Saving…" : "Apply discount"}
+                        </button>
+                        {a.discountLabel && (
+                          <button onClick={() => applyEventDiscount(a, true)} disabled={busyId === a.id} className="text-sm px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50">
+                            Remove discount
+                          </button>
+                        )}
+                        <button onClick={() => setDiscounting((m) => { const n = { ...m }; delete n[a.id]; return n; })} className="text-sm px-3 py-1.5 text-text-muted hover:text-text-primary">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {isDeclining && (
                     <textarea
                       value={declining[a.id]}
@@ -1013,6 +1094,15 @@ export default function MembersApprovalsPage() {
                         >
                           Decline…
                         </button>
+                        {a.canDiscount && (a.amountDue ?? 0) + (a.discountAmount ?? 0) > 0 && !discounting[a.id] && (
+                          <button
+                            onClick={() => setDiscounting((m) => ({ ...m, [a.id]: { type: "FIXED", value: "", label: "" } }))}
+                            disabled={busyId === a.id || a.hasProposal}
+                            className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                          >
+                            {a.discountLabel ? "Change discount…" : "Discount…"}
+                          </button>
+                        )}
                       </>
                     ) : (
                       <>

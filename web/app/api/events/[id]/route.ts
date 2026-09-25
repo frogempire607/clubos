@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { validateAutoDiscounts } from "@/lib/eventAutoDiscounts";
 import { applyExclusions, resolveEventWrite } from "@/lib/eventPricingModel";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
@@ -98,6 +99,9 @@ const updateSchema = z.object({
   additionalEntryPrice: z.number().min(0).nullable().optional(),
   allowSameRosterTwice: z.boolean().optional(),
   entriesOnPublicLink: z.boolean().optional(),
+  // B3 slice 1 — automatic sibling / group-rate discounts. Checked by
+  // lib/eventAutoDiscounts.validateAutoDiscounts below, not by zod.
+  autoDiscounts: z.unknown().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
   escalationEnabled: z.boolean().nullable().optional(),
@@ -158,6 +162,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   try {
     const body = await req.json();
     const { sessions, staffUserIds, ...rest } = updateSchema.parse(body);
+    if (rest.autoDiscounts !== undefined) {
+      const ad = validateAutoDiscounts(rest.autoDiscounts);
+      if (!ad.ok) return NextResponse.json({ error: ad.message }, { status: 400 });
+      rest.autoDiscounts = ad.value;
+    }
 
     const baseType =
       "customEventTypeId" in rest
@@ -231,6 +240,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       pricingModel: _pm, signupAccess: _sa, splitInvoiceWhen: _siw, sellIndividualSessions: _sis,
       memberPrice: _mp, nonMemberPrice: _nmp, dropInFee: _dif, visibility: _vis, purchaseAccess: _pa, publicRegistration: _pr,
       invoiceScheduledAt: _isa,
+      autoDiscounts,
       ...flatRest
     } = rest;
     void _pm; void _sa; void _siw; void _sis; void _mp; void _nmp; void _dif; void _vis; void _pa; void _pr; void _isa;
@@ -266,6 +276,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       data: {
         ...flatRest,
         ...modelWrite,
+        ...(autoDiscounts !== undefined ? { autoDiscounts: autoDiscounts as Prisma.InputJsonValue } : {}),
         ...(baseType ? { type: baseType } : {}),
         ...(registrationForm !== undefined ? { registrationForm: registrationForm ?? undefined } : {}),
         ...(tournamentMode !== undefined ? { tournamentMode: isTournament ? tournamentMode : null } : {}),

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
+import { validateAutoDiscounts } from "@/lib/eventAutoDiscounts";
 import { applyExclusions, resolveEventWrite } from "@/lib/eventPricingModel";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
@@ -130,6 +132,9 @@ const eventFields = {
   additionalEntryPrice: z.number().min(0).nullable().optional(),
   allowSameRosterTwice: z.boolean().optional(),
   entriesOnPublicLink: z.boolean().optional(),
+  // B3 slice 1 — automatic sibling / group-rate discounts. Checked by
+  // lib/eventAutoDiscounts.validateAutoDiscounts below, not by zod.
+  autoDiscounts: z.unknown().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
   escalationEnabled: z.boolean().nullable().optional(),
@@ -177,6 +182,11 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const data = createSchema.parse(body);
+    if (data.autoDiscounts !== undefined) {
+      const ad = validateAutoDiscounts(data.autoDiscounts);
+      if (!ad.ok) return NextResponse.json({ error: ad.message }, { status: 400 });
+      data.autoDiscounts = ad.value;
+    }
 
     const startsAt = new Date(data.startsAt);
     const endsAt = new Date(data.endsAt);
@@ -281,6 +291,7 @@ export async function POST(req: Request) {
         additionalEntryPrice: data.additionalEntryPrice ?? null,
         allowSameRosterTwice: data.allowSameRosterTwice ?? false,
         entriesOnPublicLink: data.entriesOnPublicLink ?? false,
+        autoDiscounts: (data.autoDiscounts ?? {}) as Prisma.InputJsonValue,
         cancellationPolicyText: data.cancellationPolicyText ?? undefined,
         paymentDueBy: data.paymentDueBy ? new Date(data.paymentDueBy) : undefined,
         escalationEnabled: data.escalationEnabled ?? undefined,

@@ -128,6 +128,7 @@ export type RenderRegistration = PricingRegistration & {
   confirmationCode?: string | null;
   amountPaid?: unknown;
   discountCode?: string | null;
+  discountLabel?: string | null;
   discountAmount?: unknown;
   transactionId?: string | null;
   paymentUrl?: string | null;
@@ -403,10 +404,11 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
   const amountRefunded = input.amountRefunded ?? null;
   const proposal = readProposal(reg);
   const clubContact = club.contactEmail || club.contactPhone || null;
+  const discountName = (reg.discountLabel || "").trim() || reg.discountCode || null;
   const discountLabel =
-    reg.discountCode && Number(reg.discountAmount ?? 0) > 0
-      ? `${reg.discountCode} — ${money(Number(reg.discountAmount))} off`
-      : reg.discountCode || null;
+    discountName && Number(reg.discountAmount ?? 0) > 0
+      ? `${discountName} — ${money(Number(reg.discountAmount))} off`
+      : discountName;
 
   const refund = () =>
     refundSentence({

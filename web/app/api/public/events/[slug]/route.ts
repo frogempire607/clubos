@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import {
@@ -56,6 +57,7 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       additionalEntryPrice: true,
       allowSameRosterTwice: true,
       entriesOnPublicLink: true,
+      autoDiscounts: true,
       // Whether the portal can register for it too (same filter the member
       // events route and register route apply).
       visibility: true,
@@ -214,6 +216,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       additionalEntryPrice: event.additionalEntryPrice != null ? Number(event.additionalEntryPrice) : null,
       allowSameRosterTwice: event.allowSameRosterTwice,
     },
+    // B3 slice 1 — sibling / group-rate lines and the group question.
+    autoDiscounts: autoDiscountView(event.autoDiscounts),
     // The only way to pay is a card saved on an account (AUTO_CARD), so the
     // family signs in and registers from the portal. Same rule the register
     // route answers ACCOUNT_REQUIRED with — lib/eventPayments.

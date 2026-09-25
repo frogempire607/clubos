@@ -15,7 +15,10 @@ import { getAppBaseUrl, baseUrlFromRequest } from "@/lib/baseUrl";
 import { registrationReturnUrl, registrationUrl } from "@/lib/registrationUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
-import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
+import { findValidDiscountFor, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
+import { registrationDiscountFields, toApplied } from "@/lib/eventDiscounts";
+import { bestDiscount, parseAutoDiscounts, groupActive, normalizeGroupValue, type AppliedDiscount } from "@/lib/eventAutoDiscounts";
+import { autoDiscountsForSignup, catchUpGroupRate } from "@/lib/eventAutoDiscountServer";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import {
   eventAllowedPaymentMethods,
@@ -87,6 +90,8 @@ const schema = z.object({
   sessionIds: z.array(z.string().min(1)).max(50).optional(),
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
+  // B3 slice 1 — the athlete's school / team when the event has a group rate.
+  groupValue: z.string().max(80).optional().nullable(),
   // The registrant's payment decision, when the event offers a choice.
   paymentMethod: z
     .enum(["CARD", "SAVED_CARD", "AUTO_CARD", "CASH", "CHECK", "APPROVAL_CHARGE", "INVOICE"])
@@ -676,17 +681,42 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       });
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
       discount = check.discount;
-      priceCents = Math.round(discountedPrice(priceCents / 100, discount) * 100);
-      priceLabel = `${priceLabel} · code ${discount.code}`;
+    }
+
+    // B3 slice 1 — sibling / group rate, found automatically; a typed code and
+    // a rule compete and the bigger saving wins (one discount per registration).
+    const autoCfg = parseAutoDiscounts(event.autoDiscounts);
+    let groupDisplay: string | null = (body.groupValue ?? "").trim().replace(/\s+/g, " ") || null;
+    if (groupDisplay && groupActive(autoCfg) && autoCfg.group!.options.length > 0) {
+      const hit = autoCfg.group!.options.find((o) => normalizeGroupValue(o) === normalizeGroupValue(groupDisplay));
+      if (!hit) {
+        return NextResponse.json({ error: `Choose a ${autoCfg.group!.label.toLowerCase()} from the list.` }, { status: 400 });
+      }
+      groupDisplay = hit;
+    }
+    const auto = await autoDiscountsForSignup({
+      event,
+      athlete: { memberId: member.id, name: `${member.firstName} ${member.lastName ?? ""}`.trim() },
+      emails: [contactEmail, sessionUser?.email ?? ""],
+      userIds: [session.user.id],
+      groupDisplay,
+    });
+    const pick = bestDiscount(grossPrice, [discount ? toApplied(discount) : null, ...auto.candidates]);
+    const applied: AppliedDiscount | null = pick.winner;
+    if (discount && applied?.source !== "CODE") discount = null; // lost to a rule — not redeemed
+    const appliedFields = registrationDiscountFields(applied, grossPrice);
+    if (applied) {
+      priceCents = Math.round(appliedFields.amountDue * 100);
+      priceLabel = applied.source === "CODE" ? `${priceLabel} · code ${applied.code}` : `${priceLabel} · ${applied.label}`;
     }
 
     // A 100%-off code books directly — same shape as the free path above.
-    if (discount && priceCents <= 0) {
+    if (applied && priceCents <= 0) {
       const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
       await prisma.booking.create({
         data: { eventId: event.id, memberId: member.id, status, bookedByUserId: session.user.id ?? null },
       });
-      await recordDiscountUse(discount.id);
+      if (discount) await recordDiscountUse(discount.id);
       if (status === "CONFIRMED") {
         const clubName = (await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } }))?.name;
         emailBookingConfirmation({
@@ -726,6 +756,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         pricingType,
         memberId: member.id,
         ...(discount ? { discountCode: discount.code } : {}),
+        ...(groupDisplay ? { groupValue: groupDisplay } : {}),
       },
     });
     if (gate.kind === "block") {
@@ -781,11 +812,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           // the number and repricing can't erase it — the autoChargeConsent
           // blob is no longer the only record of which code applied.
           amountDue: price,
-          discountId: discount?.id ?? null,
-          discountCode: discount?.code ?? null,
-          discountType: discount?.type ?? null,
-          discountValue: discount?.value ?? null,
-          discountAmount: discount ? Math.round((grossPrice - price) * 100) / 100 : null,
+          discountId: appliedFields.discountId,
+          discountCode: appliedFields.discountCode,
+          discountType: appliedFields.discountType,
+          discountValue: appliedFields.discountValue,
+          discountAmount: applied ? Math.round((grossPrice - price) * 100) / 100 : null,
+          discountSource: appliedFields.discountSource,
+          discountLabel: appliedFields.discountLabel,
+          groupValue: groupDisplay,
           scheduledChargeAt: data.scheduledChargeAt ?? null,
           sessionIds: purchasedSessionIds,
           ...(data.consent !== undefined ? { autoChargeConsent: data.consent } : {}),
@@ -832,6 +866,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const upsertRegistration = async (data: Parameters<typeof upsertRegistrationRow>[0]) => {
       const reg = await upsertRegistrationRow(data);
       await placeSpots(reg.id);
+      if (groupDisplay) await catchUpGroupRate({ event, groupDisplay });
       return reg;
     };
 
