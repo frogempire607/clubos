@@ -117,35 +117,44 @@ export async function checkPicks(args: {
  * confirm-on-signup event where checkPicks already passed, WAITLIST too — the
  * rare race lands somewhere the coach can see rather than overfilling a cell.
  */
+export type EntryWrite = { rosterId: string | null; positionId: string | null; answers?: Record<string, unknown> };
+
 export async function writeEntries(args: {
   eventId: string;
   clubId: string;
   registrationId: string;
-  picks: SpotPick[];
+  entries: EntryWrite[];
   approvalGated: boolean;
   holdSpotDuringReview: boolean;
 }): Promise<void> {
-  if (args.picks.length === 0) return;
+  if (args.entries.length === 0) return;
   await prisma.$transaction(async (db) => {
-    const keys = Array.from(new Set(args.picks.map((p) => cellKey(p.rosterId, p.positionId)))).sort();
+    const withCell = args.entries.filter((e): e is EntryWrite & SpotPick => !!e.rosterId && !!e.positionId);
+    const keys = Array.from(new Set(withCell.map((p) => cellKey(p.rosterId, p.positionId)))).sort();
     for (const k of keys) {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evcell:${args.eventId}:${k}`}, 0))`;
     }
     const def = await loadRosterDef(args.eventId, db);
     const taken = await takenNow(args.eventId, args.holdSpotDuringReview, args.registrationId, db);
     await db.eventRegistrationEntry.deleteMany({ where: { registrationId: args.registrationId } });
-    for (const [i, pick] of args.picks.entries()) {
-      const d = decidePick({ pick, rosters: def.rosters, positions: def.positions, taken, approvalGated: true });
-      if (!d.ok) continue; // the spot vanished between check and write — nothing to hold
-      if (d.status === "ACTIVE") taken.set(cellKey(pick.rosterId, pick.positionId), (taken.get(cellKey(pick.rosterId, pick.positionId)) ?? 0) + 1);
+    for (const [i, entry] of args.entries.entries()) {
+      let status: "ACTIVE" | "WAITLIST" = "ACTIVE";
+      if (entry.rosterId && entry.positionId) {
+        const pick = { rosterId: entry.rosterId, positionId: entry.positionId };
+        const d = decidePick({ pick, rosters: def.rosters, positions: def.positions, taken, approvalGated: true });
+        if (!d.ok) continue; // the spot vanished between check and write — nothing to hold
+        status = d.status;
+        if (d.status === "ACTIVE") taken.set(cellKey(pick.rosterId, pick.positionId), (taken.get(cellKey(pick.rosterId, pick.positionId)) ?? 0) + 1);
+      }
       await db.eventRegistrationEntry.create({
         data: {
           registrationId: args.registrationId,
           eventId: args.eventId,
           clubId: args.clubId,
-          rosterId: pick.rosterId,
-          positionId: pick.positionId,
-          status: d.status,
+          rosterId: entry.rosterId,
+          positionId: entry.positionId,
+          answers: (entry.answers ?? {}) as Prisma.InputJsonValue,
+          status,
           sortOrder: i,
         },
       });
@@ -245,4 +254,66 @@ export async function claimSpotsOnApprove(
     activate: () =>
       db.eventRegistrationEntry.updateMany({ where: { registrationId: args.registrationId, status: "WAITLIST" }, data: { status: "ACTIVE" } }),
   };
+}
+
+/**
+ * B16 slice 3 — "Build the roster from your dropdowns" also places the people
+ * who already registered with those dropdowns. Each registration without a
+ * spot whose two answers match a roster and a position (case-insensitive,
+ * trimmed) gets that spot, oldest first so capacity goes to whoever asked
+ * first. No match ⇒ left alone and listed under "signed up without a spot".
+ * Their original answers stay on the registration either way.
+ */
+export async function backfillEntriesFromAnswers(args: {
+  eventId: string;
+  clubId: string;
+  rosterFieldId: string;
+  positionFieldId: string;
+  approvalGated: boolean;
+  holdSpotDuringReview: boolean;
+}): Promise<{ placed: number; unmatched: number }> {
+  const def = await loadRosterDef(args.eventId);
+  if (!rosterActive(def.rosters, def.positions)) return { placed: 0, unmatched: 0 };
+  const norm = (v: unknown) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+  const rosterByLabel = new Map(def.rosters.map((r) => [r.label.trim().toLowerCase(), r.id]));
+  const positionByLabel = new Map(def.positions.map((p) => [p.label.trim().toLowerCase(), p.id]));
+  const regs = await prisma.eventRegistration.findMany({
+    where: { eventId: args.eventId, status: { not: "CANCELED" }, NOT: { approvalStatus: "DECLINED" }, entries: { none: {} } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, formResponses: true },
+  });
+  let placed = 0;
+  let unmatched = 0;
+  for (const r of regs) {
+    const a = (r.formResponses ?? {}) as Record<string, unknown>;
+    const rosterId = rosterByLabel.get(norm(a[args.rosterFieldId]));
+    const positionId = positionByLabel.get(norm(a[args.positionFieldId]));
+    if (!rosterId || !positionId) { unmatched++; continue; }
+    await writeEntries({
+      eventId: args.eventId,
+      clubId: args.clubId,
+      registrationId: r.id,
+      entries: [{ rosterId, positionId }],
+      approvalGated: args.approvalGated,
+      holdSpotDuringReview: args.holdSpotDuringReview,
+    });
+    placed++;
+  }
+  return { placed, unmatched };
+}
+
+/**
+ * B16 slice 3 — attach each registration's live entry count, for the pricing
+ * resolver (lib/eventRepricing.grossExpectedAmount). Registrations without
+ * entries count as 1.
+ */
+export async function withEntryCounts<T extends { id: string }>(regs: T[]): Promise<(T & { entryCount: number })[]> {
+  if (regs.length === 0) return [];
+  const rows = await prisma.eventRegistrationEntry.groupBy({
+    by: ["registrationId"],
+    where: { registrationId: { in: regs.map((r) => r.id) }, status: { not: "DROPPED" } },
+    _count: { _all: true },
+  });
+  const byId = new Map(rows.map((r) => [r.registrationId, r._count._all]));
+  return regs.map((r) => ({ ...r, entryCount: Math.max(1, byId.get(r.id) ?? 1) }));
 }

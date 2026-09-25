@@ -6,7 +6,10 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AlertOctagon, MapPin, CheckCircle2, PartyPopper, ArrowRight } from "lucide-react";
 import { mapsDirectionsUrl } from "@/lib/maps";
-import SpotPicker, { type SignupRoster, type SpotValue } from "@/components/events/SpotPicker";
+import type { SignupRoster } from "@/components/events/SpotPicker";
+import EntriesEditor, { entriesPayload, emptyEntry, type EntryDraft } from "@/components/events/EntriesEditor";
+import { eventFormFields } from "@/lib/eventForm";
+import { entriesTotalCents } from "@/lib/eventEntries";
 
 type FormField = {
   id: string;
@@ -51,6 +54,7 @@ type PublicEvent = {
   portalAvailable?: boolean;
   // B16 — pick a spot on the roster (labels + open counts), or null.
   roster?: SignupRoster | null;
+  entryRules?: { max: number; additionalEntryPrice: number | null; allowSameRosterTwice: boolean };
 };
 
 // What each public payment choice means to the registrant. AUTO_CARD is
@@ -73,7 +77,7 @@ export default function PublicEventPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [responses, setResponses] = useState<Record<string, string | boolean>>({});
-  const [spot, setSpot] = useState<SpotValue>(null);
+  const [entryDrafts, setEntryDrafts] = useState<EntryDraft[]>([emptyEntry()]);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<null | { message: string }>(null);
   const [payMethod, setPayMethod] = useState<string>("");
@@ -168,7 +172,20 @@ export default function PublicEventPage() {
 
   // What the visitor actually pays, once a code is applied. Falls back to the
   // event's own price when there's no code.
-  const payableNow = applied?.quotable && applied.net != null ? applied.net : (event?.price ?? 0);
+  // B16 slice 3 — more than one entry multiplies the price (the server
+  // re-derives it; this is only what the button says). A discount preview is
+  // quoted for one entry, so with extra entries the button shows the plain
+  // total and the server applies the code to it.
+  const entryCount = Math.max(1, entryDrafts.length);
+  const entriesTotal =
+    event?.price != null
+      ? entriesTotalCents(
+          Math.round(event.price * 100),
+          entryCount,
+          event.entryRules?.additionalEntryPrice != null ? Math.round(event.entryRules.additionalEntryPrice * 100) : null,
+        ) / 100
+      : 0;
+  const payableNow = entryCount > 1 ? entriesTotal : applied?.quotable && applied.net != null ? applied.net : (event?.price ?? 0);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -180,8 +197,14 @@ export default function PublicEventPage() {
       setError("Please review and acknowledge the event documents.");
       return;
     }
-    if (event?.roster && !(spot?.rosterId && spot.positionId)) {
-      setError("Pick a spot on the roster.");
+    const perEntryFields = eventFormFields(event?.registrationForm).filter((f) => f.perEntry);
+    const built = entriesPayload(entryDrafts, {
+      roster: event?.roster ?? null,
+      perEntryFields,
+      allowSameRosterTwice: !!event?.entryRules?.allowSameRosterTwice,
+    });
+    if (!built.ok) {
+      setError(built.message);
       return;
     }
     setSubmitting(true);
@@ -194,7 +217,7 @@ export default function PublicEventPage() {
         email,
         phone: phone || null,
         formResponses: responses,
-        ...(spot?.rosterId && spot.positionId ? { entries: [{ rosterId: spot.rosterId, positionId: spot.positionId }] } : {}),
+        ...(built.entries.length > 0 ? { entries: built.entries } : {}),
         ...(needsPayChoice ? { paymentMethod: payMethod } : {}),
         ...(applied ? { discountCode: applied.code } : {}),
         ...(gatedDocs.length > 0 ? { acknowledgeDocuments: docsAcknowledged } : {}),
@@ -479,18 +502,21 @@ export default function PublicEventPage() {
               </div>
             </div>
 
-            {event.roster && (
-              <SpotPicker
-                roster={event.roster}
-                value={spot}
-                onChange={setSpot}
-                approvalGated={!!event.requiresCoachApproval}
-                accent={accent}
-              />
-            )}
+            <EntriesEditor
+              value={entryDrafts}
+              onChange={setEntryDrafts}
+              roster={event.roster ?? null}
+              perEntryFields={eventFormFields(event.registrationForm).filter((f) => f.perEntry)}
+              maxEntries={event.entryRules?.max ?? 1}
+              athleteName={name.trim().split(/\s+/)[0] || null}
+              approvalGated={!!event.requiresCoachApproval}
+              unitPriceCents={event.price != null ? Math.round(event.price * 100) : null}
+              additionalCents={event.entryRules?.additionalEntryPrice != null ? Math.round(event.entryRules.additionalEntryPrice * 100) : null}
+              accent={accent}
+            />
 
             {/* Owner-defined custom fields */}
-            {event.registrationForm.map((f) => (
+            {event.registrationForm.filter((f) => !(f as { perEntry?: boolean }).perEntry).map((f) => (
               <div key={f.id}>
                 <label className="block text-sm font-medium text-stone-700 mb-1">
                   {f.label}{f.required ? " *" : ""}
@@ -738,7 +764,7 @@ export default function PublicEventPage() {
                     ? "Register — no payment due"
                     : payMethod === "CASH" || payMethod === "CHECK"
                       ? `Register — pay $${payableNow.toFixed(2)} at the event`
-                      : `Register & pay $${(applied?.total ?? payableNow).toFixed(2)}`}
+                      : `Register & pay $${(entryCount > 1 ? payableNow : applied?.total ?? payableNow).toFixed(2)}`}
             </button>
             <p className="text-[11px] text-stone-400 text-center">
               Powered by AthletixOS

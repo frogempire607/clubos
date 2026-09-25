@@ -45,7 +45,7 @@ import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { ACTIVE_REGISTRATION_STATUSES, resolveEventPolicy, approvedAutoCardChargeAt } from "@/lib/eventPayments";
 import { proposableKeys, resolveCategoryFields, resolveExtraEntryLabel } from "@/lib/eventCategories";
 import { getAppBaseUrl } from "@/lib/baseUrl";
-import { claimSpotsOnApprove } from "@/lib/eventRosterServer";
+import { claimSpotsOnApprove, loadRosterDef } from "@/lib/eventRosterServer";
 import { stripe } from "@/lib/stripe";
 
 export type MutationErrorCode =
@@ -652,7 +652,45 @@ export async function proposeRegistrationChange(args: {
     // allowlist depends on the event and the route hasn't loaded it yet.
     const fields = resolveCategoryFields(reg.event, policy);
     const allowed = new Set(proposableKeys(fields));
-    const unknown = Object.keys(args.changes).filter((k) => !allowed.has(k));
+
+    // B16 slice 3 — "entry:<entryId>" moves one entry to another roster spot
+    // ("<rosterId>|<positionId>") or drops it ("DROP"). The ids are kept in
+    // entryMoves; `changes` carries the human sentence every surface prints.
+    const changes: Record<string, unknown> = { ...args.changes };
+    const entryMoves: Record<string, { rosterId: string; positionId: string } | "DROP"> = {};
+    const entryLabels: Record<string, string> = {};
+    const entryKeys = Object.keys(args.changes).filter((k) => k.startsWith("entry:"));
+    if (entryKeys.length > 0) {
+      const mine = await db.eventRegistrationEntry.findMany({
+        where: { registrationId: reg.id, status: { not: "DROPPED" } },
+        orderBy: { sortOrder: "asc" },
+        select: { id: true },
+      });
+      const def = await loadRosterDef(reg.eventId, db);
+      for (const k of entryKeys) {
+        const entryId = k.slice("entry:".length);
+        const idx = mine.findIndex((m) => m.id === entryId);
+        if (idx < 0) return fail("INVALID_TRANSITION", 400, "That entry isn't part of this registration any more. Reload.", reg);
+        entryLabels[k] = mine.length > 1 ? `Entry ${idx + 1}` : "Spot";
+        const v = String(args.changes[k]);
+        if (v === "DROP") {
+          entryMoves[entryId] = "DROP";
+          changes[k] = "Remove this entry";
+          continue;
+        }
+        const [rosterId, positionId] = v.split("|");
+        const r = def.rosters.find((x) => x.id === rosterId);
+        const p = def.positions.find((x) => x.id === positionId);
+        if (!r || !p) return fail("INVALID_TRANSITION", 400, "That spot isn't on this event's roster.", reg);
+        entryMoves[entryId] = { rosterId, positionId };
+        changes[k] = `${p.label} · ${r.label}`;
+      }
+      const dropped = Object.values(entryMoves).filter((m) => m === "DROP").length;
+      if (mine.length > 0 && dropped >= mine.length) {
+        return fail("INVALID_TRANSITION", 400, "That would remove every entry — decline the registration instead.", reg);
+      }
+    }
+    const unknown = Object.keys(args.changes).filter((k) => !allowed.has(k) && !k.startsWith("entry:"));
     if (unknown.length > 0) {
       return fail(
         "INVALID_TRANSITION",
@@ -667,7 +705,8 @@ export async function proposeRegistrationChange(args: {
       proposedAt: now.toISOString(),
       coachNote: args.message ?? null,
       priceDelta: delta,
-      changes: args.changes,
+      changes,
+      ...(Object.keys(entryMoves).length > 0 ? { entryMoves } : {}),
       // The labels AS THEY WERE when the coach proposed. A parent is answering
       // a specific question; if the owner renames the field next week, the
       // page they answer on must not quietly relabel the decision.
@@ -675,6 +714,7 @@ export async function proposeRegistrationChange(args: {
         ...Object.fromEntries(fields.map((f) => [f.key, f.label])),
         session: "Session",
         extraEntry: resolveExtraEntryLabel(policy),
+        ...entryLabels,
       },
     };
 
@@ -887,7 +927,17 @@ export async function respondToProposal(args: {
     const responses = (reg.formResponses && typeof reg.formResponses === "object"
       ? reg.formResponses
       : {}) as Record<string, unknown>;
-    const merged = { ...responses, ...changes };
+    // Entry moves are applied to the entries, not written into the answers.
+    const answerChanges = Object.fromEntries(Object.entries(changes).filter(([k]) => !k.startsWith("entry:")));
+    const merged = { ...responses, ...answerChanges };
+    const moves = ((blob as { entryMoves?: Record<string, { rosterId: string; positionId: string } | "DROP"> }).entryMoves) ?? {};
+    for (const [entryId, move] of Object.entries(moves)) {
+      await db.eventRegistrationEntry.updateMany({
+        where: { id: entryId, registrationId: reg.id },
+        // Moved entries go back to ACTIVE; approval re-checks the new spot.
+        data: move === "DROP" ? { status: "DROPPED" } : { rosterId: move.rosterId, positionId: move.positionId, status: "ACTIVE" },
+      });
+    }
 
     const consentSnapshot =
       delta > 0

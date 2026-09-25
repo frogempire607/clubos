@@ -4984,3 +4984,29 @@ needs no second migration.
 
 Not in this slice: proposals that move an entry (slice 3), multiple entries (slice 3). Existing registrations made with
 the old dropdowns show under "signed up without a spot" — their answers are still on the registration.
+
+## 2026-09-25 — B16 slice 3: multiple entries, per-entry questions, entry proposals, dropdown conversion, duplicate
+
+No migration (the slice-2 migration carried the columns).
+
+- **Multiple entries** (`lib/eventEntries.ts`, pure): editor "Roster & entries" card — allow more than one entry,
+  max (blank = 5), extra entries cost the same or a different price, two entries in one roster (toggle), extra entries
+  on the public link (toggle). Questions get "Ask for each entry". Families see `components/events/EntriesEditor.tsx`:
+  one card per entry (spot + per-entry questions), "+ Add another entry for {athlete}" with "Same athlete, another
+  spot… Registering a different child is separate", and the live line "2 entries × $85.00 = $170.00" / "$85.00 + 1 more
+  at $40.00". Server: `checkEntries` (count, same spot, same roster, per-entry answers) in both signup routes; price =
+  entriesTotalCents before any discount; entries written with their answers.
+- **Repricing knows entries**: `PricingRegistration.entryCount` + `PricingEvent.additionalEntryPrice` in
+  `grossExpectedAmount`; the event PATCH preview, reprice route and bill-registrants attach live counts
+  (`withEntryCounts`), so a $170 two-entry row is not "stale" and never halved.
+- **Proposals move or drop an entry**: coach picks "Move to 64 · K6" / "Remove this entry" per entry in the review
+  queue (price change field allows negatives when dropping). Stored as `changes["entry:<id>"]` (human text) +
+  `entryMoves` (ids); accepting applies them to the entries, approval re-checks the new cells.
+- **Approvals cards** list each entry: "Entry 1: 60 · K6, Seed notes: …".
+- **"Build the roster from your dropdowns" places existing registrations**: `backfillFrom` on the roster PUT →
+  `backfillEntriesFromAnswers` (oldest first, capacity respected; no match ⇒ "signed up without a spot").
+- **Duplicate** copies session prices, roster + capacities, staff, event documents, entry rules; never people or money.
+  The public link is minted from the NEW name on the editor's first save; the editor opens on the copy with a
+  "This is a copy — change the name, dates, charge date" banner and Basics/Schedule/How people pay open.
+
+Tests: event-roster 34 → 59. Guards and event suites unchanged and green.

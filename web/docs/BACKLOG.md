@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session:** B16 slice 3 (multiple entries + entry proposals) on `claude/b16-event-entries`; then merge B16 to main once (migration already applied). B13 slice 4 after.
+- **Next Claude session:** B16 is built — Julian merges it (one deploy). Then B13 slice 4, then B3 (discounts — B16 decision 3 rides on it). B13 slice 4 after.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
 - **Julian, to unblock code:** A3 four minors → guardians (then B2 = flip FEATURE_PARENTAL_CONSENT on Netlify)
@@ -252,7 +252,20 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   SLICE 1 BUILT 2026-09-24 on branch `claude/b16-event-entries` (not merged — merge once with slice 2+): event requests
   in the Approvals inbox (approve / decline with reason / link to propose), question-type chips replace sport presets.
   SLICE 2 BUILT 2026-09-25 on the same branch: migration `20260926000000_event_roster_entries` (apply BEFORE the merge),
-  roster builder card, spot picker (public + portal), approve re-checks cells, coach grid page + PDF/CSV. 34 tests. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
+  roster builder card, spot picker (public + portal), approve re-checks cells, coach grid page + PDF/CSV. 34 tests.
+  Migration applied + verified in production 2026-09-25 (3 tables, RLS policy on each, 5 events columns).
+  SLICE 3 scope (Julian 2026-09-25): multiple entries + per-entry questions + both entry-price rules + public-link
+  toggle + proposals that move/drop an entry, AND:
+  - **"Build roster from dropdowns" converts existing registrations too** — each registration whose old dropdown answers
+    match a roster cell gets that spot automatically (no-match ones listed under "signed up without a spot"). This is
+    what makes Finger Lakes work without anyone re-registering.
+  - **Duplicate event, done properly.** The existing ⋯ → Duplicate (`/api/events/[id]/duplicate`) copies the event row
+    and sessions only: it drops session prices, the roster, staff, event documents, and leaves signupAccess PUBLIC_LINK
+    with no public slug. Fix: copy rosters/positions/capacities, session prices, staff assignments, document links;
+    mint a fresh public slug when the source had public signup; open the editor on the copy with name + dates +
+    charge date highlighted to change. Never copies registrations, entries or money.
+  SLICE 3 BUILT 2026-09-25 on the branch (no migration). B16 is complete — merge to main once. Then: Finger Lakes →
+  editor → Roster & entries → "Build the roster from your dropdowns" → capacities → (optional) allow 2 entries → Save. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
 
 ## C — Done, don't resurrect
 

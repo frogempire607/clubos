@@ -57,6 +57,8 @@ const formFieldSchema = z.object({
   type: z.enum(["text", "email", "phone", "textarea", "select", "checkbox"]),
   required: z.boolean().default(false),
   options: z.array(z.string()).optional(),
+  // B16 slice 3 — asked again for each entry.
+  perEntry: z.boolean().optional(),
 });
 
 // Shared event fields used by both create and update.
@@ -122,6 +124,12 @@ const eventFields = {
   allowProposedChanges: z.boolean().nullable().optional(),
   responsibleCoachUserId: z.string().nullable().optional(),
   holdSpotDuringReview: z.boolean().optional(),
+  // B16 slice 3 — multiple entries per athlete.
+  allowMultipleEntries: z.boolean().optional(),
+  maxEntries: z.number().int().min(1).max(20).nullable().optional(),
+  additionalEntryPrice: z.number().min(0).nullable().optional(),
+  allowSameRosterTwice: z.boolean().optional(),
+  entriesOnPublicLink: z.boolean().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
   escalationEnabled: z.boolean().nullable().optional(),
@@ -268,6 +276,11 @@ export async function POST(req: Request) {
         allowProposedChanges: data.allowProposedChanges ?? undefined,
         responsibleCoachUserId: data.responsibleCoachUserId || undefined,
         holdSpotDuringReview: data.holdSpotDuringReview ?? false,
+        allowMultipleEntries: data.allowMultipleEntries ?? false,
+        maxEntries: data.maxEntries ?? null,
+        additionalEntryPrice: data.additionalEntryPrice ?? null,
+        allowSameRosterTwice: data.allowSameRosterTwice ?? false,
+        entriesOnPublicLink: data.entriesOnPublicLink ?? false,
         cancellationPolicyText: data.cancellationPolicyText ?? undefined,
         paymentDueBy: data.paymentDueBy ? new Date(data.paymentDueBy) : undefined,
         escalationEnabled: data.escalationEnabled ?? undefined,

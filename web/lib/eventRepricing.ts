@@ -27,6 +27,8 @@ export type PricingEvent = {
   memberPrice?: unknown;
   nonMemberPrice?: unknown;
   dropInFee?: unknown;
+  /** B16 slice 3 — null = each extra entry costs the event price. */
+  additionalEntryPrice?: unknown;
 };
 
 export type PricingRegistration = {
@@ -50,6 +52,13 @@ export type PricingRegistration = {
   discountCode?: string | null;
   discountType?: string | null;
   discountValue?: unknown;
+  /**
+   * B16 slice 3 — how many entries this registration holds (roster spots /
+   * divisions). A fixed-price registration with 2 entries owes 2 entries'
+   * worth; without this every multi-entry row would read as a stale snapshot
+   * and a reprice would halve it. Absent = 1.
+   */
+  entryCount?: number;
 };
 
 /** The stored rule, normalized — or null when this row carries no discount. */
@@ -242,13 +251,17 @@ export function registrationListPrice(
 export function grossExpectedAmount(
   event: PricingEvent,
   activeCount: number,
-  reg?: Pick<PricingRegistration, "memberId"> | null,
+  reg?: Pick<PricingRegistration, "memberId" | "entryCount"> | null,
 ): number {
   if (event.variableCostEnabled) {
     const { perHead } = variablePerHead(event, activeCount);
     return perHead ?? 0;
   }
-  return registrationListPrice(event, reg);
+  const unit = registrationListPrice(event, reg);
+  const n = reg?.entryCount ?? 1;
+  if (n <= 1) return unit;
+  const extra = event.additionalEntryPrice == null || event.additionalEntryPrice === "" ? null : Number(event.additionalEntryPrice);
+  return (Math.round(unit * 100) + (n - 1) * Math.round((extra ?? unit) * 100)) / 100;
 }
 
 /**

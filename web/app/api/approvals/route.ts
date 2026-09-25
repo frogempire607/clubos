@@ -520,7 +520,7 @@ async function eventRegistrationRequests(args: {
       entries: {
         where: { status: { not: "DROPPED" } },
         orderBy: { sortOrder: "asc" },
-        select: { status: true, roster: { select: { label: true } }, position: { select: { label: true } } },
+        select: { status: true, answers: true, roster: { select: { label: true } }, position: { select: { label: true } } },
       },
     },
   });
@@ -530,13 +530,19 @@ async function eventRegistrationRequests(args: {
     const answers = fields
       .filter((f) => responses[f.id] !== undefined && responses[f.id] !== "")
       .map((f) => ({ label: f.label, value: responses[f.id] === true ? "Yes" : String(responses[f.id]) }));
-    for (const e of r.entries) {
-      if (!e.roster || !e.position) continue;
-      answers.unshift({
-        label: "Spot",
-        value: `${e.position.label} · ${e.roster.label}${e.status === "WAITLIST" ? " (waitlist — full)" : ""}`,
-      });
-    }
+    // B16 — each entry: its spot and its per-entry answers, entry order kept.
+    const entryLines: { label: string; value: string }[] = [];
+    r.entries.forEach((e, i) => {
+      const prefix = r.entries.length > 1 ? `Entry ${i + 1}` : "Spot";
+      const parts: string[] = [];
+      if (e.roster && e.position) parts.push(`${e.position.label} · ${e.roster.label}${e.status === "WAITLIST" ? " (waitlist — full)" : ""}`);
+      const ea = (e.answers ?? {}) as Record<string, unknown>;
+      for (const f of fields.filter((x) => x.perEntry)) {
+        if (ea[f.id] !== undefined && ea[f.id] !== "") parts.push(`${f.label}: ${ea[f.id] === true ? "Yes" : String(ea[f.id])}`);
+      }
+      if (parts.length) entryLines.push({ label: prefix, value: parts.join(", ") });
+    });
+    answers.unshift(...entryLines);
     return {
       id: `event-registration:${r.id}`,
       kind: "EVENT_REGISTRATION" as const,

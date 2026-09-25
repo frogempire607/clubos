@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 import { validateRosterDef } from "@/lib/eventRoster";
-import { loadRosterDef, rosterGrid, saveRosterDef } from "@/lib/eventRosterServer";
+import { loadRosterDef, rosterGrid, saveRosterDef, backfillEntriesFromAnswers } from "@/lib/eventRosterServer";
 
 // B16 — the event's roster positions.
 //
@@ -30,11 +30,21 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const event = await eventFor(id, session.user.clubId);
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const policy = resolveEventPolicy(event);
-  const [def, grid] = await Promise.all([loadRosterDef(event.id), rosterGrid(event.id, policy.holdSpotDuringReview)]);
+  const [def, grid, entries] = await Promise.all([
+    loadRosterDef(event.id),
+    rosterGrid(event.id, policy.holdSpotDuringReview),
+    // Per registration, for the coach's "move this entry" picker.
+    prisma.eventRegistrationEntry.findMany({
+      where: { eventId: event.id, status: { not: "DROPPED" } },
+      orderBy: [{ registrationId: "asc" }, { sortOrder: "asc" }],
+      select: { id: true, registrationId: true, rosterId: true, positionId: true, status: true },
+    }),
+  ]);
   return NextResponse.json({
     event: { id: event.id, name: event.name, startsAt: event.startsAt, requiresCoachApproval: policy.requiresCoachApproval },
     definition: def,
     grid,
+    entries,
   });
 }
 
@@ -55,5 +65,20 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
   const saved = await saveRosterDef(event.id, checked.def);
   if (!saved.ok) return NextResponse.json({ error: saved.error, code: "ROSTER_IN_USE" }, { status: saved.status });
-  return NextResponse.json({ ok: true, definition: await loadRosterDef(event.id) });
+
+  // Built from two dropdowns: place everyone who already answered them.
+  let backfill: { placed: number; unmatched: number } | null = null;
+  const from = body?.backfillFrom;
+  if (from && typeof from.rosterFieldId === "string" && typeof from.positionFieldId === "string") {
+    const policy = resolveEventPolicy(event);
+    backfill = await backfillEntriesFromAnswers({
+      eventId: event.id,
+      clubId: event.clubId,
+      rosterFieldId: from.rosterFieldId,
+      positionFieldId: from.positionFieldId,
+      approvalGated: policy.requiresCoachApproval,
+      holdSpotDuringReview: policy.holdSpotDuringReview,
+    });
+  }
+  return NextResponse.json({ ok: true, definition: await loadRosterDef(event.id), backfill });
 }

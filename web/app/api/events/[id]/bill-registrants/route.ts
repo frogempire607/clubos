@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { withEntryCounts } from "@/lib/eventRosterServer";
 import { computeProcessingFeeCents } from "@/lib/fees";
 import { billOneRegistrant, escapeHtml } from "@/lib/eventInvoicing";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -83,9 +84,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const mode = event.variableCostMode === "OFFICIAL" ? "OFFICIAL" : "ESTIMATED";
 
-  const allActive = await prisma.eventRegistration.findMany({
-    where: { eventId: event.id, status: { not: "CANCELED" } },
-  });
+  // Entry counts so a multi-entry registrant isn't read as a stale amount (B16).
+  const allActive = await withEntryCounts(
+    await prisma.eventRegistration.findMany({
+      where: { eventId: event.id, status: { not: "CANCELED" } },
+    }),
+  );
   const activeCount = allActive.length;
   if (activeCount === 0) {
     return NextResponse.json({ error: "No active registrations to invoice." }, { status: 400 });

@@ -10,6 +10,7 @@ import {
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { documentsForEvent } from "@/lib/eventDocuments";
 import { rosterForSignup } from "@/lib/eventRosterServer";
+import { maxEntriesFor } from "@/lib/eventEntries";
 
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
@@ -49,6 +50,11 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       variableCostEstimatedTotal: true,
       paymentMethods: true,
       autoChargeDate: true,
+      allowMultipleEntries: true,
+      maxEntries: true,
+      additionalEntryPrice: true,
+      allowSameRosterTwice: true,
+      entriesOnPublicLink: true,
       // Whether the portal can register for it too (same filter the member
       // events route and register route apply).
       visibility: true,
@@ -197,6 +203,12 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     autoChargeDate: event.autoChargeDate,
     // B16 — the roster's labels and open counts (never names), or null.
     roster: await rosterForSignup(event.id, publicPolicy.holdSpotDuringReview),
+    // B16 slice 3 — how many entries this link takes, and what extras cost.
+    entryRules: {
+      max: maxEntriesFor(event, "PUBLIC"),
+      additionalEntryPrice: event.additionalEntryPrice != null ? Number(event.additionalEntryPrice) : null,
+      allowSameRosterTwice: event.allowSameRosterTwice,
+    },
     // The only way to pay is a card saved on an account (AUTO_CARD), so the
     // family signs in and registers from the portal. Same rule the register
     // route answers ACCOUNT_REQUIRED with — lib/eventPayments.

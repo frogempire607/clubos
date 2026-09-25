@@ -6,6 +6,9 @@ import {
   validateRosterDef, holdsCell, takenByCell, decidePick, availability, buildGrid, gridTable, cellKey, rosterActive,
   type RosterColumn, type RosterRow, type GridEntry,
 } from "../lib/eventRoster";
+import { checkEntries, entriesTotalCents, entriesPriceLine, maxEntriesFor, type EntryRules } from "../lib/eventEntries";
+import { eventFormFields } from "../lib/eventForm";
+import { planReprice, grossExpectedAmount } from "../lib/eventRepricing";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, detail?: unknown) {
@@ -91,6 +94,53 @@ console.log("\nthe coach's grid:");
   check("table: capacity shown on the position", t.rows[0][0] === "60 (1)" && t.rows[2][0] === "Open");
   check("table: pending marked", t.rows[0][2] === "Titus Hall\nBo Adams (pending)");
   check("table: waitlist rows", t.waitlistRows[0].join("|") === "60|K6|Cy Park");
+}
+
+console.log("\nmultiple entries (slice 3):");
+{
+  const off: EntryRules = { allowMultipleEntries: false, maxEntries: null, allowSameRosterTwice: false, entriesOnPublicLink: false };
+  const on: EntryRules = { ...off, allowMultipleEntries: true, maxEntries: 3 };
+  check("off ⇒ one entry anywhere", maxEntriesFor(off, "PORTAL") === 1 && maxEntriesFor(off, "PUBLIC") === 1);
+  check("on ⇒ the max in the portal", maxEntriesFor(on, "PORTAL") === 3);
+  check("on, public link not allowed ⇒ one on the link", maxEntriesFor(on, "PUBLIC") === 1);
+  check("on + public allowed ⇒ the max on the link", maxEntriesFor({ ...on, entriesOnPublicLink: true }, "PUBLIC") === 3);
+  check("no max set ⇒ 5", maxEntriesFor({ ...on, maxEntries: null }, "PORTAL") === 5);
+
+  const perEntry = eventFormFields([{ id: "notes", type: "text", label: "Seed notes", required: true, perEntry: true }]);
+  const base = { rules: on, channel: "PORTAL" as const, rosterActive: true, rosterLabel: (id: string) => id.toUpperCase(), perEntryFields: [] as typeof perEntry };
+  check("roster event with no entries ⇒ pick a spot", (() => { const r = checkEntries({ ...base, entries: [] }); return !r.ok && r.code === "ENTRIES_REQUIRED"; })());
+  check("two entries, two rosters ⇒ ok", checkEntries({ ...base, entries: [{ rosterId: "k6", positionId: "w60" }, { rosterId: "k8", positionId: "w64" }] }).ok);
+  const same = checkEntries({ ...base, entries: [{ rosterId: "k6", positionId: "w60" }, { rosterId: "k6", positionId: "w64" }] });
+  check("same roster twice refused by default, names it", !same.ok && same.code === "SAME_ROSTER" && same.message.includes("Entry 2") && same.message.includes("K6"));
+  check("same roster twice allowed when the owner allows it", checkEntries({ ...base, rules: { ...on, allowSameRosterTwice: true }, entries: [{ rosterId: "k6", positionId: "w60" }, { rosterId: "k6", positionId: "w64" }] }).ok);
+  const dup = checkEntries({ ...base, rules: { ...on, allowSameRosterTwice: true }, entries: [{ rosterId: "k6", positionId: "w60" }, { rosterId: "k6", positionId: "w60" }] });
+  check("the exact same spot twice is always refused", !dup.ok && dup.code === "SAME_SPOT");
+  const tooMany = checkEntries({ ...base, entries: [{ rosterId: "k4", positionId: "w60" }, { rosterId: "k6", positionId: "w60" }, { rosterId: "k8", positionId: "w60" }, { rosterId: "k9", positionId: "w60" }] });
+  check("over the max refused", !tooMany.ok && tooMany.code === "TOO_MANY_ENTRIES" && tooMany.message.includes("3"));
+  check("public link without extra entries: 2 refused", !checkEntries({ ...base, channel: "PUBLIC", entries: [{ rosterId: "k6", positionId: "w60" }, { rosterId: "k8", positionId: "w64" }] }).ok);
+  const q = checkEntries({ ...base, rosterActive: false, perEntryFields: perEntry, entries: [{ answers: { notes: "top seed" } }, { answers: {} }] });
+  check("per-entry question required on every entry", !q.ok && q.code === "ENTRY_INVALID" && q.message.startsWith("Entry 2"));
+  const q2 = checkEntries({ ...base, rosterActive: false, perEntryFields: perEntry, entries: [{ answers: { notes: " a ", junk: "x" } }] });
+  check("per-entry answers trimmed, unknown keys dropped", q2.ok && q2.entries[0].answers.notes === "a" && !("junk" in q2.entries[0].answers));
+  check("event with no roster and no per-entry questions needs no entries", (() => { const r = checkEntries({ ...base, rosterActive: false, entries: undefined }); return r.ok && r.entries.length === 0; })());
+
+  check("price: 2 × $85 = $170", entriesTotalCents(8500, 2, null) === 17000);
+  check("price: $85 + 2 more at $40 = $165", entriesTotalCents(8500, 3, 4000) === 16500);
+  check("price: one entry is the event price", entriesTotalCents(8500, 1, 4000) === 8500);
+  check("line: same price", entriesPriceLine(8500, 2, null) === "2 entries × $85.00 = $170.00");
+  check("line: extra price", entriesPriceLine(8500, 2, 4000) === "$85.00 + 1 more at $40.00 = $125.00");
+  check("line: none for one entry", entriesPriceLine(8500, 1, null) === null);
+}
+
+console.log("\nrepricing knows about entries:");
+{
+  const ev = { memberPrice: 85, nonMemberPrice: 85, additionalEntryPrice: null };
+  check("expected: 2 entries at $85 = $170", grossExpectedAmount(ev, 1, { memberId: "m", entryCount: 2 }) === 170);
+  check("expected: extra entries at $40", grossExpectedAmount({ ...ev, additionalEntryPrice: "40.00" }, 1, { memberId: "m", entryCount: 3 }) === 165);
+  const plan = planReprice(ev, [{ id: "r1", memberId: "m", status: "SCHEDULED", amountDue: "170.00", entryCount: 2 }]);
+  check("a 2-entry $170 row is NOT flagged as stale", plan.changed.length === 0, plan.rows);
+  const plan2 = planReprice({ ...ev, memberPrice: 90, nonMemberPrice: 90 }, [{ id: "r1", memberId: "m", status: "AWAITING_CASH", amountDue: "170.00", entryCount: 2 }]);
+  check("price moves to $90 ⇒ expected $180 for 2 entries", plan2.rows[0].expected === 180);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

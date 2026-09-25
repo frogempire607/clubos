@@ -15,6 +15,8 @@ export type EventFormField = {
   type: string; // text | textarea | select | checkbox | email | phone
   required: boolean;
   options: string[];
+  /** B16 slice 3 — asked again for each entry (stored on the entry, not the registration). */
+  perEntry: boolean;
 };
 
 /** The event's form as a clean list. Anything malformed is dropped, never thrown. */
@@ -31,6 +33,7 @@ export function eventFormFields(raw: unknown): EventFormField[] {
       type: typeof r.type === "string" ? r.type : "text",
       required: r.required === true,
       options: Array.isArray(r.options) ? r.options.filter((o): o is string => typeof o === "string") : [],
+      perEntry: r.perEntry === true,
     });
   }
   return out;

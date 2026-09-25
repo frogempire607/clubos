@@ -189,6 +189,8 @@ export default function EventsPage() {
   const [viewingBookings, setViewingBookings] = useState<string | null>(null);
   const [viewingRegistrations, setViewingRegistrations] = useState<string | null>(null);
   const [viewingAttendees, setViewingAttendees] = useState<string | null>(null);
+  // B16 — the editor was opened on a fresh duplicate.
+  const [editingCopy, setEditingCopy] = useState(false);
   // Which of the three row treatments (design handoff 1e) the list uses.
   // A per-browser preference, not club config — remembered in localStorage.
   const [rowView, setRowView] = useState<EventRowView>("money");
@@ -260,7 +262,7 @@ export default function EventsPage() {
     const editId = params.get("edit");
     if (editId) {
       const ev = events.find((e) => e.id === editId);
-      if (ev) setEditing(ev);
+      if (ev) { setEditing(ev); setEditingCopy(params.get("copied") === "1"); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
@@ -281,8 +283,12 @@ export default function EventsPage() {
 
   async function handleDuplicate(id: string) {
     const res = await fetch(`/api/events/${id}/duplicate`, { method: "POST" });
-    if (res.ok) load();
-    else alert("Could not duplicate this event.");
+    if (!res.ok) { alert("Could not duplicate this event."); return; }
+    // Straight into the editor on the copy, flagged as a copy so the name,
+    // dates and charge date are the first thing the owner changes.
+    const copy = await res.json().catch(() => null);
+    if (copy?.id) window.location.href = `/dashboard/events?edit=${copy.id}&copied=1`;
+    else load();
   }
 
   function getPublishStatus(e: Event): { label: string; bg: string; fg: string } | null {
@@ -486,8 +492,9 @@ export default function EventsPage() {
           clubEventTypes={clubEventTypes}
           memberships={memberships}
           staffList={staffList}
-          onClose={() => { setShowAdd(false); setEditing(null); }}
-          onSaved={() => { setShowAdd(false); setEditing(null); load(); }}
+          isCopy={editingCopy}
+          onClose={() => { setShowAdd(false); setEditing(null); setEditingCopy(false); }}
+          onSaved={() => { setShowAdd(false); setEditing(null); setEditingCopy(false); load(); }}
         />
       )}
 
@@ -1373,6 +1380,24 @@ function CoachReviewQueue({
   const [priceDelta, setPriceDelta] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  // B16 slice 3 — the roster, so a proposal can move one entry to another
+  // spot or drop it. Value per entry: "" keep · "rosterId|positionId" · "DROP".
+  const [roster, setRoster] = useState<null | {
+    rosters: { id: string; label: string }[];
+    positions: { id: string; label: string }[];
+    entries: { id: string; registrationId: string; rosterId: string | null; positionId: string | null; status: string }[];
+  }>(null);
+  const [entryMoves, setEntryMoves] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/events/${eventId}/roster`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && d?.definition) setRoster({ rosters: d.definition.rosters, positions: d.definition.positions, entries: d.entries ?? [] });
+      })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [eventId, data]);
 
   const ev = data.event;
   const openProposal = (r: RegistrationRow) => !!r.proposedChange && !r.proposedChangeRespondedAt;
@@ -1408,6 +1433,7 @@ function CoachReviewQueue({
     setAddExtraEntry(false);
     setPriceDelta("");
     setErr("");
+    setEntryMoves({});
   }
 
   async function post(regId: string, action: string, body: Record<string, unknown>) {
@@ -1658,6 +1684,40 @@ function CoachReviewQueue({
                       just send a note. Add categories in the event editor.
                     </p>
                   )}
+                  {roster && roster.rosters.length > 0 && (() => {
+                    const mine = roster.entries.filter((x) => x.registrationId === r.id);
+                    if (mine.length === 0) return null;
+                    const labelOf = (rid: string | null, pid: string | null) =>
+                      `${roster.positions.find((p) => p.id === pid)?.label ?? "?"} · ${roster.rosters.find((x) => x.id === rid)?.label ?? "?"}`;
+                    return (
+                      <div className="space-y-2">
+                        {mine.map((en, i) => (
+                          <div key={en.id}>
+                            <label className="block text-[11px] font-medium text-text-primary mb-1">
+                              {mine.length > 1 ? `Entry ${i + 1}` : "Spot"} — now {labelOf(en.rosterId, en.positionId)}{en.status === "WAITLIST" ? " (waitlist)" : ""}
+                            </label>
+                            <select
+                              value={entryMoves[en.id] ?? ""}
+                              onChange={(e) => setEntryMoves((m) => ({ ...m, [en.id]: e.target.value }))}
+                              className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-sm bg-surface"
+                            >
+                              <option value="">Keep this spot</option>
+                              {roster.rosters.map((ro) => (
+                                <optgroup key={ro.id} label={ro.label}>
+                                  {roster.positions.map((po) => (
+                                    <option key={po.id} value={`${ro.id}|${po.id}`} disabled={ro.id === en.rosterId && po.id === en.positionId}>
+                                      Move to {po.label} · {ro.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                              {mine.length > 1 && <option value="DROP">Remove this entry</option>}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   <div>
                     <label className="block text-[11px] font-medium text-text-primary mb-1">
                       Session
@@ -1694,15 +1754,15 @@ function CoachReviewQueue({
                       </span>
                     </span>
                   </label>
-                  {addExtraEntry && (
+                  {(addExtraEntry || Object.values(entryMoves).includes("DROP")) && (
                     <div>
                       <label className="block text-[11px] font-medium text-text-primary mb-1">
-                        Additional fee
+                        {addExtraEntry ? "Additional fee" : "Price change (negative to lower what they owe, e.g. -85)"}
                       </label>
                       <input
                         type="number"
                         step="0.01"
-                        min="0"
+                        {...(addExtraEntry ? { min: "0" } : {})}
                         value={priceDelta}
                         onChange={(e) => setPriceDelta(e.target.value)}
                         placeholder="0.00"
@@ -1740,6 +1800,9 @@ function CoachReviewQueue({
                         }
                         if (session.trim()) changes.session = session.trim();
                         if (addExtraEntry) changes.extraEntry = true;
+                        for (const [entryId, v] of Object.entries(entryMoves)) {
+                          if (v) changes[`entry:${entryId}`] = v;
+                        }
                         if (Object.keys(changes).length === 0) {
                           setErr("Propose at least one change.");
                           return;
@@ -1747,7 +1810,7 @@ function CoachReviewQueue({
                         post(r.id, "propose-change", {
                           changes,
                           message: note.trim() || undefined,
-                          priceDelta: addExtraEntry && priceDelta ? parseFloat(priceDelta) : undefined,
+                          priceDelta: (addExtraEntry || Object.values(entryMoves).includes("DROP")) && priceDelta ? parseFloat(priceDelta) : undefined,
                         });
                       }}
                       disabled={busy === r.id}

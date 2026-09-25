@@ -28,6 +28,7 @@ import {
 } from "@/lib/eventPayments";
 import { eventFormFields, validateFormResponses, type FormAnswers } from "@/lib/eventForm";
 import { rosterActive, type SpotPick } from "@/lib/eventRoster";
+import { checkEntries, entriesTotalCents, type CheckedEntry } from "@/lib/eventEntries";
 import { loadRosterDef, checkPicks, writeEntries } from "@/lib/eventRosterServer";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
@@ -102,8 +103,18 @@ const schema = z.object({
   // division, …). Validated by lib/eventForm exactly as the public link
   // validates them; before 2026-09-24 this route never asked.
   formResponses: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
-  // B16 — the roster spot(s) asked for. One until multiple entries ships.
-  entries: z.array(z.object({ rosterId: z.string().min(1), positionId: z.string().min(1) })).max(10).optional(),
+  // B16 — the athlete's entries: a roster spot each (when the event has a
+  // roster) and the answers to the questions asked for each entry.
+  entries: z
+    .array(
+      z.object({
+        rosterId: z.string().optional().nullable(),
+        positionId: z.string().optional().nullable(),
+        answers: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 async function resolveBookingMember(args: {
@@ -203,14 +214,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // the coach needs the answers whichever way the money goes. No answers at
     // all ⇒ FORM_REQUIRED with the questions, so the portal can ask them; bad
     // answers ⇒ the same message the public link gives.
-    const formFields = eventFormFields(event.registrationForm);
+    // Questions asked once per registration; the per-entry ones are checked
+    // with the entries below.
+    const allFormFields = eventFormFields(event.registrationForm);
+    const formFields = allFormFields.filter((f) => !f.perEntry);
     let formAnswers: FormAnswers = {};
     if (formFields.length > 0) {
       if (body.formResponses === undefined) {
         return NextResponse.json(
           {
             error: "FORM_REQUIRED",
-            fields: formFields,
+            fields: allFormFields,
             intro: event.publicFormIntro ?? null,
             message: "Answer the event's questions to register.",
           },
@@ -237,12 +251,29 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // event ⇒ a waitlist request the coach sees. No pick at all ⇒ ROSTER_REQUIRED
     // with the roster, so the portal can ask.
     const rosterDef = await loadRosterDef(event.id);
-    let picks: SpotPick[] = [];
-    if (rosterActive(rosterDef.rosters, rosterDef.positions)) {
-      picks = (body.entries ?? []).slice(0, 1);
-      if (picks.length === 0) {
-        return NextResponse.json({ error: "ROSTER_REQUIRED", message: "Pick a spot on the roster to register." }, { status: 400 });
-      }
+    const usesRoster = rosterActive(rosterDef.rosters, rosterDef.positions);
+    const entriesCheck = checkEntries({
+      entries: body.entries,
+      rules: event,
+      channel: "PORTAL",
+      rosterActive: usesRoster,
+      rosterLabel: (id) => rosterDef.rosters.find((r) => r.id === id)?.label ?? "That roster",
+      perEntryFields: allFormFields.filter((f) => f.perEntry),
+    });
+    if (!entriesCheck.ok) {
+      return NextResponse.json(
+        {
+          error: entriesCheck.code === "ENTRIES_REQUIRED" ? (usesRoster ? "ROSTER_REQUIRED" : "FORM_REQUIRED") : "ENTRIES_INVALID",
+          message: entriesCheck.message,
+          fields: allFormFields,
+          intro: event.publicFormIntro ?? null,
+        },
+        { status: 400 },
+      );
+    }
+    const entries: CheckedEntry[] = entriesCheck.entries;
+    const picks: SpotPick[] = entries.filter((e) => e.rosterId && e.positionId).map((e) => ({ rosterId: e.rosterId!, positionId: e.positionId! }));
+    if (picks.length > 0) {
       const earlier = await prisma.eventRegistration.findFirst({
         where: { eventId: event.id, memberId: member.id, status: { not: "CANCELED" } },
         select: { id: true },
@@ -257,12 +288,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       if (!checked.ok) return NextResponse.json({ error: checked.code, message: checked.message }, { status: 409 });
     }
     const placeSpots = async (registrationId: string) => {
-      if (picks.length === 0) return;
+      if (entries.length === 0) return;
       await writeEntries({
         eventId: event.id,
         clubId: session.user.clubId,
         registrationId,
-        picks,
+        entries,
         approvalGated: policy.requiresCoachApproval,
         holdSpotDuringReview: policy.holdSpotDuringReview,
       });
@@ -272,7 +303,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // need no coach review) still have to live somewhere the roster reads, so
     // they get a plain REGISTERED row — nothing owed, no payment method.
     const recordAnswersOnly = async () => {
-      if (!formData.formResponses && picks.length === 0) return;
+      if (!formData.formResponses && entries.length === 0) return;
       const existingReg = await prisma.eventRegistration.findFirst({
         where: { eventId: event.id, memberId: member.id, status: { not: "CANCELED" } },
         select: { id: true },
@@ -617,6 +648,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
     if (priceCents <= 0) {
       return NextResponse.json({ error: "No price configured" }, { status: 400 });
+    }
+    // B16 — more than one entry: N × the price, or the first at the price and
+    // the rest at the owner's additional-entry price. Before the discount, so
+    // a code applies to what the family actually owes.
+    if (entries.length > 1) {
+      priceCents = entriesTotalCents(
+        priceCents,
+        entries.length,
+        event.additionalEntryPrice != null ? Math.round(Number(event.additionalEntryPrice) * 100) : null,
+      );
+      priceLabel = `${priceLabel} · ${entries.length} entries`;
     }
 
     // Optional discount code (EVENT scope) — applied to the server-resolved
@@ -1379,7 +1421,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // — see capacityWhere) and Checkout completes it through the same
     // eventRegistrationId webhook branch the approval CARD path already uses.
     // Events without questions keep the path exactly as it was.
-    if (formData.formResponses || picks.length > 0) {
+    if (formData.formResponses || entries.length > 0) {
       const reg = await upsertRegistration({ status: "PENDING_PAYMENT", method: "CARD" });
       await prisma.eventRegistration
         .updateMany({ where: { id: reg.id, confirmationCode: null }, data: { confirmationCode: confirmationCodeFor(reg.id) } })

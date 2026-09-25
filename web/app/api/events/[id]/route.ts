@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { withEntryCounts } from "@/lib/eventRosterServer";
 import { requirePermission } from "@/lib/apiGuard";
 import {
   planReprice,
@@ -29,6 +30,8 @@ const formFieldSchema = z.object({
   type: z.enum(["text", "email", "phone", "textarea", "select", "checkbox"]),
   required: z.boolean().default(false),
   options: z.array(z.string()).optional(),
+  // B16 slice 3 — asked again for each entry.
+  perEntry: z.boolean().optional(),
 });
 
 const updateSchema = z.object({
@@ -89,6 +92,12 @@ const updateSchema = z.object({
   allowProposedChanges: z.boolean().nullable().optional(),
   responsibleCoachUserId: z.string().nullable().optional(),
   holdSpotDuringReview: z.boolean().optional(),
+  // B16 slice 3 — multiple entries per athlete.
+  allowMultipleEntries: z.boolean().optional(),
+  maxEntries: z.number().int().min(1).max(20).nullable().optional(),
+  additionalEntryPrice: z.number().min(0).nullable().optional(),
+  allowSameRosterTwice: z.boolean().optional(),
+  entriesOnPublicLink: z.boolean().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
   escalationEnabled: z.boolean().nullable().optional(),
@@ -378,10 +387,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     let repricing: ReturnType<typeof planReprice> | null = null;
     let cleared = 0;
     if (pricingChanged(event, updated)) {
-      const registrations = await prisma.eventRegistration.findMany({
-        where: { eventId: params.id, status: { not: "CANCELED" } },
-        orderBy: { createdAt: "asc" },
-      });
+      const registrations = await withEntryCounts(
+        await prisma.eventRegistration.findMany({
+          where: { eventId: params.id, status: { not: "CANCELED" } },
+          orderBy: { createdAt: "asc" },
+        }),
+      );
 
       // Variable cost turned OFF: every non-committed amountDue is a per-head
       // share of a total that no longer exists. Clearing it (rather than
