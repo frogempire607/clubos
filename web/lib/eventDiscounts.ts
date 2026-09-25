@@ -14,6 +14,7 @@
 // columns every time, so there is no path that adds two discounts together.
 
 import type { ValidDiscount } from "@/lib/discounts";
+import type { AppliedDiscount } from "@/lib/eventAutoDiscounts";
 import { applyProcessingFee } from "@/lib/fees";
 
 /**
@@ -26,7 +27,7 @@ import { applyProcessingFee } from "@/lib/fees";
  * whole design rests on amountDue being net and discountAmount explaining it.
  */
 export function registrationDiscountFields(
-  discount: ValidDiscount | null,
+  discount: ValidDiscount | AppliedDiscount | null,
   gross: number,
 ): {
   amountDue: number;
@@ -35,6 +36,8 @@ export function registrationDiscountFields(
   discountType: string | null;
   discountValue: number | null;
   discountAmount: number | null;
+  discountSource: string | null;
+  discountLabel: string | null;
 } {
   const base = Math.max(0, Math.round(gross * 100) / 100);
   if (!discount) {
@@ -45,18 +48,48 @@ export function registrationDiscountFields(
       discountType: null,
       discountValue: null,
       discountAmount: null,
+      discountSource: null,
+      discountLabel: null,
     };
   }
+  // B3 slice 1: a sibling / group / coach discount has no code and no
+  // Discount row — only CODE carries discountId/discountCode.
+  const applied = toApplied(discount);
   const cut = discount.type === "PERCENT" ? (base * discount.value) / 100 : discount.value;
   const net = Math.max(0, Math.round((base - cut) * 100) / 100);
   return {
     amountDue: net,
-    discountId: discount.id,
-    discountCode: discount.code,
-    discountType: discount.type,
-    discountValue: discount.value,
+    discountId: applied.source === "CODE" ? applied.id : null,
+    discountCode: applied.source === "CODE" ? applied.code : null,
+    discountType: applied.type,
+    discountValue: applied.value,
     discountAmount: Math.round((base - net) * 100) / 100,
+    discountSource: applied.source,
+    discountLabel: applied.label,
   };
+}
+
+/** A typed code, seen as the one discount a registration carries. */
+export function toApplied(d: ValidDiscount | AppliedDiscount): AppliedDiscount {
+  if ("source" in d && typeof (d as AppliedDiscount).source === "string") return d as AppliedDiscount;
+  const v = d as ValidDiscount & { description?: string | null };
+  return {
+    source: "CODE",
+    id: v.id,
+    code: v.code,
+    type: v.type === "FIXED" ? "FIXED" : "PERCENT",
+    value: Number(v.value),
+    label: discountLineLabel(v) ?? v.code,
+  };
+}
+
+/** What a stored registration's discount is called — the code line, or the
+ *  rule's own name for a sibling / group / coach discount. */
+export function registrationDiscountName(reg: {
+  discountCode?: string | null;
+  discountLabel?: string | null;
+}): string | null {
+  return (reg.discountLabel || "").trim() || (reg.discountCode || "").trim() || null;
 }
 
 /**
@@ -98,9 +131,11 @@ export function eventChargeBreakdown(args: {
 /** "Sibling discount (SIB50)" — the description when the owner set one, else
  *  the bare code. Rendered on the roster, the invoice email, and the receipt. */
 export function discountLineLabel(
-  d: { code: string; description?: string | null } | null | undefined,
+  d: { code: string | null; description?: string | null; source?: string; label?: string } | null | undefined,
 ): string | null {
   if (!d) return null;
+  if (d.source && d.source !== "CODE" && d.label) return d.label;
+  if (!d.code) return d.label ?? null;
   const name = (d.description || "").trim();
   return name && name.toUpperCase() !== d.code.toUpperCase() ? `${name} (${d.code})` : d.code;
 }
@@ -112,4 +147,6 @@ export const REGISTRATION_DISCOUNT_SELECT = {
   discountType: true,
   discountValue: true,
   discountAmount: true,
+  discountSource: true,
+  discountLabel: true,
 } as const;

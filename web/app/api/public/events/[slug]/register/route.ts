@@ -8,7 +8,9 @@ import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { registrationReturnUrl, registrationUrl } from "@/lib/registrationUrl";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { findValidDiscountFor, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
-import { registrationDiscountFields, discountLineLabel } from "@/lib/eventDiscounts";
+import { registrationDiscountFields, toApplied } from "@/lib/eventDiscounts";
+import { bestDiscount, whyLine, parseAutoDiscounts, groupActive, normalizeGroupValue, type AppliedDiscount } from "@/lib/eventAutoDiscounts";
+import { autoDiscountsForSignup, catchUpGroupRate } from "@/lib/eventAutoDiscountServer";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import {
   eventAllowedPaymentMethods,
@@ -45,6 +47,9 @@ const schema = z.object({
   // here against the server-derived price — whatever the page previewed is
   // never trusted. An invalid code is a hard 400, never silently dropped.
   discountCode: z.string().max(50).optional().nullable(),
+  // B3 slice 1 — the athlete's school / team (the coach's word for it), asked
+  // when the event has a group rate. Groups on the normalized value.
+  groupValue: z.string().max(80).optional().nullable(),
   // Ticked when the event has ACKNOWLEDGE/SIGN-level documents. Anonymous
   // visitors can't produce an audited signature, so acknowledgement (stored on
   // the registration) is the strongest gate available here.
@@ -239,6 +244,21 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     discount = check.discount;
   }
 
+  // B3 slice 1 — the athlete's group value, checked against the coach's list
+  // when there is one (a typo would otherwise split the group).
+  const autoCfg = parseAutoDiscounts(event.autoDiscounts);
+  let groupDisplay: string | null = (body.groupValue ?? "").trim().replace(/\s+/g, " ") || null;
+  if (groupDisplay && groupActive(autoCfg) && autoCfg.group!.options.length > 0) {
+    const hit = autoCfg.group!.options.find((o) => normalizeGroupValue(o) === normalizeGroupValue(groupDisplay));
+    if (!hit) {
+      return NextResponse.json(
+        { error: `Choose a ${autoCfg.group!.label.toLowerCase()} from the list.` },
+        { status: 400 },
+      );
+    }
+    groupDisplay = hit;
+  }
+
   // Immediate (charge-now) amount only applies to non-variable fixed pricing.
   // NET of the discount — every downstream number (the processing fee, the
   // Stripe line item, the cash amount, the roster) derives from this.
@@ -256,7 +276,23 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
         Math.max(1, entries.length),
         event.additionalEntryPrice != null ? Math.round(Number(event.additionalEntryPrice) * 100) : null,
       ) / 100;
-  const discountFields = registrationDiscountFields(discount, grossDue);
+  // B3 slice 1 — sibling / group rate, found automatically. One discount per
+  // registration: a typed code and a rule compete, the bigger saving wins.
+  const auto = isVariableCost
+    ? null
+    : await autoDiscountsForSignup({
+        event,
+        athlete: { memberId: null, name: body.name },
+        emails: [body.email],
+        userIds: [],
+        groupDisplay,
+      });
+  const pick = bestDiscount(grossDue, [discount ? toApplied(discount) : null, ...(auto?.candidates ?? [])]);
+  const applied: AppliedDiscount | null = isVariableCost ? (discount ? toApplied(discount) : null) : pick.winner;
+  const discountNote = whyLine(applied, pick.considered);
+  // The typed code lost to a rule: it isn't redeemed, so it isn't counted.
+  if (discount && applied?.source !== "CODE") discount = null;
+  const discountFields = registrationDiscountFields(applied, grossDue);
   const amountDue = isVariableCost ? 0 : discountFields.amountDue;
 
   // Payment decision. Money owed ⇒ the registrant must pick a method the owner
@@ -383,6 +419,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
               chargeOn: eventScheduledChargeAt(event).toISOString(),
               afterApproval: policy.requiresCoachApproval,
               ...(discount ? { discountCode: discount.code } : {}),
+              ...(applied && applied.source !== "CODE" ? { discountLabel: applied.label } : {}),
             },
           }
         : {}),
@@ -395,8 +432,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       discountType: discountFields.discountType,
       discountValue: discountFields.discountValue,
       discountAmount: isVariableCost ? null : discountFields.discountAmount,
+      discountSource: discountFields.discountSource,
+      discountLabel: discountFields.discountLabel,
+      groupValue: groupDisplay,
     },
   });
+
 
   if (entries.length > 0) {
     await writeEntries({
@@ -408,6 +449,10 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       holdSpotDuringReview: policy.holdSpotDuringReview,
     });
   }
+
+  // B3 — a group that just reached its number: everyone already in it gets
+  // the rate. After the entries are written, so every row's price is right.
+  if (groupDisplay) await catchUpGroupRate({ event, groupDisplay });
 
   // The registration number the visitor will quote back to staff. Derived from
   // the row id, so it is the same value on the page, in the email, and in any
@@ -519,9 +564,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       free: true,
       registrationId: registration.id,
       confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
-      ...(discount ? { discountCode: discount.code, discountOff: discountFields.discountAmount } : {}),
-      ...(discount && grossDue > 0
-        ? { message: `You're registered — ${discountLineLabel(discount)} covered the full $${grossDue.toFixed(2)}.` }
+      ...(applied ? { discountCode: applied.code ?? applied.label, discountLabel: applied.label, discountOff: discountFields.discountAmount, discountNote } : {}),
+      ...(applied && grossDue > 0
+        ? { message: `You're registered — ${applied.label} covered the full $${grossDue.toFixed(2)}.` }
         : {}),
     });
   }
@@ -551,7 +596,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       ...(policy.requiresCoachApproval ? { pendingReview: true, awaitingApproval: true } : {}),
       paymentMethod: method,
       amountDue,
-      ...(discount ? { discountCode: discount.code, discountOff: discountFields.discountAmount } : {}),
+      ...(applied ? { discountCode: applied.code ?? applied.label, discountLabel: applied.label, discountOff: discountFields.discountAmount, discountNote } : {}),
       // The amount named here is the discounted one, and it's the same figure
       // the PENDING Transaction carries and the roster shows staff at the door.
       // Under coach approval the spot isn't theirs yet, so the copy must not
@@ -562,7 +607,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
           ? "Request received — your coach reviews it first. If they approve, please bring"
           : "You're registered. Please bring"
       } $${amountDue.toFixed(2)} in ${method.toLowerCase()} to the event.${
-        discount ? ` (${discountLineLabel(discount)} applied — $${(discountFields.discountAmount ?? 0).toFixed(2)} off.)` : ""
+        applied ? ` (${applied.label} applied — $${(discountFields.discountAmount ?? 0).toFixed(2)} off.)` : ""
       }`,
     });
   }
@@ -605,7 +650,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
               // The payer sees the code on the Stripe page, so the reduced
               // number is explained rather than looking like a wrong price.
               description: `${event.isTournament ? "Tournament registration" : "Event registration"}${
-                discount ? ` · ${discountLineLabel(discount)} — $${(discountFields.discountAmount ?? 0).toFixed(2)} off` : ""
+                applied ? ` · ${applied.label} — $${(discountFields.discountAmount ?? 0).toFixed(2)} off` : ""
               }`,
             },
           },

@@ -1211,6 +1211,10 @@ type RegistrationRow = {
   amountPaid: number | null;
   discountCode: string | null;
   discountAmount: number | null;
+  // B3 slice 1 — a sibling / group / coach discount's name (no code), and
+  // the athlete's school / team for the group rate.
+  discountLabel?: string | null;
+  groupValue?: string | null;
   // Present when an offline Transaction is already open against this row —
   // the discount editor stays hidden, matching the server's lock rule.
   transactionId: string | null;
@@ -2579,9 +2583,12 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${chip}`}>
                                       {label}
                                     </span>
-                                    {r.discountCode && (
+                                    {r.groupValue && (
+                                      <span className="block text-[10px] text-text-muted mt-1">{r.groupValue}</span>
+                                    )}
+                                    {(r.discountCode || r.discountLabel) && (
                                       <span className="block text-[10px] text-text-muted mt-1">
-                                        {r.discountCode}
+                                        {r.discountLabel || r.discountCode}
                                         {r.discountAmount != null && r.discountAmount > 0
                                           ? ` · −$${Number(r.discountAmount).toFixed(2)}`
                                           : ""}
@@ -2677,9 +2684,9 @@ function RegistrationsModal({ eventId, onClose }: { eventId: string; onClose: ()
                                             }}
                                             className="text-brand hover:underline"
                                           >
-                                            {r.discountCode ? "Change discount" : "Apply discount"}
+                                            {r.discountCode || r.discountLabel ? "Change discount" : "Apply discount"}
                                           </button>
-                                          {r.discountCode && (
+                                          {(r.discountCode || r.discountLabel) && (
                                             <>
                                               {" · "}
                                               <button

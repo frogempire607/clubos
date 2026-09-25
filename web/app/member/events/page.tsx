@@ -1,5 +1,6 @@
 "use client";
 
+import type { AutoDiscountView } from "@/lib/eventAutoDiscounts";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -44,7 +45,18 @@ type EventCard = {
   additionalEntryPrice?: number | string | null;
   allowSameRosterTwice?: boolean;
   entriesOnPublicLink?: boolean;
+  // B3 slice 1 — sibling / group-rate lines, and the group question to ask.
+  autoDiscounts?: AutoDiscountView;
 };
+
+// B3 slice 1 — the group-rate answer rides in the modal's answers under a key
+// no event question can have, and is sent as `groupValue`, not as an answer.
+const GROUP_KEY = "__groupValue";
+function stripGroup(a: FormAnswers): FormAnswers {
+  const { [GROUP_KEY]: _g, ...rest } = a;
+  void _g;
+  return rest;
+}
 
 type EntryPayload = { rosterId?: string; positionId?: string; answers: Record<string, string | boolean> };
 
@@ -144,6 +156,7 @@ export default function MemberEventsPage() {
     unitPriceCents?: number | null;
     additionalCents?: number | null;
     allowSameRosterTwice?: boolean;
+    group?: { label: string; options: string[] } | null;
   }>(null);
 
   // Deep link from the public event page (/e/[slug] → sign in → here):
@@ -250,8 +263,10 @@ export default function MemberEventsPage() {
       })(),
       additionalCents: ev?.additionalEntryPrice != null ? Math.round(Number(ev.additionalEntryPrice) * 100) : null,
       allowSameRosterTwice: !!ev?.allowSameRosterTwice,
+      group: ev?.autoDiscounts?.group ?? null,
     });
-    if ((fields.some((f) => !f.perEntry) && !answers) || (needsEntries && !built)) {
+    const asksGroup = !!ev?.autoDiscounts?.group;
+    if (((fields.some((f) => !f.perEntry) || asksGroup) && !answers) || (needsEntries && !built)) {
       setFormPrompt({ eventId, pricingType, sessionIds, fields, intro: ev?.publicFormIntro ?? null, initial: answers, ...promptExtras() });
       return;
     }
@@ -274,7 +289,8 @@ export default function MemberEventsPage() {
           ? { autoChargeConsent: { agreed: true, buttonLabel: payment.consentLabel } }
           : {}),
         ...(acknowledgeDocuments ? { acknowledgeDocuments: true } : {}),
-        ...(answers ? { formResponses: answers } : {}),
+        ...(answers ? { formResponses: stripGroup(answers) } : {}),
+        ...(answers && typeof answers[GROUP_KEY] === "string" && answers[GROUP_KEY] ? { groupValue: answers[GROUP_KEY] } : {}),
         ...(built && built.payload.length > 0 ? { entries: built.payload } : {}),
       }),
     });
@@ -588,6 +604,9 @@ export default function MemberEventsPage() {
                       {e.location ? ` · ${e.location.name}` : ""}
                       {e.capacity ? ` · ${e._count.bookings}/${e.capacity}` : ""}
                     </p>
+                    {(e.autoDiscounts?.lines ?? []).map((l) => (
+                      <p key={l} className="text-xs text-emerald-700 mt-1">{l}</p>
+                    ))}
                     {e.description && (
                       <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{e.description}</p>
                     )}
@@ -1011,6 +1030,7 @@ function EventFormModal({
     unitPriceCents?: number | null;
     additionalCents?: number | null;
     allowSameRosterTwice?: boolean;
+    group?: { label: string; options: string[] } | null;
   };
   eventName: string;
   accessible: AccessibleProfile[];
@@ -1120,6 +1140,30 @@ function EventFormModal({
               )}
             </div>
           ))}
+          {prompt.group && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">{prompt.group.label}</label>
+              {prompt.group.options.length > 0 ? (
+                <select
+                  value={(answers[GROUP_KEY] as string) || ""}
+                  onChange={(e) => { setAnswers((a) => ({ ...a, [GROUP_KEY]: e.target.value })); setErr(""); }}
+                  className={inputCls}
+                >
+                  <option value="">None / not listed</option>
+                  {prompt.group.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  maxLength={80}
+                  value={(answers[GROUP_KEY] as string) || ""}
+                  onChange={(e) => { setAnswers((a) => ({ ...a, [GROUP_KEY]: e.target.value })); setErr(""); }}
+                  className={inputCls}
+                />
+              )}
+              <p className="text-xs text-stone-500 mt-1">Used for the group rate. Leave blank if it doesn&apos;t apply.</p>
+            </div>
+          )}
           {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
           <button type="submit" className="w-full py-3 rounded-lg bg-stone-900 text-white text-sm font-semibold">
             Continue

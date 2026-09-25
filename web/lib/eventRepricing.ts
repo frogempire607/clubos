@@ -50,6 +50,8 @@ export type PricingRegistration = {
   // owner may edit or expire a code afterwards, and that must not change what
   // someone already agreed to owe.
   discountCode?: string | null;
+  /** B3 slice 1 — names a sibling / group / coach discount (no code). */
+  discountLabel?: string | null;
   discountType?: string | null;
   discountValue?: unknown;
   /**
@@ -65,7 +67,9 @@ export type PricingRegistration = {
 export type RegistrationDiscount = { code: string; type: "PERCENT" | "FIXED"; value: number };
 
 export function registrationDiscount(reg: PricingRegistration): RegistrationDiscount | null {
-  const code = (reg.discountCode || "").trim();
+  // A code, or (B3) the label of a sibling / group / coach discount — either
+  // way the stored type + value is the rule.
+  const code = (reg.discountCode || "").trim() || (reg.discountLabel || "").trim();
   if (!code) return null;
   const type = reg.discountType === "FIXED" ? "FIXED" : "PERCENT";
   const value = Number(reg.discountValue);
@@ -382,7 +386,7 @@ export function planReprice(
       status: r.status,
       current,
       expected,
-      discountCode: r.discountCode || null,
+      discountCode: r.discountCode || r.discountLabel || null,
       changed: !lockReason && Math.round(current * 100) !== Math.round(expected * 100),
       lockReason,
     };

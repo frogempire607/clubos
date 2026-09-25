@@ -19,6 +19,8 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
+import AutoDiscountsEditor, { autoDiscountsLine } from "@/components/events/AutoDiscountsEditor";
+import { parseAutoDiscounts, type AutoDiscounts } from "@/lib/eventAutoDiscounts";
 import { useEffect, useMemo, useState } from "react";
 import ImageUpload from "@/components/ImageUpload";
 import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
@@ -124,6 +126,7 @@ export type EditorEvent = {
   additionalEntryPrice?: number | string | null;
   allowSameRosterTwice?: boolean;
   entriesOnPublicLink?: boolean;
+  autoDiscounts?: unknown;
   cancellationPolicyText?: string | null;
   paymentDueBy?: string | null;
   escalationEnabled?: boolean | null;
@@ -349,6 +352,8 @@ export default function EventEditor({
   const [additionalEntryPrice, setAdditionalEntryPrice] = useState<string>(ev?.additionalEntryPrice != null ? String(ev.additionalEntryPrice) : "");
   const [allowSameRosterTwice, setAllowSameRosterTwice] = useState<boolean>(!!ev?.allowSameRosterTwice);
   const [entriesOnPublicLink, setEntriesOnPublicLink] = useState<boolean>(!!ev?.entriesOnPublicLink);
+  // B3 slice 1 — sibling / group-rate discounts, applied at signup.
+  const [autoDiscounts, setAutoDiscounts] = useState<AutoDiscounts>(() => parseAutoDiscounts(ev?.autoDiscounts));
 
   // ── B16: roster positions (columns = rosters, rows = positions) ──
   type RosterRowState = { id: string | null; label: string };
@@ -602,6 +607,12 @@ export default function EventEditor({
       additionalEntryPrice: allowMultipleEntries && extraEntryPriced && additionalEntryPrice !== "" ? Math.max(0, parseFloat(additionalEntryPrice) || 0) : null,
       allowSameRosterTwice: allowMultipleEntries ? allowSameRosterTwice : false,
       entriesOnPublicLink: allowMultipleEntries && signupAccess === "PUBLIC_LINK" ? entriesOnPublicLink : false,
+      autoDiscounts: {
+        ...(autoDiscounts.sibling ? { sibling: autoDiscounts.sibling } : {}),
+        ...(autoDiscounts.group
+          ? { group: { ...autoDiscounts.group, options: autoDiscounts.group.options.map((o) => o.trim()).filter(Boolean) } }
+          : {}),
+      },
       ...(approvalAvailable
         ? {
             requiresCoachApproval: approvalMode === "" ? null : approvalMode === "on",
@@ -840,6 +851,10 @@ export default function EventEditor({
             <p className="text-[11.5px] text-text-muted">A family will see: {payLine}.</p>
           </>
         )}
+      </Card>
+
+      <Card title="Discounts" summary={autoDiscountsLine(autoDiscounts)} open={!!open.discounts} onToggle={() => toggle("discounts")}>
+        <AutoDiscountsEditor value={autoDiscounts} onChange={setAutoDiscounts} />
       </Card>
 
       <Card title="Who signs up, and how" summary={accessLine} open={!!open.access} onToggle={() => toggle("access")}>

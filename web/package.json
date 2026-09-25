@@ -35,6 +35,7 @@
     "test:stripe-plan-change": "tsx scripts/stripe-plan-change-tests.ts",
     "test:membership-panel": "tsx scripts/membership-panel-tests.ts",
     "test:event-roster": "tsx scripts/event-roster-tests.ts",
+    "test:event-auto-discounts": "tsx scripts/event-auto-discount-tests.ts",
     "test:non-renewal": "tsx scripts/non-renewal-tests.ts",
     "test:permission-boundary": "tsx scripts/permission-boundary-guard.ts",
     "test:permission-behaviour": "tsx scripts/permission-behaviour-tests.ts",

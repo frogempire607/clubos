@@ -14,7 +14,8 @@ import {
   isCanceledRegistration,
   collectionBreakdown,
 } from "@/lib/eventRepricing";
-import { registrationDiscountFields, discountLineLabel } from "@/lib/eventDiscounts";
+import { registrationDiscountFields, discountLineLabel, toApplied } from "@/lib/eventDiscounts";
+import type { AppliedDiscount } from "@/lib/eventAutoDiscounts";
 
 // POST /api/events/[id]/registrations/[regId]/discount
 // Staff applying (or clearing) a discount code on someone's behalf from the
@@ -31,6 +32,17 @@ import { registrationDiscountFields, discountLineLabel } from "@/lib/eventDiscou
 const bodySchema = z.object({
   // null / "" clears the discount and restores the full price.
   discountCode: z.string().max(50).optional().nullable(),
+  // B3 slice 1 — the coach's own discount, no code needed: $ or % off with a
+  // name the family sees ("Coach discount", "Team captain"). Wins over
+  // discountCode when both are sent.
+  custom: z
+    .object({
+      type: z.enum(["PERCENT", "FIXED"]),
+      value: z.number().positive(),
+      label: z.string().max(60).optional().nullable(),
+    })
+    .optional()
+    .nullable(),
 });
 
 export async function POST(
@@ -80,19 +92,41 @@ export async function POST(
     );
   }
 
-  const check = await resolveStaffDiscount(session.user.clubId, body.discountCode, {
-    type: "EVENT",
-    eventId: event.id,
-  });
-  if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
-  const discount = check.discount;
+  let discount: { id: string; code: string; type: "PERCENT" | "FIXED"; value: number } | null = null;
+  let applied: AppliedDiscount | null = null;
+  if (body.custom) {
+    if (body.custom.type === "PERCENT" && body.custom.value > 100) {
+      return NextResponse.json({ error: "A percent discount can't be more than 100%." }, { status: 400 });
+    }
+    applied = {
+      source: "COACH",
+      id: null,
+      code: null,
+      type: body.custom.type,
+      value: Math.round(body.custom.value * 100) / 100,
+      label: (body.custom.label ?? "").trim().replace(/[<>]/g, "") || "Coach discount",
+    };
+  } else {
+    const check = await resolveStaffDiscount(session.user.clubId, body.discountCode, {
+      type: "EVENT",
+      eventId: event.id,
+    });
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+    discount = check.discount ? { id: check.discount.id, code: check.discount.code, type: check.discount.type === "FIXED" ? "FIXED" : "PERCENT", value: Number(check.discount.value) } : null;
+    applied = discount ? toApplied(discount) : null;
+  }
 
   // Apply to the event's CURRENT price, not the figure the row is carrying —
   // a stale snapshot must not become the base a discount is taken off.
   const activeCount = await prisma.eventRegistration.count({
     where: { eventId: event.id, status: { not: "CANCELED" } },
   });
-  const gross = grossExpectedAmount(event, activeCount);
+  // This registrant's own list price — member rate and every entry they hold
+  // (B16), not the event's headline figure.
+  const entryCount = await prisma.eventRegistrationEntry.count({
+    where: { registrationId: reg.id, status: { not: "DROPPED" } },
+  });
+  const gross = grossExpectedAmount(event, activeCount, { memberId: reg.memberId, entryCount: Math.max(1, entryCount) });
   if (!(gross > 0)) {
     return NextResponse.json(
       { error: "This event has no price to discount yet — set a price first." },
@@ -100,14 +134,12 @@ export async function POST(
     );
   }
 
-  const fields = registrationDiscountFields(
-    discount ? { id: discount.id, code: discount.code, type: discount.type, value: discount.value } : null,
-    gross,
-  );
+  const fields = registrationDiscountFields(applied, gross);
 
   const before = {
     amountDue: reg.amountDue == null ? null : Number(reg.amountDue),
     discountCode: reg.discountCode ?? null,
+    discountLabel: reg.discountLabel ?? null,
   };
 
   // Guarded on the row still being repriceable so a payment landing mid-request
@@ -145,10 +177,11 @@ export async function POST(
       name: reg.name,
       amountDue: fields.amountDue,
       discountCode: fields.discountCode,
+      discountLabel: fields.discountLabel,
       discountAmount: fields.discountAmount,
     },
-    note: discount
-      ? `Applied ${discountLineLabel(discount)} to ${reg.name} on ${event.name}. No money moved.`
+    note: applied
+      ? `Applied ${applied.source === "CODE" ? discountLineLabel(discount) : applied.label} to ${reg.name} on ${event.name}. No money moved.`
       : `Cleared the discount on ${reg.name} for ${event.name}. No money moved.`,
   });
 
@@ -157,6 +190,7 @@ export async function POST(
     ok: true,
     registrationId: reg.id,
     discountCode: fields.discountCode,
+    discountLabel: fields.discountLabel,
     discountAmount: fields.discountAmount,
     amountDue: fields.amountDue,
     breakdown: collectionBreakdown(event, updated, activeCount),

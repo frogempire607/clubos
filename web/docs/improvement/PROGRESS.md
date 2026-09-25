@@ -5058,3 +5058,32 @@ Tests: event-roster 59 → 72.
   record-payment path still lands on `billing?enrol=1` and migration setups live only here.
 
 B13 complete. Tests: membership-panel 46, stripe-plan-change 48, event-payment 84 — all green.
+
+## 2026-09-25 — B3 slice 1: sibling discount, group rate and coach discount on events
+
+Julian: events first (Finger Lakes). Sibling discount automatic; "team" = athletes from the same school/team, with the
+coach choosing per event whether it applies and how; plus a discount the coach sets at approval.
+
+- Migration `20260929000000_event_auto_discounts`: `events.autoDiscounts JSONB '{}'`;
+  `event_registrations.discountSource / discountLabel / groupValue` (all additive; '{}' / null = today).
+- `lib/eventAutoDiscounts` (pure): parse/validate the config, sibling rule (same for each extra athlete, or a ladder
+  whose last step carries on), group rate (N+ sharing a normalized value), `bestDiscount` (one per registration,
+  biggest dollar saving, tie → the rule), `groupCatchUp`, family-facing lines.
+- `lib/eventAutoDiscountServer`: family = the registration email + athletes the signed-in parent is a CONFIRMED
+  guardian of; athlete identity = the name on the registration (a public row's memberId is the parent's). Counting =
+  spot-holding rows + pending review, minus declined/abandoned. `catchUpGroupRate` lowers unpaid rows when the group
+  reaches its number; paid/authorized rows are never refunded; per-session purchases and coach discounts are left alone.
+- Both register routes: code vs rules → winner stored through `registrationDiscountFields` (now also writes
+  source/label; only CODE carries discountId/code). A code that loses isn't redeemed. Group value checked against the
+  coach's pick-list.
+- Repricing and render state read `discountLabel` when there is no code, so a price change can't erase a sibling
+  discount. The discount route takes `custom: {type, value, label}` (COACH) and now prices from the row's own member
+  rate + entry count (it used the headline price before).
+- UI: editor "Discounts" card; public page + portal ask the group question and show the lines; saved-card consent
+  says "up to … less any sibling or group discount"; Approvals card shows the discount and has "Discount…";
+  roster shows the label and the athlete's group.
+
+Not in this slice: a live quote of the sibling discount before submit on the public link (it would reveal whether an
+email already registered); an automatic refund when a group fills after someone paid (flagged in the code, done by hand).
+
+Tests: new `test:event-auto-discounts` (44). event-roster 72, event-payment 84, event-repricing 87, guards green.

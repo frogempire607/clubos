@@ -1643,6 +1643,11 @@ model Event {
   // Null = every entry costs the event price; set = entries after the first cost this.
   additionalEntryPrice   Decimal?  @db.Decimal(10, 2)
   allowSameRosterTwice   Boolean   @default(false)
+  // B3 slice 1 — automatic event discounts the coach turns on per event:
+  //   { sibling?: { on, shape: EACH_ADDITIONAL|LADDER, each?, tiers? },
+  //     group?:   { on, label, threshold, amount, options[] } }
+  // Read through lib/eventAutoDiscounts.parseAutoDiscounts, never directly.
+  autoDiscounts          Json      @default("{}")
   entriesOnPublicLink    Boolean   @default(false)
 
   // Event payroll: when true, percentage compensation ignores refunds and
@@ -1849,6 +1854,15 @@ model EventRegistration {
   discountType            String?
   discountValue           Decimal?  @db.Decimal(10, 2)
   discountAmount          Decimal?  @db.Decimal(10, 2)
+  // B3 slice 1 — where the one discount came from: CODE | SIBLING | GROUP |
+  // COACH (null = legacy, read as CODE when discountCode is set). Only CODE
+  // carries discountId/discountCode; the others are named by discountLabel
+  // ("Sibling discount (2nd athlete)", "Lincoln High group rate").
+  discountSource          String?
+  discountLabel           String?
+  // The athlete's group value as typed (school / team — the coach's word for
+  // it). Grouped on lib/eventAutoDiscounts.normalizeGroupValue of this.
+  groupValue              String?
 
   // ── Phase 5 §5.4 — coach approval ────────────────────────────────────────
   // null | PENDING | APPROVED | DECLINED. null does NOT mean "undecided": it
