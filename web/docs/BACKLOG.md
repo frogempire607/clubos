@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. Order: (B5 built 09-25) → (B7 code built 09-25; Julian runs collapse steps 6–9). B2 waits on A3.
+- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. B5 and B7 done 09-25. Remaining: B2 (waits on A3), B6 (native shell). Julian: A8 worksheet, duplicates review, A3 guardians.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
@@ -193,7 +193,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [ ] **B6 · Phase 4.5 backlog: 13 partial, 16 missing** · needs Capacitor shell
   Mostly the mobile-native layer.
 
-- [ ] **B7 · Phase 8 Steps 6–9 — collapse the commitment plans** · CODE BUILT 2026-09-25 on `claude/b7-option-acceptance`
+- [x] **B7 · Phase 8 Steps 6–9 — collapse the commitment plans** · DONE 2026-09-25 — steps 6/7/8 applied, step 9 ✓ fully collapsed for both plans (Maximus, Blake → MS/HS; chase → Jr Frogs; both commitment plans active=false, off every class). Code shipped fc15c75 on `claude/b7-option-acceptance`
   (no migration); DATA STEPS are Julian's (dry run → review → --apply, one step per run).
   Unblocker shipped: class "Accepted Memberships" is option-aware — a pricingOptions row may carry `optionIds`
   (absent = every option, so every existing class means what it meant). `lib/acceptedPlans.ts` (pure) +
