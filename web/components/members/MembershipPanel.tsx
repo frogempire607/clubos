@@ -165,8 +165,8 @@ export default function MembershipPanel({
       case "resume": setDialog("resume"); return;
       case "record_payment": router.push(`/dashboard/members/${memberId}/billing?enrol=1`); return;
       case "change_plan":
-        if (data.current?.hasStripe) router.push(`/dashboard/members/${memberId}/billing?changePlan=${data.current.id}`);
-        else if (v.currentSubId) onEditSub(v.currentSubId);
+        // B13 slice 3 — one Change plan dialog for Stripe and offline rows.
+        if (v.currentSubId) router.push(`/dashboard/members/${memberId}/billing?changePlan=${v.currentSubId}`);
         return;
       case "change_dates": setDialog("dates"); return;
       case "transfer": setMenu(false); if (v.currentSubId) onTransfer?.(v.currentSubId); return;

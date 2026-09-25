@@ -243,36 +243,18 @@ function RowLine({
         <CreditCell credit={row.credit} />
       </td>
       <td className="px-3 py-2 text-sm">
-        {/* Move to a different plan/option. Offline rows only — a Stripe row's
-            billing interval cannot be changed in place without re-anchoring
-            the cycle, so the control is disabled and says why. */}
-        {row.canChangeOption ? (
-          <select
-            value={moveValue}
-            onChange={(e) => onMove(row.memberSubscriptionId, e.target.value)}
-            aria-label={`Move ${row.memberName}`}
-            className="max-w-[190px] px-2 py-1 border border-app-border rounded-lg text-xs bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
-          >
-            <option value="">Stay on this option</option>
-            {moveTargets.map((t) =>
-              t.options.map((o) => {
-                const v = `${t.membershipId}|${o.label}|${o.billingPeriod}`;
-                return (
-                  <option key={v} value={v}>
-                    {t.name} — {o.label} ({usd(o.price)})
-                  </option>
-                );
-              }),
-            )}
-          </select>
-        ) : (
-          <span className="text-[11px] text-text-muted" title={row.changeBlockedReason ?? undefined}>
-            Stripe-billed —{" "}
-            <a href={`/dashboard/members/${row.memberId}/billing`} className="text-brand hover:underline">
-              billing centre
-            </a>
-          </span>
-        )}
+        {/* B13 slice 3 — moving a member to another plan/option is the
+            Membership panel's Change plan now (offline rows from the next
+            payment, Stripe rows in place or as a switch at period end). This
+            tool only reprices; the link takes the owner to the one place that
+            moves a membership, so there is one set of rules, not two. */}
+        <a
+          href={`/dashboard/members/${row.memberId}/billing?changePlan=${row.memberSubscriptionId}`}
+          className="text-[11px] text-brand hover:underline whitespace-nowrap"
+          title="Opens Change plan for this membership"
+        >
+          Change plan →
+        </a>
       </td>
       <td className="px-3 py-2 text-sm">
         {/* Per-member email control. Only meaningful for rows being changed —

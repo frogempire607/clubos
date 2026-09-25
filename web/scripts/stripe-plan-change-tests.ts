@@ -5,6 +5,7 @@
  */
 import {
   baseFromUnitAmount, stripeIntervalToBillingPeriod, mirrorFromStripePrice, planChangeTerms, unitAmountFor,
+  offlinePlanChange, switchLines,
 } from "../lib/stripePlanChange";
 import { parseOptions } from "../lib/membershipOptions";
 import { addUTCMonths, addBillingPeriod } from "../lib/billingAdmin";
@@ -89,6 +90,52 @@ const t4 = planChangeTerms({ effectiveAt: eff, option: noTerm, plan: { contractM
 check("term inherited from the plan (3) ⇒ Jan 22", t4.minimumTermEndsAt?.toISOString() === "2027-01-22T00:00:00.000Z" && t4.contractMonths === 3);
 const t5 = planChangeTerms({ effectiveAt: new Date("2026-01-31T00:00:00.000Z"), option: twelve, plan: {}, autoRenew: null, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
 check("month-end clamps (Jan 31 + 12 = Jan 31; Jan 31 + 1 would be Feb 28)", t5.minimumTermEndsAt?.toISOString() === "2027-01-31T00:00:00.000Z");
+
+console.log("\nB13 slice 3 — offline change plan (from the next payment):");
+{
+  const opt = (id: string) => MSHS.find((o) => o.id === id)!;
+  const now = new Date("2026-09-24T15:00:00.000Z");
+  const row = { price: 175, billingPeriod: "MONTHLY", optionLabel: "Monthly Full Membership", paidThroughDate: new Date("2026-10-10T00:00:00.000Z"), currentPeriodEnd: null };
+  const r = offlinePlanChange({ row, option: opt("opt_3xh5n1p2ax"), plan: {}, autoRenew: null, now, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
+  check("effective = paid-through (the next payment)", r.effectiveAt.toISOString() === "2026-10-10T00:00:00.000Z");
+  check("not overdue", r.overdue === false);
+  check("12-month commitment counted from the next payment", r.minimumTermEndsAt?.toISOString() === "2027-10-10T00:00:00.000Z");
+  check("auto-renew off by option ⇒ ends at the term end", r.cancelAt?.toISOString() === "2027-10-10T00:00:00.000Z");
+  check("says the price moves", r.lines[0].includes("$150.00 monthly instead of $175.00 monthly"), r.lines[0]);
+  check("says paid-through is untouched", r.lines.some((l) => l.includes("Paid through Oct 10, 2026 stays")));
+  check("says Stripe hears nothing", r.lines.some((l) => l.startsWith("Stripe: nothing")));
+
+  const keep = offlinePlanChange({ row, option: opt("opt_3xh5n1p2ax"), plan: {}, autoRenew: true, now, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
+  check("keeps renewing ⇒ no end, commitment still a floor", keep.cancelAt === null && keep.minimumTermEndsAt !== null);
+
+  const overdue = offlinePlanChange({ row: { ...row, paidThroughDate: new Date("2026-09-10T00:00:00.000Z") }, option: opt("opt_mqk8430i59"), plan: {}, autoRenew: null, now, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
+  check("overdue: the overdue payment takes the new price", overdue.overdue && overdue.lines[0].includes("overdue since Sep 10, 2026"), overdue.lines[0]);
+  check("no term, renew off ⇒ ends one period after the next payment", overdue.cancelAt?.toISOString() === "2026-10-10T00:00:00.000Z");
+
+  const neverPaid = offlinePlanChange({ row: { ...row, paidThroughDate: null }, option: opt("opt_078e5udfsb"), plan: {}, autoRenew: null, now, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
+  check("never paid ⇒ from today, and says so", neverPaid.effectiveAt.getTime() === now.getTime() && neverPaid.lines.some((l) => l.startsWith("No payment is recorded")));
+  check("cross-period offline move is just a local change (quarterly)", neverPaid.lines[0].includes("$450.00 quarterly"));
+
+  const same = offlinePlanChange({ row, option: { ...opt("opt_vavjt5xoqc") }, plan: {}, autoRenew: true, now, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
+  check("same option + price ⇒ 'price stays'", same.sameAmount && same.lines[0].startsWith("The price stays"));
+}
+
+console.log("\nB13 slice 3 — cross-cycle switch sentences:");
+{
+  const quarterly = MSHS.find((o) => o.id === "opt_078e5udfsb")!;
+  const eff = new Date("2026-10-23T00:00:00.000Z");
+  const terms = planChangeTerms({ effectiveAt: eff, option: quarterly, plan: {}, autoRenew: null, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
+  const lines = switchLines({
+    currentLabel: "12 months", currentTotal: 154.35, currentPeriod: "MONTHLY", effectiveAt: eff, option: quarterly,
+    fee: 13.05, total: 463.05, passProcessingFees: true, terms, cardLabel: "Visa ····4242",
+  });
+  check("old plan ends on the switch date", lines[0].includes("ends on Oct 23, 2026"), lines[0]);
+  check("new plan charged that day on the same card, fee spelled out", lines[1].includes("the saved Visa ····4242 is charged $463.05 ($450.00 + $13.05 processing fee) on Oct 23, 2026"), lines[1]);
+  check("nothing today", lines.includes("Nothing is charged or refunded today."));
+  check("3-month commitment from the switch date", lines.some((l) => l.includes("3-month commitment from Oct 23, 2026 to Jan 23, 2027")));
+  check("ends at the term (auto-renew off by option)", lines.some((l) => l.includes("ends on Jan 23, 2027")));
+  check("names both Stripe steps", lines[lines.length - 1].includes("set to end") && lines[lines.length - 1].includes("new one is created"));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

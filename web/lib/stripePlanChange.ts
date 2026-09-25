@@ -185,3 +185,99 @@ export function planChangeTerms(input: PlanChangeTermsInput): PlanChangeTerms {
 export function unitAmountFor(price: number, passProcessingFees: boolean): number {
   return recurringUnitWithFee(Math.round(price * 100), passProcessingFees);
 }
+
+// ── B13 slice 3 — change plan for everyone ───────────────────────────────────
+//
+// Two new shapes beside B12's same-interval swap:
+//
+//   OFFLINE  — a cash/check row has no Stripe to tell. The option, price and
+//              period change FROM THE NEXT PAYMENT: paid-through is untouched
+//              (what was paid for stays paid for), and the commitment counts
+//              from the day that next payment is due.
+//   SWITCH   — a Stripe row moving to a different billing cycle. Stripe can't
+//              change the interval in place without resetting the cycle and
+//              prorating, so the current subscription ends at its period end
+//              and a new one starts that same day on the same card, first
+//              charge that day. Both steps run in one action.
+
+const fmtLong = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const periodWord = (p: string | null | undefined) => (p ? p.toLowerCase().replace("_", "-") : "");
+
+export type OfflinePlanChangeInput = {
+  row: { price: number; billingPeriod: string | null; optionLabel: string; paidThroughDate: Date | null; currentPeriodEnd: Date | null };
+  option: MembershipOption;
+  plan: PlanDefaults;
+  autoRenew: boolean | null;
+  now: Date;
+  addMonths: (d: Date, n: number) => Date;
+  addPeriod: (d: Date, period: string) => Date;
+};
+
+export type OfflinePlanChange = PlanChangeTerms & {
+  /** The next payment's due date — where the new price starts. */
+  effectiveAt: Date;
+  /** True when the next payment is already overdue. */
+  overdue: boolean;
+  sameAmount: boolean;
+  lines: string[];
+};
+
+/**
+ * Where the new option starts on an offline row: the next payment. That is
+ * the paid-through date (the day money next falls due), else the current
+ * period's end, else today for a row that has never recorded a payment.
+ */
+export function offlinePlanChange(input: OfflinePlanChangeInput): OfflinePlanChange {
+  const { row, option } = input;
+  const effectiveAt = row.paidThroughDate ?? row.currentPeriodEnd ?? input.now;
+  const overdue = effectiveAt.getTime() < input.now.getTime();
+  const terms = planChangeTerms({ effectiveAt, option, plan: input.plan, autoRenew: input.autoRenew, addMonths: input.addMonths, addPeriod: input.addPeriod });
+  const sameAmount = Math.round(row.price * 100) === Math.round(option.price * 100) && row.billingPeriod === option.billingPeriod;
+  const lines: string[] = [];
+  lines.push(
+    sameAmount
+      ? `The price stays $${option.price.toFixed(2)} ${periodWord(option.billingPeriod)}.`
+      : `From the next payment${overdue ? ` (overdue since ${fmtLong(effectiveAt)})` : ` (due ${fmtLong(effectiveAt)})`} it's $${option.price.toFixed(2)} ${periodWord(option.billingPeriod)} instead of $${row.price.toFixed(2)} ${periodWord(row.billingPeriod)}.`,
+  );
+  lines.push(
+    row.paidThroughDate
+      ? `Paid through ${fmtLong(row.paidThroughDate)} stays as it is — nothing already paid is re-priced.`
+      : "No payment is recorded on this membership yet, so the new price applies to the first one.",
+  );
+  if (terms.minimumTermEndsAt) lines.push(`${terms.contractMonths}-month commitment from ${fmtLong(effectiveAt)} to ${fmtLong(terms.minimumTermEndsAt)}.`);
+  lines.push(terms.cancelAt ? `Ends on ${fmtLong(terms.cancelAt)} — no renewal after that.` : "Keeps renewing until you cancel it.");
+  lines.push("Stripe: nothing — this membership is billed offline.");
+  return { ...terms, effectiveAt, overdue, sameAmount, lines };
+}
+
+export type SwitchLinesInput = {
+  currentLabel: string;
+  /** What the card is charged today per cycle (fee-inclusive). */
+  currentTotal: number;
+  currentPeriod: string | null;
+  effectiveAt: Date;
+  option: MembershipOption;
+  fee: number;
+  total: number;
+  passProcessingFees: boolean;
+  terms: PlanChangeTerms;
+  cardLabel: string | null;
+};
+
+/** The confirm dialog's sentences for a cross-cycle switch. */
+export function switchLines(input: SwitchLinesInput): string[] {
+  const { option, terms, effectiveAt } = input;
+  const card = input.cardLabel ? `the saved ${input.cardLabel}` : "the saved card";
+  const lines: string[] = [];
+  lines.push(
+    `"${input.currentLabel}" ($${input.currentTotal.toFixed(2)} ${periodWord(input.currentPeriod)}) ends on ${fmtLong(effectiveAt)} — its last period is already paid for.`,
+  );
+  lines.push(
+    `"${option.label}" starts the same day: ${card} is charged $${input.total.toFixed(2)}${input.passProcessingFees && input.fee > 0 ? ` ($${option.price.toFixed(2)} + $${input.fee.toFixed(2)} processing fee)` : ""} on ${fmtLong(effectiveAt)}, then ${periodWord(option.billingPeriod)}.`,
+  );
+  lines.push("Nothing is charged or refunded today.");
+  if (terms.minimumTermEndsAt) lines.push(`${terms.contractMonths}-month commitment from ${fmtLong(effectiveAt)} to ${fmtLong(terms.minimumTermEndsAt)}.`);
+  lines.push(terms.cancelAt ? `The new plan ends on ${fmtLong(terms.cancelAt)} — no renewal after that.` : "The new plan keeps renewing until you cancel it.");
+  lines.push("Stripe: the current subscription is set to end on that date and a new one is created on the same card.");
+  return lines;
+}
