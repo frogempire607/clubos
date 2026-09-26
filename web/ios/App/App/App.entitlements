@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Universal Links: door QR codes (/c/...) and portal links open the app
+	     when it's installed. Served by /.well-known/apple-app-site-association. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:athletix-os.com</string>
+		<string>applinks:www.athletix-os.com</string>
+		<string>webcredentials:athletix-os.com</string>
+	</array>
+</dict>
+</plist>

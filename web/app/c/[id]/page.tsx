@@ -10,9 +10,28 @@ type Data = {
   club: { name: string; slug: string; logoUrl: string | null; primaryColor: string | null };
 };
 
+const IOS_URL = process.env.NEXT_PUBLIC_IOS_APP_URL || null;
+const ANDROID_URL = process.env.NEXT_PUBLIC_ANDROID_APP_URL || null;
+
 export default function CheckinPage({ params }: { params: { id: string } }) {
   const [d, setD] = useState<Data | null>(null);
   const [notFound, setNotFound] = useState(false);
+
+  // Already signed in as a member (the website, or the app via Universal
+  // Link)? Skip the sign-up screen and go straight to check-in.
+  const [platform, setPlatform] = useState<"ios" | "android" | "other">("other");
+  const [inApp, setInApp] = useState(false);
+  useEffect(() => {
+    const ua = navigator.userAgent || "";
+    setPlatform(/iPhone|iPad|iPod/i.test(ua) ? "ios" : /Android/i.test(ua) ? "android" : "other");
+    setInApp(!!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
+    fetch("/api/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => {
+        if (me?.role === "MEMBER") window.location.replace(`/member/checkin/${encodeURIComponent(params.id)}`);
+      })
+      .catch(() => {});
+  }, [params.id]);
 
   useEffect(() => {
     fetch(`/api/checkin/${params.id}`)
@@ -101,6 +120,26 @@ export default function CheckinPage({ params }: { params: { id: string } }) {
           <p className="text-xs text-stone-400 mt-3">
             Joining {d.club.name} for the first time? Tap “Create an account”.
           </p>
+
+          {/* Get the app — hidden inside the app itself and until the store
+              listings exist (NEXT_PUBLIC_IOS_APP_URL / NEXT_PUBLIC_ANDROID_APP_URL). */}
+          {!inApp && (IOS_URL || ANDROID_URL) && (
+            <div className="w-full mt-6 pt-5 border-t border-stone-100 print:hidden">
+              <p className="text-xs text-stone-500 mb-2">Check in faster next time with the app</p>
+              <div className="flex gap-2 justify-center">
+                {IOS_URL && platform !== "android" && (
+                  <a href={IOS_URL} className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-xl bg-black text-white text-xs font-semibold px-3">
+                    Download on the App Store
+                  </a>
+                )}
+                {ANDROID_URL && platform !== "ios" && (
+                  <a href={ANDROID_URL} className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-xl bg-black text-white text-xs font-semibold px-3">
+                    Get it on Google Play
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

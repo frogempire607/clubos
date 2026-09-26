@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { acceptedPlansFrom, subscriptionAccepted, type AcceptedPlan } from "@/lib/acceptedPlans";
-import { parseOptions } from "@/lib/membershipOptions";
+import { acceptedPlansFrom, type AcceptedPlan } from "@/lib/acceptedPlans";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
@@ -11,6 +10,10 @@ import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { wallClockUTCToInstant } from "@/lib/datetime";
 import { checkinPaymentBlock } from "@/lib/eventPayments";
 import { missingSignedEventDocs } from "@/lib/eventDocuments";
+import { coverageForMembers, loadSessionCoverageContext } from "@/lib/coverageQuery";
+import { decideDoor, verdictCovers } from "@/lib/doorAccess";
+import { trialCoversClass, trialWindowDays } from "@/lib/freeTrial";
+import { classDropInPrice } from "@/lib/attendanceBilling";
 
 // /api/member/checkin/[id] — completes the attendance-QR intent AFTER the
 // scanner is signed in. `id` is a ClassSession id or an Event id (same ids the
@@ -18,10 +21,11 @@ import { missingSignedEventDocs } from "@/lib/eventDocuments";
 // viewer's profiles can check in (self / linked children) and whether each is
 // already on the roster; POST creates the attendance record idempotently.
 //
-// Status rules mirror the door conventions: covered by an accepted membership
-// (or any active plan when the class doesn't restrict) → PRESENT; everyone
-// else (brand-new prospects, active trial windows) → TRIAL, so staff can flip
-// to Drop-In and charge from the roster if the club wants payment.
+// Status rules for CLASSES follow lib/doorAccess (2026-09-25): covered by a
+// membership → PRESENT; no plan → the club's free trial if still available
+// (started here, TRIAL); otherwise 402 DROP_IN_REQUIRED — the page offers
+// "Pay $X now" (Stripe, back to this page) or "Pay cash at the desk". Events
+// keep their own payment-before-check-in rule.
 
 // startsAt/endsAt are the STORED stamps (classes: wall-clock pinned to UTC;
 // events: true instants) — the check-in page renders them with the matching
@@ -176,6 +180,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 
 const postSchema = z.object({
   memberId: z.string().optional().nullable(),
+  /** No covering membership, no trial left: "I'll pay cash at the desk". */
+  payAtDesk: z.boolean().optional(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -311,14 +317,67 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     select: { membershipId: true, optionId: true, billingPeriod: true, price: true, membership: { select: { options: true } } },
   });
   const hasAnySub = activeSubs.length > 0;
-  let covered = hasAnySub;
-  if (target.kind === "class" && target.acceptedMembershipIds.length > 0) {
-    // B7 — option-aware: the plan must be accepted AND (when the class names
-    // options) this subscription's option must be one of them.
-    covered = activeSubs.some((s) =>
-      subscriptionAccepted(target.acceptedPlans, s, parseOptions(s.membership?.options)).accepted);
+
+  // ── Events keep their own rules (payment-before-check-in above) ──────────
+  let status = hasAnySub ? "PRESENT" : "TRIAL";
+  let notes = "Self check-in via attendance QR";
+  let trialEndsAt: Date | null = null;
+
+  // ── Classes: the door rule (lib/doorAccess) ──────────────────────────────
+  // Covered by a membership → in. No plan → the free trial if they can still
+  // have one. Otherwise → pay the drop-in (or choose to pay cash at the desk).
+  if (target.kind === "class") {
+    const covCtx = await loadSessionCoverageContext(target.classSessionId, clubId);
+    const verdict = covCtx ? (await coverageForMembers([member.id], covCtx, clubId)).get(member.id) ?? null : null;
+    const club = await prisma.club.findUnique({ where: { id: clubId }, select: { freeTrialConfig: true } });
+    const m = await prisma.member.findUnique({ where: { id: member.id }, select: { trialEndsAt: true } });
+    const cs = await prisma.classSession.findUnique({
+      where: { id: target.classSessionId },
+      select: { recurringClass: { select: { pricingOptions: true } } },
+    });
+    const decision = decideDoor({
+      covered: verdictCovers(verdict, hasAnySub),
+      hasActiveSubscription: hasAnySub,
+      trialWindowActive: !!m?.trialEndsAt && m.trialEndsAt > new Date(),
+      trialCoversClass: trialCoversClass(club?.freeTrialConfig, target.acceptedMembershipIds),
+      newTrialDays: m ? trialWindowDays(club?.freeTrialConfig, m) : null,
+      dropInPrice: classDropInPrice(cs?.recurringClass.pricingOptions),
+      payAtDesk: body.payAtDesk,
+    });
+    if (decision.kind === "PAY") {
+      return NextResponse.json(
+        {
+          error: "DROP_IN_REQUIRED",
+          message:
+            verdict?.reason === "DAY_NOT_INCLUDED" || verdict?.reason === "OPTION_NOT_ACCEPTED"
+              ? `${verdict.message.replace(/ Drop-in \$[\d.]+\.$/, "")} This class is a $${decision.amount.toFixed(2)} drop-in.`
+              : `${member.firstName} doesn't have a membership that covers ${target.title}. It's a $${decision.amount.toFixed(2)} drop-in.`,
+          amount: decision.amount,
+          memberId: member.id,
+          classSessionId: target.classSessionId,
+        },
+        { status: 402 },
+      );
+    }
+    if (decision.kind === "PRESENT") {
+      status = "PRESENT";
+      if (decision.reason === "NO_PRICE_SET") notes = "Self check-in via attendance QR — no membership, and this class has no drop-in price set";
+    } else if (decision.kind === "TRIAL") {
+      status = "TRIAL";
+      notes = "Self check-in via attendance QR — free trial";
+    } else if (decision.kind === "START_TRIAL") {
+      status = "TRIAL";
+      trialEndsAt = new Date(Date.now() + decision.days * 86_400_000);
+      notes = `Self check-in via attendance QR — started ${decision.days}-day free trial`;
+    } else if (decision.kind === "PAY_AT_DESK") {
+      status = "PRESENT";
+      notes = `Self check-in via attendance QR — PAYING $${decision.amount.toFixed(2)} DROP-IN CASH AT THE DESK`;
+    }
   }
-  const status = covered ? "PRESENT" : "TRIAL";
+
+  if (trialEndsAt) {
+    await prisma.member.update({ where: { id: member.id }, data: { trialEndsAt } });
+  }
 
   const record = await prisma.attendanceRecord.create({
     data: {
@@ -329,7 +388,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       status,
       checkedInAt: new Date(),
       addedById: session.user.id,
-      notes: "Self check-in via attendance QR",
+      notes,
     },
   });
 

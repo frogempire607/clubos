@@ -3,6 +3,7 @@ import { Inter, Fraunces } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
+import NativeDeepLinks from "@/components/NativeDeepLinks";
 
 const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-fraunces" });
 const inter    = Inter({ subsets: ["latin"], display: "swap" });
@@ -156,6 +157,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(SOFTWARE_JSONLD) }}
         />
+        <NativeDeepLinks />
         <Providers>{children}</Providers>
       </body>
     </html>

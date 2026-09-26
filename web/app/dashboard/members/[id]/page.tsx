@@ -610,8 +610,8 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
   const on = (key: string) => tab === "overview" || tab === key;
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <Link href="/dashboard/members" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
+    <div className="p-4 sm:p-8 pb-36 md:pb-8 max-w-5xl mx-auto">
+      <Link href="/dashboard/members" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary min-h-[44px] md:min-h-0">
         <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Back to members
       </Link>
 
@@ -1112,6 +1112,29 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           onSaved={() => { setAddingRel(false); load(); }}
         />
       )}
+
+      {/* Phones: sticky bar leading with Check in (B6 §1j). Sits above the
+          bottom nav; the front desk applies the door rule (membership → in,
+          trial, or drop-in). */}
+      <div
+        className="md:hidden fixed left-0 right-0 z-20 px-4 pt-2 pb-2 bg-gradient-to-t from-app-bg via-app-bg to-transparent"
+        style={{ bottom: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
+      >
+        <div className="flex gap-2">
+          <Link
+            href={`/dashboard/front-desk?memberId=${encodeURIComponent(id)}`}
+            className="flex-1 min-h-[48px] rounded-xl bg-charcoal text-white text-[15px] font-semibold inline-flex items-center justify-center"
+          >
+            Check in
+          </Link>
+          <Link
+            href={`/dashboard/members/${encodeURIComponent(id)}/billing`}
+            className="min-h-[48px] px-4 rounded-xl border border-app-border bg-surface text-sm font-medium text-text-primary inline-flex items-center justify-center"
+          >
+            Billing
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }

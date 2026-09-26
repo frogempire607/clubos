@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, AlertTriangle, Users } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Users, CreditCard, Banknote } from "lucide-react";
 import { kindIsWallClockUTC } from "@/lib/datetime";
 
 // Lands here after the attendance-QR flow (/c/[id] → signup or login). Keeps
@@ -29,25 +29,81 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
   const [busyId, setBusyId] = useState<string | null>(null);
   const [done, setDone] = useState<{ message: string; already: boolean } | null>(null);
   const autoRan = useRef(false);
+  // The door rule (lib/doorAccess): no covering membership and no free trial
+  // left → this class is a drop-in. Pay now (Stripe, back to this page) or
+  // pay cash at the desk.
+  const [dropIn, setDropIn] = useState<{ memberId: string; classSessionId: string; amount: number; message: string } | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [paidReturn, setPaidReturn] = useState(false);
 
-  async function checkIn(memberId: string) {
+  async function checkIn(memberId: string, payAtDesk = false) {
     setBusyId(memberId);
     setError("");
     const res = await fetch(`/api/member/checkin/${encodeURIComponent(params.id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId }),
+      body: JSON.stringify({ memberId, payAtDesk }),
     });
     const d = await res.json().catch(() => ({}));
     setBusyId(null);
+    if (res.status === 402 && d.error === "DROP_IN_REQUIRED") {
+      setDropIn({ memberId, classSessionId: d.classSessionId, amount: Number(d.amount), message: d.message });
+      return;
+    }
+    setDropIn(null);
     if (!res.ok) {
       setError(typeof d.error === "string" ? d.error : "Could not check you in. Please try again.");
       return;
     }
-    setDone({ message: d.message || "You're checked in!", already: !!d.already });
+    setDone({
+      message: payAtDesk ? `${d.message || "You're checked in."} Please pay at the front desk.` : d.message || "You're checked in!",
+      already: !!d.already,
+    });
+  }
+
+  async function payNow() {
+    if (!dropIn) return;
+    setPaying(true); setError("");
+    const res = await fetch("/api/member/classes/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classSessionId: dropIn.classSessionId,
+        memberId: dropIn.memberId,
+        forceDropIn: true,
+        returnTo: `/member/checkin/${params.id}`,
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setPaying(false);
+    if (res.ok && d.url) { window.location.href = d.url; return; }
+    if (res.status === 202) { setError(d.message || "Sent to a parent for approval. You'll be checked in once they pay."); return; }
+    setError(typeof d.error === "string" ? d.error : "Could not start the payment. Pay at the front desk instead.");
   }
 
   useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("paid")) {
+      // Stripe sent them back. The payment webhook writes the check-in; it can
+      // land a second or two after the redirect, so poll briefly.
+      setPaidReturn(true);
+      autoRan.current = true;
+      let tries = 0;
+      const poll = () => {
+        fetch(`/api/member/checkin/${encodeURIComponent(params.id)}`, { cache: "no-store" })
+          .then((r) => r.json())
+          .then((d) => {
+            setInfo(d);
+            const hit = Array.isArray(d.profiles) && d.profiles.some((p: Profile) => p.alreadyCheckedIn);
+            if (hit) { setDone({ message: "Drop-in paid — you're checked in. Have a great practice!", already: false }); return; }
+            if (++tries < 8) setTimeout(poll, 1500);
+            else setDone({ message: "Payment received. If you don't show as checked in yet, tell the coach — it can take a minute.", already: false });
+          })
+          .catch(() => { if (++tries < 8) setTimeout(poll, 1500); });
+      };
+      poll();
+      return;
+    }
     fetch(`/api/member/checkin/${encodeURIComponent(params.id)}`, { cache: "no-store" })
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
@@ -108,6 +164,30 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
               </Link>
             </div>
           </div>
+        ) : dropIn ? (
+          <div>
+            <p className="text-sm text-stone-700 mb-4">{dropIn.message}</p>
+            {error && <p className="text-sm text-red-700 mb-3">{error}</p>}
+            <button
+              type="button"
+              onClick={payNow}
+              disabled={paying}
+              className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 rounded-xl bg-stone-900 text-white text-sm font-semibold disabled:opacity-60"
+            >
+              <CreditCard className="h-4 w-4" /> {paying ? "Opening payment…" : `Pay $${dropIn.amount.toFixed(2)} now`}
+            </button>
+            <button
+              type="button"
+              onClick={() => checkIn(dropIn.memberId, true)}
+              disabled={!!busyId}
+              className="w-full min-h-[48px] mt-2 inline-flex items-center justify-center gap-2 rounded-xl border border-stone-300 text-stone-700 text-sm font-semibold disabled:opacity-60"
+            >
+              <Banknote className="h-4 w-4" /> I&apos;ll pay cash at the front desk
+            </button>
+            <Link href="/member/memberships" className="block mt-4 text-xs text-stone-500 underline">
+              Coming often? See memberships
+            </Link>
+          </div>
         ) : error ? (
           <div>
             <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-600">
@@ -119,7 +199,7 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
             </Link>
           </div>
         ) : !info ? (
-          <p className="text-sm text-stone-400 py-6">Checking you in…</p>
+          <p className="text-sm text-stone-400 py-6">{paidReturn ? "Confirming your payment…" : "Checking you in…"}</p>
         ) : info.profiles.length === 0 ? (
           <p className="text-sm text-stone-500 py-4">
             Your account isn&apos;t linked to an athlete profile yet — ask your club to add you.

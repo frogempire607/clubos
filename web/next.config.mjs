@@ -61,6 +61,16 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ["isomorphic-dompurify"],
   },
+  // Universal Links / App Links (lib/appLinks): the stores' verifiers fetch
+  // these exact paths. Served from route handlers so the Team ID and signing
+  // fingerprint come from env, not a committed file.
+  async rewrites() {
+    return [
+      { source: "/.well-known/apple-app-site-association", destination: "/api/well-known/aasa" },
+      { source: "/apple-app-site-association", destination: "/api/well-known/aasa" },
+      { source: "/.well-known/assetlinks.json", destination: "/api/well-known/assetlinks" },
+    ];
+  },
   async headers() {
     return [
       // Embeddable public calendar — no X-Frame-Options, open frame-ancestors
